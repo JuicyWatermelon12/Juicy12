@@ -8,11 +8,12 @@
 #include "GSCharacter.generated.h"
 
 class UAbilitySystemComponent;
-class UGSAttributeSet;
+class UGSAbilitySet;
+struct FOnAttributeChangeData;
 
 /**
- * Player character. Third-person camera/movement/input come from the template character;
- * stats, buffs and abilities go through the AbilitySystemComponent.
+ * Player character. Third-person camera/movement/input come from the template character.
+ * The ASC lives on AGSPlayerState; this pawn is its avatar.
  */
 UCLASS()
 class BANDITBALLER_API AGSCharacter : public ABanditBallerCharacter, public IAbilitySystemInterface
@@ -25,15 +26,24 @@ public:
 	//~ IAbilitySystemInterface
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
-	UFUNCTION(BlueprintPure, Category = "Abilities")
-	UGSAttributeSet* GetAttributeSet() const { return AttributeSet; }
-
 protected:
+	//~ APawn
 	virtual void PossessedBy(AController* NewController) override;
+	virtual void UnPossessed() override;
+	virtual void OnRep_PlayerState() override;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Abilities")
-	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;
+	/** Abilities/effects granted on first spawn (e.g. DA_PlayerAbilitySet with GE_InitPlayerStats). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Abilities")
+	TObjectPtr<UGSAbilitySet> StartupAbilitySet;
 
-	UPROPERTY()
-	TObjectPtr<UGSAttributeSet> AttributeSet;
+private:
+	/** Binds this pawn as the avatar of the PlayerState's ASC. */
+	void InitAbilitySystem();
+	void ClearAbilitySystem();
+
+	void OnMoveSpeedChanged(const FOnAttributeChangeData& Data);
+	void ApplyMoveSpeed(float NewSpeed);
+
+	TWeakObjectPtr<UAbilitySystemComponent> CachedAbilitySystem;
+	FDelegateHandle MoveSpeedChangedHandle;
 };

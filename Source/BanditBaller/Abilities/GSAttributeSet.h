@@ -7,15 +7,10 @@
 #include "AbilitySystemComponent.h"
 #include "GSAttributeSet.generated.h"
 
-#define GS_ATTRIBUTE_ACCESSORS(ClassName, PropertyName) \
-	GAMEPLAYATTRIBUTE_PROPERTY_GETTER(ClassName, PropertyName) \
-	GAMEPLAYATTRIBUTE_VALUE_GETTER(PropertyName) \
-	GAMEPLAYATTRIBUTE_VALUE_SETTER(PropertyName) \
-	GAMEPLAYATTRIBUTE_VALUE_INITTER(PropertyName)
-
 /**
  * Core character attributes. Values are initialized and modified only through GameplayEffects
- * (tuning lives in data, not here). No clamping/replication yet.
+ * (starting values come from GE_InitPlayerStats, not C++).
+ * Lives on the owner of the ASC (AGSPlayerState for players).
  */
 UCLASS()
 class BANDITBALLER_API UGSAttributeSet : public UAttributeSet
@@ -25,23 +20,49 @@ class BANDITBALLER_API UGSAttributeSet : public UAttributeSet
 public:
 	UGSAttributeSet();
 
-	UPROPERTY(BlueprintReadOnly, Category = "Attributes")
+	//~ UAttributeSet
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	virtual void PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue) override;
+	virtual void PostGameplayEffectExecute(const struct FGameplayEffectModCallbackData& Data) override;
+
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Health, Category = "Attributes|Health")
 	FGameplayAttributeData Health;
-	GS_ATTRIBUTE_ACCESSORS(UGSAttributeSet, Health)
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, Health)
 
-	UPROPERTY(BlueprintReadOnly, Category = "Attributes")
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_MaxHealth, Category = "Attributes|Health")
 	FGameplayAttributeData MaxHealth;
-	GS_ATTRIBUTE_ACCESSORS(UGSAttributeSet, MaxHealth)
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, MaxHealth)
 
-	UPROPERTY(BlueprintReadOnly, Category = "Attributes")
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_MoveSpeed, Category = "Attributes|Movement")
 	FGameplayAttributeData MoveSpeed;
-	GS_ATTRIBUTE_ACCESSORS(UGSAttributeSet, MoveSpeed)
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, MoveSpeed)
 
-	UPROPERTY(BlueprintReadOnly, Category = "Attributes")
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_Damage, Category = "Attributes|Combat")
 	FGameplayAttributeData Damage;
-	GS_ATTRIBUTE_ACCESSORS(UGSAttributeSet, Damage)
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, Damage)
 
-	UPROPERTY(BlueprintReadOnly, Category = "Attributes")
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_FireRate, Category = "Attributes|Combat")
 	FGameplayAttributeData FireRate;
-	GS_ATTRIBUTE_ACCESSORS(UGSAttributeSet, FireRate)
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, FireRate)
+
+	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
+	FGameplayAttributeData IncomingDamage;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, IncomingDamage)
+
+protected:
+	UFUNCTION()
+	void OnRep_Health(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_MaxHealth(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_MoveSpeed(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_Damage(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_FireRate(const FGameplayAttributeData& OldValue);
 };
