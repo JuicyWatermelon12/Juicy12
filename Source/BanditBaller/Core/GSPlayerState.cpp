@@ -1,12 +1,12 @@
 // BanditBaller
 
 #include "GSPlayerState.h"
-#include "AbilitySystemComponent.h"
+#include "GSAbilitySystemComponent.h"
 #include "GSAttributeSet.h"
 
 AGSPlayerState::AGSPlayerState()
 {
-	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
+	AbilitySystemComponent = CreateDefaultSubobject<UGSAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
 	AbilitySystemComponent->SetIsReplicated(true);
 	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
 
@@ -22,15 +22,16 @@ UAbilitySystemComponent* AGSPlayerState::GetAbilitySystemComponent() const
 	return AbilitySystemComponent;
 }
 
-void AGSPlayerState::GrantStartupAbilitySet(const UGSAbilitySet* AbilitySet)
+bool AGSPlayerState::GrantStartupAbilitySet(const UGSAbilitySet* AbilitySet)
 {
 	if (!HasAuthority() || bStartupAbilitySetGranted || !AbilitySet)
 	{
-		return;
+		return false;
 	}
 
 	AbilitySet->GiveToAbilitySystem(AbilitySystemComponent, &StartupAbilitySetHandles, this);
 	bStartupAbilitySetGranted = true;
+	return true;
 }
 
 void AGSPlayerState::AddCash(int32 Amount)
