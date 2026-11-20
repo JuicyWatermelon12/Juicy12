@@ -39,6 +39,35 @@ Enabled plugins of note: ModelContextProtocol + AllToolsets (Unreal MCP), Gamepl
 StateTree, GameplayStateTree, EnhancedInput, CommonUI, ModelingToolsEditorMode, PCG.
 No online subsystems yet.
 
+## Available MCP toolsets
+The server runs in tool-search mode: it exposes only `list_toolsets`, `describe_toolset` and `call_tool`.
+Call `describe_toolset` first to get the schemas, then call `call_tool` with `toolset_name` = the full toolset name
+and `tool_name` = the **bare** tool name (e.g. `get_current_level`, not the prefixed form).
+The editor must be open; the server listens on 127.0.0.1:8000 once startup finishes.
+
+- **Level / actors**: `editor_toolset…SceneTools` (current level, load level, spawn/find/remove actors, outliner folders),
+  `ActorTools` (transforms, components, attachment), `PrimitiveTools`
+- **Assets & objects**: `AssetTools`, `ObjectTools` (list/get/set properties, class discovery),
+  `StaticMeshTools`, `SkeletalMeshTools`, `TextureTools`, `PhysicsToolsets.PhysicsAssetToolset`
+- **Blueprints**: `BlueprintTools`
+- **Data**: `DataAssetTools`, `DataTableTools`, `CurveTableTools`, `StringTableTools`, `DataRegistryToolset`,
+  `GameplayTagsToolset`
+- **GAS**: `GASToolsets.AttributeSetToolset`, `GameplayCueToolset`, `AbilitySystemInspectorToolset` (runtime ASC state)
+- **AI**: `state_tree_toolset…StateTreeTools`, `aimodule_toolset…BehaviorTreeTools`, `WorldConditionsToolset`
+  (these are inspect-only)
+- **UI**: `UMGToolSet` (widget trees; use ObjectTools list_properties before set_properties),
+  `SlateInspectorToolset` (drive the editor UI)
+- **Materials**: `MaterialTools`, `MaterialInstanceTools`
+- **PCG**: `PCGToolset.PCGToolset` (graphs), `PCGSpatialToolset`
+- **Niagara / VFX**: `NiagaraToolsets.*` (System, Component, Blueprint, Assets, Info)
+- **Animation / Sequencer**: `animation_toolset…` (ControlRig, Sequencer, Keyframing, ControlRig-in-Sequencer,
+  Outliner, Conditions, CustomBindings, ImportExport), `DataflowAgent`
+- **Editor / automation**: `EditorToolset.EditorAppToolset` (cvars, selection, viewport, PIE control),
+  `EditorToolset.LogsToolset` (read the output log), `AutomationTestToolset` (run tests),
+  `ConfigSettingsToolset` (ini settings), `PluginToolset`, `GameFeaturesToolset`
+- **Misc**: `SemanticSearchToolset` (asset search), `ProgrammaticToolset` (batch tool calls via sandboxed Python),
+  `ToolsetRegistry.AgentSkillToolset`, `conversation_toolset…ConversationTools`
+
 ## Rules
 - **Gameplay logic in C++; tuning in data.** Numbers (damage, prices, odds, spawn waves) live in
   Data Assets / DataTables under `Content/BanditBaller/Data`, never hard-coded.
