@@ -1,0 +1,55 @@
+# Unreal generated / build output
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+Backup/
+
+# Plugin build output
+Plugins/**/Binaries/
+Plugins/**/Intermediate/
+
+# IDE / solution files (regenerate with "Generate Visual Studio project files")
+.vs/
+.vscode/
+.idea/
+*.sln
+*.slnx
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+*.vcxproj*
+*.user
+UpgradeLog*.htm
+_ReSharper*/
+
+# Compiled artifacts
+*.pdb
+*.dll
+*.exe
+*.lib
+*.obj
+*.ilk
+*.exp
+*.app
+*.ipa
+*.xcodeproj/
+
+# Cooked / packaged output
+Packaged/
+Cooked/
+*.pak
+*.ucas
+*.utoc
+
+# Misc
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Claude local settings
+.claude/settings.local.json
