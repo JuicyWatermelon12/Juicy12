@@ -12,6 +12,7 @@
 #include "GSGameplayTags.h"
 #include "GSHUDWidget.h"
 #include "GSPlayerState.h"
+#include "GSProfileSubsystem.h"
 #include "HAL/IConsoleManager.h"
 
 #if !UE_BUILD_SHIPPING
@@ -66,6 +67,24 @@ void AGSPlayerController::BeginPlay()
 	{
 		SetInputMode(FInputModeGameOnly());
 		SetShowMouseCursor(false);
+	}
+
+	// Permanent cash: tell the host who we are (the host's save keys every player's cash by this ID).
+	if (IsLocalPlayerController())
+	{
+		const UGSProfileSubsystem* Profile = UGSProfileSubsystem::Get(this);
+		const FGuid PlayerId = Profile ? Profile->GetLocalPlayerId() : FGuid();
+		if (PlayerId.IsValid())
+		{
+			if (HasAuthority())
+			{
+				ServerSetProfileId_Implementation(PlayerId);
+			}
+			else
+			{
+				ServerSetProfileId(PlayerId);
+			}
+		}
 	}
 
 	if (IsLocalPlayerController() && HUDWidgetClass)
@@ -131,6 +150,15 @@ void AGSPlayerController::ClientNotifyCashCollected_Implementation(FVector_NetQu
 	if (UGSHUDWidget* HUD = GetGSHUD())
 	{
 		HUD->AddCashPopup(WorldLocation, Amount);
+	}
+}
+
+void AGSPlayerController::ServerSetProfileId_Implementation(const FGuid& PlayerId)
+{
+	// The host trusts the ID (co-op among friends); the host's profile subsystem owns everyone's cash.
+	if (UGSProfileSubsystem* Profile = UGSProfileSubsystem::Get(this))
+	{
+		Profile->BindPlayer(GetPlayerState<AGSPlayerState>(), PlayerId);
 	}
 }
 

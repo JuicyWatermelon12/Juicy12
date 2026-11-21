@@ -15,9 +15,10 @@ class UGSProgressionComponent;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnCashChangedSignature, int32, NewCash, int32, Delta);
 
 /**
- * Per-player persistent state. Owns the player's AbilitySystemComponent + attributes
- * (so they survive pawn changes) and the player's cash.
- * Cash is only modified with authority and replicates; OnCashChanged fires on the server and on clients.
+ * Per-player run state. Owns the player's AbilitySystemComponent + attributes (so they survive pawn changes) and
+ * progression, and mirrors the player's permanent cash.
+ * Cash is NOT owned here: UGSProfileSubsystem holds it (saved, kept across runs) and is the only writer
+ * (SetCashFromProfile). The mirror replicates; OnCashChanged fires on the server and on clients.
  */
 UCLASS()
 class BANDITBALLER_API AGSPlayerState : public APlayerState, public IAbilitySystemInterface
@@ -41,16 +42,12 @@ public:
 	/** The ASC as the project subclass (input-tag routing). */
 	UGSAbilitySystemComponent* GetGSAbilitySystemComponent() const { return AbilitySystemComponent; }
 
+	/** The player's permanent cash, mirrored from UGSProfileSubsystem (change it through the subsystem). */
 	UFUNCTION(BlueprintPure, Category = "Economy")
 	int32 GetCash() const { return Cash; }
 
-	/** Adds a positive amount of cash. Ignored if Amount <= 0 or without authority. */
-	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Economy")
-	void AddCash(int32 Amount);
-
-	/** Spends cash if the player can afford it. Returns true on success. */
-	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Economy")
-	bool TrySpendCash(int32 Amount);
+	/** Server: the profile entry this player is bound to (empty until the client's player ID arrives). */
+	const FString& GetProfileKey() const { return ProfileKey; }
 
 	/** Level + XP (server-authoritative; UGSProgressionComponent::AddXP). */
 	UFUNCTION(BlueprintPure, Category = "Progression")
@@ -74,10 +71,20 @@ protected:
 	int32 Cash = 0;
 
 private:
-	void SetCash(int32 NewCash);
+	friend class UGSProfileSubsystem;
+
+	/** UGSProfileSubsystem only: update the mirror (server; replicates). */
+	void SetCashFromProfile(int32 NewCash);
 
 	UFUNCTION()
 	void OnRep_Cash(int32 OldCash);
+
+	/** Server: UGSProfileSubsystem entry key (player ID). */
+	UPROPERTY(VisibleInstanceOnly, Category = "Economy")
+	FString ProfileKey;
+
+	/** Server: cash collected before the player ID arrived; added to the profile on bind. */
+	int32 PendingProfileCash = 0;
 
 	FGSAbilitySetGrantedHandles StartupAbilitySetHandles;
 	bool bStartupAbilitySetGranted = false;

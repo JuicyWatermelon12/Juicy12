@@ -16,6 +16,7 @@
 //   gs.Run.Seed [N]                                     print seed / restart the run with seed N
 //   gs.Run.Stats                                        print run stats (local replicated copy)
 //   gs.XP.Add <N> / gs.XP.SetLevel <N>                  grant raw XP / jump to a level (UGSProgressionComponent)
+//   gs.Profile.Cash [N] / gs.Profile.Reset / gs.Profile.List   permanent cash in the host's save (UGSProfileSubsystem)
 
 #include "BanditBaller.h"
 #include "Containers/Ticker.h"
@@ -139,6 +140,26 @@ namespace GSCheats
 		TEXT("gs.XP.SetLevel"),
 		TEXT("Reset the local player to level 1 and add exactly the XP for level N (0 XP into it). Usage: gs.XP.SetLevel <N>"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("XPSetLevel"), Args, World); }),
+		ECVF_Cheat);
+
+	// --- Profile (permanent cash, host's save) ---
+
+	FAutoConsoleCommandWithWorldAndArgs ProfileCashCommand(
+		TEXT("gs.Profile.Cash"),
+		TEXT("Print the local player's permanent cash, or set it to N (saved immediately). Usage: gs.Profile.Cash [N]"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("ProfileCash"), Args, World); }),
+		ECVF_Cheat);
+
+	FAutoConsoleCommandWithWorldAndArgs ProfileResetCommand(
+		TEXT("gs.Profile.Reset"),
+		TEXT("Set every player's permanent cash in the host's save to 0 (saved immediately)."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("ProfileReset"), Args, World); }),
+		ECVF_Cheat);
+
+	FAutoConsoleCommandWithWorldAndArgs ProfileListCommand(
+		TEXT("gs.Profile.List"),
+		TEXT("Log the host's profile save: slot, local player ID and every player's cash."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("ProfileList"), Args, World); }),
 		ECVF_Cheat);
 
 	/** Reads the local (replicated) GameState, so it also works on clients. */

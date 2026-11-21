@@ -120,7 +120,7 @@ public:
 	const UGSCashSettings* GetCashSettings() const { return CashSettings; }
 
 	/**
-	 * A cash pickup reached Player: AGSPlayerState::AddCash, run stats CashEarned, and the "+$N" popup on that
+	 * A cash pickup reached Player: UGSProfileSubsystem::AddCash (permanent, saved), run stats CashEarned, and the "+$N" popup on that
 	 * player's screen (Location = where it was collected).
 	 */
 	void AwardCash(APlayerController* Player, int32 Amount, const FVector& Location);

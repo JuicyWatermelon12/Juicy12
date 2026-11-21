@@ -37,6 +37,10 @@ public:
 	UFUNCTION(Client, Unreliable)
 	void ClientNotifyCashCollected(FVector_NetQuantize WorldLocation, int32 Amount);
 
+	/** Client -> host: this machine's stable player ID, so the host binds our PlayerState to our cash entry. */
+	UFUNCTION(Server, Reliable)
+	void ServerSetProfileId(const FGuid& PlayerId);
+
 	/** Debug (gs.Damage.Self): apply DebugDamageEffect to our own ASC on the server. */
 	UFUNCTION(Server, Reliable)
 	void ServerDebugDamageSelf(float Amount);

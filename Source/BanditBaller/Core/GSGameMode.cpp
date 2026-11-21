@@ -28,6 +28,7 @@
 #include "GSDifficultyCurve.h"
 #include "GSGameplayTags.h"
 #include "GSProgressionComponent.h"
+#include "GSProfileSubsystem.h"
 #include "GSXPCurve.h"
 #include "GSLevelRewards.h"
 
@@ -176,7 +177,13 @@ void AGSGameMode::AwardCash(APlayerController* Player, int32 Amount, const FVect
 	{
 		return;
 	}
-	PS->AddCash(Amount);
+	// Permanent cash: the profile (saved) is the only writer; the PlayerState mirrors it.
+	UGSProfileSubsystem* Profile = GetGameInstance() ? GetGameInstance()->GetSubsystem<UGSProfileSubsystem>() : nullptr;
+	if (!Profile || !Profile->AddCash(PS, Amount, TEXT("Pickup")))
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("[cash] AwardCash: no profile subsystem / rejected for %s ($%d lost)."), *GetNameSafe(PS), Amount);
+		return;
+	}
 	if (UGSRunStats* Stats = GetRunStats())
 	{
 		Stats->AddCashEarned(Amount);

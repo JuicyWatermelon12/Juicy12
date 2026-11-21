@@ -51,6 +51,8 @@
 #include "GSProgressionComponent.h"
 #include "GSXPCurve.h"
 #include "GSLevelRewards.h"
+#include "GSProfileSubsystem.h"
+#include "Kismet/GameplayStatics.h"
 #include "GSGameplayEffects.h"
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
@@ -1834,6 +1836,139 @@ bool FGSLevelUpFeedbackTest::RunTest(const FString& Parameters)
 		const AGSCharacter* Player = GetPlayer();
 		return HUD && Player && !HUD->IsLevelUpBannerShowing() && !HUD->IsXPBarPulsing() && !Player->IsLevelUpGlowActive();
 	}, 8.0);
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Profile: permanent cash
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	UGSProfileSubsystem* GetProfile()
+	{
+		return UGSProfileSubsystem::Get(GetPIEWorld());
+	}
+
+	AGSPlayerState* GetPlayerStateGS()
+	{
+		AGSPlayerController* PC = GetPC();
+		return PC ? PC->GetPlayerState<AGSPlayerState>() : nullptr;
+	}
+
+	bool IsPlayerBoundToProfile()
+	{
+		const AGSPlayerState* PS = GetPlayerStateGS();
+		return PS && !PS->GetProfileKey().IsEmpty();
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSProfileCashTest, "BanditBaller.Profile.PermanentCash", GSTests::TestFlags)
+bool FGSProfileCashTest::RunTest(const FString& Parameters)
+{
+	struct FState
+	{
+		FString Key;
+		int32 Cash = 0;
+		TWeakObjectPtr<UWorld> OldWorld;
+	};
+	TSharedRef<FState> State = MakeShared<FState>();
+	const FString OtherKey = UGSProfileSubsystem::IdToKey(FGuid(0x11, 0x22, 0x33, 0x44));
+
+	BeginPIE(this);
+	WaitUntil(this, TEXT("player bound to a profile"), &IsPlayerBoundToProfile, 10.0);
+	Step([this, State, OtherKey]()
+	{
+		UGSProfileSubsystem* Profile = GetProfile();
+		AGSGameMode* GameMode = GetGameMode();
+		AGSPlayerController* PC = GetPC();
+		AGSPlayerState* PS = GetPlayerStateGS();
+		UGSRunStats* Stats = GetGameState() ? GetGameState()->GetRunStats() : nullptr;
+		if (!TestNotNull(TEXT("Profile subsystem"), Profile) || !TestNotNull(TEXT("GameMode"), GameMode) || !TestNotNull(TEXT("PlayerState"), PS)
+			|| !TestNotNull(TEXT("Run stats"), Stats))
+		{
+			return;
+		}
+		GameMode->SetRoundTimerPaused(true);
+
+		// Tests use their own slot; the player is bound to this machine's ID.
+		TestEqual(TEXT("Automation tests use the test slot"), Profile->GetSlotName(), FString(UGSProfileSubsystem::AutomationSlotName));
+		State->Key = PS->GetProfileKey();
+		TestEqual(TEXT("Bound to this machine's player ID"), State->Key, UGSProfileSubsystem::IdToKey(Profile->GetLocalPlayerId()));
+
+		Profile->ResetAllCash(TEXT("Test"));
+		TestEqual(TEXT("Reset: profile cash 0"), Profile->GetCash(PS), 0);
+		TestEqual(TEXT("Reset: PlayerState mirror 0"), PS->GetCash(), 0);
+
+		// Cash from a pickup goes into the profile; the PlayerState mirrors it; run stats count it for this run.
+		const int32 EarnedBefore = Stats->GetCashEarned();
+		GameMode->AwardCash(PC, 25, PC->GetPawn() ? PC->GetPawn()->GetActorLocation() : FVector::ZeroVector);
+		TestEqual(TEXT("Pickup -> profile"), Profile->GetCashById(State->Key), 25);
+		TestEqual(TEXT("Pickup -> PlayerState mirror"), PS->GetCash(), 25);
+		TestEqual(TEXT("Pickup -> run stats CashEarned"), Stats->GetCashEarned() - EarnedBefore, 25);
+
+		// Spending goes through the profile too.
+		TestTrue(TEXT("Spend 10"), Profile->TrySpendCash(PS, 10, TEXT("Test")));
+		TestEqual(TEXT("After spending: profile"), Profile->GetCash(PS), 15);
+		TestEqual(TEXT("After spending: mirror"), PS->GetCash(), 15);
+		TestFalse(TEXT("Can't overspend"), Profile->TrySpendCash(PS, 100, TEXT("Test")));
+		TestEqual(TEXT("Overspend changes nothing"), PS->GetCash(), 15);
+
+		// Another player (by ID) has their own entry in the host's save; rebinding switches the mirror.
+		TestTrue(TEXT("Cash for another player ID"), Profile->AddCashById(OtherKey, 7, TEXT("Test")));
+		TestEqual(TEXT("Other player's entry"), Profile->GetCashById(OtherKey), 7);
+		TestEqual(TEXT("Our cash unchanged"), PS->GetCash(), 15);
+		FGuid OtherId;
+		FGuid::Parse(OtherKey, OtherId);
+		Profile->BindPlayer(PS, OtherId);
+		TestEqual(TEXT("Rebound PlayerState mirrors the other entry"), PS->GetCash(), 7);
+		FGuid OwnId;
+		FGuid::Parse(State->Key, OwnId);
+		Profile->BindPlayer(PS, OwnId);
+		TestEqual(TEXT("Bound back to our entry"), PS->GetCash(), 15);
+
+		// The save file round-trips.
+		TestTrue(TEXT("SaveNow"), Profile->SaveNow());
+		const UGSProfileSaveGame* Loaded = Cast<UGSProfileSaveGame>(UGameplayStatics::LoadGameFromSlot(Profile->GetSlotName(), 0));
+		if (TestNotNull(TEXT("Save file loads"), Loaded))
+		{
+			const FGSProfilePlayerEntry* Own = Loaded->Players.Find(State->Key);
+			const FGSProfilePlayerEntry* Other = Loaded->Players.Find(OtherKey);
+			TestTrue(TEXT("Saved: our cash"), Own && Own->Cash == 15);
+			TestTrue(TEXT("Saved: other player's cash"), Other && Other->Cash == 7);
+			TestEqual(TEXT("Saved: version"), Loaded->Version, UGSProfileSaveGame::CurrentVersion);
+		}
+
+		// Cash is permanent: a new run keeps it.
+		GameMode->RestartRunWithSeed(905);
+		TestEqual(TEXT("New run keeps cash"), PS->GetCash(), 15);
+		State->Cash = PS->GetCash();
+
+		// Dying (and restarting the map) keeps it too.
+		State->OldWorld = GetPIEWorld();
+		ApplyDamage(GetPlayerASC(), 100000.f);
+		TestTrue(TEXT("Player died"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
+	});
+	Step([]() { GetPC()->ServerRequestRestart(); });
+	WaitUntil(this, TEXT("restarted map with a new player bound to the profile"), [State]()
+	{
+		return GetPIEWorld() && GetPIEWorld() != State->OldWorld.Get() && IsPlayerReady() && IsPlayerBoundToProfile();
+	}, 30.0);
+	Step([this, State]()
+	{
+		UGSProfileSubsystem* Profile = GetProfile();
+		const AGSPlayerState* PS = GetPlayerStateGS();
+		TestEqual(TEXT("Same profile entry after the restart"), PS->GetProfileKey(), State->Key);
+		TestEqual(TEXT("Cash survives death: mirror"), PS->GetCash(), State->Cash);
+		TestEqual(TEXT("Cash survives death: profile"), Profile->GetCashById(State->Key), State->Cash);
+		if (const UGSHUDWidget* HUD = GetPC()->GetGSHUD())
+		{
+			TestEqual(TEXT("HUD shows the kept cash"), HUD->GetDisplayedCash(), State->Cash);
+		}
+		Profile->ResetAllCash(TEXT("TestCleanup"));
+		Profile->SaveNow();
+	});
 	EndPIE();
 	return true;
 }
