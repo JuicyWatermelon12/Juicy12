@@ -32,6 +32,12 @@ public class BanditBaller : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
+		// Editor-only: builds StateTree assets from code (gs.Editor.BuildEnemyStateTree).
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "StateTreeEditorModule", "PropertyBindingUtils", "AssetRegistry" });
+		}
+
 		PublicIncludePaths.AddRange(new string[] {
 			"BanditBaller",
 			"BanditBaller/Core",
