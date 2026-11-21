@@ -13,6 +13,7 @@
 #include "GSGameMode.h"
 #include "GSGameplayTags.h"
 #include "GSHUDWidget.h"
+#include "GSUpgradeChoiceWidget.h"
 #include "GSPlayerState.h"
 #include "HAL/IConsoleManager.h"
 
@@ -76,6 +77,15 @@ void AGSPlayerController::BeginPlay()
 		if (HUDWidget)
 		{
 			HUDWidget->AddToPlayerScreen(0);
+		}
+	}
+
+	if (IsLocalPlayerController() && UpgradeChoiceWidgetClass)
+	{
+		UpgradeChoiceWidget = CreateWidget<UGSUpgradeChoiceWidget>(this, UpgradeChoiceWidgetClass);
+		if (UpgradeChoiceWidget)
+		{
+			UpgradeChoiceWidget->AddToPlayerScreen(10); // above the HUD, below the death screen
 		}
 	}
 }

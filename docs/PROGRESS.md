@@ -35,10 +35,10 @@ see **Design update — market, prestige and economy**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–18 are done
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–19 are done
 (11–13 and 17 were design / scope updates and permanent cash).
 
-State at the time of writing: `main` after Prompt 18, not pushed. The build is clean and all 22 automation tests pass.
+State at the time of writing: `main` after Prompt 19, not pushed. The build is clean and all 23 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -63,7 +63,8 @@ State at the time of writing: `main` after Prompt 18, not pushed. The build is c
 | M2 16 | Extra Jump upgrade (ExtraJumps → JumpMaxCount, consistent air jumps, dash jump queue) | 42a874e |
 | M2 17 | Design update: decisions before M3 (docs only) | 14da7c0 |
 | Design update | Market, prestige and economy decisions (docs only; not a numbered step) | bb1ded0 |
-| M2 18 | Upgrade offers: 4 rarity tiers, DA_UpgradePool, offer queue, choose / reroll, simulator (log only) | see git log |
+| M2 18 | Upgrade offers: 4 rarity tiers, DA_UpgradePool, offer queue, choose / reroll, simulator (log only) | bd0e14c |
+| M2 19 | Level-up choice screen: pause, cards, input lock, keys / gamepad / mouse, reroll button | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -131,7 +132,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–18 done)
+## M2 — The run loop (Prompts 1–19 done)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -645,7 +646,8 @@ Docs only; no code changed. Not a numbered step: **Next up** keeps its 18–28 n
     `DescribeOffer()`.
 - **Events for the UI:**
   - `OnUpgradeOfferChanged(EGSUpgradeOfferChange)` with Opened / Rerolled / Closed. A pick fires Closed, then Opened
-    if another offer is queued.
+    if another offer is queued. (Changed in Prompt 19: a pick with another offer queued fires only Opened; Closed
+    means no offer is left.)
   - `OnRerollsLeftChanged(RerollsLeft)`.
   - Both are BlueprintAssignable, with native mirrors `OnUpgradeOfferChangedNative` / `OnRerollsLeftChangedNative`
     for C++ listeners and tests.
@@ -669,6 +671,63 @@ Docs only; no code changed. Not a numbered step: **Next up** keeps its 18–28 n
   - Reroll with no offer was refused. `gs.Upgrade.Offer` opened a debug offer.
 - **Simulation, 10,000 offers, seed 1:** see Tuning values.
 - **Note:** `gs.XP.SetLevel N` queues N − 1 offers, as N − 1 level-ups do.
+
+### Prompt 19 — Level-up choice screen
+- **Pause** (gameplay, not UI): `AGSGameMode::UpdateUpgradeChoicePause` runs on every offer change
+  (`UGSUpgradeComponent::BroadcastOfferChanged`, before the UI hears it).
+  - While any player has an open offer it calls `UGameplayStatics::SetGamePaused(true)`; when none is left, false.
+  - It only undoes a pause it made itself (`IsPausedForUpgradeChoice()`). `bPauseDuringUpgradeChoice` is on
+    BP_GSGameMode's defaults.
+  - Log: `[upgrade] Game paused / unpaused for the upgrade choice.`
+- **Event change:** a pick that leads into the next queued offer fires only `Opened`, and `Closed` means no offer is
+  left. So the screen swaps cards without flicker and the pause stays on between queued offers.
+  `Upgrades.Offers` was updated.
+- **`UI/GSUpgradeCardWidget.*` → `UI/WBP_UpgradeCard`** (built with MCP):
+  - Layout, 300×440: `CardBorder` (5 px frame in the rarity color) → `CardBody` (dark) → key hint "[1]", icon
+    (80×80), name, rarity ("RARE", tinted), description (`GetFormattedDescription`), "Owned: N".
+  - A transparent, non-focusable `CardButton` on top takes clicks.
+  - `RarityColors`: grey Common, blue Rare, purple Epic, gold Legendary. The gamepad-selected card scales to 1.07.
+- **`UI/GSUpgradeChoiceWidget.*` → `UI/WBP_UpgradeChoice`** (built with MCP):
+  - Layout: full-screen dim; "CHOOSE AN UPGRADE"; "+N more upgrades after this" (hidden when nothing is queued);
+    `CardsBox` (cards created from `CardWidgetClass` = WBP_UpgradeCard); a "Reroll (N left)" button; an input hint.
+    The content sits below the "LEVEL UP!" banner.
+  - Created by `AGSPlayerController::BeginPlay` (`UpgradeChoiceWidgetClass` on BP_GSPlayerController, Z order 10,
+    `GetUpgradeChoiceWidget()`).
+  - It binds to the PlayerState's `OnUpgradeOfferChanged` / `OnRerollsLeftChanged`. Its tick only retries binding
+    and runs the real-time timers below; it doesn't poll offer state.
+  - **Fresh offer:** the game is already paused. Held keys are flushed (no stuck fire / aim). After `RevealDelay`
+    (1.0 s real time; UMG keeps ticking while paused) the "LEVEL UP!" banner has played and the cards appear with
+    UI-only input and the mouse cursor.
+  - **Next queued offer or reroll:** the cards swap at once.
+  - **Input lock:** every time cards appear or change, input is ignored for `InputLockDuration` 0.3 s while the
+    cards fade in. Locked keys are still consumed, so they don't leak to the game.
+  - **Input:**
+    - Click a card; keys 1–3 or numpad 1–3; R or the Reroll button.
+    - Gamepad: D-pad / left stick (or the arrow keys) to select; A to pick (the first A press only selects the first
+      card); Y to reroll.
+    - Buttons are non-focusable, so Slate navigation can't take focus away.
+  - **Reroll button:** "Reroll (N left)", disabled (greyed out) at 0.
+  - **Closed:** hidden; game input back and cursor off. The game unpauses through the GameMode.
+  - Picks and rerolls call `AGSGameMode::ChooseUpgrade` / `RerollUpgradeOffer`. `TODO(co-op)`: Server RPC for
+    clients.
+- **Test** `UI.UpgradeChoice`.
+- **Tests changed:**
+  - Level-ups now pause the game, so `Progression.LevelUpRewards` and `Progression.LevelUpFeedback` take their
+    offers (`PickAllUpgradeOffers`, choice 0) before steps that need world time.
+  - `Balance.TimeToKill` sets XPGain 0, so kills don't level up (a pause, or a Damage pick, would break the
+    measurement).
+- **PIE check** (real key presses through Slate; round paused):
+  - `gs.XP.Add 100` paused the game and the banner showed alone. After 1 s the cards appeared, with Owned counts and
+    a blue frame on the Rare card.
+  - R rerolled ("Reroll (2 left)"). 2 picked the second card and unpaused.
+  - `gs.XP.Add 1000` (four level-ups, levels 4–7) paused once and showed "+3 more upgrades after this".
+    - 1 picked.
+    - A key 0.15 s after the swap was ignored.
+    - D-pad right ×2 highlighted card 2, and A picked it.
+    - 3, then 1 picked the rest. Unpaused once, after the last pick.
+  - A stray key afterwards did nothing.
+  - The first card layout overflowed on two-line names; the card was made taller with smaller fonts, and checked
+    again.
 
 ---
 
@@ -766,7 +825,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (22, all passing)
+## Automation tests (23, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test starts PIE in L_Town_Graybox, waits for the player, removes enemies, runs
 and ends PIE. Stop PIE before running.
@@ -785,12 +844,13 @@ and ends PIE. Stop PIE before running.
 | `Round.WaveDirector` | Round 1 size matches DT_Waves; killing the wave ends Combat; skipping removes leftovers. |
 | `Round.WaveBudget` | Seeded purchase within budget, MinRound respected, alive cap with telegraphs, spawns resume. |
 | `Round.DifficultyScaling` | Round 1 base stats; round 10 = base × curve, full health; GameState multipliers. |
-| `Balance.TimeToKill` | Rifle/pistol shots-to-kill at rounds 1/5/10 vs both bandits via the real fire path (`[ttk]` log). |
+| `Balance.TimeToKill` | Rifle/pistol shots-to-kill at rounds 1/5/10 vs both bandits via the real fire path (`[ttk]` log). XPGain 0, so kills don't open upgrade offers. |
 | `Run.SeedAndStats` | Same seed replays rolls; restart resets stats; kills per type; damage dealt/taken; rounds cleared. |
 | `Economy.CashPickups` | Exact split; out-of-reach drop stays; radius collects into Cash/CashEarned/HUD + popup; pool reuse; RoundClear vacuum; short lifetime blinks, expires unpaid. |
 | `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over (HUD level + bar follow); kill XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; cap at max level; new run resets. |
-| `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear and the Market District; new run removes stacks and clamps Health; dead player gets the stack but no heal. |
-| `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → "+XPValue XP" popup at once; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); banner/pulse/glow end. |
+| `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear and the Market District; new run removes stacks and clamps Health; dead player gets the stack but no heal. Takes each upgrade offer (choice 0) so the game unpauses. |
+| `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → "+XPValue XP" popup at once; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); 3 upgrade offers taken; banner/pulse/glow end. |
+| `UI.UpgradeChoice` | Choice widget from the PlayerController; level-up pauses (GameMode owns the pause) and the cards wait for the banner; cards match the offer (order, rarity color, "Owned: N"); "Reroll (3 left)", cursor shown; key / click ignored during the 0.3 s lock; R, gamepad Y and the button reroll (label 2/1/0, new cards, lock again), greyed out at 0 and R does nothing; key 2 picks the 2nd card, last pick hides, unpauses, cursor off; 1000 XP → 1 open + 3 queued; D-pad selects, A picks; next offer swaps in at once (no banner wait), locked, still paused; click / numpad 1 / key 3 pick the rest; hidden and unpaused after the queue. |
 | `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; save when RoundClear ends (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + `?Restart` (new HUD shows it). |
 | `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
 | `Upgrades.ExtraJump` | DA_Upgrade_ExtraJump (Rare, no cap, "+1"); no air jump without it; ×3 → ExtraJumps 3, JumpMaxCount 4; three air jumps (rising, falling, falling fast) each set AirJumpZVelocity, 4th refused, one puff/sound each; landing resets; coyote jump is the ground jump; late jump after walking off uses an air jump; slide-hop then air jump; jump during an air dash is queued and becomes an air jump at the dash end; jump during a ground dash becomes the ground jump; new run → 0 / 1. |
@@ -869,8 +929,6 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - **Not yet built for the design change:**
   - Hub start and Start Run portal.
   - Run summary and return to the hub.
-  - The level-up choice screen (Prompt 19). Offers, rerolls and picks work but are console / log only, and the game
-    doesn't pause while an offer is open.
 - No upgrade is Epic or Legendary yet; those tiers are empty and never offered.
 - **Not yet built for the decisions before M3:**
   - XP pickups: XP is still granted instantly on the kill (Prompt 20).
@@ -878,7 +936,11 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Owned items in `OwnedItems`, item types (usable items, gear) and the gear loadout (M3/M4).
 - Prestige and the two-layer profile (playthrough data + prestige data) are a later milestone; the save layout
   changes in M3.
-- Upgrade icons are a placeholder engine texture.
+- Upgrade icons are a placeholder engine texture (shown on the cards).
+- Choice screen: no sound, no card hover highlight and no UMG animations (the fade-in is code). Only the
+  single-player / host path exists (`TODO(co-op)`).
+- `Balance.TimeToKill` failed once in a full run (round 1 melee vs rifle: 4 shots instead of 3, the first case
+  after PIE starts) and passed when re-run alone and in the next full run. Probably a missed first shot; watch it.
 - **Still in the code until the hub map (Prompts 25–26):** the streamed `L_MarketDistrict_Graybox`,
   `TravelToMarketDistrict` / `ReturnToTown` and `gs.Market.Teleport` / `Return` (debug only).
 - No shop or casino logic yet (M3/M4); CashSpent is never used.
@@ -945,6 +1007,11 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 - The MCP toolset registry needs typed containers in tool signatures (`dict[str, float]`, `list[...]`). A bare `dict`
   fails registration of the whole `BanditBallerTools` toolset (`LogPython: Error: … missing specification for
   contained type`), so nested results are returned as JSON text. Restart the editor after Python edits.
+- Screenshots: `CaptureEditorImage` → `AssetTools.write_file` into `Saved/` as `.txt` (only .csv / .html / .json /
+  .md / .py / .txt are allowed), then base64-decode with PowerShell. `SlateInspectorToolset.PressKey` (key names
+  like `Two`, `R`, `Gamepad_DPad_Right`) sends real key presses to the focused widget, e.g. the choice screen.
+- Level-ups pause the game (upgrade offers). Tests or PIE sessions that need world time after a level-up must pick
+  the offers (`gs.Upgrade.Choose 0`, `PickAllUpgradeOffers` in tests).
 
 ---
 
@@ -962,12 +1029,7 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
 17. ~~**Design update — decisions before M3.**~~ Done (docs only).
 18. ~~**Upgrade offers (4 rarity tiers + rerolls).**~~ Done (see Prompt 18; log / console only). The weights are
     placeholders, and which upgrades become Epic or Legendary is decided later.
-19. **Choice screen (with reroll).**
-    - Bind to `UGSUpgradeComponent::OnUpgradeOfferChanged` / `OnRerollsLeftChanged` and call
-      `AGSGameMode::ChooseUpgrade` / `RerollUpgradeOffer`.
-    - A choice panel next to the level-up banner: each card shows its rarity, description and current stacks.
-    - A reroll button shows the rerolls left. There is no skip button.
-    - The game pauses while an offer is open; queued offers keep it paused until the last pick.
+19. ~~**Choice screen (with reroll).**~~ Done (see Prompt 19).
 20. **XP pickups.**
     - Enemies drop XP as pickups instead of granting it on the kill (replaces the instant `AwardXP` in
       `HandleEnemyKilled`). XPGain still applies.

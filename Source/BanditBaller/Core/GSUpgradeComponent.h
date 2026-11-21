@@ -30,11 +30,11 @@ struct FGSUpgradeStack
 UENUM(BlueprintType)
 enum class EGSUpgradeOfferChange : uint8
 {
-	/** A new offer is open (after a level-up, or the next queued one after a pick). */
+	/** A new offer is open: after a level-up, or the next queued one replacing a picked offer. */
 	Opened,
 	/** The open offer was replaced by a reroll. */
 	Rerolled,
-	/** The open offer closed (picked, or the run reset). */
+	/** No offer is open any more (the last one was picked, or the run reset). */
 	Closed
 };
 

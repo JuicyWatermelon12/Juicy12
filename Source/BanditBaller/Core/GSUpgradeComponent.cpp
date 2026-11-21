@@ -190,8 +190,13 @@ bool UGSUpgradeComponent::ChooseUpgrade(int32 Index)
 
 	UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: chose [%d] %s."), *GetNameSafe(GetOwner()), Index, *Picked->GetName());
 	CurrentChoices.Reset();
-	BroadcastOfferChanged(EGSUpgradeOfferChange::Closed);
+	// The next queued offer replaces this one (one Opened event); Closed only when nothing is left, so the choice
+	// screen and the pause stay up between queued offers.
 	OpenNextOffer();
+	if (!HasOpenOffer())
+	{
+		BroadcastOfferChanged(EGSUpgradeOfferChange::Closed);
+	}
 	return true;
 }
 
@@ -254,6 +259,12 @@ void UGSUpgradeComponent::SetRerollsLeft(int32 NewRerollsLeft)
 
 void UGSUpgradeComponent::BroadcastOfferChanged(EGSUpgradeOfferChange Change)
 {
+	// Gameplay first (pause while any offer is open), then the UI.
+	const UWorld* World = GetWorld();
+	if (AGSGameMode* GameMode = World ? World->GetAuthGameMode<AGSGameMode>() : nullptr)
+	{
+		GameMode->UpdateUpgradeChoicePause();
+	}
 	OnUpgradeOfferChanged.Broadcast(Change);
 	OnUpgradeOfferChangedNative.Broadcast(Change);
 }

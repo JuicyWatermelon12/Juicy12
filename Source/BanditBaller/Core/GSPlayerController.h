@@ -9,6 +9,7 @@
 
 class UGameplayEffect;
 class UGSHUDWidget;
+class UGSUpgradeChoiceWidget;
 class UUserWidget;
 
 /**
@@ -42,6 +43,9 @@ public:
 	void ServerDebugDamageSelf(float Amount);
 
 	UGSHUDWidget* GetGSHUD() const;
+
+	/** The level-up choice screen (local player; created at BeginPlay, shows itself when an offer opens). */
+	UGSUpgradeChoiceWidget* GetUpgradeChoiceWidget() const { return UpgradeChoiceWidget; }
 
 	/** Debug: press + release the Fire input once (goes through the ASC like the real button). */
 	UFUNCTION(Exec)
@@ -81,6 +85,13 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UUserWidget> DeathScreenWidget;
+
+	/** Level-up upgrade choice screen (WBP_UpgradeChoice), above the HUD. */
+	UPROPERTY(EditDefaultsOnly, Category = "UI")
+	TSubclassOf<UGSUpgradeChoiceWidget> UpgradeChoiceWidgetClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UGSUpgradeChoiceWidget> UpgradeChoiceWidget;
 
 	/** Damage GE used by gs.Damage.Self and gs.KillAll (GE_Damage, SetByCaller Data.Damage). */
 	UPROPERTY(EditDefaultsOnly, Category = "Debug")

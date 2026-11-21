@@ -157,6 +157,14 @@ public:
 	/** Debug (gs.Upgrade.Offer): queue an offer for Player as a level-up would, without the level. */
 	void QueueUpgradeOfferForDebug(AGSPlayerState* Player);
 
+	/**
+	 * Pause the game while any player has an open upgrade offer, unpause when none is left (called by
+	 * UGSUpgradeComponent on every offer change). Only undoes a pause it made itself.
+	 */
+	void UpdateUpgradeChoicePause();
+
+	bool IsPausedForUpgradeChoice() const { return bPausedForUpgradeChoice; }
+
 	// --- Area travel (server) ---
 
 	/**
@@ -212,6 +220,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Progression")
 	TObjectPtr<UGSUpgradePool> UpgradePool;
 
+	/** Pause the game while an upgrade is being chosen (design rule; the choice screen relies on it). */
+	UPROPERTY(EditDefaultsOnly, Category = "Progression")
+	bool bPauseDuringUpgradeChoice = true;
+
 	/** Spawn ring / spacing / attempts for UGSSpawnLocationFinder (DA_SpawnSettings). Class defaults if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Round")
 	TObjectPtr<UGSSpawnSettings> SpawnSettings;
@@ -252,6 +264,9 @@ private:
 
 	/** Logged once: remote players' cash pickups are not credited yet (co-op TODO). */
 	bool bWarnedRemoteCash = false;
+
+	/** This GameMode paused the game for an upgrade choice (so it only unpauses its own pause). */
+	bool bPausedForUpgradeChoice = false;
 
 	FRandomStream RunStream;
 	int32 RunSeed = 0;

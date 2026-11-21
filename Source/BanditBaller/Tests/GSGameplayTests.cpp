@@ -62,6 +62,8 @@
 #include "GSUpgradeComponent.h"
 #include "GSUpgradeData.h"
 #include "GSUpgradePool.h"
+#include "GSUpgradeCardWidget.h"
+#include "GSUpgradeChoiceWidget.h"
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
 #include "Misc/AutomationTest.h"
@@ -163,6 +165,22 @@ namespace GSTests
 		Mod.ModifierOp = EGameplayModOp::Additive;
 		Mod.ModifierMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(Amount));
 		Target->ApplyGameplayEffectToSelf(Heal, 1.f, Target->MakeEffectContext());
+	}
+
+	/**
+	 * Level-ups open upgrade offers, and an open offer pauses the game. Tests that need the world to keep running after
+	 * a level-up take the first choice of every offer (which unpauses). Returns how many were picked.
+	 */
+	int32 PickAllUpgradeOffers()
+	{
+		AGSGameMode* GameMode = GetPIEWorld() ? GetPIEWorld()->GetAuthGameMode<AGSGameMode>() : nullptr;
+		AGSPlayerState* PS = GetPC() ? GetPC()->GetPlayerState<AGSPlayerState>() : nullptr;
+		int32 Picked = 0;
+		while (GameMode && PS && PS->GetUpgradeComponent()->HasOpenOffer() && GameMode->ChooseUpgrade(PS, 0))
+		{
+			++Picked;
+		}
+		return Picked;
 	}
 
 	/** Spawns one enemy near the player (server) for target-side tests. */
@@ -1127,6 +1145,8 @@ bool FGSTimeToKillTest::RunTest(const FString& Parameters)
 	Step([]()
 	{
 		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		// No XP from the kills: a level-up would pause the game for an upgrade choice (and a pick could change Damage).
+		UGSDebugLibrary::SetAttributeOn(GetPC(), TEXT("XPGain"), 0.f);
 	});
 
 	// One case at a time: freeze a bandit 4 m in front of the player, aim at it every frame and press fire every
@@ -1678,6 +1698,7 @@ bool FGSLevelUpRewardsTest::RunTest(const FString& Parameters)
 			TestEqual(FString::Printf(TEXT("%s: HUD Health"), Where), C.HUD->GetDisplayedHealth(), GetHealth(C.ASC), 0.01f);
 			TestEqual(FString::Printf(TEXT("%s: HUD level"), Where), C.HUD->GetDisplayedLevel(), C.Progression->GetLevel());
 		}
+		TestEqual(FString::Printf(TEXT("%s: one upgrade offer"), Where), PickAllUpgradeOffers(), 1);
 	};
 
 	BeginPIE(this);
@@ -1723,6 +1744,7 @@ bool FGSLevelUpRewardsTest::RunTest(const FString& Parameters)
 			TestEqual(TEXT("HUD level still follows"), C.HUD->GetDisplayedLevel(), 3);
 			TestEqual(TEXT("HUD XP bar still follows (0 XP into level 3)"), C.HUD->GetDisplayedXPPercent(), 0.f, 0.001f);
 		}
+		TestEqual(TEXT("Two level-ups -> two upgrade offers"), PickAllUpgradeOffers(), 2);
 
 		// RoundClear works the same.
 		C.GameMode->AdvancePhase(); // PreRound -> Combat
@@ -1843,6 +1865,9 @@ bool FGSLevelUpFeedbackTest::RunTest(const FString& Parameters)
 		GetGameMode()->AwardXP(PS, static_cast<float>(Progression->GetXPForNextLevel()), false);
 		TestEqual(TEXT("Merged banner: level 4"), HUD->GetLevelUpBannerLevel(), 4);
 		TestEqual(TEXT("Merged banner: rewards for levels 2-4"), HUD->GetLevelUpRewardText().ToString(), FString(TEXT("+30 Max Health")));
+
+		// The three level-ups opened upgrade offers (game paused); take them so the glow can play out.
+		TestEqual(TEXT("Three upgrade offers"), PickAllUpgradeOffers(), 3);
 	});
 
 	// Everything fades out again.
@@ -2573,7 +2598,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		S->Changes.Reset();
 		TestTrue(TEXT("Choose 1"), GetGameMode()->ChooseUpgrade(PS, 1));
 		TestEqual(TEXT("Chosen upgrade got a stack"), Upgrades->GetStacks(Picked), 1);
-		TestTrue(TEXT("Closed, then the next offer opened"), S->Changes == TArray<EGSUpgradeOfferChange>({ EGSUpgradeOfferChange::Closed, EGSUpgradeOfferChange::Opened }));
+		TestTrue(TEXT("The next queued offer replaced it (one Opened, no Closed)"), S->Changes == TArray<EGSUpgradeOfferChange>({ EGSUpgradeOfferChange::Opened }));
 		TestEqual(TEXT("One left in the queue"), Upgrades->GetQueuedOffers(), 1);
 		TestTrue(TEXT("Choose 0"), GetGameMode()->ChooseUpgrade(PS, 0));
 		TestEqual(TEXT("Queue empty"), Upgrades->GetQueuedOffers(), 0);
@@ -2615,6 +2640,177 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Simulator is deterministic"), Sim1.UpgradeOffers.OrderIndependentCompareEqual(Sim2.UpgradeOffers));
 		TestEqual(TEXT("No Epic choices (empty tier)"), Sim1.RarityChoices.FindRef(TEXT("Epic")), 0);
 		TestEqual(TEXT("No Legendary choices (empty tier)"), Sim1.RarityChoices.FindRef(TEXT("Legendary")), 0);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Level-up choice screen: pause, banner first, cards, input lock, keys / gamepad / mouse, rerolls, queued offers
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	UGSUpgradeChoiceWidget* GetChoiceWidget()
+	{
+		const AGSPlayerController* PC = GetPC();
+		return PC ? PC->GetUpgradeChoiceWidget() : nullptr;
+	}
+
+	bool IsWorldPaused()
+	{
+		const UWorld* World = GetPIEWorld();
+		return World && World->IsPaused();
+	}
+
+	/** Enqueue: wait until the choice screen shows cards and accepts input. */
+	void WaitChoiceReady(FAutomationTestBase* Test, const FString& What)
+	{
+		WaitUntil(Test, What, []()
+		{
+			const UGSUpgradeChoiceWidget* Widget = GetChoiceWidget();
+			return Widget && Widget->AreCardsShowing() && !Widget->IsInputLocked();
+		}, 10.0);
+	}
+
+	/** The cards show the open offer, in order, with rarity colors and owned stacks. */
+	bool CardsMatchOffer(FAutomationTestBase* Test, const TCHAR* What)
+	{
+		const UGSUpgradeChoiceWidget* Widget = GetChoiceWidget();
+		const UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		const TArray<UGSUpgradeData*> Choices = Upgrades->GetCurrentChoices();
+		bool bOk = Test->TestEqual(FString::Printf(TEXT("%s: one card per choice"), What), Widget->GetCardCount(), Choices.Num());
+		for (int32 i = 0; bOk && i < Choices.Num(); ++i)
+		{
+			const UGSUpgradeCardWidget* Card = Widget->GetCard(i);
+			bOk &= Test->TestTrue(FString::Printf(TEXT("%s: card %d shows choice %d"), What, i, i), Card && Card->GetUpgrade() == Choices[i]);
+			bOk &= Test->TestTrue(FString::Printf(TEXT("%s: card %d border is the rarity color"), What, i),
+				Card && Card->GetBorderColor().Equals(Card->GetRarityColor(Choices[i]->Rarity)));
+			bOk &= Test->TestEqual(FString::Printf(TEXT("%s: card %d owned text"), What, i), Card ? Card->GetOwnedText().ToString() : FString(),
+				FString::Printf(TEXT("Owned: %d"), Upgrades->GetStacks(Choices[i])));
+		}
+		return bOk;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSUpgradeChoiceUITest, "BanditBaller.UI.UpgradeChoice", GSTests::TestFlags)
+bool FGSUpgradeChoiceUITest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	struct FState
+	{
+		TArray<UGSUpgradeData*> Offer;
+		UGSUpgradeData* Picked = nullptr;
+		int32 PicksBefore = 0;
+	};
+	TSharedRef<FState> S = MakeShared<FState>();
+
+	// A level-up pauses the game at once; the banner plays while the cards wait.
+	Step([this]()
+	{
+		GetGameMode()->SetRoundTimerPaused(true);
+		const UGSUpgradeChoiceWidget* Widget = GetChoiceWidget();
+		if (!TestNotNull(TEXT("Choice widget created by the PlayerController"), Widget))
+		{
+			return;
+		}
+		TestFalse(TEXT("No cards at start"), Widget->AreCardsShowing());
+		TestFalse(TEXT("Not paused at start"), IsWorldPaused());
+
+		GetGameMode()->AwardXP(GetPC()->GetPlayerState<AGSPlayerState>(), 100.f, false);
+		TestTrue(TEXT("Offer pauses the game"), IsWorldPaused());
+		TestTrue(TEXT("GameMode owns the pause"), GetGameMode()->IsPausedForUpgradeChoice());
+		TestTrue(TEXT("Cards wait for the banner"), Widget->IsRevealPending() && !Widget->AreCardsShowing());
+		TestTrue(TEXT("LEVEL UP banner is playing"), GetPC()->GetGSHUD() && GetPC()->GetGSHUD()->IsLevelUpBannerShowing());
+	});
+	WaitUntil(this, TEXT("cards to appear after the banner"), []() { return GetChoiceWidget()->AreCardsShowing(); }, 10.0);
+
+	// Cards, labels, cursor, and the input lock.
+	Step([this, S]()
+	{
+		UGSUpgradeChoiceWidget* Widget = GetChoiceWidget();
+		CardsMatchOffer(this, TEXT("First offer"));
+		TestEqual(TEXT("Reroll label"), Widget->GetRerollLabel().ToString(), FString(TEXT("Reroll (3 left)")));
+		TestTrue(TEXT("Reroll enabled"), Widget->IsRerollEnabled());
+		TestTrue(TEXT("Mouse cursor shown"), GetPC()->ShouldShowMouseCursor());
+		TestTrue(TEXT("Input locked right after the cards appear"), Widget->IsInputLocked());
+
+		S->Offer = GetPlayerUpgrades()->GetCurrentChoices();
+		TestTrue(TEXT("Key 2 is consumed while locked"), Widget->HandleChoiceKey(EKeys::Two));
+		TestFalse(TEXT("Click while locked is ignored"), Widget->TryChoose(0));
+		TestTrue(TEXT("Nothing picked while locked"), GetPlayerUpgrades()->GetTotalPicks() == 0 && GetPlayerUpgrades()->GetCurrentChoices() == S->Offer);
+	});
+	WaitChoiceReady(this, TEXT("input lock to end"));
+
+	// R rerolls: new cards, one reroll used, locked again.
+	Step([this, S]()
+	{
+		UGSUpgradeChoiceWidget* Widget = GetChoiceWidget();
+		TestTrue(TEXT("R rerolls"), Widget->HandleChoiceKey(EKeys::R));
+		TestEqual(TEXT("One reroll used"), GetPlayerUpgrades()->GetRerollsLeft(), 2);
+		TestEqual(TEXT("Reroll label follows"), Widget->GetRerollLabel().ToString(), FString(TEXT("Reroll (2 left)")));
+		CardsMatchOffer(this, TEXT("After reroll"));
+		TestTrue(TEXT("Reroll locks input again"), Widget->IsInputLocked());
+		TestFalse(TEXT("Pick right after a reroll is ignored"), Widget->TryChoose(0));
+	});
+	WaitChoiceReady(this, TEXT("lock after reroll 1"));
+	Step([this]() { TestTrue(TEXT("Gamepad Y rerolls"), GetChoiceWidget()->HandleChoiceKey(EKeys::Gamepad_FaceButton_Top) && GetPlayerUpgrades()->GetRerollsLeft() == 1); });
+	WaitChoiceReady(this, TEXT("lock after reroll 2"));
+	Step([this]() { TestTrue(TEXT("Reroll button path"), GetChoiceWidget()->TryReroll() && GetPlayerUpgrades()->GetRerollsLeft() == 0); });
+	WaitChoiceReady(this, TEXT("lock after reroll 3"));
+	Step([this, S]()
+	{
+		UGSUpgradeChoiceWidget* Widget = GetChoiceWidget();
+		TestFalse(TEXT("Reroll button greyed out at 0"), Widget->IsRerollEnabled());
+		TestEqual(TEXT("Reroll label at 0"), Widget->GetRerollLabel().ToString(), FString(TEXT("Reroll (0 left)")));
+		const TArray<UGSUpgradeData*> Before = GetPlayerUpgrades()->GetCurrentChoices();
+		Widget->HandleChoiceKey(EKeys::R);
+		TestTrue(TEXT("R at 0 rerolls changes nothing"), GetPlayerUpgrades()->GetCurrentChoices() == Before);
+
+		// Key 2 picks the second card; the last offer closes: hidden, unpaused, game input back.
+		S->Picked = Before[1];
+		TestTrue(TEXT("Key 2 consumed"), Widget->HandleChoiceKey(EKeys::Two));
+		TestEqual(TEXT("Second card picked"), GetPlayerUpgrades()->GetStacks(S->Picked), 1);
+		TestFalse(TEXT("Cards hidden after the last pick"), Widget->AreCardsShowing());
+		TestFalse(TEXT("Game unpaused"), IsWorldPaused());
+		TestFalse(TEXT("Mouse cursor hidden"), GetPC()->ShouldShowMouseCursor());
+
+		// Several level-ups at once (gs.XP.Add 1000 from level 2: levels 3-6) queue several offers.
+		S->PicksBefore = GetPlayerUpgrades()->GetTotalPicks();
+		GetGameMode()->AwardXP(GetPC()->GetPlayerState<AGSPlayerState>(), 1000.f, false);
+		TestEqual(TEXT("1000 XP: one open + 3 queued"), GetPlayerUpgrades()->GetQueuedOffers(), 3);
+		TestTrue(TEXT("Paused again"), IsWorldPaused());
+	});
+	WaitChoiceReady(this, TEXT("first queued offer"));
+
+	// Gamepad: select with the D-pad, confirm with A. The next offer swaps in at once (no banner wait), locked.
+	Step([this]()
+	{
+		UGSUpgradeChoiceWidget* Widget = GetChoiceWidget();
+		Widget->HandleChoiceKey(EKeys::Gamepad_DPad_Right);
+		TestEqual(TEXT("D-pad selects the first card"), Widget->GetSelectedIndex(), 0);
+		Widget->HandleChoiceKey(EKeys::Gamepad_DPad_Right);
+		TestEqual(TEXT("D-pad moves the selection"), Widget->GetSelectedIndex(), 1);
+		TestTrue(TEXT("A picks the selected card"), Widget->HandleChoiceKey(EKeys::Gamepad_FaceButton_Bottom));
+		TestEqual(TEXT("Two queued left"), GetPlayerUpgrades()->GetQueuedOffers(), 2);
+		TestTrue(TEXT("Next offer shows at once"), Widget->AreCardsShowing() && !Widget->IsRevealPending());
+		TestTrue(TEXT("Next offer is locked"), Widget->IsInputLocked());
+		CardsMatchOffer(this, TEXT("Queued offer 2"));
+		TestTrue(TEXT("Still paused between queued offers"), IsWorldPaused());
+	});
+	WaitChoiceReady(this, TEXT("queued offer 2"));
+	Step([this]() { TestTrue(TEXT("Mouse click picks"), GetChoiceWidget()->TryChoose(2)); });
+	WaitChoiceReady(this, TEXT("queued offer 3"));
+	Step([this]() { TestTrue(TEXT("Numpad 1 picks"), GetChoiceWidget()->HandleChoiceKey(EKeys::NumPadOne) && GetPlayerUpgrades()->GetQueuedOffers() == 0); });
+	WaitChoiceReady(this, TEXT("queued offer 4"));
+	Step([this, S]()
+	{
+		TestTrue(TEXT("Key 3 picks the last"), GetChoiceWidget()->HandleChoiceKey(EKeys::Three));
+		TestEqual(TEXT("Four more picks"), GetPlayerUpgrades()->GetTotalPicks(), S->PicksBefore + 4);
+		TestFalse(TEXT("Hidden after the queue"), GetChoiceWidget()->AreCardsShowing());
+		TestFalse(TEXT("Unpaused after the queue"), IsWorldPaused());
+		TestFalse(TEXT("GameMode pause released"), GetGameMode()->IsPausedForUpgradeChoice());
 	});
 	EndPIE();
 	return true;

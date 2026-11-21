@@ -29,6 +29,7 @@
 #include "GSGameplayTags.h"
 #include "GSProgressionComponent.h"
 #include "GSUpgradeComponent.h"
+#include "Kismet/GameplayStatics.h"
 #include "GSProfileSubsystem.h"
 #include "GSXPCurve.h"
 #include "GSLevelRewards.h"
@@ -168,6 +169,36 @@ void AGSGameMode::QueueUpgradeOfferForDebug(AGSPlayerState* Player)
 	{
 		Upgrades->QueueOffer(TEXT("debug"));
 	}
+}
+
+void AGSGameMode::UpdateUpgradeChoicePause()
+{
+	bool bAnyOfferOpen = false;
+	if (const AGSGameState* GS = GetGameState<AGSGameState>())
+	{
+		for (APlayerState* PS : GS->PlayerArray)
+		{
+			const AGSPlayerState* GSPS = Cast<AGSPlayerState>(PS);
+			const UGSUpgradeComponent* Upgrades = GSPS ? GSPS->GetUpgradeComponent() : nullptr;
+			bAnyOfferOpen |= Upgrades && Upgrades->HasOpenOffer();
+		}
+	}
+	// TODO(co-op): M6 shows the other players who is choosing while the party is paused.
+	const bool bWantPause = bPauseDuringUpgradeChoice && bAnyOfferOpen;
+	if (bWantPause == bPausedForUpgradeChoice)
+	{
+		return;
+	}
+	if (bWantPause)
+	{
+		bPausedForUpgradeChoice = UGameplayStatics::SetGamePaused(this, true);
+	}
+	else
+	{
+		UGameplayStatics::SetGamePaused(this, false);
+		bPausedForUpgradeChoice = false;
+	}
+	UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] Game %s for the upgrade choice."), bPausedForUpgradeChoice ? TEXT("paused") : TEXT("unpaused"));
 }
 
 void AGSGameMode::SetPlayerLevelForDebug(AGSPlayerState* Player, int32 Level)
