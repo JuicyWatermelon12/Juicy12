@@ -11,7 +11,7 @@ class UGSLevelRewards;
 
 /**
  * Phase of the round loop run by AGSGameMode:
- * PreRound -> Combat -> RoundClear -> MarketDecision -> (MarketVisit) -> PreRound (next round).
+ * PreRound -> Combat -> RoundClear -> PreRound (next round) ... until the run ends.
  */
 UENUM(BlueprintType)
 enum class EGSRoundPhase : uint8
@@ -24,10 +24,6 @@ enum class EGSRoundPhase : uint8
 	Combat,
 	/** Combat is over: results / breather. */
 	RoundClear,
-	/** Decide whether the Market District opens this round (set rounds or chance). */
-	MarketDecision,
-	/** The party is in the Market District (shop + casino). */
-	MarketVisit,
 	GameOver
 };
 
@@ -45,7 +41,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnPhaseChangedSignature, EGSRoun
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FGSOnRoundChangedSignature, int32, NewRound);
 
 /**
- * Shared, replicated round state: round number, phase, phase end time, current area and market availability.
+ * Shared, replicated round state: round number, phase, phase end time and current area.
  * Written only by AGSGameMode on the server; the delegates fire on the server and on clients (OnRep).
  */
 UCLASS()
@@ -90,12 +86,8 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Area")
 	EGSArea GetCurrentArea() const { return CurrentArea; }
 
-	UFUNCTION(BlueprintPure, Category = "Area")
-	bool IsMarketOpenThisRound() const { return bMarketOpenThisRound; }
-
 	/** Server only (AGSGameMode). */
 	void SetCurrentArea(EGSArea NewArea);
-	void SetMarketOpenThisRound(bool bOpen) { bMarketOpenThisRound = bOpen; }
 
 	/** Fires on server and clients when CurrentArea changes. */
 	UPROPERTY(BlueprintAssignable, Category = "Area")
@@ -187,10 +179,6 @@ protected:
 	/** Where the party is. Enemies only target players while this is Town. */
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, ReplicatedUsing = OnRep_CurrentArea, Category = "Area")
 	EGSArea CurrentArea = EGSArea::Town;
-
-	/** Whether the Market District opens after this round's combat (decided in MarketDecision). */
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Replicated, Category = "Area")
-	bool bMarketOpenThisRound = false;
 
 private:
 	UFUNCTION()

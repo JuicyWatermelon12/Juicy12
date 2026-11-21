@@ -57,9 +57,9 @@ public:
 
 	// --- Round loop (server) ---
 	//
-	//   PreRound -> Combat -> RoundClear -> MarketDecision -> (MarketVisit) -> PreRound (round + 1)
+	//   PreRound -> Combat -> RoundClear -> PreRound (round + 1) ...
 	//
-	// Timed phases advance on their own (durations from UGSRoundSettings); MarketDecision resolves instantly.
+	// Timed phases advance on their own (durations from UGSRoundSettings). Combat also ends when its wave is cleared.
 
 	virtual void StartPlay() override;
 
@@ -227,7 +227,6 @@ private:
 	void HandleWaveCleared();
 	/** Phase timer expiry; for Combat this is only the safety fallback (warns if the wave isn't done). */
 	void HandlePhaseTimerExpired();
-	void RunMarketDecision();
 
 	FTimerHandle PhaseTimer;
 	bool bRoundTimerPaused = false;
