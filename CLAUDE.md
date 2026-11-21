@@ -1,268 +1,105 @@
 # BanditBaller
 
-Third-person co-op roguelike shooter set in an off-grid bandit gambling town.
-Core loop: fight a round of enemies in the town → earn cash → on some rounds (set rounds or by chance) the
-party teleports to the safe **Market District** (shop + casino) → teleport back → next round.
-The Market District is a separate area (streamed sublevel `L_MarketDistrict_Graybox`, ~2 km from the town),
-not part of the town plaza, and is **not open every round**.
-Modes: single-player and 2–4 player listen-server co-op.
+Read @docs/PROGRESS.md at the start of every session. After finishing any prompt, add a short entry to docs/PROGRESS.md (what was built, new assets/commands, known issues) and update 'Next up'.
 
-## Engine
-- Unreal Engine **5.8.4** (launcher install) at `C:\Program Files\Epic Games\UE_5.8`
-- `.uproject` `EngineAssociation`: `5.8`
+Third-person co-op roguelike shooter in an off-grid bandit gambling town (single player + 2–4 player listen-server
+co-op). Loop: fight a round of enemies in the town → collect cash → on some rounds the party teleports to the safe
+**Market District** (shop + casino; streamed sublevel `L_MarketDistrict_Graybox`, not open every round) → back to
+town → next round. Systems, commands, GAS reference, tuning and known issues live in `docs/PROGRESS.md`.
 
-## Build
-Close the editor first (or Live Coding will block the build), then:
+## Engine and build
+- Unreal Engine **5.8.4** (launcher) at `C:\Program Files\Epic Games\UE_5.8`; `.uproject` `EngineAssociation` `5.8`.
+- One runtime module `BanditBaller`; targets `BanditBaller` (game) and `BanditBallerEditor`.
+- Close the editor before building (ask the user; Live Coding blocks the build and new UCLASSes need a full build):
 
 ```powershell
 & "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" BanditBallerEditor Win64 Development -Project="C:\Users\bbehm\OneDrive\Documents\Unreal Projects\BanditBaller\BanditBaller.uproject" -WaitMutex
 ```
 
-## Layout
-Single runtime game module: `BanditBaller` (`Source/BanditBaller/BanditBaller.Build.cs`).
-Targets: `BanditBaller` (game), `BanditBallerEditor` (editor).
+- Relaunch with `Start-Process` on `Engine\Binaries\Win64\UnrealEditor.exe` + the `.uproject`. MCP is ready once
+  127.0.0.1:8000 accepts connections.
+- The machine has no Python. Use PowerShell or the Edit tool; for long text in Bash, write it to the scratchpad and
+  append it (heredocs with quotes fail).
 
+## Layout
 ```
 Source/BanditBaller/
-  Core/        GameMode, GameState, PlayerState, PlayerController, character base, round flow
-  Combat/      weapons, projectiles, hit/damage plumbing
-  Abilities/   GAS: AbilitySystemComponent, AttributeSets, GameplayAbilities, GameplayEffects
-  Economy/     cash, rewards, payouts
-  Market/      shop, inventory offers, purchasing
-  Casino/      casino games and odds
-  AI/          enemy AI controllers, StateTree tasks/conditions, spawners
-  UI/          CommonUI / UMG widgets (C++ bases)
-  Tests/       automation tests (editor-only, PIE-based)
-  Variant_*/   template sample code (Combat / Platforming / SideScrolling) — reference only
-
+  Core/       GameMode (round loop, run seed, area travel), GameState, PlayerState, PlayerController,
+              character, settings data classes, run random/stats, debug library + cheat commands
+  Abilities/  GAS: ASC, AttributeSet, tags, abilities, effects, ability sets
+  Combat/     weapons, health/death component, target dummy, hit camera shake
+  AI/         enemies, AI controller, StateTree tasks/builder, spawn finder, wave director, spawn telegraph
+  Economy/    cash pickups (actor, pool subsystem, settings)
+  UI/         UMG C++ bases (HUD, death screen, ability icon, enemy health bar)
+  Tests/      GSGameplayTests.cpp (editor-only, PIE-based)
+  Market/, Casino/   planned (not created yet)
+  Variant_*/  template sample code, reference only
 Content/BanditBaller/
-  Maps, Characters, Weapons, Enemies, Items, Casino, UI, Materials, VFX, Audio, Data
-Content/Python/
-  init_unreal.py + banditballer_toolset/   project MCP toolset (registered at editor startup)
+  Core (framework BPs), Abilities (GA_/GE_/ability sets), Data (DA_/DT_ tuning), Enemies, Weapons, Input,
+  UI (WBP_), Materials, Maps, Characters
+Content/Python/   init_unreal.py + banditballer_toolset/ (project MCP toolset; restart the editor after edits)
+docs/PROGRESS.md  progress log and reference
 ```
 
-## Game systems (so far)
-- **Player**: `AGSCharacter` (fast movement, slide, dash) with its ASC on `AGSPlayerState`
-  (`UGSAbilitySystemComponent`, input-tag activation). Stats in `UGSAttributeSet`: Health, MaxHealth, MoveSpeed,
-  Damage, FireRate, PickupRadius (+ IncomingDamage meta attribute); starting values from `GE_InitPlayerStats`
-  (PickupRadius 300 cm). Death/restart via `UGSHealthComponent` + `AGSGameMode`.
-- **Weapons**: `UGSWeaponData` assets (`Content/BanditBaller/Weapons`: DA_Rifle, DA_Pistol, DA_BanditCarbine),
-  `UGSWeaponComponent` (2 slots, ammo), GA_Fire (hitscan on Visibility) / GA_Reload / GA_SwapWeapon.
-- **Damage**: always GE_Damage (`UGSDamageEffect`) with SetByCaller `Data.Damage`; blocked by `State.Invulnerable`
-  (dash i-frames, gs.God) and `State.Dead`.
-- **Enemies**: `AGSEnemyCharacter` (own ASC + UGSAttributeSet) configured by `UGSEnemyData`
-  (`Content/BanditBaller/Enemies`: DA_Enemy_MeleeBandit, DA_Enemy_RangedBandit). `AGSEnemyAIController` runs the
-  data's StateTree (ST_MeleeBandit, ST_RangedBandit), generated from code with
-  `gs.Editor.BuildEnemyStateTree [melee|ranged|all]`. Abilities GA_MeleeAttack / GA_EnemyFire.
-- **Areas**: `L_Town_Graybox` (persistent; combat, NavMesh, `EnemySpawn` points, plaza Target Points `TownReturn`
-  and `MarketPortalSpot`; the old plaza casino/stall boxes are untagged `Cover_*`) and the Market District sublevel
-  `L_MarketDistrict_Graybox` (Blueprint-streamed `ULevelStreamingDynamic`, unloaded by default, centred at
-  X=+200000): walled 50x50 m square, `Casino` building, 4 `MarketStall`s, Target Points `MarketArrival` /
-  `MarketExitPortalSpot`, warm post-process tint, no NavMesh, no spawns. `AGSGameState::CurrentArea`
-  (`EGSArea`), `bMarketOpenThisRound`; round phases include `MarketDecision` and `MarketVisit`.
-  To edit the district with MCP: `gs.Editor.MarketDistrictLevel edit`, place actors, then `... persistent` and save.
-- **Round loop**: `AGSGameMode` state machine over `EGSRoundPhase`:
-  PreRound → Combat → RoundClear → MarketDecision → (MarketVisit) → PreRound with round + 1. Starts round 1 on
-  `StartPlay`. Every change goes through `SetPhase()` (logs `Round N: Old -> New`); `AdvancePhase()` holds the
-  transition table. Timings in `UGSRoundSettings` (`Content/BanditBaller/Data/DA_RoundSettings`, set on BP_GSGameMode):
-  PreRound 3 s, Combat safety fallback 180 s, RoundClear 4 s. Combat ends when the round's wave is cleared (the
-  timer only fires as a safety net and logs a warning). MarketDecision always closes the market for now. `AGSGameState` replicates RoundNumber, RoundPhase, PhaseEndTime
-  (server clock; `GetPhaseTimeRemaining()`), and fires `OnPhaseChanged` / `OnRoundChanged` on server and clients.
-- **Run seed**: `AGSGameMode` owns a seeded `FRandomStream`, chosen at run start (`-GSSeed=N` launch arg, else
-  random) and logged as `Run started: seed N (source)`; `gs.Run.Seed <N>` restarts the run with that seed.
-  All gameplay rolls go through `UGSRunRandom` (`Core/GSRunRandom.h`: RandRange, FRandRange, FRand, RandBool,
-  RollChance, VRandCone). Currently used for enemy speed variance, ranged reposition, enemy shot spread,
-  gs.Spawn positions and cash drop scatter.
-- **Run stats**: `UGSRunStats` component on `AGSGameState` (replicated): rounds cleared (Combat → RoundClear),
-  kills total and per enemy type (enemies killed by players), cash earned (collected pickups) / spent,
-  damage dealt/taken (party totals, health actually removed, fed by `UGSAttributeSet` →
-  `AGSGameMode::HandleDamageApplied`), run time. Run seed is replicated on the GameState too.
-- **Spawn locations**: `UGSSpawnLocationFinder::FindSpawnLocations(PC, Count)` (`AI/`) is used by all round
-  spawns and gs.Spawn. Settings in `UGSSpawnSettings` (`Data/DA_SpawnSettings`, set on BP_GSGameMode): ring
-  MinRadius 12 m / MaxRadius 25 m, MinSpacing 2 m, MaxAttempts 20, bPreferOffScreen. Per point: random ring
-  point (run stream) → NavMesh projection (town only) → reject if outside the ring, unreachable from the player
-  (also catches NavMesh islands on roofs/crates), closer than MinSpacing to another chosen point, or visible to
-  a player (first half of the attempts only; behind cover counts as off-screen). All attempts fail → farthest
-  on-NavMesh `EnemySpawn` Target Point (warning). Refuses in the Market District. Logs a per-call summary
-  (`SpawnLocationFinder: N requested: ring / fallback / failed | attempts | rejection reasons`).
-- **Waves**: `UGSWaveDirector` component on `AGSGameMode` (`AI/GSWaveDirector.*`).
-  - Rounds with a `Data/DT_Waves` row (`FGSWaveRow`, `Round1`..`Round5`): list of {EnemyData, Count},
-    SpawnInterval, SpawnBatchSize.
-  - Rounds past the last row are **generated** from a budget in `Data/DA_WaveSettings` (`UGSWaveSettings`):
-    Budget = BudgetBase 5 + BudgetPerRound 2.5 × round (or `BudgetCurve` if it has keys). The director buys random
-    unlocked, affordable enemies from `EnemyPool` (run stream) using each `UGSEnemyData`'s `SpawnCost` / `MinRound`
-    (MeleeBandit 1 / round 1, RangedBandit 2 / round 2); generated waves spawn GeneratedBatchSize 3 every 1.5 s.
-  - The list is shuffled with the run stream; spawns use `UGSSpawnLocationFinder` around a random living player.
-  - `MaxAliveEnemies` 30 (alive + telegraphing; `gs.Wave.MaxAlive <N>` overrides): extra spawns wait for room.
-  - Each spawn shows an `AGSSpawnTelegraph` ground disc (replicated, `TelegraphMaterial`, grows over
-    `SpawnTelegraphTime` 0.75 s) before the enemy appears.
-  - Tracks spawned / killed / alive / pending / remaining (mirrored on `AGSGameState`: WaveEnemiesTotal / Remaining /
-    Alive) and ends Combat when everything has spawned and died. Leaving Combat early stops the wave, cancels
-    telegraphs and removes leftovers. `[wave]` logs per batch (distance, ON-SCREEN, FALLBACK), cap hits, and a
-    per-round summary (time, peak alive, closest spawn).
-  - Enemies are no longer placed in the level; rounds spawn them.
-- **Enemy difficulty**: `UGSDifficultyCurve` (`Data/DA_DifficultyCurve`, set on BP_GSGameMode) has
-  `HealthMultiplierByRound` / `DamageMultiplierByRound` curves (linear keys; Health 1→x1.0, 5→x1.4, 10→x2.0,
-  20→x3.5, 30→x5.0; Damage 1→x1.0, 5→x1.15, 10→x1.35, 20→x1.8, 30→x2.3; linear extrapolation past 30). When an
-  enemy initializes (server), `AGSGameMode::ApplyEnemyRoundScaling` applies `GE_EnemyRoundScaling`
-  (`UGSEnemyRoundScalingEffect`: infinite, MultiplyCompound on MaxHealth / Damage from SetByCaller
-  `Data.HealthMultiplier` / `Data.DamageMultiplier`) and fills Health. Base stats in UGSEnemyData stay untouched;
-  the Damage attribute scales melee AttackDamage and ranged weapon Damage. `AGSGameState` replicates the round's
-  `EnemyHealthMultiplier` / `EnemyDamageMultiplier` (shown by gs.Debug.Round).
-- **Cash pickups** (Megabonk-style, `Economy/`): when an enemy dies, `AGSGameMode::HandleEnemyKilled` asks
-  `UGSCashPickupSubsystem` (world subsystem, server) to drop its `UGSEnemyData::CashValue` (Melee $10, Ranged $15)
-  as `AGSCashPickup` actors. Tuning in `UGSCashSettings` (`Data/DA_CashSettings`, set on BP_GSGameMode):
-  - Split into round(value / TargetPieceValue 4) pieces, clamped to MinPieces 2..MaxPieces 6 (sum is exact);
-    pieces worth >= BillThreshold 4 are green bills (Cube), smaller ones gold coins (Cylinder)
-    (`Materials/MI_CashCoin`, `MI_CashBill`).
-  - Scattered 40–140 cm around the body (run stream), tossed in an arc (0.35 s), stopped short of walls, resting
-    25 cm above the floor.
-  - A living player whose `PickupRadius` covers a piece pulls it in (400 → 3000 cm/s, accel 3000); within 80 cm it is
-    collected through `AGSGameMode::AwardCash` → `AGSPlayerState::AddCash` + run stats CashEarned +
-    `ClientNotifyCashCollected` ("+$N" popup).
-  - Uncollected pieces expire after Lifetime 20 s (`gs.Cash.Lifetime <s>` overrides) and blink for the last 4 s.
-  - Entering RoundClear sends every piece on the ground to the nearest living player (`VacuumAll`); dead players
-    collect nothing.
-  - Pooled: PoolPrewarm 48 created on the first drop, hidden + reused (grows if needed); a new run releases all.
-  - Replicated (movement + state); spin / bob / blink are cosmetic on every machine.
-- **HUD**: `UGSHUDWidget` (WBP_HUD) — health, weapon/ammo, cash counter `CashText` (top right, bound to
-  `AGSPlayerState::OnCashChanged`, which fires on server and clients via `OnRep_Cash`; punches on gain), painted damage
-  numbers and green "+$N" cash popups (pickups collected within 0.35 s merge into one popup).
-- **Collision gotcha**: player capsule + mesh ignore `ECC_Visibility`; enemy capsules block it (player hitscan).
-  Enemy shots/LOS use `AGSEnemyCharacter::GetShotObjectQueryParams()` (WorldStatic/Dynamic/Pawn).
-
-## Debug & tuning tools
-Console commands (non-Shipping, cheat; run on the server — clients forward via `ServerExecDebugCommand`).
-Implementation is shared in `UGSDebugLibrary` (`Core/GSDebugLibrary.*`, `Core/GSCheatCommands.cpp`).
-
-| Command | Effect |
-|---|---|
-| `gs.Spawn <EnemyDataName> [Count=1]` | spawn enemies around the player via `UGSSpawnLocationFinder` (`MeleeBandit`, `RangedBandit`, or full `DA_Enemy_*` name) |
-| `gs.Wave.MaxAlive <N>` | override the max-enemies-alive cap (0 = use DA_WaveSettings) |
-| `gs.Debug.Spawns 1` | draw the spawn ring (min cyan, max blue) and chosen points (green = ring, yellow = fallback) for 8 s |
-| `gs.God [0\|1]` | toggle/set damage immunity (adds one `State.Invulnerable` count) |
-| `gs.KillAll` | kill all living enemies through GE_Damage (credited to the player) |
-| `gs.GiveWeapon <WeaponDataName>` | equip a weapon with a full mag (`Pistol`, `Rifle`, `BanditCarbine`); replaces the equipped one if both slots are full |
-| `gs.SetAttr <Attribute> <Value>` | set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius) |
-| `gs.Cash.Lifetime <s>` | cvar: seconds uncollected cash pickups stay (0 = DA_CashSettings Lifetime) |
-| `gs.Perf [Seconds=5]` | log avg/p95/max frame time, game thread and GPU time, enemies alive |
-| `gs.Run.Seed [N]` | print the run seed, or restart the run (fresh stream + stats, round 1) with seed N |
-| `gs.Run.Stats` | print run stats to the log and screen (reads the local replicated copy; works on clients) |
-| `gs.Round.Skip` | advance to the next round phase |
-| `gs.Round.Set <N>` | jump to round N and restart it from PreRound |
-| `gs.Round.Pause [0\|1]` | freeze / resume the phase timer (the current phase never times out) |
-| `gs.Debug.Round 1` | on-screen `[Server/Client] Round N \| Phase \| time left \| Area \| Market open` + wave counts + `Enemy HP xN DMG xN` (from each machine's replicated GameState) |
-| `gs.Market.Teleport` / `gs.Market.Return` | temporary: travel the party to the Market District and back (`AGSGameMode`); M2's round flow will call these |
-| `gs.Editor.MarketDistrictLevel create\|edit\|persistent` | editor only: create the district sublevel / make it (or the persistent level) current so MCP places actors there |
-| `gs.Damage.Self <n>` | damage the local player through GAS |
-| `gs.Debug.DamageLog 1` | log every health loss: `[dmg] victim took N from X (health) at t=` |
-| `gs.Debug.Weapons 1` | debug-draw shots; log enemy shots (`[shot]`) |
-| `GSFire`, `GSPress <InputTag>`, `GSAimAt X Y Z` | drive player input from the console (exec on the controller) |
-
-Typing console commands via MCP: `SlateInspectorToolset` → `Observe(ref "")`, `Snapshot` to find the textbox
-right after the "Cmd" combobox (`tb2`/`tb3`, changes per session), then `Click` it and `Type <ref> "<command>" submit=true`.
-Refs reset after an editor restart. Several commands in a row: one `ProgrammaticToolset.execute_tool_script`.
-
-**Project MCP toolset** `banditballer_toolset.toolsets.BanditBallerTools` (needs PIE running):
-- `spawn_enemies(type, count=1)` → spawned actor names (same rules as round spawns)
-- `get_player_attributes()` → attribute values + Ammo, Cash, God, Invulnerable, Dead
-- `list_enemies_alive()` → name, type, health, location, distance to player, attacking (nearest first)
-
-Source: `Content/Python/banditballer_toolset/` (Python `ToolsetDefinition` wrapping `UGSDebugLibrary`);
-registered by `Content/Python/init_unreal.py`, so restart the editor after editing it.
-
-PIE notes: `SceneTools.remove_from_scene` is refused during PIE (teleport below KillZ instead). With the editor
-in the background, `EditorPerformanceSettings.bThrottleCPUWhenNotForeground` drops PIE to ~3 FPS, which skews
-timings; turn it off temporarily (in memory) for perf checks.
-
-Blueprint defaults via MCP: after `ObjectTools.set_properties` on a Blueprint CDO (e.g.
-`BP_GSGameMode.Default__BP_GSGameMode_C`), run `BlueprintTools.compile_blueprint` before saving/PIE. Spawned
-instances only copy the CDO values that differed at the last compile, so without it PIE sees the old value.
-
-## Automation tests
-`Source/BanditBaller/Tests/GSGameplayTests.cpp` (editor-only). Each test starts PIE in the current editor map
-(L_Town_Graybox), waits for the player, removes enemies, runs, and ends PIE. **Stop PIE before running.**
-
-- `BanditBaller.GAS.DamageReducesHealth`
-- `BanditBaller.GAS.HealthClampsToZeroAndMax`
-- `BanditBaller.GAS.DeathAddsStateDead`
-- `BanditBaller.Weapons.FireConsumesAmmoReloadRefills`
-- `BanditBaller.Abilities.DashInvulnerabilityBlocksDamage`
-- `BanditBaller.Map.TownAndMarketDistrict` (town tags/navmesh, district sublevel contents + no navmesh,
-  teleport there and back, spawning refused in the district)
-- `BanditBaller.Round.PhaseLoop` (round 1 PreRound on start, PreRound timer → Combat, skips through
-  RoundClear/MarketDecision into round 2, gs.Round.Set)
-- `BanditBaller.Player.RestartRestoresInput` (die → death screen takes UI-only input → restart → game input back)
-- `BanditBaller.Spawn.LocationFinder` (12 points at the town center: on NavMesh, reachable, in the ring, spaced; same seed → same points; none in the Market District)
-- `BanditBaller.Round.WaveDirector` (Round1 wave size matches DT_Waves, killing the wave ends Combat on its own, kills in run stats, skipping removes leftovers)
-- `BanditBaller.Round.WaveBudget` (seeded purchase within budget, MinRound respected, alive cap with telegraphs, waiting spawns resume after kills)
-- `BanditBaller.Round.DifficultyScaling` (round 1 = base stats; round 10 MaxHealth / Damage = base x curve, full health, base values untouched; GameState multipliers)
-- `BanditBaller.Balance.TimeToKill` (balance report: rounds 1/5/10 x melee/ranged x rifle/pistol through the real fire path; asserts shots-to-kill, logs `[ttk]` lines with measured and ideal time)
-- `BanditBaller.Run.SeedAndStats` (same seed replays the same rolls, restart resets stats, kills per type,
-  damage dealt/taken without overkill, rounds cleared)
-- `BanditBaller.Economy.CashPickups` (split sums exactly; drop out of reach stays on the ground; walking into
-  PickupRadius collects it into Cash, CashEarned and the HUD counter + popup; second drop reuses the pool;
-  RoundClear vacuums everything; short gs.Cash.Lifetime → pieces blink, expire unpaid and return to the pool)
-
-Run via MCP: `AutomationTestToolset` → `DiscoverTests`, then `RunTestsByFilter("StartsWith:BanditBaller")`.
-Or in the editor console: `Automation RunTests BanditBaller`.
-
-Enabled plugins of note: ModelContextProtocol + AllToolsets (Unreal MCP), GameplayAbilities,
-StateTree, GameplayStateTree, EnhancedInput, CommonUI, ModelingToolsEditorMode, PCG.
-No online subsystems yet.
-
-## Available MCP toolsets
-The server runs in tool-search mode: it exposes only `list_toolsets`, `describe_toolset` and `call_tool`.
-Call `describe_toolset` first to get the schemas, then call `call_tool` with `toolset_name` = the full toolset name
-and `tool_name` = the **bare** tool name (e.g. `get_current_level`, not the prefixed form).
-The editor must be open; the server listens on 127.0.0.1:8000 once startup finishes.
-
-- **Level / actors**: `editor_toolset…SceneTools` (current level, load level, spawn/find/remove actors, outliner folders),
-  `ActorTools` (transforms, components, attachment), `PrimitiveTools`
-- **Assets & objects**: `AssetTools`, `ObjectTools` (list/get/set properties, class discovery),
-  `StaticMeshTools`, `SkeletalMeshTools`, `TextureTools`, `PhysicsToolsets.PhysicsAssetToolset`
-- **Blueprints**: `BlueprintTools`
-- **Data**: `DataAssetTools`, `DataTableTools`, `CurveTableTools`, `StringTableTools`, `DataRegistryToolset`,
-  `GameplayTagsToolset`
-- **GAS**: `GASToolsets.AttributeSetToolset`, `GameplayCueToolset`, `AbilitySystemInspectorToolset` (runtime ASC state)
-- **AI**: `state_tree_toolset…StateTreeTools`, `aimodule_toolset…BehaviorTreeTools`, `WorldConditionsToolset`
-  (these are inspect-only)
-- **UI**: `UMGToolSet` (widget trees; use ObjectTools list_properties before set_properties),
-  `SlateInspectorToolset` (drive the editor UI)
-- **Materials**: `MaterialTools`, `MaterialInstanceTools`
-- **PCG**: `PCGToolset.PCGToolset` (graphs), `PCGSpatialToolset`
-- **Niagara / VFX**: `NiagaraToolsets.*` (System, Component, Blueprint, Assets, Info)
-- **Animation / Sequencer**: `animation_toolset…` (ControlRig, Sequencer, Keyframing, ControlRig-in-Sequencer,
-  Outliner, Conditions, CustomBindings, ImportExport), `DataflowAgent`
-- **Editor / automation**: `EditorToolset.EditorAppToolset` (cvars, selection, viewport, PIE control),
-  `EditorToolset.LogsToolset` (read the output log), `AutomationTestToolset` (run tests),
-  `ConfigSettingsToolset` (ini settings), `PluginToolset`, `GameFeaturesToolset`
-- **Misc**: `SemanticSearchToolset` (asset search), `ProgrammaticToolset` (batch tool calls via sandboxed Python),
-  `ToolsetRegistry.AgentSkillToolset`, `conversation_toolset…ConversationTools`
-- **Project**: `banditballer_toolset.toolsets.BanditBallerTools` (spawn enemies, player attributes, live enemies;
-  see Debug & tuning tools)
-
 ## Rules
-- **Gameplay logic in C++; tuning in data.** Numbers (damage, prices, odds, spawn waves) live in
-  Data Assets / DataTables under `Content/BanditBaller/Data`, never hard-coded.
-- **Server-authoritative.** Everything that changes game state runs on the server
-  (authority checks, Server RPCs from clients). Clients only predict/cosmetic.
-- **Replicated state lives in GameState / PlayerState** (round, timers, cash, team state),
-  not in GameMode (server-only) or widgets.
-- **All gameplay randomness uses the run stream** via `UGSRunRandom` (waves, spawn positions, drops, market
-  access, casino, AI choices), never `FMath::Rand*`/`FRandRange`/`VRandCone`. Only exceptions: local cosmetics
-  and the player's own predicted weapon spread/recoil.
-- **Everything goes through GAS**: stats, buffs/debuffs, abilities, and item effects are
-  AttributeSets, GameplayEffects, and GameplayAbilities with GameplayTags.
-- **Combat only in the town.** Enemies spawn, path and fight only in L_Town_Graybox (NavMesh covers the town only).
-  The Market District is safe: no enemy spawns, no NavMesh, enemies ignore players while
+- **Gameplay logic in C++; tuning in data.** Numbers (damage, prices, odds, spawn waves) live in Data Assets /
+  DataTables under `Content/BanditBaller/Data` (settings assets are set on `BP_GSGameMode`), never hard-coded.
+- **Server-authoritative.** Everything that changes game state runs on the server (authority checks, Server RPCs
+  from clients). Clients only predict or do cosmetics.
+- **Replicated state lives in GameState / PlayerState** (round, timers, cash, team state), not in GameMode
+  (server-only) or widgets.
+- **All gameplay randomness uses the run stream** via `UGSRunRandom` (waves, spawn positions, drops, market access,
+  casino, AI choices), never `FMath::Rand*` / `FRandRange` / `VRandCone`. Only exceptions: local cosmetics and the
+  player's own predicted weapon spread/recoil.
+- **Everything goes through GAS**: stats, buffs/debuffs, abilities and item effects are AttributeSets,
+  GameplayEffects and GameplayAbilities with GameplayTags. Damage always goes through `GE_Damage`
+  (SetByCaller `Data.Damage`).
+- **Combat only in the town.** Enemies spawn, path and fight only in `L_Town_Graybox` (NavMesh covers the town
+  only). The Market District is safe: no spawns, no NavMesh, enemies ignore players while
   `AGSGameState::CurrentArea != Town`. Shop and casino actors live only in the Market District.
-- **Area travel is server-driven** (`AGSGameMode::TravelToMarketDistrict` / `ReturnToTown`): the server
-  streams the Market District sublevel in/out, moves the whole party, and sets the replicated `CurrentArea`.
-  Whether the market opens this round (`bMarketOpenThisRound`) is decided in the MarketDecision phase (M2).
-- **Tooling split**: use Unreal MCP (`unreal-mcp`, http://127.0.0.1:8000/mcp, see `.mcp.json`)
-  for editor and asset work; use file edits for C++.
-- **Make one MCP call at a time** — wait for each result before the next.
-- **Build after every C++ change** with the command above; fix errors before moving on.
+- **Area travel is server-driven** (`AGSGameMode::TravelToMarketDistrict` / `ReturnToTown`). Whether the market
+  opens is decided in the MarketDecision phase.
+- **Tooling split**: Unreal MCP (`unreal-mcp`, http://127.0.0.1:8000/mcp, see `.mcp.json`) for editor and asset
+  work; file edits for C++.
+- **Make one MCP call at a time**; wait for each result before the next (batch with `ProgrammaticToolset` instead).
+- **Build after every C++ change**; fix errors before moving on.
 - **Run the automation tests** (`StartsWith:BanditBaller`) after gameplay changes; add a test for new core rules.
 - **Commit after each working slice** (builds + works in editor). Never push without asking.
+
+## Conventions
+- C++ classes use the `GS` prefix (`AGSGameMode`, `UGSWaveDirector`); asset prefixes `BP_`, `DA_`, `DT_`, `GA_`,
+  `GE_`, `ST_`, `WBP_`, `M_`, `MI_`, `IA_`, `IMC_`.
+- Tuning lives in a `UPrimaryDataAsset` subclass (`UGS…Settings`, `Const`), with an asset in `Data/` assigned on
+  `BP_GSGameMode` or the owning Blueprint.
+- Native gameplay tags only, in `Abilities/GSGameplayTags.*`.
+- Debug commands: `gs.` prefix, cheat-only, implemented in `UGSDebugLibrary` and registered in
+  `GSCheatCommands.cpp`. Clients forward them through `ServerExecDebugCommand`. Debug toggles are `gs.Debug.*`
+  cvars.
+- Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`).
+- Tests: PIE-based latent tests in `Tests/GSGameplayTests.cpp`, built from the `GSTests` helpers (`BeginPIE`,
+  `WaitUntil`, `Step`, `EndPIE`, …). When appending, keep the closing `#endif` last.
+- Commit messages: short imperative title, then a body listing what changed.
+
+## Unreal MCP notes
+- Tool-search mode: `list_toolsets`, `describe_toolset` (get schemas first), `call_tool` with the full
+  `toolset_name` and the **bare** `tool_name`.
+- Useful toolsets: `ObjectTools` (get/set properties; property names from `list_properties`), `AssetTools`
+  (save_assets), `BlueprintTools`, `DataAssetTools`, `DataTableTools`, `MaterialInstanceTools`, `UMGToolSet`,
+  `EditorToolset.EditorAppToolset` (StartPIE/StopPIE, CaptureEditorImage), `EditorToolset.LogsToolset`,
+  `AutomationTestToolset`, `SlateInspectorToolset`, `ProgrammaticToolset`, project
+  `banditballer_toolset.toolsets.BanditBallerTools`.
+- After `ObjectTools.set_properties` on a Blueprint CDO (e.g. `BP_GSGameMode.Default__BP_GSGameMode_C`), run
+  `BlueprintTools.compile_blueprint` before saving/PIE. Otherwise spawned instances keep the old value.
+- Console commands: `SlateInspectorToolset` → `Observe(ref "")`, `Snapshot` to find the textbox right after the
+  "Cmd" combobox (`tb2`/`tb3`, changes per session), then `Click` + `Type <ref> "<command>" submit=true`. Send
+  several at once with one `ProgrammaticToolset.execute_tool_script`.
+- PIE: `remove_from_scene` is refused (teleport below KillZ instead). Round 1 Combat starts 3 s in, so send
+  `gs.God 1` / `gs.Round.Pause 1` right after starting PIE. With the editor in the background PIE runs at ~3 FPS:
+  set `/Script/UnrealEd.Default__EditorPerformanceSettings` `bThrottleCPUWhenNotForeground` false in memory for
+  timing work, then restore it.
+- `CaptureViewport` shows the editor world, not PIE; use `CaptureEditorImage` (base64 PNG; decode with PowerShell).
+- Tests: stop PIE, then `AutomationTestToolset` → `DiscoverTests`, `RunTestsByFilter("StartsWith:BanditBaller")`
+  (or `Automation RunTests BanditBaller` in the editor console).
+
+Enabled plugins of note: ModelContextProtocol + AllToolsets, GameplayAbilities, StateTree, GameplayStateTree,
+EnhancedInput, CommonUI, ModelingToolsEditorMode, PCG. No online subsystems yet.
