@@ -6,6 +6,8 @@
 #include "GameFramework/GameStateBase.h"
 #include "GSGameState.generated.h"
 
+class UGSRunStats;
+
 /**
  * Phase of the round loop run by AGSGameMode:
  * PreRound -> Combat -> RoundClear -> MarketDecision -> (MarketVisit) -> PreRound (next round).
@@ -101,7 +103,24 @@ public:
 	/** "Round 2 | Combat | 41.3 s" for debug displays and logs. */
 	FString GetRoundDebugString() const;
 
+	/** Party-wide stats for the current run (replicated). */
+	UFUNCTION(BlueprintPure, Category = "Run")
+	UGSRunStats* GetRunStats() const { return RunStats; }
+
+	/** Seed of the current run (replicated so clients can show / report it). */
+	UFUNCTION(BlueprintPure, Category = "Run")
+	int32 GetRunSeed() const { return RunSeed; }
+
+	/** Server only (AGSGameMode). */
+	void SetRunSeed(int32 InSeed) { RunSeed = InSeed; }
+
 protected:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Run")
+	TObjectPtr<UGSRunStats> RunStats;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Replicated, Category = "Run")
+	int32 RunSeed = 0;
+
 	/** Current round, 0 before the first round starts. */
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, ReplicatedUsing = OnRep_RoundNumber, Category = "Round")
 	int32 RoundNumber = 0;

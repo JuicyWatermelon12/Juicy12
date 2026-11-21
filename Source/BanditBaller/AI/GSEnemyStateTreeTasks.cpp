@@ -6,6 +6,7 @@
 #include "GSEnemyCharacter.h"
 #include "GSEnemyData.h"
 #include "GSGameplayTags.h"
+#include "GSRunRandom.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "NavigationSystem.h"
@@ -373,9 +374,9 @@ EStateTreeRunStatus FGSStateTreeTask_Reposition::EnterState(FStateTreeExecutionC
 	// Current bearing from the target, then step around it by a random angle (random side first).
 	const FVector FromTarget = Enemy->GetActorLocation() - Target->GetActorLocation();
 	const float CurrentYaw = FMath::RadiansToDegrees(FMath::Atan2(FromTarget.Y, FromTarget.X));
-	const float Step = FMath::FRandRange(EnemyData->RepositionAngleMin, EnemyData->RepositionAngleMax);
-	const float Radius = FMath::FRandRange(EnemyData->PreferredRangeMin, FMath::Max(EnemyData->PreferredRangeMin, EnemyData->PreferredRangeMax * 0.9f));
-	const float Side = FMath::RandBool() ? 1.f : -1.f;
+	const float Step = UGSRunRandom::FRandRange(Enemy, EnemyData->RepositionAngleMin, EnemyData->RepositionAngleMax);
+	const float Radius = UGSRunRandom::FRandRange(Enemy, EnemyData->PreferredRangeMin, FMath::Max(EnemyData->PreferredRangeMin, EnemyData->PreferredRangeMax * 0.9f));
+	const float Side = UGSRunRandom::RandBool(Enemy) ? 1.f : -1.f;
 
 	for (const float Sign : { Side, -Side })
 	{

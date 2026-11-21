@@ -113,7 +113,7 @@ void UGSHUDWidget::AddDamageNumber(const FVector& WorldLocation, float Damage, b
 	Entry.WorldLocation = WorldLocation;
 	Entry.Damage = Damage;
 	Entry.Age = 0.f;
-	Entry.JitterX = FMath::FRandRange(-12.f, 12.f);
+	Entry.JitterX = FMath::FRandRange(-12.f, 12.f); // cosmetic, local only (not a gameplay roll)
 	Entry.bCritical = bCritical;
 	Entry.bActive = true;
 }

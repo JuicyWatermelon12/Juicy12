@@ -67,6 +67,15 @@ Content/Python/
   PreRound 3 s, Combat fallback 60 s, RoundClear 4 s. For now Combat ends on its timer and MarketDecision always
   closes the market and starts the next round. `AGSGameState` replicates RoundNumber, RoundPhase, PhaseEndTime
   (server clock; `GetPhaseTimeRemaining()`), and fires `OnPhaseChanged` / `OnRoundChanged` on server and clients.
+- **Run seed**: `AGSGameMode` owns a seeded `FRandomStream`, chosen at run start (`-GSSeed=N` launch arg, else
+  random) and logged as `Run started: seed N (source)`; `gs.Run.Seed <N>` restarts the run with that seed.
+  All gameplay rolls go through `UGSRunRandom` (`Core/GSRunRandom.h`: RandRange, FRandRange, FRand, RandBool,
+  RollChance, VRandCone). Currently used for enemy speed variance, ranged reposition, enemy shot spread and
+  gs.Spawn positions.
+- **Run stats**: `UGSRunStats` component on `AGSGameState` (replicated): rounds cleared (Combat → RoundClear),
+  kills total and per enemy type (enemies killed by players), cash earned/spent (APIs ready for the economy),
+  damage dealt/taken (party totals, health actually removed, fed by `UGSAttributeSet` →
+  `AGSGameMode::HandleDamageApplied`), run time. Run seed is replicated on the GameState too.
 - **Collision gotcha**: player capsule + mesh ignore `ECC_Visibility`; enemy capsules block it (player hitscan).
   Enemy shots/LOS use `AGSEnemyCharacter::GetShotObjectQueryParams()` (WorldStatic/Dynamic/Pawn).
 
@@ -82,6 +91,8 @@ Implementation is shared in `UGSDebugLibrary` (`Core/GSDebugLibrary.*`, `Core/GS
 | `gs.GiveWeapon <WeaponDataName>` | equip a weapon with a full mag (`Pistol`, `Rifle`, `BanditCarbine`); replaces the equipped one if both slots are full |
 | `gs.SetAttr <Attribute> <Value>` | set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate) |
 | `gs.Perf [Seconds=5]` | log avg/p95/max frame time, game thread and GPU time, enemies alive |
+| `gs.Run.Seed [N]` | print the run seed, or restart the run (fresh stream + stats, round 1) with seed N |
+| `gs.Run.Stats` | print run stats to the log and screen (reads the local replicated copy; works on clients) |
 | `gs.Round.Skip` | advance to the next round phase |
 | `gs.Round.Set <N>` | jump to round N and restart it from PreRound |
 | `gs.Debug.Round 1` | on-screen `[Server/Client] Round N \| Phase \| time left \| Area \| Market open` (from each machine's replicated GameState) |
@@ -120,6 +131,8 @@ timings; turn it off temporarily (in memory) for perf checks.
   teleport there and back, spawning refused in the district)
 - `BanditBaller.Round.PhaseLoop` (round 1 PreRound on start, PreRound timer → Combat, skips through
   RoundClear/MarketDecision into round 2, gs.Round.Set)
+- `BanditBaller.Run.SeedAndStats` (same seed replays the same rolls, restart resets stats, kills per type,
+  damage dealt/taken without overkill, rounds cleared)
 
 Run via MCP: `AutomationTestToolset` → `DiscoverTests`, then `RunTestsByFilter("StartsWith:BanditBaller")`.
 Or in the editor console: `Automation RunTests BanditBaller`.
@@ -166,6 +179,9 @@ The editor must be open; the server listens on 127.0.0.1:8000 once startup finis
   (authority checks, Server RPCs from clients). Clients only predict/cosmetic.
 - **Replicated state lives in GameState / PlayerState** (round, timers, cash, team state),
   not in GameMode (server-only) or widgets.
+- **All gameplay randomness uses the run stream** via `UGSRunRandom` (waves, spawn positions, drops, market
+  access, casino, AI choices), never `FMath::Rand*`/`FRandRange`/`VRandCone`. Only exceptions: local cosmetics
+  and the player's own predicted weapon spread/recoil.
 - **Everything goes through GAS**: stats, buffs/debuffs, abilities, and item effects are
   AttributeSets, GameplayEffects, and GameplayAbilities with GameplayTags.
 - **Combat only in the town.** Enemies spawn, path and fight only in L_Town_Graybox (NavMesh covers the town only).

@@ -3,6 +3,7 @@
 #include "GSAttributeSet.h"
 #include "GameFramework/PlayerState.h"
 #include "GameplayEffectExtension.h"
+#include "GSGameMode.h"
 #include "GSPlayerController.h"
 #include "Net/UnrealNetwork.h"
 
@@ -59,6 +60,14 @@ void UGSAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 
 			const float OldHealth = GetHealth();
 			SetHealth(FMath::Clamp(OldHealth - LocalDamage, 0.f, GetMaxHealth()));
+
+			// Run stats: health actually removed (no overkill).
+			const float Applied = OldHealth - GetHealth();
+			const UWorld* World = GetWorld();
+			if (AGSGameMode* GameMode = World ? World->GetAuthGameMode<AGSGameMode>() : nullptr)
+			{
+				GameMode->HandleDamageApplied(Data.Target.GetAvatarActor(), LastDamageInstigator.Get(), Applied);
+			}
 
 			// TODO(crits): read a crit flag/multiplier from the spec (e.g. SetByCaller Data.Crit) once crits exist.
 			const bool bCritical = false;

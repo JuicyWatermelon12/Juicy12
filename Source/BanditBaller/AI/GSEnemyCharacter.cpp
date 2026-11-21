@@ -14,6 +14,7 @@
 #include "GSEnemyData.h"
 #include "GSEnemyHealthBarWidget.h"
 #include "GSHealthComponent.h"
+#include "GSRunRandom.h"
 #include "Components/StaticMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/StaticMesh.h"
@@ -301,7 +302,7 @@ void AGSEnemyCharacter::InitializeStats()
 
 	// Per-spawn speed variance so groups spread out.
 	const float Variance = EnemyData->MoveSpeedVariance;
-	const float Speed = EnemyData->MoveSpeed * FMath::FRandRange(1.f - Variance, 1.f + Variance);
+	const float Speed = EnemyData->MoveSpeed * UGSRunRandom::FRandRange(this, 1.f - Variance, 1.f + Variance);
 
 	UAbilitySystemComponent* ASC = AbilitySystemComponent;
 	ASC->SetNumericAttributeBase(UGSAttributeSet::GetMaxHealthAttribute(), EnemyData->MaxHealth);

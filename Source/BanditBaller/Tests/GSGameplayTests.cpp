@@ -27,6 +27,8 @@
 #include "GSGameplayTags.h"
 #include "GSGameState.h"
 #include "GSRoundSettings.h"
+#include "GSRunRandom.h"
+#include "GSRunStats.h"
 #include "NavigationSystem.h"
 #include "GSHealthComponent.h"
 #include "GSPlayerController.h"
@@ -538,6 +540,77 @@ bool FGSRoundPhaseLoopTest::RunTest(const FString& Parameters)
 		GameMode->SetRound(5);
 		TestEqual(TEXT("gs.Round.Set jumps to round 5"), GameState->GetRoundNumber(), 5);
 		TestTrue(TEXT("gs.Round.Set restarts at PreRound"), IsPhase(EGSRoundPhase::PreRound));
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Run seed + run stats
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRunSeedAndStatsTest, "BanditBaller.Run.SeedAndStats", GSTests::TestFlags)
+bool FGSRunSeedAndStatsTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		AGSGameState* GameState = GetGameState();
+		UGSRunStats* Stats = GameState ? GameState->GetRunStats() : nullptr;
+		AGSPlayerController* PC = GetPC();
+		if (!TestNotNull(TEXT("AGSGameMode"), GameMode) || !TestNotNull(TEXT("Run stats"), Stats) || !TestNotNull(TEXT("Player"), PC))
+		{
+			return;
+		}
+		TestTrue(TEXT("A seed was chosen at run start"), GameMode->GetRunSeed() != 0);
+
+		// Same seed -> same rolls through the helper.
+		auto Roll = [PC]()
+		{
+			TArray<int32> Values;
+			for (int32 Index = 0; Index < 8; ++Index)
+			{
+				Values.Add(UGSRunRandom::RandRange(PC, 0, 1000000));
+			}
+			return Values;
+		};
+		GameMode->RestartRunWithSeed(4242);
+		const TArray<int32> First = Roll();
+		GameMode->RestartRunWithSeed(4242);
+		const TArray<int32> Second = Roll();
+		TestTrue(TEXT("Same seed replays the same rolls"), First == Second);
+		TestEqual(TEXT("Seed replicated on GameState"), GameState->GetRunSeed(), 4242);
+		GameMode->RestartRunWithSeed(4243);
+		TestFalse(TEXT("A different seed gives different rolls"), Roll() == First);
+
+		// Restart resets stats.
+		GameMode->RestartRunWithSeed(4242);
+		TestEqual(TEXT("Kills reset"), Stats->GetTotalKills(), 0);
+		TestEqual(TEXT("Rounds cleared reset"), Stats->GetRoundsCleared(), 0);
+		TestEqual(TEXT("Round restarts at 1"), GameState->GetRoundNumber(), 1);
+
+		// Kill + damage dealt (player is the source).
+		AGSEnemyCharacter* Enemy = SpawnTestEnemy();
+		UAbilitySystemComponent* EnemyASC = Enemy ? Enemy->GetAbilitySystemComponent() : nullptr;
+		if (TestNotNull(TEXT("Spawned enemy"), EnemyASC))
+		{
+			const float EnemyMax = GetMaxHealth(EnemyASC);
+			ApplyDamage(EnemyASC, EnemyMax + 100.f, GetPlayerASC());
+			TestEqual(TEXT("Kill counted"), Stats->GetTotalKills(), 1);
+			TestEqual(TEXT("Kill counted per type"), Stats->GetKillsOf(TEXT("MeleeBandit")), 1);
+			TestEqual(TEXT("Damage dealt = health removed (no overkill)"), Stats->GetDamageDealt(), EnemyMax, 0.01f);
+		}
+
+		// Damage taken.
+		ApplyDamage(GetPlayerASC(), 10.f);
+		TestEqual(TEXT("Damage taken"), Stats->GetDamageTaken(), 10.f, 0.01f);
+
+		// Ending combat clears the round.
+		GameMode->AdvancePhase(); // PreRound -> Combat
+		GameMode->AdvancePhase(); // Combat -> RoundClear
+		TestEqual(TEXT("Round cleared counted"), Stats->GetRoundsCleared(), 1);
+		TestTrue(TEXT("Run time is running"), Stats->GetRunTime() >= 0.f);
 	});
 	EndPIE();
 	return true;

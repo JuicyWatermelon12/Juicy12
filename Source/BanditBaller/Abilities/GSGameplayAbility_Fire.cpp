@@ -116,6 +116,7 @@ void UGSGameplayAbility_Fire::FireShot(const FGameplayAbilityActorInfo* ActorInf
 	Controller->GetPlayerViewPoint(ViewLocation, ViewRotation);
 
 	const float SpreadDegrees = Character->IsAiming() ? WeaponData.ADSSpread : WeaponData.HipSpread;
+	// Not on the run stream (UGSRunRandom): spread is rolled wherever the shot is predicted, including clients.
 	const FVector AimDirection = FMath::VRandCone(ViewRotation.Vector(), FMath::DegreesToRadians(SpreadDegrees));
 
 	// Start the camera trace level with the pawn so objects between camera and pawn are ignored.

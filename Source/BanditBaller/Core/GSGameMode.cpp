@@ -8,6 +8,12 @@
 #include "GSPlayerController.h"
 #include "GSPlayerState.h"
 #include "GSRoundSettings.h"
+#include "GSEnemyCharacter.h"
+#include "GSEnemyData.h"
+#include "GSRunStats.h"
+#include "GameFramework/PlayerState.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #include "Engine/LevelStreaming.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -31,10 +37,100 @@ AGSGameMode::AGSGameMode()
 	DefaultPawnClass = AGSCharacter::StaticClass();
 }
 
+namespace
+{
+	/** A player pawn or player state (damage instigators can be either). */
+	bool IsPlayerActor(const AActor* Actor)
+	{
+		if (const APawn* Pawn = Cast<APawn>(Actor))
+		{
+			return Pawn->IsPlayerControlled();
+		}
+		return Actor && Actor->IsA<APlayerState>();
+	}
+
+	/** "MeleeBandit" from DA_Enemy_MeleeBandit; class name for anything without enemy data. */
+	FName GetEnemyTypeName(const AActor* Enemy)
+	{
+		if (const AGSEnemyCharacter* EnemyCharacter = Cast<AGSEnemyCharacter>(Enemy))
+		{
+			if (const UGSEnemyData* Data = EnemyCharacter->GetEnemyData())
+			{
+				FString Name = Data->GetName();
+				Name.RemoveFromStart(TEXT("DA_Enemy_"));
+				return FName(*Name);
+			}
+		}
+		return Enemy ? Enemy->GetClass()->GetFName() : NAME_None;
+	}
+}
+
 void AGSGameMode::HandleEnemyKilled(AActor* Enemy, AActor* Killer)
 {
 	UE_LOG(LogBanditBaller, Log, TEXT("OnEnemyKilled: %s killed by %s"), *GetNameSafe(Enemy), *GetNameSafe(Killer));
+
+	// Run stats count enemies the party killed.
+	if (UGSRunStats* Stats = GetRunStats(); Stats && IsPlayerActor(Killer))
+	{
+		Stats->RecordKill(GetEnemyTypeName(Enemy));
+	}
 	OnEnemyKilled.Broadcast(Enemy, Killer);
+}
+
+void AGSGameMode::HandleDamageApplied(AActor* Victim, AActor* DamageInstigator, float Amount)
+{
+	UGSRunStats* Stats = GetRunStats();
+	if (!Stats || Amount <= 0.f)
+	{
+		return;
+	}
+	if (IsPlayerActor(Victim))
+	{
+		Stats->AddDamageTaken(Amount);
+	}
+	else if (IsPlayerActor(DamageInstigator))
+	{
+		Stats->AddDamageDealt(Amount);
+	}
+}
+
+UGSRunStats* AGSGameMode::GetRunStats() const
+{
+	const AGSGameState* GS = GetGameState<AGSGameState>();
+	return GS ? GS->GetRunStats() : nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// Run seed
+// ---------------------------------------------------------------------------
+
+int32 AGSGameMode::MakeRandomSeed()
+{
+	const uint64 Mixed = FPlatformTime::Cycles64() ^ static_cast<uint64>(FDateTime::Now().GetTicks());
+	const int32 Seed = static_cast<int32>(GetTypeHash(Mixed) & 0x7FFFFFFF);
+	return Seed != 0 ? Seed : 1;
+}
+
+void AGSGameMode::StartRun(int32 Seed, const TCHAR* Source)
+{
+	RunSeed = Seed;
+	RunStream.Initialize(Seed);
+
+	if (AGSGameState* GS = GetGameState<AGSGameState>())
+	{
+		GS->SetRunSeed(Seed);
+		if (UGSRunStats* Stats = GS->GetRunStats())
+		{
+			Stats->ResetStats(GS->GetServerWorldTimeSeconds());
+		}
+	}
+	UE_LOG(LogBanditBaller, Log, TEXT("Run started: seed %d (%s). Replay with -GSSeed=%d or gs.Run.Seed %d"), Seed, Source, Seed, Seed);
+}
+
+void AGSGameMode::RestartRunWithSeed(int32 Seed)
+{
+	StartRun(Seed, TEXT("gs.Run.Seed"));
+	SetRound(1);
 }
 
 void AGSGameMode::HandlePlayerDeath(APawn* Player, AActor* Killer)
@@ -266,6 +362,18 @@ void AGSGameMode::StartPlay()
 	{
 		UE_LOG(LogBanditBaller, Warning, TEXT("%s has no RoundSettings; using UGSRoundSettings defaults."), *GetName());
 	}
+
+	// Run seed: -GSSeed=N on the command line, otherwise random. Logged so any run can be replayed.
+	int32 Seed = 0;
+	if (FParse::Value(FCommandLine::Get(), TEXT("GSSeed="), Seed))
+	{
+		StartRun(Seed, TEXT("-GSSeed"));
+	}
+	else
+	{
+		StartRun(MakeRandomSeed(), TEXT("random"));
+	}
+
 	if (bAutoStartRounds)
 	{
 		StartNextRound();
@@ -308,6 +416,15 @@ void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
 		Duration > 0.f ? *FString::Printf(TEXT("%.1f s"), Duration) : TEXT("untimed"), GetWorld()->GetTimeSeconds());
 
 	GS->SetRoundPhase(NewPhase, EndTime);
+
+	// Combat finished (timer, skip or, later, all enemies dead): the round counts as cleared.
+	if (OldPhase == EGSRoundPhase::Combat && NewPhase == EGSRoundPhase::RoundClear)
+	{
+		if (UGSRunStats* Stats = GetRunStats())
+		{
+			Stats->RecordRoundCleared();
+		}
+	}
 	if (Duration > 0.f)
 	{
 		GetWorldTimerManager().SetTimer(PhaseTimer, this, &AGSGameMode::AdvancePhase, Duration, false);

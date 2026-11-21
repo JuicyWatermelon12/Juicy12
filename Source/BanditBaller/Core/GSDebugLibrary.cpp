@@ -20,6 +20,7 @@
 #include "GSHealthComponent.h"
 #include "GSPlayerController.h"
 #include "GSPlayerState.h"
+#include "GSRunRandom.h"
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
 #include "NavigationSystem.h"
@@ -190,12 +191,12 @@ TArray<AGSEnemyCharacter*> UGSDebugLibrary::SpawnEnemiesAround(AGSPlayerControll
 	const float HalfHeight = GetDefault<AGSEnemyCharacter>()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
 
 	Count = FMath::Min(Count, 200);
-	const float StartAngle = FMath::FRandRange(0.f, 360.f);
+	const float StartAngle = UGSRunRandom::FRandRange(PC, 0.f, 360.f);
 	for (int32 Index = 0; Index < Count; ++Index)
 	{
 		// Even ring with jitter so a group doesn't stack.
-		const float Angle = FMath::DegreesToRadians(StartAngle + 360.f * Index / Count + FMath::FRandRange(-8.f, 8.f));
-		const float Distance = Radius * FMath::FRandRange(0.85f, 1.15f);
+		const float Angle = FMath::DegreesToRadians(StartAngle + 360.f * Index / Count + UGSRunRandom::FRandRange(PC, -8.f, 8.f));
+		const float Distance = Radius * UGSRunRandom::FRandRange(PC, 0.85f, 1.15f);
 		FVector Location = Origin + FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0.f) * Distance;
 
 		FNavLocation NavLocation;
@@ -449,6 +450,21 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 		{
 			GameMode->ReturnToTown();
 		}
+	}
+	else if (Command == TEXT("RunSeed"))
+	{
+		AGSGameMode* GameMode = PC->GetWorld()->GetAuthGameMode<AGSGameMode>();
+		if (!GameMode)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("gs.Run.Seed: no AGSGameMode on the server."));
+			return;
+		}
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogBanditBaller, Log, TEXT("gs.Run.Seed: current run seed is %d. Usage: gs.Run.Seed <N> restarts the run with seed N."), GameMode->GetRunSeed());
+			return;
+		}
+		GameMode->RestartRunWithSeed(FCString::Atoi(*Args[0]));
 	}
 	else if (Command == TEXT("RoundSkip") || Command == TEXT("RoundSet"))
 	{

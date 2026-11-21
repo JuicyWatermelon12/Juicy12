@@ -2,6 +2,7 @@
 
 #include "GSGameState.h"
 #include "Engine/Engine.h"
+#include "GSRunStats.h"
 #include "HAL/IConsoleManager.h"
 #include "Net/UnrealNetwork.h"
 
@@ -17,6 +18,8 @@ AGSGameState::AGSGameState()
 	// Tick only drives the gs.Debug.Round display.
 	PrimaryActorTick.bCanEverTick = !UE_BUILD_SHIPPING;
 	PrimaryActorTick.TickInterval = 0.f;
+
+	RunStats = CreateDefaultSubobject<UGSRunStats>(TEXT("RunStats"));
 }
 
 void AGSGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -27,6 +30,7 @@ void AGSGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
 	DOREPLIFETIME(AGSGameState, PhaseEndTime);
 	DOREPLIFETIME(AGSGameState, CurrentArea);
 	DOREPLIFETIME(AGSGameState, bMarketOpenThisRound);
+	DOREPLIFETIME(AGSGameState, RunSeed);
 }
 
 // ---------------------------------------------------------------------------

@@ -12,13 +12,18 @@
 //   gs.Market.Teleport / gs.Market.Return               temporary area travel (AGSGameMode)
 //   gs.Round.Skip / gs.Round.Set <N>                    round loop control (AGSGameMode)
 //   gs.Debug.Round 1                                    on-screen round / phase / time left (AGSGameState)
+//   gs.Run.Seed [N]                                     print seed / restart the run with seed N
+//   gs.Run.Stats                                        print run stats (local replicated copy)
 
 #include "BanditBaller.h"
 #include "Containers/Ticker.h"
 #include "DynamicRHI.h"
 #include "EngineUtils.h"
 #include "GSDebugLibrary.h"
+#include "Engine/Engine.h"
 #include "GSEnemyCharacter.h"
+#include "GSGameState.h"
+#include "GSRunStats.h"
 #include "GSHealthComponent.h"
 #include "GSPlayerController.h"
 #include "HAL/IConsoleManager.h"
@@ -105,6 +110,47 @@ namespace GSCheats
 		TEXT("Jump to round N and restart it from PreRound. Usage: gs.Round.Set <N>"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("RoundSet"), Args, World); }),
 		ECVF_Cheat);
+
+	// --- Run ---
+
+	FAutoConsoleCommandWithWorldAndArgs RunSeedCommand(
+		TEXT("gs.Run.Seed"),
+		TEXT("Print the run seed, or restart the run (stream + stats, round 1) with a fixed seed. Usage: gs.Run.Seed [N]"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("RunSeed"), Args, World); }),
+		ECVF_Cheat);
+
+	/** Reads the local (replicated) GameState, so it also works on clients. */
+	void RunStatsCommand(const TArray<FString>& Args, UWorld* World)
+	{
+		UWorld* GameWorld = UGSDebugLibrary::FindGameWorld(World);
+		const AGSGameState* GS = GameWorld ? GameWorld->GetGameState<AGSGameState>() : nullptr;
+		const UGSRunStats* Stats = GS ? GS->GetRunStats() : nullptr;
+		if (!Stats)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("gs.Run.Stats: no AGSGameState / run stats (is the game running?)"));
+			return;
+		}
+
+		const FString Header = FString::Printf(TEXT("Run stats [%s] | seed %d | %s"),
+			GS->HasAuthority() ? TEXT("server") : TEXT("client"), GS->GetRunSeed(), *GS->GetRoundDebugString());
+		TArray<FString> Lines;
+		Stats->ToDebugString().ParseIntoArrayLines(Lines);
+
+		UE_LOG(LogBanditBaller, Log, TEXT("%s"), *Header);
+		for (const FString& Line : Lines)
+		{
+			UE_LOG(LogBanditBaller, Log, TEXT("  %s"), *Line);
+		}
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Cyan, Header + TEXT("\n") + Stats->ToDebugString());
+		}
+	}
+
+	FAutoConsoleCommandWithWorldAndArgs RunStatsConsoleCommand(
+		TEXT("gs.Run.Stats"),
+		TEXT("Print run stats (rounds cleared, kills by type, cash, damage dealt/taken, run time) to the log and screen."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&RunStatsCommand));
 
 	// --- gs.Perf: sample frame timing over a window and log one summary line ---
 

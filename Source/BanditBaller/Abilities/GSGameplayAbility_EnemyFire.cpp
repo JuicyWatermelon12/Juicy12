@@ -10,6 +10,7 @@
 #include "GSEnemyCharacter.h"
 #include "GSEnemyData.h"
 #include "GSGameplayTags.h"
+#include "GSRunRandom.h"
 #include "GSWeaponData.h"
 #include "GSWeaponDebug.h"
 #include "BanditBaller.h"
@@ -116,7 +117,7 @@ void UGSGameplayAbility_EnemyFire::FireShot(AGSEnemyCharacter& Enemy)
 	const FVector Muzzle = Enemy.GetMuzzleLocation();
 	const FVector AimPoint = Target ? Target->GetActorLocation() : Muzzle + Enemy.GetActorForwardVector() * Weapon->Range;
 	const FVector AimDirection = (AimPoint - Muzzle).GetSafeNormal();
-	const FVector ShotDirection = FMath::VRandCone(AimDirection, FMath::DegreesToRadians(Weapon->HipSpread));
+	const FVector ShotDirection = UGSRunRandom::VRandCone(&Enemy, AimDirection, FMath::DegreesToRadians(Weapon->HipSpread));
 	const FVector TraceEnd = Muzzle + ShotDirection * Weapon->Range;
 
 	// Object query, not the Visibility channel: player capsules/meshes ignore Visibility.

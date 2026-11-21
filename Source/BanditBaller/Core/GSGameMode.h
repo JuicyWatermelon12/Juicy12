@@ -8,6 +8,7 @@
 #include "GSGameMode.generated.h"
 
 class UGSRoundSettings;
+class UGSRunStats;
 class ULevelStreaming;
 class UUserWidget;
 
@@ -64,6 +65,24 @@ public:
 
 	/** Timer length for a phase; 0 = untimed (waits for code / commands). */
 	float GetPhaseDuration(EGSRoundPhase Phase) const;
+
+	// --- Run (seed + stats) ---
+
+	/** The run's seeded stream. Use it through UGSRunRandom, never directly with FMath::Rand. */
+	FRandomStream& GetRunStream() { return RunStream; }
+	int32 GetRunSeed() const { return RunSeed; }
+
+	/** Reseed the run stream and reset run stats. Source is logged ("random", "-GSSeed", "gs.Run.Seed"). */
+	void StartRun(int32 Seed, const TCHAR* Source);
+
+	/** gs.Run.Seed <N>: start a fresh run with Seed (stream + stats reset) from round 1. */
+	void RestartRunWithSeed(int32 Seed);
+
+	/** A non-zero positive seed from the clock (used when no fixed seed is given). */
+	static int32 MakeRandomSeed();
+
+	/** Called by UGSAttributeSet when damage actually removed Health (server): feeds run stats. */
+	void HandleDamageApplied(AActor* Victim, AActor* DamageInstigator, float Amount);
 
 	// --- Area travel (server) ---
 
@@ -122,6 +141,11 @@ private:
 	void RunMarketDecision();
 
 	FTimerHandle PhaseTimer;
+
+	FRandomStream RunStream;
+	int32 RunSeed = 0;
+
+	UGSRunStats* GetRunStats() const;
 
 	void FadeAllPlayers(bool bFadeOut) const;
 	void MovePartyTo(const AActor& Destination) const;

@@ -1,0 +1,166 @@
+// BanditBaller
+
+#include "GSRunStats.h"
+#include "GameFramework/GameStateBase.h"
+#include "Net/UnrealNetwork.h"
+
+UGSRunStats::UGSRunStats()
+{
+	PrimaryComponentTick.bCanEverTick = false;
+	SetIsReplicatedByDefault(true);
+}
+
+void UGSRunStats::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(UGSRunStats, RoundsCleared);
+	DOREPLIFETIME(UGSRunStats, TotalKills);
+	DOREPLIFETIME(UGSRunStats, KillsByType);
+	DOREPLIFETIME(UGSRunStats, CashEarned);
+	DOREPLIFETIME(UGSRunStats, CashSpent);
+	DOREPLIFETIME(UGSRunStats, DamageDealt);
+	DOREPLIFETIME(UGSRunStats, DamageTaken);
+	DOREPLIFETIME(UGSRunStats, RunStartTime);
+	DOREPLIFETIME(UGSRunStats, RunEndTime);
+}
+
+bool UGSRunStats::CanWrite() const
+{
+	return GetOwner() && GetOwner()->HasAuthority();
+}
+
+void UGSRunStats::Changed()
+{
+	OnStatsChanged.Broadcast();
+}
+
+void UGSRunStats::OnRep_Stats()
+{
+	OnStatsChanged.Broadcast();
+}
+
+void UGSRunStats::ResetStats(double InRunStartTime)
+{
+	if (!CanWrite())
+	{
+		return;
+	}
+	RoundsCleared = 0;
+	TotalKills = 0;
+	KillsByType.Reset();
+	CashEarned = 0;
+	CashSpent = 0;
+	DamageDealt = 0.f;
+	DamageTaken = 0.f;
+	RunStartTime = InRunStartTime;
+	RunEndTime = 0.0;
+	Changed();
+}
+
+void UGSRunStats::RecordRoundCleared()
+{
+	if (CanWrite())
+	{
+		++RoundsCleared;
+		Changed();
+	}
+}
+
+void UGSRunStats::RecordKill(FName EnemyType)
+{
+	if (!CanWrite())
+	{
+		return;
+	}
+	++TotalKills;
+	FGSEnemyKillCount* Entry = KillsByType.FindByPredicate([EnemyType](const FGSEnemyKillCount& Kill) { return Kill.EnemyType == EnemyType; });
+	if (!Entry)
+	{
+		Entry = &KillsByType.AddDefaulted_GetRef();
+		Entry->EnemyType = EnemyType;
+	}
+	++Entry->Count;
+	Changed();
+}
+
+void UGSRunStats::AddCashEarned(int32 Amount)
+{
+	if (CanWrite() && Amount > 0)
+	{
+		CashEarned += Amount;
+		Changed();
+	}
+}
+
+void UGSRunStats::AddCashSpent(int32 Amount)
+{
+	if (CanWrite() && Amount > 0)
+	{
+		CashSpent += Amount;
+		Changed();
+	}
+}
+
+void UGSRunStats::AddDamageDealt(float Amount)
+{
+	if (CanWrite() && Amount > 0.f)
+	{
+		DamageDealt += Amount;
+		Changed();
+	}
+}
+
+void UGSRunStats::AddDamageTaken(float Amount)
+{
+	if (CanWrite() && Amount > 0.f)
+	{
+		DamageTaken += Amount;
+		Changed();
+	}
+}
+
+void UGSRunStats::EndRun(double InRunEndTime)
+{
+	if (CanWrite() && RunEndTime <= 0.0)
+	{
+		RunEndTime = InRunEndTime;
+		Changed();
+	}
+}
+
+int32 UGSRunStats::GetKillsOf(FName EnemyType) const
+{
+	const FGSEnemyKillCount* Entry = KillsByType.FindByPredicate([EnemyType](const FGSEnemyKillCount& Kill) { return Kill.EnemyType == EnemyType; });
+	return Entry ? Entry->Count : 0;
+}
+
+float UGSRunStats::GetRunTime() const
+{
+	if (RunEndTime > 0.0)
+	{
+		return static_cast<float>(RunEndTime - RunStartTime);
+	}
+	const AGameStateBase* GameState = Cast<AGameStateBase>(GetOwner());
+	const double Now = GameState ? GameState->GetServerWorldTimeSeconds() : 0.0;
+	return FMath::Max(0.f, static_cast<float>(Now - RunStartTime));
+}
+
+FString UGSRunStats::ToDebugString() const
+{
+	const float Seconds = GetRunTime();
+	FString Kills;
+	for (const FGSEnemyKillCount& Kill : KillsByType)
+	{
+		Kills += FString::Printf(TEXT("%s%s %d"), Kills.IsEmpty() ? TEXT("") : TEXT(", "), *Kill.EnemyType.ToString(), Kill.Count);
+	}
+	return FString::Printf(
+		TEXT("Run time:       %d:%02d (%.1f s)%s\n")
+		TEXT("Rounds cleared: %d\n")
+		TEXT("Kills:          %d (%s)\n")
+		TEXT("Cash earned:    %d\n")
+		TEXT("Cash spent:     %d\n")
+		TEXT("Damage dealt:   %.0f\n")
+		TEXT("Damage taken:   %.0f"),
+		FMath::FloorToInt(Seconds / 60.f), FMath::FloorToInt(FMath::Fmod(Seconds, 60.f)), Seconds, RunEndTime > 0.0 ? TEXT(" [ended]") : TEXT(""),
+		RoundsCleared, TotalKills, Kills.IsEmpty() ? TEXT("none") : *Kills, CashEarned, CashSpent, DamageDealt, DamageTaken);
+}
