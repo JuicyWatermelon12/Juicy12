@@ -30,12 +30,13 @@ public class BanditBaller : ModuleRules
 			"SlateCore"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { });
+		// Debug tooling: asset lookup by name (gs.Spawn / gs.GiveWeapon) and frame timing (gs.Perf).
+		PrivateDependencyModuleNames.AddRange(new string[] { "AssetRegistry", "RenderCore", "RHI" });
 
-		// Editor-only: builds StateTree assets from code (gs.Editor.BuildEnemyStateTree).
+		// Editor-only: builds StateTree assets from code (gs.Editor.BuildEnemyStateTree) and PIE automation tests.
 		if (Target.bBuildEditor)
 		{
-			PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "StateTreeEditorModule", "PropertyBindingUtils", "AssetRegistry" });
+			PrivateDependencyModuleNames.AddRange(new string[] { "UnrealEd", "StateTreeEditorModule", "PropertyBindingUtils" });
 		}
 
 		PublicIncludePaths.AddRange(new string[] {

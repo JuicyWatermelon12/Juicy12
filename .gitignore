@@ -53,3 +53,7 @@ desktop.ini
 
 # Claude local settings
 .claude/settings.local.json
+
+# Python bytecode (editor Python / MCP toolsets)
+__pycache__/
+*.pyc

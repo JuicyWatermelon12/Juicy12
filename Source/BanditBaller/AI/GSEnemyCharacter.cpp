@@ -164,6 +164,16 @@ void AGSEnemyCharacter::ApplyEnemyDataVisuals()
 	}
 }
 
+void AGSEnemyCharacter::SetEnemyData(UGSEnemyData* InEnemyData)
+{
+	if (HasActorBegunPlay())
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("%s: SetEnemyData after BeginPlay is ignored."), *GetActorNameOrLabel());
+		return;
+	}
+	EnemyData = InEnemyData;
+}
+
 FCollisionObjectQueryParams AGSEnemyCharacter::GetShotObjectQueryParams()
 {
 	FCollisionObjectQueryParams ObjectParams;

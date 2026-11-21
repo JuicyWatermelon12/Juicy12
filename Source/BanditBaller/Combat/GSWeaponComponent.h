@@ -66,6 +66,12 @@ public:
 	/** Adds a weapon (spawns and attaches its actor). Returns false if full or invalid. */
 	bool AddWeapon(const UGSWeaponData* WeaponData);
 
+	/**
+	 * Debug/pickup: equip WeaponData with a full magazine. Re-equips it if already owned, adds it if
+	 * there is a free slot, otherwise replaces the equipped weapon. Returns false if invalid.
+	 */
+	bool GiveWeapon(const UGSWeaponData* WeaponData);
+
 	void EquipIndex(int32 NewIndex);
 	void CycleWeapon();
 

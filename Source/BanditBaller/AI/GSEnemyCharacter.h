@@ -36,6 +36,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Enemy")
 	const UGSEnemyData* GetEnemyData() const { return EnemyData; }
 
+	/** Set the enemy type before BeginPlay (e.g. on a deferred spawn). Ignored once play has begun. */
+	void SetEnemyData(UGSEnemyData* InEnemyData);
+
 	UFUNCTION(BlueprintPure, Category = "Enemy")
 	UGSHealthComponent* GetHealthComponent() const { return HealthComponent; }
 

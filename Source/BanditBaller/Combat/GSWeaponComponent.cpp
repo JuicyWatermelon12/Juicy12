@@ -116,6 +116,44 @@ bool UGSWeaponComponent::AddWeapon(const UGSWeaponData* WeaponData)
 	return true;
 }
 
+bool UGSWeaponComponent::GiveWeapon(const UGSWeaponData* WeaponData)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner || !Owner->HasAuthority() || !WeaponData)
+	{
+		return false;
+	}
+
+	// Already owned: equip and refill.
+	for (int32 Index = 0; Index < Slots.Num(); ++Index)
+	{
+		if (Slots[Index].Data == WeaponData)
+		{
+			EquipIndex(Index);
+			RefillCurrentMagazine();
+			return true;
+		}
+	}
+
+	// Full: drop the equipped weapon to make room.
+	if (Slots.Num() >= MaxWeapons && Slots.IsValidIndex(CurrentIndex))
+	{
+		if (Slots[CurrentIndex].Weapon)
+		{
+			Slots[CurrentIndex].Weapon->Destroy();
+		}
+		Slots.RemoveAt(CurrentIndex);
+		CurrentIndex = INDEX_NONE;
+	}
+
+	if (!AddWeapon(WeaponData))
+	{
+		return false;
+	}
+	EquipIndex(Slots.Num() - 1);
+	return true;
+}
+
 void UGSWeaponComponent::EquipIndex(int32 NewIndex)
 {
 	if (!GetOwner()->HasAuthority() || !Slots.IsValidIndex(NewIndex))

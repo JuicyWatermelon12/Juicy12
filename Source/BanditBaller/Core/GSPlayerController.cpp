@@ -7,6 +7,7 @@
 #include "Engine/Engine.h"
 #include "GameplayEffect.h"
 #include "GSAbilitySystemComponent.h"
+#include "GSDebugLibrary.h"
 #include "GSGameMode.h"
 #include "GSGameplayTags.h"
 #include "GSHUDWidget.h"
@@ -131,6 +132,13 @@ void AGSPlayerController::ServerDebugDamageSelf_Implementation(float Amount)
 		ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data);
 		UE_LOG(LogBanditBaller, Log, TEXT("gs.Damage.Self: applied %.1f damage to %s"), Amount, *GetNameSafe(GetPawn()));
 	}
+#endif
+}
+
+void AGSPlayerController::ServerExecDebugCommand_Implementation(const FString& Command, const TArray<FString>& Args)
+{
+#if !UE_BUILD_SHIPPING
+	UGSDebugLibrary::ExecuteDebugCommand(this, Command, Args);
 #endif
 }
 

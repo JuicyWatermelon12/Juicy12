@@ -1,0 +1,506 @@
+// BanditBaller
+
+#include "GSDebugLibrary.h"
+#include "AbilitySystemComponent.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "AssetRegistry/IAssetRegistry.h"
+#include "BanditBaller.h"
+#include "Components/CapsuleComponent.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
+#include "GameplayEffect.h"
+#include "GSAttributeSet.h"
+#include "GSCharacter.h"
+#include "GSEnemyCharacter.h"
+#include "GSEnemyData.h"
+#include "GSGameplayTags.h"
+#include "GSHealthComponent.h"
+#include "GSPlayerController.h"
+#include "GSPlayerState.h"
+#include "GSWeaponComponent.h"
+#include "GSWeaponData.h"
+#include "NavigationSystem.h"
+
+namespace GSDebug
+{
+	/** "DA_Enemy_MeleeBandit" -> "meleebandit"; also strips DA_Weapon_ / DA_. */
+	FString NormalizeAssetName(FString Name)
+	{
+		Name = Name.TrimStartAndEnd().ToLower();
+		for (const TCHAR* Prefix : { TEXT("da_enemy_"), TEXT("da_weapon_"), TEXT("da_") })
+		{
+			if (Name.StartsWith(Prefix))
+			{
+				Name.RightChopInline(FCString::Strlen(Prefix));
+				break;
+			}
+		}
+		return Name;
+	}
+
+	TArray<FAssetData> GetAssetsOfClass(const UClass* Class)
+	{
+		TArray<FAssetData> Assets;
+		IAssetRegistry::GetChecked().GetAssetsByClass(Class->GetClassPathName(), Assets, /*bSearchSubClasses*/ true);
+		return Assets;
+	}
+
+	UObject* FindAssetByName(const UClass* Class, const FString& Name)
+	{
+		const FString Wanted = NormalizeAssetName(Name);
+		for (const FAssetData& Asset : GetAssetsOfClass(Class))
+		{
+			if (NormalizeAssetName(Asset.AssetName.ToString()) == Wanted)
+			{
+				return Asset.GetAsset();
+			}
+		}
+		return nullptr;
+	}
+
+	TArray<FString> GetAssetNames(const UClass* Class)
+	{
+		TArray<FString> Names;
+		for (const FAssetData& Asset : GetAssetsOfClass(Class))
+		{
+			Names.Add(Asset.AssetName.ToString());
+		}
+		Names.Sort();
+		return Names;
+	}
+
+	UAbilitySystemComponent* GetPlayerASC(const AGSPlayerController* PC)
+	{
+		const AGSPlayerState* PS = PC ? PC->GetPlayerState<AGSPlayerState>() : nullptr;
+		return PS ? PS->GetAbilitySystemComponent() : nullptr;
+	}
+
+	FGameplayAttribute FindAttribute(const FString& Name)
+	{
+		for (TFieldIterator<FProperty> It(UGSAttributeSet::StaticClass()); It; ++It)
+		{
+			if (FGameplayAttribute::IsGameplayAttributeDataProperty(*It) && It->GetName().Equals(Name, ESearchCase::IgnoreCase))
+			{
+				return FGameplayAttribute(*It);
+			}
+		}
+		return FGameplayAttribute();
+	}
+
+	bool IsAlive(const AGSEnemyCharacter& Enemy)
+	{
+		const UGSHealthComponent* Health = Enemy.GetHealthComponent();
+		return IsValid(&Enemy) && (!Health || !Health->IsDead());
+	}
+
+	bool CheckAuthority(const AGSPlayerController* PC, const TCHAR* What)
+	{
+		if (!PC)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("%s: no player controller (is the game running?)"), What);
+			return false;
+		}
+		if (!PC->HasAuthority())
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("%s must run on the server."), What);
+			return false;
+		}
+		return true;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Lookup
+// ---------------------------------------------------------------------------
+
+UWorld* UGSDebugLibrary::FindGameWorld(UWorld* World)
+{
+	if (World && World->IsGameWorld())
+	{
+		return World;
+	}
+	if (GEngine)
+	{
+		for (const FWorldContext& Context : GEngine->GetWorldContexts())
+		{
+			if (Context.World() && Context.World()->IsGameWorld())
+			{
+				return Context.World();
+			}
+		}
+	}
+	return nullptr;
+}
+
+UGSEnemyData* UGSDebugLibrary::FindEnemyData(const FString& Name)
+{
+	return Cast<UGSEnemyData>(GSDebug::FindAssetByName(UGSEnemyData::StaticClass(), Name));
+}
+
+UGSWeaponData* UGSDebugLibrary::FindWeaponData(const FString& Name)
+{
+	return Cast<UGSWeaponData>(GSDebug::FindAssetByName(UGSWeaponData::StaticClass(), Name));
+}
+
+TArray<FString> UGSDebugLibrary::GetEnemyDataNames()
+{
+	return GSDebug::GetAssetNames(UGSEnemyData::StaticClass());
+}
+
+TArray<FString> UGSDebugLibrary::GetWeaponDataNames()
+{
+	return GSDebug::GetAssetNames(UGSWeaponData::StaticClass());
+}
+
+AGSPlayerController* UGSDebugLibrary::GetFirstPlayer(const UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::ReturnNull) : nullptr;
+	World = FindGameWorld(World);
+	return World ? Cast<AGSPlayerController>(World->GetFirstPlayerController()) : nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// Server-side operations
+// ---------------------------------------------------------------------------
+
+TArray<AGSEnemyCharacter*> UGSDebugLibrary::SpawnEnemiesAround(AGSPlayerController* PC, UGSEnemyData* EnemyData, int32 Count, float Radius)
+{
+	TArray<AGSEnemyCharacter*> Spawned;
+#if !UE_BUILD_SHIPPING
+	if (!GSDebug::CheckAuthority(PC, TEXT("gs.Spawn")) || !EnemyData || Count <= 0)
+	{
+		return Spawned;
+	}
+
+	UWorld* World = PC->GetWorld();
+	const APawn* Center = PC->GetPawn();
+	const FVector Origin = Center ? Center->GetActorLocation() : FVector::ZeroVector;
+	const UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
+	const float HalfHeight = GetDefault<AGSEnemyCharacter>()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+
+	Count = FMath::Min(Count, 200);
+	const float StartAngle = FMath::FRandRange(0.f, 360.f);
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		// Even ring with jitter so a group doesn't stack.
+		const float Angle = FMath::DegreesToRadians(StartAngle + 360.f * Index / Count + FMath::FRandRange(-8.f, 8.f));
+		const float Distance = Radius * FMath::FRandRange(0.85f, 1.15f);
+		FVector Location = Origin + FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0.f) * Distance;
+
+		FNavLocation NavLocation;
+		if (NavSys && NavSys->ProjectPointToNavigation(Location, NavLocation, FVector(500.f, 500.f, 1000.f)))
+		{
+			Location = NavLocation.Location;
+		}
+		Location.Z += HalfHeight + 2.f;
+
+		const FTransform Transform((Origin - Location).GetSafeNormal2D().Rotation(), Location);
+		AGSEnemyCharacter* Enemy = World->SpawnActorDeferred<AGSEnemyCharacter>(AGSEnemyCharacter::StaticClass(), Transform,
+			nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn);
+		if (!Enemy)
+		{
+			continue;
+		}
+		Enemy->SetEnemyData(EnemyData);
+		Enemy->FinishSpawning(Transform);
+		Spawned.Add(Enemy);
+	}
+
+	UE_LOG(LogBanditBaller, Log, TEXT("gs.Spawn: spawned %d x %s around %s (radius %.0f)"),
+		Spawned.Num(), *EnemyData->GetName(), *GetNameSafe(Center), Radius);
+#endif
+	return Spawned;
+}
+
+int32 UGSDebugLibrary::KillAllEnemies(AGSPlayerController* PC)
+{
+	int32 Killed = 0;
+#if !UE_BUILD_SHIPPING
+	if (!GSDebug::CheckAuthority(PC, TEXT("gs.KillAll")))
+	{
+		return 0;
+	}
+
+	UAbilitySystemComponent* SourceASC = GSDebug::GetPlayerASC(PC);
+	TSubclassOf<UGameplayEffect> DamageEffect = PC->GetDebugDamageEffect();
+	if (!SourceASC || !DamageEffect)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("gs.KillAll: missing player ASC or DebugDamageEffect on %s"), *GetNameSafe(PC));
+		return 0;
+	}
+
+	TArray<AGSEnemyCharacter*> Targets;
+	for (TActorIterator<AGSEnemyCharacter> It(PC->GetWorld()); It; ++It)
+	{
+		if (GSDebug::IsAlive(**It))
+		{
+			Targets.Add(*It);
+		}
+	}
+
+	for (AGSEnemyCharacter* Enemy : Targets)
+	{
+		UAbilitySystemComponent* TargetASC = Enemy->GetAbilitySystemComponent();
+		if (!TargetASC)
+		{
+			continue;
+		}
+		// Through GE_Damage so the normal death flow (and OnEnemyKilled credit) runs.
+		const float Lethal = TargetASC->GetNumericAttribute(UGSAttributeSet::GetMaxHealthAttribute()) * 10.f + 1000.f;
+		FGameplayEffectSpecHandle Spec = SourceASC->MakeOutgoingSpec(DamageEffect, 1.f, SourceASC->MakeEffectContext());
+		if (Spec.IsValid())
+		{
+			Spec.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Damage, Lethal);
+			SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data, TargetASC);
+			++Killed;
+		}
+	}
+
+	UE_LOG(LogBanditBaller, Log, TEXT("gs.KillAll: killed %d enemies"), Killed);
+#endif
+	return Killed;
+}
+
+bool UGSDebugLibrary::SetGodMode(AGSPlayerController* PC, bool bEnabled)
+{
+#if !UE_BUILD_SHIPPING
+	UAbilitySystemComponent* ASC = GSDebug::GetPlayerASC(PC);
+	if (!GSDebug::CheckAuthority(PC, TEXT("gs.God")) || !ASC)
+	{
+		return false;
+	}
+
+	// One loose-tag count of our own, so dash i-frames adding/removing theirs don't interfere.
+	if (bEnabled != PC->IsDebugGodMode())
+	{
+		if (bEnabled)
+		{
+			ASC->AddLooseGameplayTag(GSGameplayTags::State_Invulnerable);
+		}
+		else
+		{
+			ASC->RemoveLooseGameplayTag(GSGameplayTags::State_Invulnerable);
+		}
+		PC->SetDebugGodMode(bEnabled);
+	}
+	UE_LOG(LogBanditBaller, Log, TEXT("gs.God: %s for %s"), bEnabled ? TEXT("ON") : TEXT("OFF"), *GetNameSafe(PC->GetPawn()));
+	return true;
+#else
+	return false;
+#endif
+}
+
+bool UGSDebugLibrary::GiveWeaponTo(AGSPlayerController* PC, UGSWeaponData* WeaponData)
+{
+#if !UE_BUILD_SHIPPING
+	if (!GSDebug::CheckAuthority(PC, TEXT("gs.GiveWeapon")) || !WeaponData)
+	{
+		return false;
+	}
+	const AGSCharacter* Character = Cast<AGSCharacter>(PC->GetPawn());
+	UGSWeaponComponent* Weapons = Character ? Character->GetWeaponComponent() : nullptr;
+	const bool bGiven = Weapons && Weapons->GiveWeapon(WeaponData);
+	UE_LOG(LogBanditBaller, Log, TEXT("gs.GiveWeapon: %s %s"), *WeaponData->GetName(), bGiven ? TEXT("equipped") : TEXT("FAILED (no pawn/weapon component)"));
+	return bGiven;
+#else
+	return false;
+#endif
+}
+
+bool UGSDebugLibrary::SetAttributeOn(AGSPlayerController* PC, const FString& AttributeName, float Value)
+{
+#if !UE_BUILD_SHIPPING
+	UAbilitySystemComponent* ASC = GSDebug::GetPlayerASC(PC);
+	if (!GSDebug::CheckAuthority(PC, TEXT("gs.SetAttr")) || !ASC)
+	{
+		return false;
+	}
+
+	const FGameplayAttribute Attribute = GSDebug::FindAttribute(AttributeName);
+	if (!Attribute.IsValid())
+	{
+		TArray<FString> Names;
+		for (TFieldIterator<FProperty> It(UGSAttributeSet::StaticClass()); It; ++It)
+		{
+			if (FGameplayAttribute::IsGameplayAttributeDataProperty(*It))
+			{
+				Names.Add(It->GetName());
+			}
+		}
+		UE_LOG(LogBanditBaller, Warning, TEXT("gs.SetAttr: unknown attribute '%s'. Known: %s"), *AttributeName, *FString::Join(Names, TEXT(", ")));
+		return false;
+	}
+
+	ASC->SetNumericAttributeBase(Attribute, Value);
+	UE_LOG(LogBanditBaller, Log, TEXT("gs.SetAttr: %s = %.2f (current %.2f)"), *Attribute.GetName(), Value, ASC->GetNumericAttribute(Attribute));
+	return true;
+#else
+	return false;
+#endif
+}
+
+TMap<FString, float> UGSDebugLibrary::GetAttributesOf(const AGSPlayerController* PC)
+{
+	TMap<FString, float> Result;
+	const UAbilitySystemComponent* ASC = GSDebug::GetPlayerASC(PC);
+	if (!ASC)
+	{
+		return Result;
+	}
+
+	for (TFieldIterator<FProperty> It(UGSAttributeSet::StaticClass()); It; ++It)
+	{
+		if (FGameplayAttribute::IsGameplayAttributeDataProperty(*It))
+		{
+			Result.Add(It->GetName(), ASC->GetNumericAttribute(FGameplayAttribute(*It)));
+		}
+	}
+
+	if (const AGSCharacter* Character = Cast<AGSCharacter>(PC->GetPawn()))
+	{
+		if (const UGSWeaponComponent* Weapons = Character->GetWeaponComponent())
+		{
+			Result.Add(TEXT("Ammo"), static_cast<float>(Weapons->GetCurrentAmmo()));
+		}
+	}
+	Result.Add(TEXT("God"), PC->IsDebugGodMode() ? 1.f : 0.f);
+	Result.Add(TEXT("Invulnerable"), ASC->HasMatchingGameplayTag(GSGameplayTags::State_Invulnerable) ? 1.f : 0.f);
+	Result.Add(TEXT("Dead"), ASC->HasMatchingGameplayTag(GSGameplayTags::State_Dead) ? 1.f : 0.f);
+	return Result;
+}
+
+void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString& Command, const TArray<FString>& Args)
+{
+#if !UE_BUILD_SHIPPING
+	if (!GSDebug::CheckAuthority(PC, *Command))
+	{
+		return;
+	}
+
+	if (Command == TEXT("Spawn"))
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.Spawn <EnemyDataName> [Count=1] [Radius=2000]. Types: %s"), *FString::Join(GetEnemyDataNames(), TEXT(", ")));
+			return;
+		}
+		UGSEnemyData* Data = FindEnemyData(Args[0]);
+		if (!Data)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("gs.Spawn: unknown enemy '%s'. Types: %s"), *Args[0], *FString::Join(GetEnemyDataNames(), TEXT(", ")));
+			return;
+		}
+		const int32 Count = Args.Num() > 1 ? FCString::Atoi(*Args[1]) : 1;
+		const float Radius = Args.Num() > 2 ? FCString::Atof(*Args[2]) : 2000.f;
+		SpawnEnemiesAround(PC, Data, Count, Radius);
+	}
+	else if (Command == TEXT("God"))
+	{
+		const bool bEnable = Args.Num() > 0 ? Args[0].ToBool() : !PC->IsDebugGodMode();
+		SetGodMode(PC, bEnable);
+	}
+	else if (Command == TEXT("KillAll"))
+	{
+		KillAllEnemies(PC);
+	}
+	else if (Command == TEXT("GiveWeapon"))
+	{
+		UGSWeaponData* Data = Args.Num() > 0 ? FindWeaponData(Args[0]) : nullptr;
+		if (!Data)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.GiveWeapon <WeaponDataName>. Weapons: %s"), *FString::Join(GetWeaponDataNames(), TEXT(", ")));
+			return;
+		}
+		GiveWeaponTo(PC, Data);
+	}
+	else if (Command == TEXT("SetAttr"))
+	{
+		if (Args.Num() < 2)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.SetAttr <Health|MaxHealth|MoveSpeed|Damage|FireRate> <Value>"));
+			return;
+		}
+		SetAttributeOn(PC, Args[0], FCString::Atof(*Args[1]));
+	}
+	else
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("Unknown debug command '%s'"), *Command);
+	}
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// World-context versions
+// ---------------------------------------------------------------------------
+
+TArray<AGSEnemyCharacter*> UGSDebugLibrary::SpawnEnemies(const UObject* WorldContextObject, const FString& EnemyType, int32 Count, float Radius)
+{
+	UGSEnemyData* Data = FindEnemyData(EnemyType);
+	if (!Data)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("SpawnEnemies: unknown enemy '%s'. Types: %s"), *EnemyType, *FString::Join(GetEnemyDataNames(), TEXT(", ")));
+		return {};
+	}
+	return SpawnEnemiesAround(GetFirstPlayer(WorldContextObject), Data, Count, Radius);
+}
+
+int32 UGSDebugLibrary::KillAll(const UObject* WorldContextObject)
+{
+	return KillAllEnemies(GetFirstPlayer(WorldContextObject));
+}
+
+bool UGSDebugLibrary::SetGod(const UObject* WorldContextObject, bool bEnabled)
+{
+	return SetGodMode(GetFirstPlayer(WorldContextObject), bEnabled);
+}
+
+bool UGSDebugLibrary::GiveWeapon(const UObject* WorldContextObject, const FString& WeaponName)
+{
+	return GiveWeaponTo(GetFirstPlayer(WorldContextObject), FindWeaponData(WeaponName));
+}
+
+bool UGSDebugLibrary::SetPlayerAttribute(const UObject* WorldContextObject, const FString& AttributeName, float Value)
+{
+	return SetAttributeOn(GetFirstPlayer(WorldContextObject), AttributeName, Value);
+}
+
+TMap<FString, float> UGSDebugLibrary::GetPlayerAttributes(const UObject* WorldContextObject)
+{
+	return GetAttributesOf(GetFirstPlayer(WorldContextObject));
+}
+
+TArray<FGSEnemyDebugInfo> UGSDebugLibrary::ListEnemiesAlive(const UObject* WorldContextObject)
+{
+	TArray<FGSEnemyDebugInfo> Result;
+	const AGSPlayerController* PC = GetFirstPlayer(WorldContextObject);
+	UWorld* World = PC ? PC->GetWorld() : FindGameWorld(nullptr);
+	if (!World)
+	{
+		return Result;
+	}
+	const APawn* Player = PC ? PC->GetPawn() : nullptr;
+
+	for (TActorIterator<AGSEnemyCharacter> It(World); It; ++It)
+	{
+		const AGSEnemyCharacter* Enemy = *It;
+		if (!GSDebug::IsAlive(*Enemy))
+		{
+			continue;
+		}
+
+		FGSEnemyDebugInfo& Info = Result.AddDefaulted_GetRef();
+		Info.Name = Enemy->GetActorNameOrLabel();
+		Info.EnemyType = GetNameSafe(Enemy->GetEnemyData());
+		Info.Location = Enemy->GetActorLocation();
+		Info.DistanceToPlayer = Player ? FVector::Dist(Player->GetActorLocation(), Info.Location) : -1.f;
+		if (const UAbilitySystemComponent* ASC = Enemy->GetAbilitySystemComponent())
+		{
+			Info.Health = ASC->GetNumericAttribute(UGSAttributeSet::GetHealthAttribute());
+			Info.MaxHealth = ASC->GetNumericAttribute(UGSAttributeSet::GetMaxHealthAttribute());
+			Info.bAttacking = ASC->HasMatchingGameplayTag(GSGameplayTags::State_Attacking);
+		}
+	}
+	Result.Sort([](const FGSEnemyDebugInfo& A, const FGSEnemyDebugInfo& B) { return A.DistanceToPlayer < B.DistanceToPlayer; });
+	return Result;
+}

@@ -51,6 +51,16 @@ public:
 	UFUNCTION(Exec)
 	void GSAimAt(float X, float Y, float Z);
 
+	/** Debug console commands (gs.Spawn, gs.God, ...) from a client run on the server through this. */
+	UFUNCTION(Server, Reliable)
+	void ServerExecDebugCommand(const FString& Command, const TArray<FString>& Args);
+
+	TSubclassOf<UGameplayEffect> GetDebugDamageEffect() const { return DebugDamageEffect; }
+
+	/** Server: gs.God state for this player (adds/removes one State.Invulnerable count). */
+	bool IsDebugGodMode() const { return bDebugGodMode; }
+	void SetDebugGodMode(bool bEnabled) { bDebugGodMode = bEnabled; }
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -64,7 +74,9 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UUserWidget> DeathScreenWidget;
 
-	/** Damage GE used by gs.Damage.Self (GE_Damage, SetByCaller Data.Damage). */
+	/** Damage GE used by gs.Damage.Self and gs.KillAll (GE_Damage, SetByCaller Data.Damage). */
 	UPROPERTY(EditDefaultsOnly, Category = "Debug")
 	TSubclassOf<UGameplayEffect> DebugDamageEffect;
+
+	bool bDebugGodMode = false;
 };

@@ -29,11 +29,74 @@ Source/BanditBaller/
   Casino/      casino games and odds
   AI/          enemy AI controllers, StateTree tasks/conditions, spawners
   UI/          CommonUI / UMG widgets (C++ bases)
+  Tests/       automation tests (editor-only, PIE-based)
   Variant_*/   template sample code (Combat / Platforming / SideScrolling) — reference only
 
 Content/BanditBaller/
   Maps, Characters, Weapons, Enemies, Items, Casino, UI, Materials, VFX, Audio, Data
+Content/Python/
+  init_unreal.py + banditballer_toolset/   project MCP toolset (registered at editor startup)
 ```
+
+## Game systems (so far)
+- **Player**: `AGSCharacter` (fast movement, slide, dash) with its ASC on `AGSPlayerState`
+  (`UGSAbilitySystemComponent`, input-tag activation). Stats in `UGSAttributeSet`: Health, MaxHealth, MoveSpeed,
+  Damage, FireRate (+ IncomingDamage meta attribute). Death/restart via `UGSHealthComponent` + `AGSGameMode`.
+- **Weapons**: `UGSWeaponData` assets (`Content/BanditBaller/Weapons`: DA_Rifle, DA_Pistol, DA_BanditCarbine),
+  `UGSWeaponComponent` (2 slots, ammo), GA_Fire (hitscan on Visibility) / GA_Reload / GA_SwapWeapon.
+- **Damage**: always GE_Damage (`UGSDamageEffect`) with SetByCaller `Data.Damage`; blocked by `State.Invulnerable`
+  (dash i-frames, gs.God) and `State.Dead`.
+- **Enemies**: `AGSEnemyCharacter` (own ASC + UGSAttributeSet) configured by `UGSEnemyData`
+  (`Content/BanditBaller/Enemies`: DA_Enemy_MeleeBandit, DA_Enemy_RangedBandit). `AGSEnemyAIController` runs the
+  data's StateTree (ST_MeleeBandit, ST_RangedBandit), generated from code with
+  `gs.Editor.BuildEnemyStateTree [melee|ranged|all]`. Abilities GA_MeleeAttack / GA_EnemyFire.
+- **Collision gotcha**: player capsule + mesh ignore `ECC_Visibility`; enemy capsules block it (player hitscan).
+  Enemy shots/LOS use `AGSEnemyCharacter::GetShotObjectQueryParams()` (WorldStatic/Dynamic/Pawn).
+
+## Debug & tuning tools
+Console commands (non-Shipping, cheat; run on the server — clients forward via `ServerExecDebugCommand`).
+Implementation is shared in `UGSDebugLibrary` (`Core/GSDebugLibrary.*`, `Core/GSCheatCommands.cpp`).
+
+| Command | Effect |
+|---|---|
+| `gs.Spawn <EnemyDataName> [Count=1] [Radius=2000]` | spawn enemies on the navmesh around the player (`MeleeBandit`, `RangedBandit`, or full `DA_Enemy_*` name) |
+| `gs.God [0\|1]` | toggle/set damage immunity (adds one `State.Invulnerable` count) |
+| `gs.KillAll` | kill all living enemies through GE_Damage (credited to the player) |
+| `gs.GiveWeapon <WeaponDataName>` | equip a weapon with a full mag (`Pistol`, `Rifle`, `BanditCarbine`); replaces the equipped one if both slots are full |
+| `gs.SetAttr <Attribute> <Value>` | set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate) |
+| `gs.Perf [Seconds=5]` | log avg/p95/max frame time, game thread and GPU time, enemies alive |
+| `gs.Damage.Self <n>` | damage the local player through GAS |
+| `gs.Debug.DamageLog 1` | log every health loss: `[dmg] victim took N from X (health) at t=` |
+| `gs.Debug.Weapons 1` | debug-draw shots; log enemy shots (`[shot]`) |
+| `GSFire`, `GSPress <InputTag>`, `GSAimAt X Y Z` | drive player input from the console (exec on the controller) |
+
+Typing console commands via MCP: `SlateInspectorToolset` → `Observe(ref "")`, `Click tb3`
+(the Output Log "Cmd" box), `Type tb3 "<command>" submit=true`. Refs reset after an editor restart.
+
+**Project MCP toolset** `banditballer_toolset.toolsets.BanditBallerTools` (needs PIE running):
+- `spawn_enemies(type, count=1, radius=2000)` → spawned actor names
+- `get_player_attributes()` → attribute values + Ammo, God, Invulnerable, Dead
+- `list_enemies_alive()` → name, type, health, location, distance to player, attacking (nearest first)
+
+Source: `Content/Python/banditballer_toolset/` (Python `ToolsetDefinition` wrapping `UGSDebugLibrary`);
+registered by `Content/Python/init_unreal.py`, so restart the editor after editing it.
+
+PIE notes: `SceneTools.remove_from_scene` is refused during PIE (teleport below KillZ instead). With the editor
+in the background, `EditorPerformanceSettings.bThrottleCPUWhenNotForeground` drops PIE to ~3 FPS, which skews
+timings; turn it off temporarily (in memory) for perf checks.
+
+## Automation tests
+`Source/BanditBaller/Tests/GSGameplayTests.cpp` (editor-only). Each test starts PIE in the current editor map
+(L_Town_Graybox), waits for the player, removes enemies, runs, and ends PIE. **Stop PIE before running.**
+
+- `BanditBaller.GAS.DamageReducesHealth`
+- `BanditBaller.GAS.HealthClampsToZeroAndMax`
+- `BanditBaller.GAS.DeathAddsStateDead`
+- `BanditBaller.Weapons.FireConsumesAmmoReloadRefills`
+- `BanditBaller.Abilities.DashInvulnerabilityBlocksDamage`
+
+Run via MCP: `AutomationTestToolset` → `DiscoverTests`, then `RunTestsByFilter("StartsWith:BanditBaller")`.
+Or in the editor console: `Automation RunTests BanditBaller`.
 
 Enabled plugins of note: ModelContextProtocol + AllToolsets (Unreal MCP), GameplayAbilities,
 StateTree, GameplayStateTree, EnhancedInput, CommonUI, ModelingToolsEditorMode, PCG.
@@ -67,6 +130,8 @@ The editor must be open; the server listens on 127.0.0.1:8000 once startup finis
   `ConfigSettingsToolset` (ini settings), `PluginToolset`, `GameFeaturesToolset`
 - **Misc**: `SemanticSearchToolset` (asset search), `ProgrammaticToolset` (batch tool calls via sandboxed Python),
   `ToolsetRegistry.AgentSkillToolset`, `conversation_toolset…ConversationTools`
+- **Project**: `banditballer_toolset.toolsets.BanditBallerTools` (spawn enemies, player attributes, live enemies;
+  see Debug & tuning tools)
 
 ## Rules
 - **Gameplay logic in C++; tuning in data.** Numbers (damage, prices, odds, spawn waves) live in
@@ -81,4 +146,5 @@ The editor must be open; the server listens on 127.0.0.1:8000 once startup finis
   for editor and asset work; use file edits for C++.
 - **Make one MCP call at a time** — wait for each result before the next.
 - **Build after every C++ change** with the command above; fix errors before moving on.
+- **Run the automation tests** (`StartsWith:BanditBaller`) after gameplay changes; add a test for new core rules.
 - **Commit after each working slice** (builds + works in editor). Never push without asking.
