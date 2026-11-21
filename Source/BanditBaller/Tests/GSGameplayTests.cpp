@@ -32,6 +32,7 @@
 #include "GSRunStats.h"
 #include "GSSpawnLocationFinder.h"
 #include "GSSpawnSettings.h"
+#include "GSWaveDirector.h"
 #include "NavigationPath.h"
 #include "NavigationSystem.h"
 #include "GSHealthComponent.h"
@@ -743,6 +744,107 @@ bool FGSSpawnLocationFinderTest::RunTest(const FString& Parameters)
 	WaitUntil(this, TEXT("party back in town"), []()
 	{
 		return GetGameState() && GetGameState()->GetCurrentArea() == EGSArea::Town;
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Wave director
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	/** Kill every living enemy with the player as the source (counts as player kills). */
+	int32 KillAllEnemiesAsPlayer()
+	{
+		int32 Count = 0;
+		TArray<AGSEnemyCharacter*> Targets;
+		for (TActorIterator<AGSEnemyCharacter> It(GetPIEWorld()); It; ++It)
+		{
+			const UGSHealthComponent* Health = It->GetHealthComponent();
+			if (!Health || !Health->IsDead())
+			{
+				Targets.Add(*It);
+			}
+		}
+		for (AGSEnemyCharacter* Enemy : Targets)
+		{
+			ApplyDamage(Enemy->GetAbilitySystemComponent(), 100000.f, GetPlayerASC());
+			++Count;
+		}
+		return Count;
+	}
+
+	int32 CountLivingEnemies()
+	{
+		int32 Count = 0;
+		for (TActorIterator<AGSEnemyCharacter> It(GetPIEWorld()); It; ++It)
+		{
+			const UGSHealthComponent* Health = It->GetHealthComponent();
+			Count += (!Health || !Health->IsDead()) ? 1 : 0;
+		}
+		return Count;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSWaveDirectorTest, "BanditBaller.Round.WaveDirector", GSTests::TestFlags)
+bool FGSWaveDirectorTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	TSharedRef<int32> Expected = MakeShared<int32>(0);
+	Step([this, Expected]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		UGSWaveDirector* Director = GameMode ? GameMode->GetWaveDirector() : nullptr;
+		if (!TestNotNull(TEXT("Wave director"), Director))
+		{
+			return;
+		}
+		const FGSWaveRow* Row = Director->FindWaveRow(1);
+		if (!TestNotNull(TEXT("DT_Waves has a Round1 row"), Row))
+		{
+			return;
+		}
+		for (const FGSWaveEntry& Entry : Row->Enemies)
+		{
+			*Expected += Entry.Count;
+		}
+
+		GameMode->RestartRunWithSeed(5);   // round 1, PreRound
+		GameMode->AdvancePhase();          // -> Combat: wave starts
+		TestTrue(TEXT("Combat started a wave"), Director->IsWaveActive());
+		TestEqual(TEXT("Wave size matches DT_Waves Round1"), Director->GetTotal(), *Expected);
+		TestTrue(TEXT("First batch spawned immediately"), Director->GetSpawned() > 0);
+		TestEqual(TEXT("GameState mirrors the wave total"), GetGameState()->GetWaveEnemiesTotal(), *Expected);
+	});
+
+	// Kill enemies as they arrive; Combat must end on its own once the whole wave is dead.
+	WaitUntil(this, TEXT("wave cleared -> RoundClear"), []()
+	{
+		KillAllEnemiesAsPlayer();
+		return IsPhase(EGSRoundPhase::RoundClear);
+	}, 60.0);
+	Step([this, Expected]()
+	{
+		UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
+		TestFalse(TEXT("Wave finished"), Director->IsWaveActive());
+		TestEqual(TEXT("Every wave enemy was killed"), Director->GetKilled(), *Expected);
+		TestEqual(TEXT("Nothing remaining"), GetGameState()->GetWaveEnemiesRemaining(), 0);
+		TestEqual(TEXT("Kills recorded in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), *Expected);
+
+		// Skipping Combat mid-wave removes the leftovers.
+		GetGameMode()->SetRound(2);
+		GetGameMode()->AdvancePhase(); // Combat
+		TestTrue(TEXT("Round 2 wave spawned something"), CountLivingEnemies() > 0);
+		GetGameMode()->AdvancePhase(); // skip -> RoundClear
+	});
+	WaitUntil(this, TEXT("leftovers removed after skipping combat"), []() { return CountLivingEnemies() == 0; }, 5.0);
+	Step([this]()
+	{
+		TestFalse(TEXT("Wave stopped by the skip"), GetGameMode()->GetWaveDirector()->IsWaveActive());
+		TestEqual(TEXT("GameState wave counts reset"), GetGameState()->GetWaveEnemiesTotal(), 0);
 	});
 	EndPIE();
 	return true;

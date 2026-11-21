@@ -31,6 +31,19 @@ void AGSGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
 	DOREPLIFETIME(AGSGameState, CurrentArea);
 	DOREPLIFETIME(AGSGameState, bMarketOpenThisRound);
 	DOREPLIFETIME(AGSGameState, RunSeed);
+	DOREPLIFETIME(AGSGameState, WaveEnemiesTotal);
+	DOREPLIFETIME(AGSGameState, WaveEnemiesRemaining);
+	DOREPLIFETIME(AGSGameState, WaveEnemiesAlive);
+}
+
+void AGSGameState::SetWaveCounts(int32 InTotal, int32 InRemaining, int32 InAlive)
+{
+	if (HasAuthority())
+	{
+		WaveEnemiesTotal = InTotal;
+		WaveEnemiesRemaining = InRemaining;
+		WaveEnemiesAlive = InAlive;
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -83,7 +96,8 @@ FString AGSGameState::GetRoundDebugString() const
 {
 	const FString Phase = StaticEnum<EGSRoundPhase>()->GetNameStringByValue(static_cast<int64>(RoundPhase));
 	const FString Time = PhaseEndTime > 0.0 ? FString::Printf(TEXT("%.1f s"), GetPhaseTimeRemaining()) : TEXT("--");
-	return FString::Printf(TEXT("Round %d | %s | %s"), RoundNumber, *Phase, *Time);
+	return FString::Printf(TEXT("Round %d | %s | %s | Enemies alive %d, remaining %d/%d"), RoundNumber, *Phase, *Time,
+		WaveEnemiesAlive, WaveEnemiesRemaining, WaveEnemiesTotal);
 }
 
 void AGSGameState::Tick(float DeltaSeconds)

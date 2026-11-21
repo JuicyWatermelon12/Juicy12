@@ -11,6 +11,7 @@
 #include "GSEnemyCharacter.h"
 #include "GSEnemyData.h"
 #include "GSRunStats.h"
+#include "GSWaveDirector.h"
 #include "GameFramework/PlayerState.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
@@ -35,6 +36,8 @@ AGSGameMode::AGSGameMode()
 	PlayerStateClass = AGSPlayerState::StaticClass();
 	PlayerControllerClass = AGSPlayerController::StaticClass();
 	DefaultPawnClass = AGSCharacter::StaticClass();
+
+	WaveDirector = CreateDefaultSubobject<UGSWaveDirector>(TEXT("WaveDirector"));
 }
 
 namespace
@@ -374,10 +377,32 @@ void AGSGameMode::StartPlay()
 		StartRun(MakeRandomSeed(), TEXT("random"));
 	}
 
+	WaveDirector->OnWaveCleared.AddUObject(this, &AGSGameMode::HandleWaveCleared);
+
 	if (bAutoStartRounds)
 	{
 		StartNextRound();
 	}
+}
+
+void AGSGameMode::HandleWaveCleared()
+{
+	const AGSGameState* GS = GetGameState<AGSGameState>();
+	if (GS && GS->GetRoundPhase() == EGSRoundPhase::Combat)
+	{
+		SetPhase(EGSRoundPhase::RoundClear);
+	}
+}
+
+void AGSGameMode::HandlePhaseTimerExpired()
+{
+	const AGSGameState* GS = GetGameState<AGSGameState>();
+	if (GS && GS->GetRoundPhase() == EGSRoundPhase::Combat && WaveDirector->IsWaveActive())
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("Round %d: Combat safety timer (%.0f s) expired with %d enemies remaining (%d alive); ending combat anyway."),
+			GS->GetRoundNumber(), GetPhaseDuration(EGSRoundPhase::Combat), WaveDirector->GetRemaining(), WaveDirector->GetAlive());
+	}
+	AdvancePhase();
 }
 
 const UGSRoundSettings& AGSGameMode::GetRoundSettings() const
@@ -427,7 +452,17 @@ void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
 	}
 	if (Duration > 0.f)
 	{
-		GetWorldTimerManager().SetTimer(PhaseTimer, this, &AGSGameMode::AdvancePhase, Duration, false);
+		GetWorldTimerManager().SetTimer(PhaseTimer, this, &AGSGameMode::HandlePhaseTimerExpired, Duration, false);
+	}
+
+	// Waves: Combat runs the round's wave; leaving Combat early (skip, safety timer) stops it and removes leftovers.
+	if (OldPhase == EGSRoundPhase::Combat && NewPhase != EGSRoundPhase::Combat)
+	{
+		WaveDirector->StopWave(/*bDespawnLeftovers*/ true);
+	}
+	if (NewPhase == EGSRoundPhase::Combat)
+	{
+		WaveDirector->StartWave(GS->GetRoundNumber());
 	}
 
 	// Phases that resolve immediately on entry.

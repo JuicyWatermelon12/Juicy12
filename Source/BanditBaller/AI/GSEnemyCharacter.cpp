@@ -175,6 +175,26 @@ void AGSEnemyCharacter::SetEnemyData(UGSEnemyData* InEnemyData)
 	EnemyData = InEnemyData;
 }
 
+AGSEnemyCharacter* AGSEnemyCharacter::SpawnEnemy(UWorld* World, UGSEnemyData* InEnemyData, const FVector& NavLocation, const FVector& FaceTowards)
+{
+	if (!World || !InEnemyData)
+	{
+		return nullptr;
+	}
+	const float HalfHeight = GetDefault<AGSEnemyCharacter>()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const FVector Location = NavLocation + FVector(0.f, 0.f, HalfHeight + 2.f);
+	const FTransform Transform((FaceTowards - Location).GetSafeNormal2D().Rotation(), Location);
+
+	AGSEnemyCharacter* Enemy = World->SpawnActorDeferred<AGSEnemyCharacter>(AGSEnemyCharacter::StaticClass(), Transform,
+		nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn);
+	if (Enemy)
+	{
+		Enemy->SetEnemyData(InEnemyData);
+		Enemy->FinishSpawning(Transform);
+	}
+	return Enemy;
+}
+
 FCollisionObjectQueryParams AGSEnemyCharacter::GetShotObjectQueryParams()
 {
 	FCollisionObjectQueryParams ObjectParams;

@@ -103,6 +103,21 @@ public:
 	/** "Round 2 | Combat | 41.3 s" for debug displays and logs. */
 	FString GetRoundDebugString() const;
 
+	// --- Wave (written by UGSWaveDirector on the server) ---
+
+	UFUNCTION(BlueprintPure, Category = "Wave")
+	int32 GetWaveEnemiesTotal() const { return WaveEnemiesTotal; }
+
+	/** Enemies of this round not yet killed (alive + still to spawn). */
+	UFUNCTION(BlueprintPure, Category = "Wave")
+	int32 GetWaveEnemiesRemaining() const { return WaveEnemiesRemaining; }
+
+	UFUNCTION(BlueprintPure, Category = "Wave")
+	int32 GetWaveEnemiesAlive() const { return WaveEnemiesAlive; }
+
+	/** Server only. */
+	void SetWaveCounts(int32 InTotal, int32 InRemaining, int32 InAlive);
+
 	/** Party-wide stats for the current run (replicated). */
 	UFUNCTION(BlueprintPure, Category = "Run")
 	UGSRunStats* GetRunStats() const { return RunStats; }
@@ -120,6 +135,15 @@ protected:
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Replicated, Category = "Run")
 	int32 RunSeed = 0;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Replicated, Category = "Wave")
+	int32 WaveEnemiesTotal = 0;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Replicated, Category = "Wave")
+	int32 WaveEnemiesRemaining = 0;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Replicated, Category = "Wave")
+	int32 WaveEnemiesAlive = 0;
 
 	/** Current round, 0 before the first round starts. */
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, ReplicatedUsing = OnRep_RoundNumber, Category = "Round")

@@ -26,6 +26,14 @@ struct FGSSpawnPoint
 	/** Ring attempts used for this point. */
 	UPROPERTY(BlueprintReadOnly, Category = "Spawn")
 	int32 Attempts = 0;
+
+	/** Distance to the player the search was centered on (cm). */
+	UPROPERTY(BlueprintReadOnly, Category = "Spawn")
+	float DistanceToPlayer = 0.f;
+
+	/** Whether a player could see the point when it was chosen (only possible after the off-screen rule is dropped, or on fallback). */
+	UPROPERTY(BlueprintReadOnly, Category = "Spawn")
+	bool bOnScreen = false;
 };
 
 /** Per-call summary (for logs, tests and tuning). */

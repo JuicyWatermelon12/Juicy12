@@ -188,24 +188,16 @@ TArray<AGSEnemyCharacter*> UGSDebugLibrary::SpawnEnemiesAround(AGSPlayerControll
 	UWorld* World = PC->GetWorld();
 	const APawn* Center = PC->GetPawn();
 	const FVector Origin = Center ? Center->GetActorLocation() : FVector::ZeroVector;
-	const float HalfHeight = GetDefault<AGSEnemyCharacter>()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
 
 	// Same location rules as round spawns (ring, NavMesh, reachable, spacing, off-screen, fallback).
 	FGSSpawnSearchStats Stats;
 	const TArray<FGSSpawnPoint> Points = UGSSpawnLocationFinder::FindSpawnLocations(PC, FMath::Min(Count, 200), &Stats);
 	for (const FGSSpawnPoint& Point : Points)
 	{
-		const FVector Location = Point.Location + FVector(0.f, 0.f, HalfHeight + 2.f);
-		const FTransform Transform((Origin - Location).GetSafeNormal2D().Rotation(), Location);
-		AGSEnemyCharacter* Enemy = World->SpawnActorDeferred<AGSEnemyCharacter>(AGSEnemyCharacter::StaticClass(), Transform,
-			nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn);
-		if (!Enemy)
+		if (AGSEnemyCharacter* Enemy = AGSEnemyCharacter::SpawnEnemy(World, EnemyData, Point.Location, Origin))
 		{
-			continue;
+			Spawned.Add(Enemy);
 		}
-		Enemy->SetEnemyData(EnemyData);
-		Enemy->FinishSpawning(Transform);
-		Spawned.Add(Enemy);
 	}
 
 	UE_LOG(LogBanditBaller, Log, TEXT("gs.Spawn: spawned %d x %s around %s at %s (%d ring, %d fallback)"),

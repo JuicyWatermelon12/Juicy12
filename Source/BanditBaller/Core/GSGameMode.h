@@ -10,6 +10,7 @@
 class UGSRoundSettings;
 class UGSRunStats;
 class UGSSpawnSettings;
+class UGSWaveDirector;
 class ULevelStreaming;
 class UUserWidget;
 
@@ -69,6 +70,9 @@ public:
 
 	const UGSSpawnSettings* GetSpawnSettings() const { return SpawnSettings; }
 
+	/** Runs each round's wave during Combat (DT_Waves). */
+	UGSWaveDirector* GetWaveDirector() const { return WaveDirector; }
+
 	// --- Run (seed + stats) ---
 
 	/** The run's seeded stream. Use it through UGSRunRandom, never directly with FMath::Rand. */
@@ -122,6 +126,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Round")
 	TObjectPtr<UGSSpawnSettings> SpawnSettings;
 
+	/** Spawns and tracks each round's enemies; Combat ends when its wave is cleared. Set WavesTable on BP_GSGameMode. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Round")
+	TObjectPtr<UGSWaveDirector> WaveDirector;
+
 	/** Start round 1 automatically when play begins. */
 	UPROPERTY(EditDefaultsOnly, Category = "Round")
 	bool bAutoStartRounds = true;
@@ -145,6 +153,9 @@ protected:
 private:
 	const UGSRoundSettings& GetRoundSettings() const;
 	void StartNextRound();
+	void HandleWaveCleared();
+	/** Phase timer expiry; for Combat this is only the safety fallback (warns if the wave isn't done). */
+	void HandlePhaseTimerExpired();
 	void RunMarketDecision();
 
 	FTimerHandle PhaseTimer;

@@ -253,6 +253,8 @@ TArray<FGSSpawnPoint> UGSSpawnLocationFinder::FindSpawnLocations(APlayerControll
 
 		if (bFound)
 		{
+			Point.DistanceToPlayer = FVector::Dist2D(Point.Location, Origin);
+			Point.bOnScreen = IsVisibleToAnyPlayer(*World, Point.Location);
 			Chosen.Add(Point);
 			(Point.bFallback ? Stats.Fallback : Stats.Ring)++;
 		}

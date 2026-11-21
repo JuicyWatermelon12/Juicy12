@@ -39,6 +39,12 @@ public:
 	/** Set the enemy type before BeginPlay (e.g. on a deferred spawn). Ignored once play has begun. */
 	void SetEnemyData(UGSEnemyData* InEnemyData);
 
+	/**
+	 * Server: spawn an enemy of EnemyData standing on NavLocation (a NavMesh point, e.g. from
+	 * UGSSpawnLocationFinder), facing FaceTowards. Used by the wave director and gs.Spawn.
+	 */
+	static AGSEnemyCharacter* SpawnEnemy(UWorld* World, UGSEnemyData* EnemyData, const FVector& NavLocation, const FVector& FaceTowards);
+
 	UFUNCTION(BlueprintPure, Category = "Enemy")
 	UGSHealthComponent* GetHealthComponent() const { return HealthComponent; }
 

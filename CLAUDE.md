@@ -64,8 +64,8 @@ Content/Python/
   PreRound → Combat → RoundClear → MarketDecision → (MarketVisit) → PreRound with round + 1. Starts round 1 on
   `StartPlay`. Every change goes through `SetPhase()` (logs `Round N: Old -> New`); `AdvancePhase()` holds the
   transition table. Timings in `UGSRoundSettings` (`Content/BanditBaller/Data/DA_RoundSettings`, set on BP_GSGameMode):
-  PreRound 3 s, Combat fallback 60 s, RoundClear 4 s. For now Combat ends on its timer and MarketDecision always
-  closes the market and starts the next round. `AGSGameState` replicates RoundNumber, RoundPhase, PhaseEndTime
+  PreRound 3 s, Combat safety fallback 180 s, RoundClear 4 s. Combat ends when the round's wave is cleared (the
+  timer only fires as a safety net and logs a warning). MarketDecision always closes the market for now. `AGSGameState` replicates RoundNumber, RoundPhase, PhaseEndTime
   (server clock; `GetPhaseTimeRemaining()`), and fires `OnPhaseChanged` / `OnRoundChanged` on server and clients.
 - **Run seed**: `AGSGameMode` owns a seeded `FRandomStream`, chosen at run start (`-GSSeed=N` launch arg, else
   random) and logged as `Run started: seed N (source)`; `gs.Run.Seed <N>` restarts the run with that seed.
@@ -84,6 +84,15 @@ Content/Python/
   a player (first half of the attempts only; behind cover counts as off-screen). All attempts fail → farthest
   on-NavMesh `EnemySpawn` Target Point (warning). Refuses in the Market District. Logs a per-call summary
   (`SpawnLocationFinder: N requested: ring / fallback / failed | attempts | rejection reasons`).
+- **Waves**: `UGSWaveDirector` component on `AGSGameMode` (`AI/GSWaveDirector.*`), configured by
+  `Data/DT_Waves` (row struct `FGSWaveRow`, rows `Round1`..`Round5`; later rounds reuse the last row): list of
+  {EnemyData, Count}, SpawnInterval, SpawnBatchSize. On Combat start it shuffles the round's enemies with the run
+  stream and spawns a batch immediately, then one per interval, at `UGSSpawnLocationFinder` points around a random
+  living player (`AGSEnemyCharacter::SpawnEnemy`). It tracks spawned / killed / alive / remaining (mirrored on
+  `AGSGameState`: WaveEnemiesTotal / Remaining / Alive) and ends Combat when all have spawned and none are alive.
+  Leaving Combat early (skip, safety timer) stops the wave and removes leftovers. Logs `[wave]` lines per batch
+  (distance, ON-SCREEN, FALLBACK) and a per-round summary (time, closest spawn, on-screen, fallback count).
+  Enemies are no longer placed in the level; rounds spawn them.
 - **Collision gotcha**: player capsule + mesh ignore `ECC_Visibility`; enemy capsules block it (player hitscan).
   Enemy shots/LOS use `AGSEnemyCharacter::GetShotObjectQueryParams()` (WorldStatic/Dynamic/Pawn).
 
@@ -142,6 +151,7 @@ timings; turn it off temporarily (in memory) for perf checks.
   RoundClear/MarketDecision into round 2, gs.Round.Set)
 - `BanditBaller.Player.RestartRestoresInput` (die → death screen takes UI-only input → restart → game input back)
 - `BanditBaller.Spawn.LocationFinder` (12 points at the town center: on NavMesh, reachable, in the ring, spaced; same seed → same points; none in the Market District)
+- `BanditBaller.Round.WaveDirector` (Round1 wave size matches DT_Waves, killing the wave ends Combat on its own, kills in run stats, skipping removes leftovers)
 - `BanditBaller.Run.SeedAndStats` (same seed replays the same rolls, restart resets stats, kills per type,
   damage dealt/taken without overkill, rounds cleared)
 
