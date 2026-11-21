@@ -12,7 +12,7 @@ round.
 
 **Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–8 are done.
 
-State at the time of writing: `main` @ `b3dda13`, not pushed. The build is clean and all 16 automation tests pass.
+State at the time of writing: `main` @ `4ba1b32`, not pushed. The build is clean and all 16 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -26,7 +26,7 @@ State at the time of writing: `main` @ `b3dda13`, not pushed. The build is clean
 | M2 5 | Endless (budget) waves, alive cap, spawn telegraph | 515cf59 |
 | M2 6 | Enemy scaling per round | 263bd94, fabf651 |
 | M2 7 | Cash pickups and magnet | 64e9ac2 |
-| M2 8 | XP on kill and player levels | b3dda13 |
+| M2 8 | XP on kill and player levels, HUD level + XP bar | b3dda13, 4ba1b32 |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -205,7 +205,24 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
   - `gs.XP.SetLevel 10` → 0/745.
   - +100M XP → level 50, 0/0.
   - The run stats matched.
-- No UI and no level-up rewards yet (next prompt).
+- No level-up rewards yet (next prompt).
+
+### Level / XP on the HUD (4ba1b32)
+- `UGSHUDWidget` has new optional bindings, all driven by `UGSProgressionComponent::OnXPChanged` / `OnLevelUp`
+  with no polling:
+  - `LevelText`: "LV n".
+  - `XPBar`: progress towards the next level, full at max.
+  - `XPText`: "x / y XP", or "MAX" at max level.
+- On a level-up, LevelText "punches" (scales up and back). Tuning: `LevelUpPunchScale` 1.6 and
+  `LevelUpPunchDuration` 0.4 s on WBP_HUD's class defaults.
+- WBP_HUD layout, top left (cash stays top right):
+  - Gold "LV n" (Roboto Bold 30) at (40, 36).
+  - Blue 320×12 bar at (40, 80).
+  - "x / y XP" (16) at (40, 96).
+- Test hook: `GetDisplayedLevel()` / `GetDisplayedXPPercent()`. `Progression.XPAndLevels` checks the HUD after
+  the double level-up.
+- PIE check: `gs.XP.Add 160` showed LV 2 with "60 / 125 XP" and the bar about half full. `gs.XP.SetLevel 50`
+  showed LV 50 with a full bar and "MAX".
 
 ---
 
@@ -306,7 +323,7 @@ and ends PIE. Stop PIE before running.
 | `Balance.TimeToKill` | Rifle/pistol shots-to-kill at rounds 1/5/10 vs both bandits via the real fire path (`[ttk]` log). |
 | `Run.SeedAndStats` | Same seed replays rolls; restart resets stats; kills per type; damage dealt/taken; rounds cleared. |
 | `Economy.CashPickups` | Exact split; out-of-reach drop stays; radius collects into Cash/CashEarned/HUD + popup; pool reuse; RoundClear vacuum; short lifetime blinks, expires unpaid. |
-| `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over; kill XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; cap at max level; new run resets. |
+| `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over (HUD level + bar follow); kill XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; cap at max level; new run resets. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
@@ -375,8 +392,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - Crits are stubbed (`TODO(crits)` in `GSAttributeSet.cpp`; damage numbers support them, nothing sets them).
 - The `GameOver` phase exists but is unused. Player death reloads the whole map (`?Restart`).
 - Cash drops don't scale with the round. Neither does enemy XP.
-- Levels do nothing yet: there are no rewards and no XP bar or level-up UI. Player death (`?Restart`) reloads the
-  map, which also resets levels.
+- Levels do nothing yet: there are no rewards. The HUD shows the level and XP bar, but there is no "+N XP" popup
+  or level-up banner. Player death (`?Restart`) reloads the map, which also resets levels.
 
 **Co-op**
 - Never tested with 2+ players.
@@ -435,4 +452,4 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 
 ## Next up
 
-**M2 Prompt 9 — level-up rewards** (hook `UGSProgressionComponent::OnLevelUp`; an XP bar / level-up UI is still open).
+**M2 Prompt 9 — level-up rewards** (hook `UGSProgressionComponent::OnLevelUp`; the HUD already shows level + XP).
