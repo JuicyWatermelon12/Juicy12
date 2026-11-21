@@ -3,9 +3,17 @@
 Read @docs/PROGRESS.md at the start of every session. After finishing any prompt, add a short entry to docs/PROGRESS.md (what was built, new assets/commands, known issues) and update 'Next up'.
 
 Third-person co-op roguelike shooter in an off-grid bandit gambling town (single player + 2–4 player listen-server
-co-op). Loop: fight a round of enemies in the town → collect cash → on some rounds the party teleports to the safe
-**Market District** (shop + casino; streamed sublevel `L_MarketDistrict_Graybox`, not open every round) → back to
-town → next round. Systems, commands, GAS reference, tuning and known issues live in `docs/PROGRESS.md`.
+co-op).
+- **Hub:** the game starts in the safe **Market District** (shop + casino; currently the streamed sublevel
+  `L_MarketDistrict_Graybox`). A "Start Run" portal sends the player to the town.
+- **Run:** PreRound → Combat → RoundClear → PreRound … in the town until the player dies. There are no market visits
+  during a run.
+- **After death:** a run summary, then back to the hub to spend or gamble cash.
+- **Permanent progression:** cash, saved to a player profile and kept across runs and deaths.
+- **Per-run progression** (reset on death): XP, level, and level-up upgrades. Each level-up fully heals, adds
+  MaxHealth, and offers 3 random upgrades with rarities.
+
+Systems, commands, GAS reference, tuning and known issues live in `docs/PROGRESS.md`.
 
 ## Engine and build
 - Unreal Engine **5.8.4** (launcher) at `C:\Program Files\Epic Games\UE_5.8`; `.uproject` `EngineAssociation` `5.8`.
@@ -25,7 +33,8 @@ town → next round. Systems, commands, GAS reference, tuning and known issues l
 ```
 Source/BanditBaller/
   Core/       GameMode (round loop, run seed, area travel), GameState, PlayerState, PlayerController,
-              character, settings data classes, run random/stats, debug library + cheat commands
+              character, settings data classes, run random/stats, progression (XP/levels/rewards),
+              debug library + cheat commands; profile subsystem (planned)
   Abilities/  GAS: ASC, AttributeSet, tags, abilities, effects, ability sets
   Combat/     weapons, health/death component, target dummy, hit camera shake
   AI/         enemies, AI controller, StateTree tasks/builder, spawn finder, wave director, spawn telegraph
@@ -46,19 +55,26 @@ docs/PROGRESS.md  progress log and reference
   DataTables under `Content/BanditBaller/Data` (settings assets are set on `BP_GSGameMode`), never hard-coded.
 - **Server-authoritative.** Everything that changes game state runs on the server (authority checks, Server RPCs
   from clients). Clients only predict or do cosmetics.
-- **Replicated state lives in GameState / PlayerState** (round, timers, cash, team state), not in GameMode
-  (server-only) or widgets.
-- **All gameplay randomness uses the run stream** via `UGSRunRandom` (waves, spawn positions, drops, market access,
-  casino, AI choices), never `FMath::Rand*` / `FRandRange` / `VRandCone`. Only exceptions: local cosmetics and the
-  player's own predicted weapon spread/recoil.
+- **Run state lives in GameState / PlayerState** and resets when the run ends: round, timers, run stats, team state,
+  XP, level, level-up upgrades. It never lives in GameMode (server-only) or in widgets.
+- **Permanent state lives in the profile subsystem** (`UGSProfileSubsystem`, planned: a GameInstance subsystem saved
+  to disk) and survives runs and deaths. Today that is cash; later, unlocks.
+  - **All cash changes go through it**: earning in a run, spending in the shop, gambling.
+  - PlayerState only mirrors the value for replication and the HUD. Nothing writes cash on PlayerState directly.
+- **All in-run randomness uses the run stream** via `UGSRunRandom` (waves, spawn positions, drops, upgrade choices,
+  AI choices), never `FMath::Rand*` / `FRandRange` / `VRandCone`. Only exceptions: local cosmetics and the player's
+  own predicted weapon spread/recoil. Hub randomness (casino) will get its own seeded stream, not the run stream.
 - **Everything goes through GAS**: stats, buffs/debuffs, abilities and item effects are AttributeSets,
   GameplayEffects and GameplayAbilities with GameplayTags. Damage always goes through `GE_Damage`
   (SetByCaller `Data.Damage`).
 - **Combat only in the town.** Enemies spawn, path and fight only in `L_Town_Graybox` (NavMesh covers the town
-  only). The Market District is safe: no spawns, no NavMesh, enemies ignore players while
+  only). The Market District is the safe hub between runs: no spawns, no NavMesh, enemies ignore players while
   `AGSGameState::CurrentArea != Town`. Shop and casino actors live only in the Market District.
-- **Area travel is server-driven** (`AGSGameMode::TravelToMarketDistrict` / `ReturnToTown`). Whether the market
-  opens is decided in the MarketDecision phase.
+- **Area travel is server-driven.**
+  - The game starts in the hub.
+  - The "Start Run" portal starts a run and moves the party to the town.
+  - Death → run summary → back to the hub.
+  - There is no travel to the market during a run (`gs.Market.Teleport` / `Return` are debug tools only).
 - **Tooling split**: Unreal MCP (`unreal-mcp`, http://127.0.0.1:8000/mcp, see `.mcp.json`) for editor and asset
   work; file edits for C++.
 - **Make one MCP call at a time**; wait for each result before the next (batch with `ProgrammaticToolset` instead).

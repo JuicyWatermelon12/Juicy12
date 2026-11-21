@@ -6,9 +6,18 @@ milestone section (what was built, new assets/commands, known issues) and update
 ## The game
 
 Third-person co-op roguelike shooter set in an off-grid bandit gambling town (UE 5.8, C++ + GAS; single player and
-2–4 player listen-server co-op). Loop: fight a round of bandits in the town → pick up the cash they drop → on some
-rounds the party teleports to the safe **Market District** (shop + casino) → back to town for the next, harder
-round.
+2–4 player listen-server co-op).
+- **Hub:** the game starts in the safe **Market District** hub (shop + casino). A "Start Run" portal sends the
+  player to the town.
+- **Run:** PreRound → Combat → RoundClear → PreRound … with harder rounds, until the player dies. The cash bandits
+  drop is picked up during the run.
+- **After death:** a run summary, then back to the hub to spend or gamble the cash.
+- **Permanent progression:** cash (saved profile).
+- **Per-run progression** (reset on death): XP, level, and level-up upgrades. Each level-up fully heals, adds
+  MaxHealth, and offers 3 random upgrades with rarities.
+
+The design changed after M2 Prompt 10; see **Design change — permanent cash, hub market, level-up upgrades**.
+The code still follows the old in-run-market design until the follow-up prompts land.
 
 **Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–10 are done.
 
@@ -29,6 +38,7 @@ State at the time of writing: `main` @ `72534d1`, not pushed. The build is clean
 | M2 8 | XP on kill and player levels, HUD level + XP bar | b3dda13, 4ba1b32 |
 | M2 9 | Level-up rewards (MaxHealth stack + full heal) | 371cb6e |
 | M2 10 | Progression feedback (XP popups, level-up banner, pulses, glow, sound) | 72534d1 |
+| Design change | Permanent cash (profile), Market District as hub between runs, level-up upgrades (docs only) | HASHDC |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -288,6 +298,54 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
   - "+200 XP" appeared above the player and "+10 XP" above a kill's damage number.
   - The player mesh brightened during the glow.
 
+## Design change — permanent cash, hub market, level-up upgrades (HASHDC)
+
+Docs only; no code changed yet.
+
+**New design**
+- **Permanent cash.** Cash is saved to a player profile and kept across runs, even after death.
+  - It lives in a profile subsystem (`UGSProfileSubsystem`, planned), and every cash change goes through it.
+  - PlayerState only mirrors it for replication and the HUD.
+- **The Market District is the hub between runs, not an in-run stop.**
+  - The game starts there.
+  - A "Start Run" portal sends the player to the town.
+  - After dying (and seeing the run summary) the player returns there to spend or gamble cash.
+- **The run loop is PreRound → Combat → RoundClear → PreRound …** until the player dies. No market visits during a
+  run.
+- **Per-run progression** (reset on death): XP, level, and level-up upgrades.
+  - Each level-up still fully heals and adds MaxHealth.
+  - It now also offers 3 random upgrade choices with rarities.
+  - Starting upgrades:
+    - Common: Reload Speed, Damage, Move Speed.
+    - Rare: Extra Jump (+1 jump per pick, no cap).
+- **Rules (CLAUDE.md):**
+  - Run state lives on PlayerState / GameState.
+  - Permanent state lives in the profile subsystem, and all cash changes go through it.
+  - Hub randomness (casino) gets its own stream, not the run stream.
+
+**Obsolete** (the code still contains it until the follow-up prompts remove or repurpose it)
+- The `MarketDecision` and `MarketVisit` round phases (`EGSRoundPhase`, `AGSGameMode::AdvancePhase`,
+  `RunMarketDecision`). RoundClear will go straight to the next PreRound.
+- `AGSGameState::bMarketOpenThisRound` (and its line in `gs.Debug.Round`).
+- The in-run market plan: "on some rounds the party teleports to the Market District", the market-access roll on
+  the run stream, and the "market is always closed for now" stub.
+- `gs.Market.Teleport` / `gs.Market.Return` as part of the loop. **They are kept for now as debug tools.**
+
+**Kept and reused**
+- `L_MarketDistrict_Graybox`, `EGSArea` / `CurrentArea`, `TravelToMarketDistrict` / `ReturnToTown`, the safe-area
+  rules and test `Map.TownAndMarketDistrict`. This is the hub travel path now.
+- XP, levels, DA_LevelRewards (MaxHealth stack + full heal) and the level-up feedback.
+- `UGSRunStats`: becomes the run summary after death.
+
+**Changes meaning**
+- **`AGSPlayerState::Cash` / `AddCash` / `TrySpendCash`:** these become a mirror of the profile.
+  - `AGSGameMode::AwardCash` will write through the profile subsystem.
+  - Run-stats `CashEarned` stays per run.
+- **Player death:** currently `?Restart` reloads the map. It will become the `GameOver` phase → run summary →
+  return to the hub. Run state resets and cash is kept.
+- **Progression reset:** `ResetProgression` / reward removal on "new run" is already in place. Upgrades will be
+  removed the same way.
+
 ---
 
 ## Console commands and CVars
@@ -310,7 +368,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.Round.Pause [0\|1]` | Freeze / resume the phase timer. |
 | `gs.Run.Seed [N]` | Print the run seed, or restart the run (stream + stats, round 1) with seed N. |
 | `gs.Run.Stats` | Print run stats to log and screen (works on clients). |
-| `gs.Market.Teleport` / `gs.Market.Return` | Temporary: move the party to the Market District and back. |
+| `gs.Market.Teleport` / `gs.Market.Return` | Debug only: move the party to the Market District and back (not part of the run loop since the design change). |
 | `gs.Editor.MarketDistrictLevel create\|edit\|persistent` | Editor only: create the district sublevel / make it or the persistent level current. |
 | `gs.Editor.BuildEnemyStateTree [melee\|ranged\|all]` | Editor only: regenerate ST_MeleeBandit / ST_RangedBandit from code. |
 | `gs.Debug.Round 1` (cvar) | On-screen round, phase, time left, area, market open, wave counts, enemy HP/DMG multipliers. |
@@ -412,8 +470,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   | RangedBandit | 45 | 430 (±12%) | range 15–25 m, backs off < 8 m, 0.4 s aim, 4-shot bursts | 2 | 2 | $15 |
 
   Corpses stay 5 s.
-- **Rounds** (DA_RoundSettings): PreRound 3 s, Combat safety fallback 180 s, RoundClear 4 s. The market is always
-  closed for now.
+- **Rounds** (DA_RoundSettings): PreRound 3 s, Combat safety fallback 180 s, RoundClear 4 s. The code still runs
+  MarketDecision (always "closed") after RoundClear; it is obsolete since the design change.
 - **Spawn ring** (DA_SpawnSettings): 12–25 m, 2 m spacing, 20 attempts, prefer off-screen. The user chose to keep
   12 m.
 - **Wave table** (DT_Waves; interval s / batch):
@@ -455,10 +513,17 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 ## Known issues, TODOs and deviations
 
 **Not built yet / stubs**
-- The market never opens: `RunMarketDecision` hard-codes "closed". `MarketVisit` only runs via `gs.Market.*`.
-  There is no shop or casino logic yet, and CashSpent is never used.
+- **Not yet built for the design change:**
+  - Profile subsystem and save.
+  - Hub start and Start Run portal.
+  - Run summary and return to the hub.
+  - Level-up upgrade choices.
+- **Still in the code but obsolete:** MarketDecision / MarketVisit phases, `bMarketOpenThisRound` and
+  `RunMarketDecision` (hard-coded "closed").
+- No shop or casino logic yet; CashSpent is never used.
 - Crits are stubbed (`TODO(crits)` in `GSAttributeSet.cpp`; damage numbers support them, nothing sets them).
-- The `GameOver` phase exists but is unused. Player death reloads the whole map (`?Restart`).
+- The `GameOver` phase exists but is unused. Player death reloads the whole map (`?Restart`), which also loses cash
+  (it is not saved yet).
 - Cash drops don't scale with the round. Neither does enemy XP.
 - The only level-up reward so far is +10 MaxHealth and a full heal. Player death (`?Restart`) reloads the map,
   which also resets levels and their MaxHealth stacks.
@@ -470,7 +535,9 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 **Co-op**
 - Never tested with 2+ players.
 - Known gaps:
-  - Market travel doesn't wait for clients to stream the district (`TODO(co-op)` in `GSGameMode.cpp`).
+  - Market travel doesn't wait for clients to stream the district (`TODO(co-op)` in `GSGameMode.cpp`). This matters
+    for hub ↔ town travel now.
+  - Profiles in co-op: whose profile a client's cash is saved to is still undecided (see Next up).
   - Restart on death should become "all players dead" / revive.
   - Cash goes to whoever collects it, not the killer.
   - XP goes only to the killing player (not shared with the party). Kills by non-players give no XP.
@@ -525,9 +592,36 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 
 ## Next up
 
-**M2 Prompt 11 — not specified yet.** Open M2 items:
-- Open the market in `RunMarketDecision` (it is always closed).
-- Shop / casino.
-- Round scaling for cash and XP drops.
-- `GameOver`.
-- More entries in DA_LevelRewards.
+Code changes for the design change, in this order (each step builds, is tested, and is committed):
+
+1. **Run loop cleanup.** Remove MarketDecision / MarketVisit from `EGSRoundPhase` and the transition table
+   (RoundClear → PreRound). Drop `bMarketOpenThisRound` / `RunMarketDecision`. Update `Round.PhaseLoop` and
+   `gs.Debug.Round`.
+2. **Profile subsystem.** `UGSProfileSubsystem` (GameInstance subsystem) + `UGSProfileSaveGame` (Cash, version).
+   - Loads on start and saves on change and at run end.
+   - `AddCash` / `TrySpendCash` with a reason, for logging.
+   - `AGSGameMode::AwardCash` goes through it; PlayerState mirrors the value.
+   - Commands `gs.Profile.Cash` / `gs.Profile.Reset`.
+   - Test: save/load round trip on a test slot.
+3. **Death → summary → hub.**
+   - On player death, enter the GameOver phase.
+   - Run summary widget (run stats: rounds, kills, cash earned, level), then Continue → hub.
+   - Reset run state (progression, upgrades, health, weapons, run stats) and keep cash. This replaces `?Restart`.
+4. **Hub start and Start Run portal.**
+   - The game begins in the Market District (CurrentArea = MarketDistrict, no rounds).
+   - A portal actor at `MarketExitPortalSpot` starts the run (seed, stats) and travels to the town.
+5. **Level-up upgrades.**
+   - Data: `UGSUpgradeData` (name, description, rarity, GE, cap) and an upgrade pool with rarity weights.
+   - Rolling: on each level-up the server rolls 3 distinct choices (run stream, rarity-weighted). They replicate as
+     pending offers and are queued for several level-ups.
+   - Picking: the client picks through a Server RPC. The GE is infinite and stacking, and is removed on reset.
+   - New attributes: ReloadSpeed (scales the GA_Reload time) and JumpCount (synced to `JumpMaxCount`).
+   - Upgrades: Reload Speed / Damage / Move Speed (common), Extra Jump (rare, no cap).
+   - UI: a choice panel next to the level-up banner.
+
+Open questions:
+- Co-op profile ownership (host-only vs. each client sending its own cash).
+- Whether to pause or slow down while choosing an upgrade (single player only?).
+- Whether the hub stays a streamed sublevel or becomes its own map.
+
+Still open from M2: round scaling for cash and XP drops, more DA_LevelRewards entries, shop and casino.
