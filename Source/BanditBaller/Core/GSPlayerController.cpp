@@ -60,6 +60,14 @@ void AGSPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// The death screen switches to UI-only input, which makes the game viewport ignore input. The viewport
+	// survives the restart travel, so without this the respawned player can't move.
+	if (IsLocalPlayerController())
+	{
+		SetInputMode(FInputModeGameOnly());
+		SetShowMouseCursor(false);
+	}
+
 	if (IsLocalPlayerController() && HUDWidgetClass)
 	{
 		HUDWidget = CreateWidget<UUserWidget>(this, HUDWidgetClass);

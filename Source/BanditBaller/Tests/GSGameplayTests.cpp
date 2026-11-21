@@ -21,6 +21,7 @@
 #include "GSCharacter.h"
 #include "GSDebugLibrary.h"
 #include "GSEnemyCharacter.h"
+#include "Engine/GameViewportClient.h"
 #include "Engine/LevelStreaming.h"
 #include "GSEnemyData.h"
 #include "GSGameMode.h"
@@ -540,6 +541,55 @@ bool FGSRoundPhaseLoopTest::RunTest(const FString& Parameters)
 		GameMode->SetRound(5);
 		TestEqual(TEXT("gs.Round.Set jumps to round 5"), GameState->GetRoundNumber(), 5);
 		TestTrue(TEXT("gs.Round.Set restarts at PreRound"), IsPhase(EGSRoundPhase::PreRound));
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Death -> restart gives back control
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	bool IsViewportIgnoringInput()
+	{
+		const UWorld* World = GetPIEWorld();
+		UGameViewportClient* Viewport = World ? World->GetGameViewport() : nullptr;
+		return Viewport && Viewport->IgnoreInput();
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRestartRestoresInputTest, "BanditBaller.Player.RestartRestoresInput", GSTests::TestFlags)
+bool FGSRestartRestoresInputTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	TSharedRef<TWeakObjectPtr<UWorld>> OldWorld = MakeShared<TWeakObjectPtr<UWorld>>();
+	Step([this, OldWorld]()
+	{
+		TestFalse(TEXT("Game input active at start"), IsViewportIgnoringInput());
+
+		// Die for real: the server shows the death screen (UI-only input).
+		*OldWorld = GetPIEWorld();
+		ApplyDamage(GetPlayerASC(), 100000.f);
+	});
+	WaitUntil(this, TEXT("death screen to take input"), []() { return IsViewportIgnoringInput(); }, 5.0);
+	Step([]()
+	{
+		// Same request the death screen sends on R.
+		GetPC()->ServerRequestRestart();
+	});
+	WaitUntil(this, TEXT("restarted level with a new, ready player"), [OldWorld]()
+	{
+		return GetPIEWorld() && GetPIEWorld() != OldWorld->Get() && IsPlayerReady();
+	}, 30.0);
+	Step([this]()
+	{
+		TestFalse(TEXT("Viewport accepts game input after restart"), IsViewportIgnoringInput());
+		const APawn* Player = GetPlayer();
+		TestTrue(TEXT("Respawned pawn takes input"), Player && Player->InputEnabled());
+		TestFalse(TEXT("Respawned player is not dead"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
 	});
 	EndPIE();
 	return true;

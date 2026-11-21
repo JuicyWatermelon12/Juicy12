@@ -131,6 +131,7 @@ timings; turn it off temporarily (in memory) for perf checks.
   teleport there and back, spawning refused in the district)
 - `BanditBaller.Round.PhaseLoop` (round 1 PreRound on start, PreRound timer → Combat, skips through
   RoundClear/MarketDecision into round 2, gs.Round.Set)
+- `BanditBaller.Player.RestartRestoresInput` (die → death screen takes UI-only input → restart → game input back)
 - `BanditBaller.Run.SeedAndStats` (same seed replays the same rolls, restart resets stats, kills per type,
   damage dealt/taken without overkill, rounds cleared)
 
