@@ -13,11 +13,14 @@
 #include "GSInputConfig.h"
 #include "GSMovementSettings.h"
 #include "GSPlayerState.h"
+#include "GSWeaponComponent.h"
 #include "Net/UnrealNetwork.h"
 
 AGSCharacter::AGSCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
+
+	WeaponComponent = CreateDefaultSubobject<UGSWeaponComponent>(TEXT("WeaponComponent"));
 }
 
 UAbilitySystemComponent* AGSCharacter::GetAbilitySystemComponent() const
@@ -29,8 +32,9 @@ void AGSCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	// The owning client sets this locally before telling the server.
+	// The owning client sets these locally before telling the server.
 	DOREPLIFETIME_CONDITION(AGSCharacter, bFacingCamera, COND_SkipOwner);
+	DOREPLIFETIME_CONDITION(AGSCharacter, bAimingReplicated, COND_SkipOwner);
 }
 
 void AGSCharacter::BeginPlay()
@@ -65,6 +69,11 @@ void AGSCharacter::PossessedBy(AController* NewController)
 
 void AGSCharacter::UnPossessed()
 {
+	if (UGSAbilitySystemComponent* ASC = Cast<UGSAbilitySystemComponent>(CachedAbilitySystem.Get()))
+	{
+		ASC->ClearAbilityInput();
+	}
+
 	ClearAbilitySystem();
 	Super::UnPossessed();
 }
@@ -254,22 +263,24 @@ void AGSCharacter::ApplyMovementSettings()
 void AGSCharacter::UpdateFacingFromInput()
 {
 	const bool bNewFacingCamera = bAimHeld || bFireHeld;
-	if (bNewFacingCamera == bFacingCamera)
+	if (bNewFacingCamera == bFacingCamera && bAimHeld == bAimingReplicated)
 	{
 		return;
 	}
 
 	bFacingCamera = bNewFacingCamera;
+	bAimingReplicated = bAimHeld;
 	ApplyFacingMode();
 
 	if (!HasAuthority())
 	{
-		ServerSetFacingCamera(bNewFacingCamera);
+		ServerSetAimState(bAimHeld, bNewFacingCamera);
 	}
 }
 
-void AGSCharacter::ServerSetFacingCamera_Implementation(bool bNewFacingCamera)
+void AGSCharacter::ServerSetAimState_Implementation(bool bNewAiming, bool bNewFacingCamera)
 {
+	bAimingReplicated = bNewAiming;
 	bFacingCamera = bNewFacingCamera;
 	ApplyFacingMode();
 }
@@ -325,6 +336,12 @@ void AGSCharacter::Tick(float DeltaSeconds)
 	if (IsLocallyControlled())
 	{
 		UpdateCamera(DeltaSeconds);
+
+		// Full-auto: keep re-activating abilities whose input is held.
+		if (UGSAbilitySystemComponent* ASC = Cast<UGSAbilitySystemComponent>(CachedAbilitySystem.Get()))
+		{
+			ASC->ProcessHeldAbilityInput();
+		}
 	}
 }
 

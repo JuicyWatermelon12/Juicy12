@@ -12,6 +12,7 @@ class UAbilitySystemComponent;
 class UGSAbilitySet;
 class UGSInputConfig;
 class UGSMovementSettings;
+class UGSWeaponComponent;
 class UInputAction;
 struct FOnAttributeChangeData;
 
@@ -36,8 +37,12 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
+	/** Aiming down sights. Local input on the owning client, replicated value elsewhere (server uses it for spread). */
 	UFUNCTION(BlueprintPure, Category = "Camera")
-	bool IsAiming() const { return bAimHeld; }
+	bool IsAiming() const { return IsLocallyControlled() ? bAimHeld : bAimingReplicated; }
+
+	UFUNCTION(BlueprintPure, Category = "Weapons")
+	UGSWeaponComponent* GetWeaponComponent() const { return WeaponComponent; }
 
 	/** True while the pawn turns to face the camera (aiming or firing). */
 	UFUNCTION(BlueprintPure, Category = "Movement")
@@ -73,6 +78,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Input")
 	TObjectPtr<UInputAction> ShoulderSwapAction;
 
+	/** Loadout: up to 2 weapons with per-weapon ammo. Starting weapons are set on BP_GSCharacter. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapons")
+	TObjectPtr<UGSWeaponComponent> WeaponComponent;
+
 private:
 	// --- Ability system ---
 	void InitAbilitySystem();
@@ -94,7 +103,7 @@ private:
 	void UpdateCamera(float DeltaSeconds);
 
 	UFUNCTION(Server, Reliable)
-	void ServerSetFacingCamera(bool bNewFacingCamera);
+	void ServerSetAimState(bool bNewAiming, bool bNewFacingCamera);
 
 	UFUNCTION()
 	void OnRep_FacingCamera();
@@ -102,6 +111,10 @@ private:
 	/** Replicated so the server and other clients simulate the same rotation mode. */
 	UPROPERTY(ReplicatedUsing = OnRep_FacingCamera)
 	bool bFacingCamera = false;
+
+	/** Replicated aim state for non-owning machines (server spread, other clients' animation later). */
+	UPROPERTY(Replicated)
+	bool bAimingReplicated = false;
 
 	// Local-only input state.
 	bool bAimHeld = false;

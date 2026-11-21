@@ -24,6 +24,7 @@ public class BanditBaller : ModuleRules
 			"UMG",
 			"CommonUI",
 			"NetCore",
+			"Niagara",
 			"Slate"
 		});
 

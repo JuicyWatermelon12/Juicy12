@@ -1,7 +1,7 @@
 // BanditBaller
 
 #include "GSAbilitySystemComponent.h"
-#include "Abilities/GameplayAbility.h"
+#include "GSGameplayAbility.h"
 
 void UGSAbilitySystemComponent::AbilityInputTagPressed(const FGameplayTag& InputTag)
 {
@@ -9,6 +9,8 @@ void UGSAbilitySystemComponent::AbilityInputTagPressed(const FGameplayTag& Input
 	{
 		return;
 	}
+
+	HeldInputTags.AddTag(InputTag);
 
 	TArray<FGameplayAbilitySpecHandle> ToActivate;
 	{
@@ -39,6 +41,8 @@ void UGSAbilitySystemComponent::AbilityInputTagReleased(const FGameplayTag& Inpu
 		return;
 	}
 
+	HeldInputTags.RemoveTag(InputTag);
+
 	ABILITYLIST_SCOPE_LOCK();
 	for (FGameplayAbilitySpec& Spec : ActivatableAbilities.Items)
 	{
@@ -47,6 +51,39 @@ void UGSAbilitySystemComponent::AbilityInputTagReleased(const FGameplayTag& Inpu
 			AbilitySpecInputReleased(Spec);
 		}
 	}
+}
+
+void UGSAbilitySystemComponent::ProcessHeldAbilityInput()
+{
+	if (HeldInputTags.IsEmpty())
+	{
+		return;
+	}
+
+	TArray<FGameplayAbilitySpecHandle> ToActivate;
+	{
+		ABILITYLIST_SCOPE_LOCK();
+		for (const FGameplayAbilitySpec& Spec : ActivatableAbilities.Items)
+		{
+			const UGSGameplayAbility* AbilityCDO = Cast<UGSGameplayAbility>(Spec.Ability);
+			if (AbilityCDO && !Spec.IsActive()
+				&& Spec.GetDynamicSpecSourceTags().HasAny(HeldInputTags)
+				&& AbilityCDO->ShouldRetriggerWhileInputHeld(AbilityActorInfo.Get()))
+			{
+				ToActivate.Add(Spec.Handle);
+			}
+		}
+	}
+
+	for (const FGameplayAbilitySpecHandle& Handle : ToActivate)
+	{
+		TryActivateAbility(Handle);
+	}
+}
+
+void UGSAbilitySystemComponent::ClearAbilityInput()
+{
+	HeldInputTags.Reset();
 }
 
 void UGSAbilitySystemComponent::AbilitySpecInputPressed(FGameplayAbilitySpec& Spec)

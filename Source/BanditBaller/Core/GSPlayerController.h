@@ -17,6 +17,15 @@ class BANDITBALLER_API AGSPlayerController : public ABanditBallerPlayerControlle
 {
 	GENERATED_BODY()
 
+public:
+	/** Debug: press + release the Fire input once (goes through the ASC like the real button). */
+	UFUNCTION(Exec)
+	void GSFire();
+
+	/** Debug: point the camera at a world location. */
+	UFUNCTION(Exec)
+	void GSAimAt(float X, float Y, float Z);
+
 protected:
 	virtual void BeginPlay() override;
 

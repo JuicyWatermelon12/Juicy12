@@ -7,6 +7,8 @@ namespace GSGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Dead, "State.Dead", "Character is dead.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Sliding, "State.Sliding", "Character is sliding.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Dashing, "State.Dashing", "Character is dashing.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Firing, "State.Firing", "Weapon is firing (between shots).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Reloading, "State.Reloading", "Weapon is reloading.");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Fire, "Ability.Fire", "Fire the equipped weapon.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Reload, "Ability.Reload", "Reload the equipped weapon.");
