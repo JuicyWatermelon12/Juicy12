@@ -12,6 +12,7 @@
 #include "GSGameState.h"
 #include "GSLevelRewards.h"
 #include "GSPlayerState.h"
+#include "GSProfileSubsystem.h"
 #include "GSProgressionComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "GSWeaponComponent.h"
@@ -82,36 +83,36 @@ void UGSHUDWidget::NativeDestruct()
 }
 
 // ---------------------------------------------------------------------------
-// Cash counter (OnCashChanged)
+// Cash counter (UGSProfileSubsystem::OnCashChanged: the permanent balance)
 // ---------------------------------------------------------------------------
 
 bool UGSHUDWidget::TryBindCash()
 {
-	AGSPlayerState* PS = GetOwningPlayerState<AGSPlayerState>();
-	if (PS == BoundPlayerState.Get())
+	UGSProfileSubsystem* Profile = UGSProfileSubsystem::Get(this);
+	if (Profile == BoundProfile.Get())
 	{
-		return PS != nullptr;
+		return Profile != nullptr;
 	}
 
 	UnbindCash();
-	if (!PS)
+	if (!Profile)
 	{
 		return false;
 	}
-	BoundPlayerState = PS;
-	PS->OnCashChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandleCashChanged);
-	DisplayedCash = PS->GetCash();
+	BoundProfile = Profile;
+	Profile->OnCashChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandleCashChanged);
+	DisplayedCash = Profile->GetCash();
 	RefreshCashDisplay();
 	return true;
 }
 
 void UGSHUDWidget::UnbindCash()
 {
-	if (AGSPlayerState* PS = BoundPlayerState.Get())
+	if (UGSProfileSubsystem* Profile = BoundProfile.Get())
 	{
-		PS->OnCashChanged.RemoveDynamic(this, &UGSHUDWidget::HandleCashChanged);
+		Profile->OnCashChanged.RemoveDynamic(this, &UGSHUDWidget::HandleCashChanged);
 	}
-	BoundPlayerState.Reset();
+	BoundProfile.Reset();
 }
 
 void UGSHUDWidget::HandleCashChanged(int32 NewCash, int32 Delta)

@@ -7,6 +7,7 @@
 #include "GSHUDWidget.generated.h"
 
 class AGSPlayerState;
+class UGSProfileSubsystem;
 class UAbilitySystemComponent;
 class UProgressBar;
 class UTextBlock;
@@ -19,7 +20,7 @@ struct FOnAttributeChangeData;
  * In-game HUD base (WBP_HUD derives from this).
  * - Health bar/text bound to Health/MaxHealth attribute change delegates (no polling of values).
  * - Weapon name + ammo.
- * - Cash counter bound to AGSPlayerState::OnCashChanged.
+ * - Cash counter bound to UGSProfileSubsystem::OnCashChanged (the permanent balance).
  * - Level label + XP bar/text bound to UGSProgressionComponent::OnXPChanged / OnLevelUp.
  * - Level-up feedback (OnLevelUp): label punch, XP bar pulse, "LEVEL UP!" banner (LevelUpBanner: new level + rewards
  *   from UGSLevelRewards::DescribeRewards; level-ups while it shows merge into it) and LevelUpSound.
@@ -44,7 +45,7 @@ public:
 	/** Floating "+$N" where cash was collected; pickups collected in quick succession merge into one popup. */
 	void AddCashPopup(const FVector& WorldLocation, int32 Amount);
 
-	/** Cash currently shown by CashText (from AGSPlayerState::OnCashChanged). */
+	/** Cash currently shown by CashText (from UGSProfileSubsystem::OnCashChanged). */
 	int32 GetDisplayedCash() const { return DisplayedCash; }
 
 	/** Sum of the "+$N" popups currently on screen (tests). */
@@ -94,7 +95,7 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> HealthText;
 
-	/** "$120" (bound to AGSPlayerState::OnCashChanged). */
+	/** "$120": the permanent balance (UGSProfileSubsystem::OnCashChanged). */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> CashText;
 
@@ -275,7 +276,7 @@ private:
 
 	FDamageNumber& AllocateFloatingNumber();
 
-	// Cash counter (AGSPlayerState::OnCashChanged).
+	// Cash counter (UGSProfileSubsystem::OnCashChanged).
 	bool TryBindCash();
 	void UnbindCash();
 	void RefreshCashDisplay();
@@ -323,7 +324,7 @@ private:
 	TArray<FDamageNumber> DamageNumbers;
 	int32 NextDamageNumber = 0;
 
-	TWeakObjectPtr<AGSPlayerState> BoundPlayerState;
+	TWeakObjectPtr<UGSProfileSubsystem> BoundProfile;
 	int32 DisplayedCash = 0;
 	float CashPunchRemaining = 0.f;
 	/** Pool index of the newest cash popup (merge target), or INDEX_NONE. */

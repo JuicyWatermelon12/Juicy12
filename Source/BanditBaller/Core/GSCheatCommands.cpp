@@ -16,6 +16,7 @@
 //   gs.Run.Seed [N]                                     print seed / restart the run with seed N
 //   gs.Run.Stats                                        print run stats (local replicated copy)
 //   gs.XP.Add <N> / gs.XP.SetLevel <N>                  grant raw XP / jump to a level (UGSProgressionComponent)
+//   gs.Profile.AddCash <N> / Reset / Save / Print       permanent cash (UGSProfileSubsystem; local, not forwarded)
 
 #include "BanditBaller.h"
 #include "Containers/Ticker.h"
@@ -28,6 +29,7 @@
 #include "GSRunStats.h"
 #include "GSHealthComponent.h"
 #include "GSPlayerController.h"
+#include "GSProfileSubsystem.h"
 #include "HAL/IConsoleManager.h"
 #include "Misc/App.h"
 #include "RenderTimer.h"
@@ -173,6 +175,88 @@ namespace GSCheats
 		TEXT("gs.Run.Stats"),
 		TEXT("Print run stats (rounds cleared, kills by type, cash, damage dealt/taken, XP, level reached, run time) to the log and screen."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&RunStatsCommand));
+
+	// --- Profile (permanent cash): this machine's UGSProfileSubsystem, so these run locally (not forwarded) ---
+
+	UGSProfileSubsystem* FindProfile(UWorld* World, const TCHAR* Command)
+	{
+		UWorld* GameWorld = UGSDebugLibrary::FindGameWorld(World);
+		UGSProfileSubsystem* Profile = UGSProfileSubsystem::Get(GameWorld);
+		if (!Profile)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("%s: no profile subsystem (is the game running?)"), Command);
+		}
+		return Profile;
+	}
+
+	void ProfilePrint(UGSProfileSubsystem& Profile)
+	{
+		TArray<FString> Lines;
+		Profile.ToDebugString().ParseIntoArrayLines(Lines);
+		UE_LOG(LogBanditBaller, Log, TEXT("Profile:"));
+		for (const FString& Line : Lines)
+		{
+			UE_LOG(LogBanditBaller, Log, TEXT("  %s"), *Line);
+		}
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 8.f, FColor::Green, TEXT("Profile\n") + Profile.ToDebugString());
+		}
+	}
+
+	FAutoConsoleCommandWithWorldAndArgs ProfileAddCashCommand(
+		TEXT("gs.Profile.AddCash"),
+		TEXT("Add N to the permanent cash balance (not saved until the next save). Usage: gs.Profile.AddCash <N>"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			UGSProfileSubsystem* Profile = FindProfile(World, TEXT("gs.Profile.AddCash"));
+			const int32 Amount = Args.Num() > 0 ? FCString::Atoi(*Args[0]) : 0;
+			if (Profile && !Profile->AddCash(Amount, TEXT("Debug")))
+			{
+				UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.Profile.AddCash <N> (N > 0)"));
+			}
+			else if (Profile)
+			{
+				UE_LOG(LogBanditBaller, Log, TEXT("gs.Profile.AddCash: +%d -> %d"), Amount, Profile->GetCash());
+			}
+		}),
+		ECVF_Cheat);
+
+	FAutoConsoleCommandWithWorldAndArgs ProfileResetCommand(
+		TEXT("gs.Profile.Reset"),
+		TEXT("Wipe the profile: delete the save file and start over with cash 0."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			if (UGSProfileSubsystem* Profile = FindProfile(World, TEXT("gs.Profile.Reset")))
+			{
+				Profile->ResetProfile();
+			}
+		}),
+		ECVF_Cheat);
+
+	FAutoConsoleCommandWithWorldAndArgs ProfileSaveCommand(
+		TEXT("gs.Profile.Save"),
+		TEXT("Save the profile now."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			if (UGSProfileSubsystem* Profile = FindProfile(World, TEXT("gs.Profile.Save")))
+			{
+				Profile->Save(TEXT("Debug"));
+			}
+		}),
+		ECVF_Cheat);
+
+	FAutoConsoleCommandWithWorldAndArgs ProfilePrintCommand(
+		TEXT("gs.Profile.Print"),
+		TEXT("Print the profile (slot, save version, cash, owned items) to the log and screen."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+		{
+			if (UGSProfileSubsystem* Profile = FindProfile(World, TEXT("gs.Profile.Print")))
+			{
+				ProfilePrint(*Profile);
+			}
+		}),
+		ECVF_Cheat);
 
 	// --- gs.Perf: sample frame timing over a window and log one summary line ---
 

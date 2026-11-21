@@ -120,8 +120,8 @@ public:
 	const UGSCashSettings* GetCashSettings() const { return CashSettings; }
 
 	/**
-	 * A cash pickup reached Player: AGSPlayerState::AddCash, run stats CashEarned, and the "+$N" popup on that
-	 * player's screen (Location = where it was collected).
+	 * A cash pickup reached Player: UGSProfileSubsystem::AddCash (permanent balance; local player only for now), run
+	 * stats CashEarned, and the "+$N" popup on that player's screen (Location = where it was collected).
 	 */
 	void AwardCash(APlayerController* Player, int32 Amount, const FVector& Location);
 
@@ -231,6 +231,9 @@ private:
 
 	FTimerHandle PhaseTimer;
 	bool bRoundTimerPaused = false;
+
+	/** Logged once: remote players' cash pickups are not credited yet (co-op TODO). */
+	bool bWarnedRemoteCash = false;
 
 	FRandomStream RunStream;
 	int32 RunSeed = 0;

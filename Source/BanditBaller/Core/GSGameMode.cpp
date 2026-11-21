@@ -28,6 +28,7 @@
 #include "GSDifficultyCurve.h"
 #include "GSGameplayTags.h"
 #include "GSProgressionComponent.h"
+#include "GSProfileSubsystem.h"
 #include "GSXPCurve.h"
 #include "GSLevelRewards.h"
 
@@ -171,12 +172,27 @@ void AGSGameMode::SetPlayerLevelForDebug(AGSPlayerState* Player, int32 Level)
 
 void AGSGameMode::AwardCash(APlayerController* Player, int32 Amount, const FVector& Location)
 {
-	AGSPlayerState* PS = Player ? Player->GetPlayerState<AGSPlayerState>() : nullptr;
-	if (!PS || Amount <= 0)
+	if (!Player || Amount <= 0)
 	{
 		return;
 	}
-	PS->AddCash(Amount);
+	// Permanent cash lives in this machine's profile (UGSProfileSubsystem), so only the local player (single player
+	// or the listen-server host) can be credited here.
+	if (!Player->IsLocalController())
+	{
+		// TODO(co-op): credit remote players (decided design: the host's save holds every player's cash).
+		if (!bWarnedRemoteCash)
+		{
+			bWarnedRemoteCash = true;
+			UE_LOG(LogBanditBaller, Warning, TEXT("[cash] %s collected $%d but remote players' cash isn't credited yet (co-op TODO)."), *GetNameSafe(Player), Amount);
+		}
+		return;
+	}
+	UGSProfileSubsystem* Profile = UGSProfileSubsystem::Get(this);
+	if (!Profile || !Profile->AddCash(Amount, TEXT("Pickup")))
+	{
+		return;
+	}
 	if (UGSRunStats* Stats = GetRunStats())
 	{
 		Stats->AddCashEarned(Amount);
@@ -262,6 +278,12 @@ void AGSGameMode::HandlePlayerDeath(APawn* Player, AActor* Killer)
 {
 	UE_LOG(LogBanditBaller, Log, TEXT("Player %s died (killer: %s)"), *GetNameSafe(Player), *GetNameSafe(Killer));
 	OnPlayerDied.Broadcast(Player, Killer);
+
+	// Run end: keep the cash earned this run.
+	if (UGSProfileSubsystem* Profile = UGSProfileSubsystem::Get(this))
+	{
+		Profile->Save(TEXT("RunEnd"));
+	}
 
 	if (AGSPlayerController* PC = Player ? Cast<AGSPlayerController>(Player->GetController()) : nullptr)
 	{
@@ -606,6 +628,15 @@ void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
 		if (UGSCashPickupSubsystem* Cash = GetWorld()->GetSubsystem<UGSCashPickupSubsystem>())
 		{
 			Cash->VacuumAll();
+		}
+	}
+
+	// Each RoundClear saves the profile. Done when RoundClear ends, so the cash its vacuum just paid out is included.
+	if (OldPhase == EGSRoundPhase::RoundClear && NewPhase != EGSRoundPhase::RoundClear)
+	{
+		if (UGSProfileSubsystem* Profile = UGSProfileSubsystem::Get(this))
+		{
+			Profile->Save(TEXT("RoundClear"));
 		}
 	}
 

@@ -20,6 +20,7 @@
 #include "GSHealthComponent.h"
 #include "GSPlayerController.h"
 #include "GSPlayerState.h"
+#include "GSProfileSubsystem.h"
 #include "GSProgressionComponent.h"
 #include "GSRunRandom.h"
 #include "GSSpawnLocationFinder.h"
@@ -358,9 +359,12 @@ TMap<FString, float> UGSDebugLibrary::GetAttributesOf(const AGSPlayerController*
 			Result.Add(TEXT("Ammo"), static_cast<float>(Weapons->GetCurrentAmmo()));
 		}
 	}
+	if (const UGSProfileSubsystem* Profile = UGSProfileSubsystem::Get(PC))
+	{
+		Result.Add(TEXT("Cash"), static_cast<float>(Profile->GetCash())); // permanent balance (profile)
+	}
 	if (const AGSPlayerState* PS = PC->GetPlayerState<AGSPlayerState>())
 	{
-		Result.Add(TEXT("Cash"), static_cast<float>(PS->GetCash()));
 		if (const UGSProgressionComponent* Progression = PS->GetProgressionComponent())
 		{
 			Result.Add(TEXT("Level"), static_cast<float>(Progression->GetLevel()));

@@ -51,6 +51,9 @@
 #include "GSProgressionComponent.h"
 #include "GSXPCurve.h"
 #include "GSLevelRewards.h"
+#include "GSProfileSaveGame.h"
+#include "GSProfileSubsystem.h"
+#include "Kismet/GameplayStatics.h"
 #include "GSGameplayEffects.h"
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
@@ -1238,11 +1241,11 @@ namespace GSTests
 		return World ? World->GetSubsystem<UGSCashPickupSubsystem>() : nullptr;
 	}
 
+	/** The permanent cash balance (UGSProfileSubsystem of the PIE GameInstance). */
 	int32 GetPlayerCash()
 	{
-		const AGSPlayerController* PC = GetPC();
-		const AGSPlayerState* PS = PC ? PC->GetPlayerState<AGSPlayerState>() : nullptr;
-		return PS ? PS->GetCash() : -1;
+		const UGSProfileSubsystem* Profile = UGSProfileSubsystem::Get(GetPIEWorld());
+		return Profile ? Profile->GetCash() : -1;
 	}
 
 	int32 GetCashEarnedStat()
@@ -1819,6 +1822,117 @@ bool FGSLevelUpFeedbackTest::RunTest(const FString& Parameters)
 		const AGSCharacter* Player = GetPlayer();
 		return HUD && Player && !HUD->IsLevelUpBannerShowing() && !HUD->IsXPBarPulsing() && !Player->IsLevelUpGlowActive();
 	}, 8.0);
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Profile: permanent cash
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	UGSProfileSubsystem* GetProfile()
+	{
+		return UGSProfileSubsystem::Get(GetPIEWorld());
+	}
+
+	/** Cash in the profile's save file on disk (-1 if there is no file). */
+	int32 GetSavedCash(const UGSProfileSubsystem& Profile)
+	{
+		const UGSProfileSaveGame* Saved = Cast<UGSProfileSaveGame>(UGameplayStatics::LoadGameFromSlot(Profile.GetSlotName(), 0));
+		return Saved ? Saved->Cash : -1;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSProfileCashTest, "BanditBaller.Profile.PermanentCash", GSTests::TestFlags)
+bool FGSProfileCashTest::RunTest(const FString& Parameters)
+{
+	TSharedRef<TWeakObjectPtr<UWorld>> OldWorld = MakeShared<TWeakObjectPtr<UWorld>>();
+
+	BeginPIE(this);
+	Step([this, OldWorld]()
+	{
+		UGSProfileSubsystem* Profile = GetProfile();
+		AGSGameMode* GameMode = GetGameMode();
+		AGSPlayerController* PC = GetPC();
+		UGSRunStats* Stats = GetGameState() ? GetGameState()->GetRunStats() : nullptr;
+		const UGSHUDWidget* HUD = PC ? PC->GetGSHUD() : nullptr;
+		if (!TestNotNull(TEXT("Profile subsystem"), Profile) || !TestNotNull(TEXT("GameMode"), GameMode) || !TestNotNull(TEXT("Run stats"), Stats)
+			|| !TestNotNull(TEXT("HUD"), HUD))
+		{
+			return;
+		}
+		GameMode->SetRoundTimerPaused(true);
+
+		// Tests never touch the real profile.
+		TestEqual(TEXT("Automation tests use the test slot"), Profile->GetSlotName(), FString(UGSProfileSubsystem::AutomationSlotName));
+		Profile->ResetProfile();
+		TestEqual(TEXT("Reset: cash 0"), Profile->GetCash(), 0);
+		TestEqual(TEXT("Reset: save file deleted"), GetSavedCash(*Profile), -1);
+		TestEqual(TEXT("Reset: HUD shows 0"), HUD->GetDisplayedCash(), 0);
+
+		// A pickup goes into the profile; the HUD follows OnCashChanged; CashEarned counts it for this run.
+		const int32 EarnedBefore = Stats->GetCashEarned();
+		GameMode->AwardCash(PC, 25, PC->GetPawn() ? PC->GetPawn()->GetActorLocation() : FVector::ZeroVector);
+		TestEqual(TEXT("Pickup -> profile"), Profile->GetCash(), 25);
+		TestEqual(TEXT("Pickup -> HUD"), HUD->GetDisplayedCash(), 25);
+		TestEqual(TEXT("Pickup -> run stats CashEarned"), Stats->GetCashEarned() - EarnedBefore, 25);
+
+		// Spending.
+		TestTrue(TEXT("Spend 10"), Profile->TrySpendCash(10, TEXT("Test")));
+		TestEqual(TEXT("After spending"), Profile->GetCash(), 15);
+		TestEqual(TEXT("HUD after spending"), HUD->GetDisplayedCash(), 15);
+		TestFalse(TEXT("Can't overspend"), Profile->TrySpendCash(100, TEXT("Test")));
+		TestEqual(TEXT("Overspend changes nothing"), Profile->GetCash(), 15);
+		TestEqual(TEXT("Not saved on change"), GetSavedCash(*Profile), -1);
+
+		// RoundClear saves (when it ends, after its vacuum paid out).
+		GameMode->AdvancePhase(); // PreRound -> Combat
+		GameMode->AdvancePhase(); // Combat -> RoundClear
+		TestEqual(TEXT("Not saved yet during RoundClear"), GetSavedCash(*Profile), -1);
+		GameMode->AdvancePhase(); // RoundClear -> next round
+		TestEqual(TEXT("Saved at the end of RoundClear"), GetSavedCash(*Profile), 15);
+		if (const UGSProfileSaveGame* Saved = Cast<UGSProfileSaveGame>(UGameplayStatics::LoadGameFromSlot(Profile->GetSlotName(), 0)))
+		{
+			TestEqual(TEXT("Save has the current version"), Saved->SaveVersion, UGSProfileSaveGame::CurrentVersion);
+			TestEqual(TEXT("No owned items yet"), Saved->OwnedItems.Num(), 0);
+		}
+
+		// A new run resets the run's CashEarned but keeps the permanent balance.
+		GameMode->RestartRunWithSeed(906);
+		TestEqual(TEXT("New run: CashEarned back to 0"), Stats->GetCashEarned(), 0);
+		TestEqual(TEXT("New run: balance kept"), Profile->GetCash(), 15);
+
+		// Run end (death) saves.
+		Profile->AddCash(5, TEXT("Test"));
+		TestEqual(TEXT("Unsaved change"), GetSavedCash(*Profile), 15);
+		*OldWorld = GetPIEWorld();
+		ApplyDamage(GetPlayerASC(), 100000.f);
+		TestTrue(TEXT("Player died"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
+		TestEqual(TEXT("Saved at run end (death)"), GetSavedCash(*Profile), 20);
+	});
+
+	// Restarting the map after death keeps the balance (the profile lives on the GameInstance).
+	Step([]() { GetPC()->ServerRequestRestart(); });
+	WaitUntil(this, TEXT("restarted map with a new, ready player"), [OldWorld]()
+	{
+		return GetPIEWorld() && GetPIEWorld() != OldWorld->Get() && IsPlayerReady();
+	}, 30.0);
+	Step([this]()
+	{
+		UGSProfileSubsystem* Profile = GetProfile();
+		if (!TestNotNull(TEXT("Profile after restart"), Profile))
+		{
+			return;
+		}
+		TestEqual(TEXT("Balance survives death + restart"), Profile->GetCash(), 20);
+		if (const UGSHUDWidget* HUD = GetPC() ? GetPC()->GetGSHUD() : nullptr)
+		{
+			TestEqual(TEXT("New HUD shows the balance"), HUD->GetDisplayedCash(), 20);
+		}
+		Profile->ResetProfile(); // leave the test slot empty
+	});
 	EndPIE();
 	return true;
 }

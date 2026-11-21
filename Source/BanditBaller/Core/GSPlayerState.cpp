@@ -4,7 +4,6 @@
 #include "GSAbilitySystemComponent.h"
 #include "GSAttributeSet.h"
 #include "GSProgressionComponent.h"
-#include "Net/UnrealNetwork.h"
 
 AGSPlayerState::AGSPlayerState()
 {
@@ -19,17 +18,6 @@ AGSPlayerState::AGSPlayerState()
 
 	// ASC on a PlayerState needs a higher update rate than the PlayerState default.
 	SetNetUpdateFrequency(100.f);
-}
-
-void AGSPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
-{
-	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	DOREPLIFETIME(AGSPlayerState, Cash);
-}
-
-void AGSPlayerState::OnRep_Cash(int32 OldCash)
-{
-	OnCashChanged.Broadcast(Cash, Cash - OldCash);
 }
 
 UAbilitySystemComponent* AGSPlayerState::GetAbilitySystemComponent() const
@@ -47,42 +35,4 @@ bool AGSPlayerState::GrantStartupAbilitySet(const UGSAbilitySet* AbilitySet)
 	AbilitySet->GiveToAbilitySystem(AbilitySystemComponent, &StartupAbilitySetHandles, this);
 	bStartupAbilitySetGranted = true;
 	return true;
-}
-
-void AGSPlayerState::AddCash(int32 Amount)
-{
-	if (!HasAuthority() || Amount <= 0)
-	{
-		return;
-	}
-
-	// Saturate instead of overflowing.
-	const int64 NewCash = FMath::Min<int64>(static_cast<int64>(Cash) + Amount, MAX_int32);
-	SetCash(static_cast<int32>(NewCash));
-}
-
-bool AGSPlayerState::TrySpendCash(int32 Amount)
-{
-	if (!HasAuthority() || Amount < 0 || Amount > Cash)
-	{
-		return false;
-	}
-
-	if (Amount > 0)
-	{
-		SetCash(Cash - Amount);
-	}
-	return true;
-}
-
-void AGSPlayerState::SetCash(int32 NewCash)
-{
-	const int32 Delta = NewCash - Cash;
-	if (Delta == 0)
-	{
-		return;
-	}
-
-	Cash = NewCash;
-	OnCashChanged.Broadcast(Cash, Delta);
 }
