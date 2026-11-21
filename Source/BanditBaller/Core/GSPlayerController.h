@@ -33,6 +33,10 @@ public:
 	UFUNCTION(Client, Unreliable)
 	void ClientNotifyDamageDealt(FVector_NetQuantize WorldLocation, float Damage, bool bCritical, bool bKilled);
 
+	/** Server -> collector's client: floating "+$N" where a cash pickup was collected. */
+	UFUNCTION(Client, Unreliable)
+	void ClientNotifyCashCollected(FVector_NetQuantize WorldLocation, int32 Amount);
+
 	/** Debug (gs.Damage.Self): apply DebugDamageEffect to our own ASC on the server. */
 	UFUNCTION(Server, Reliable)
 	void ServerDebugDamageSelf(float Amount);

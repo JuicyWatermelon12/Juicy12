@@ -6,6 +6,7 @@
 #include "Blueprint/UserWidget.h"
 #include "GSHUDWidget.generated.h"
 
+class AGSPlayerState;
 class UAbilitySystemComponent;
 class UProgressBar;
 class UTextBlock;
@@ -16,7 +17,8 @@ struct FOnAttributeChangeData;
  * In-game HUD base (WBP_HUD derives from this).
  * - Health bar/text bound to Health/MaxHealth attribute change delegates (no polling of values).
  * - Weapon name + ammo.
- * - Painted overlays (no extra widgets): floating damage numbers, crosshair hit marker,
+ * - Cash counter bound to AGSPlayerState::OnCashChanged.
+ * - Painted overlays (no extra widgets): floating damage numbers and "+$N" cash popups, crosshair hit marker,
  *   red screen-edge flash when hit and pulse at low health.
  * Tuning values are editable on WBP_HUD's class defaults.
  */
@@ -31,6 +33,15 @@ public:
 
 	/** Flash the crosshair hit marker (red on a kill). */
 	void ShowHitMarker(bool bKill);
+
+	/** Floating "+$N" where cash was collected; pickups collected in quick succession merge into one popup. */
+	void AddCashPopup(const FVector& WorldLocation, int32 Amount);
+
+	/** Cash currently shown by CashText (from AGSPlayerState::OnCashChanged). */
+	int32 GetDisplayedCash() const { return DisplayedCash; }
+
+	/** Sum of the "+$N" popups currently on screen (tests). */
+	int32 GetActiveCashPopupTotal() const;
 
 protected:
 	virtual void NativeDestruct() override;
@@ -53,6 +64,10 @@ protected:
 	/** "80 / 100" */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> HealthText;
+
+	/** "$120" (bound to AGSPlayerState::OnCashChanged). */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> CashText;
 
 	// --- Tuning ---
 
@@ -107,20 +122,58 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|Damage Numbers")
 	FLinearColor CritColor = FLinearColor(1.f, 0.8f, 0.1f);
 
-	/** Pool size; the oldest number is recycled when full. */
+	/** Pool size (shared with cash popups); the oldest number is recycled when full. */
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|Damage Numbers", meta = (ClampMin = "1"))
 	int32 MaxDamageNumbers = 24;
 
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Cash", meta = (Units = "s"))
+	float CashPopupLifetime = 1.1f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Cash")
+	int32 CashPopupFontSize = 24;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Cash")
+	FLinearColor CashPopupColor = FLinearColor(0.45f, 1.f, 0.35f);
+
+	/** Pickups collected within this time of the last popup add to it instead of stacking new ones. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Cash", meta = (Units = "s"))
+	float CashPopupMergeWindow = 0.35f;
+
+	/** Popups start this far above the collection point (cm). */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Cash")
+	float CashPopupHeight = 70.f;
+
+	/** CashText briefly scales up by this much when cash is gained. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Cash", meta = (ClampMin = "1"))
+	float CashPunchScale = 1.25f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Cash", meta = (Units = "s"))
+	float CashPunchDuration = 0.2f;
+
 private:
+	/** A floating damage number or "+$N" cash popup (shared pool). */
 	struct FDamageNumber
 	{
 		FVector WorldLocation = FVector::ZeroVector;
 		float Damage = 0.f;
+		int32 Cash = 0;
 		float Age = 0.f;
+		float Lifetime = 1.f;
 		float JitterX = 0.f;
 		bool bCritical = false;
+		bool bCash = false;
 		bool bActive = false;
 	};
+
+	FDamageNumber& AllocateFloatingNumber();
+
+	// Cash counter (AGSPlayerState::OnCashChanged).
+	bool TryBindCash();
+	void UnbindCash();
+	void RefreshCashDisplay();
+
+	UFUNCTION()
+	void HandleCashChanged(int32 NewCash, int32 Delta);
 
 	// Ability system binding (health).
 	bool TryBindAbilitySystem();
@@ -150,6 +203,12 @@ private:
 	/** Fixed-size pool, reused round-robin. */
 	TArray<FDamageNumber> DamageNumbers;
 	int32 NextDamageNumber = 0;
+
+	TWeakObjectPtr<AGSPlayerState> BoundPlayerState;
+	int32 DisplayedCash = 0;
+	float CashPunchRemaining = 0.f;
+	/** Pool index of the newest cash popup (merge target), or INDEX_NONE. */
+	int32 LastCashPopup = INDEX_NONE;
 
 	// Weapon text cache.
 	TWeakObjectPtr<const UObject> LastWeaponData;

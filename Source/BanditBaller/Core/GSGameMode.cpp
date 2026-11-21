@@ -23,6 +23,8 @@
 #include "AbilitySystemComponent.h"
 #include "GameplayEffect.h"
 #include "GSAttributeSet.h"
+#include "GSCashPickupSubsystem.h"
+#include "GSCashSettings.h"
 #include "GSDifficultyCurve.h"
 #include "GSGameplayTags.h"
 
@@ -82,7 +84,37 @@ void AGSGameMode::HandleEnemyKilled(AActor* Enemy, AActor* Killer)
 	{
 		Stats->RecordKill(GetEnemyTypeName(Enemy));
 	}
+
+	// Cash drop before the broadcast: if this kill clears the wave, RoundClear's vacuum includes it.
+	const AGSEnemyCharacter* EnemyCharacter = Cast<AGSEnemyCharacter>(Enemy);
+	const UGSEnemyData* EnemyData = EnemyCharacter ? EnemyCharacter->GetEnemyData() : nullptr;
+	if (EnemyData && EnemyData->CashValue > 0 && CashSettings)
+	{
+		if (UGSCashPickupSubsystem* Cash = GetWorld()->GetSubsystem<UGSCashPickupSubsystem>())
+		{
+			Cash->SpawnCashDrop(CashSettings, Enemy->GetActorLocation(), EnemyData->CashValue);
+		}
+	}
+
 	OnEnemyKilled.Broadcast(Enemy, Killer);
+}
+
+void AGSGameMode::AwardCash(APlayerController* Player, int32 Amount, const FVector& Location)
+{
+	AGSPlayerState* PS = Player ? Player->GetPlayerState<AGSPlayerState>() : nullptr;
+	if (!PS || Amount <= 0)
+	{
+		return;
+	}
+	PS->AddCash(Amount);
+	if (UGSRunStats* Stats = GetRunStats())
+	{
+		Stats->AddCashEarned(Amount);
+	}
+	if (AGSPlayerController* PC = Cast<AGSPlayerController>(Player))
+	{
+		PC->ClientNotifyCashCollected(Location, Amount);
+	}
 }
 
 void AGSGameMode::HandleDamageApplied(AActor* Victim, AActor* DamageInstigator, float Amount)
@@ -123,6 +155,12 @@ void AGSGameMode::StartRun(int32 Seed, const TCHAR* Source)
 {
 	RunSeed = Seed;
 	RunStream.Initialize(Seed);
+
+	// A fresh run starts with no cash on the ground.
+	if (UGSCashPickupSubsystem* Cash = GetWorld()->GetSubsystem<UGSCashPickupSubsystem>())
+	{
+		Cash->ReleaseAll();
+	}
 
 	if (AGSGameState* GS = GetGameState<AGSGameState>())
 	{
@@ -475,6 +513,15 @@ void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
 	if (NewPhase == EGSRoundPhase::Combat)
 	{
 		WaveDirector->StartWave(GS->GetRoundNumber());
+	}
+
+	// Round won: every cash piece still on the ground flies to the party.
+	if (NewPhase == EGSRoundPhase::RoundClear)
+	{
+		if (UGSCashPickupSubsystem* Cash = GetWorld()->GetSubsystem<UGSCashPickupSubsystem>())
+		{
+			Cash->VacuumAll();
+		}
 	}
 
 	// Phases that resolve immediately on entry.

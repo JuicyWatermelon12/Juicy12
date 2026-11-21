@@ -16,7 +16,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnCashChangedSignature, int32, N
 /**
  * Per-player persistent state. Owns the player's AbilitySystemComponent + attributes
  * (so they survive pawn changes) and the player's cash.
- * Cash is only modified with authority; cash replication will be added later.
+ * Cash is only modified with authority and replicates; OnCashChanged fires on the server and on clients.
  */
 UCLASS()
 class BANDITBALLER_API AGSPlayerState : public APlayerState, public IAbilitySystemInterface
@@ -25,6 +25,8 @@ class BANDITBALLER_API AGSPlayerState : public APlayerState, public IAbilitySyst
 
 public:
 	AGSPlayerState();
+
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	//~ IAbilitySystemInterface
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
@@ -60,11 +62,14 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UGSAttributeSet> AttributeSet;
 
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Economy")
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, ReplicatedUsing = OnRep_Cash, Category = "Economy")
 	int32 Cash = 0;
 
 private:
 	void SetCash(int32 NewCash);
+
+	UFUNCTION()
+	void OnRep_Cash(int32 OldCash);
 
 	FGSAbilitySetGrantedHandles StartupAbilitySetHandles;
 	bool bStartupAbilitySetGranted = false;

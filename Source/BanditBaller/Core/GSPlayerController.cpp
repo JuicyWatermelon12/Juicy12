@@ -122,6 +122,14 @@ void AGSPlayerController::ClientNotifyDamageDealt_Implementation(FVector_NetQuan
 	}
 }
 
+void AGSPlayerController::ClientNotifyCashCollected_Implementation(FVector_NetQuantize WorldLocation, int32 Amount)
+{
+	if (UGSHUDWidget* HUD = GetGSHUD())
+	{
+		HUD->AddCashPopup(WorldLocation, Amount);
+	}
+}
+
 void AGSPlayerController::ServerDebugDamageSelf_Implementation(float Amount)
 {
 #if !UE_BUILD_SHIPPING

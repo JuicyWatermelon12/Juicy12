@@ -58,7 +58,59 @@ void UGSHUDWidget::UnbindAbilitySystem()
 void UGSHUDWidget::NativeDestruct()
 {
 	UnbindAbilitySystem();
+	UnbindCash();
 	Super::NativeDestruct();
+}
+
+// ---------------------------------------------------------------------------
+// Cash counter (OnCashChanged)
+// ---------------------------------------------------------------------------
+
+bool UGSHUDWidget::TryBindCash()
+{
+	AGSPlayerState* PS = GetOwningPlayerState<AGSPlayerState>();
+	if (PS == BoundPlayerState.Get())
+	{
+		return PS != nullptr;
+	}
+
+	UnbindCash();
+	if (!PS)
+	{
+		return false;
+	}
+	BoundPlayerState = PS;
+	PS->OnCashChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandleCashChanged);
+	DisplayedCash = PS->GetCash();
+	RefreshCashDisplay();
+	return true;
+}
+
+void UGSHUDWidget::UnbindCash()
+{
+	if (AGSPlayerState* PS = BoundPlayerState.Get())
+	{
+		PS->OnCashChanged.RemoveDynamic(this, &UGSHUDWidget::HandleCashChanged);
+	}
+	BoundPlayerState.Reset();
+}
+
+void UGSHUDWidget::HandleCashChanged(int32 NewCash, int32 Delta)
+{
+	DisplayedCash = NewCash;
+	if (Delta > 0)
+	{
+		CashPunchRemaining = CashPunchDuration;
+	}
+	RefreshCashDisplay();
+}
+
+void UGSHUDWidget::RefreshCashDisplay()
+{
+	if (CashText)
+	{
+		CashText->SetText(FText::Format(NSLOCTEXT("GSHUD", "CashFormat", "${0}"), FText::AsNumber(DisplayedCash)));
+	}
 }
 
 void UGSHUDWidget::HandleHealthChanged(const FOnAttributeChangeData& Data)
@@ -98,24 +150,76 @@ void UGSHUDWidget::RefreshHealthDisplay()
 // Feedback entry points
 // ---------------------------------------------------------------------------
 
-void UGSHUDWidget::AddDamageNumber(const FVector& WorldLocation, float Damage, bool bCritical)
+UGSHUDWidget::FDamageNumber& UGSHUDWidget::AllocateFloatingNumber()
 {
 	const int32 PoolSize = FMath::Max(MaxDamageNumbers, 1);
 	if (DamageNumbers.Num() != PoolSize)
 	{
 		DamageNumbers.SetNum(PoolSize);
 		NextDamageNumber = 0;
+		LastCashPopup = INDEX_NONE;
 	}
 
-	FDamageNumber& Entry = DamageNumbers[NextDamageNumber];
+	const int32 Index = NextDamageNumber;
 	NextDamageNumber = (NextDamageNumber + 1) % PoolSize;
+	if (Index == LastCashPopup)
+	{
+		LastCashPopup = INDEX_NONE; // being recycled
+	}
 
+	FDamageNumber& Entry = DamageNumbers[Index];
+	Entry = FDamageNumber();
+	Entry.JitterX = FMath::FRandRange(-12.f, 12.f); // cosmetic, local only (not a gameplay roll)
+	Entry.bActive = true;
+	return Entry;
+}
+
+void UGSHUDWidget::AddDamageNumber(const FVector& WorldLocation, float Damage, bool bCritical)
+{
+	FDamageNumber& Entry = AllocateFloatingNumber();
 	Entry.WorldLocation = WorldLocation;
 	Entry.Damage = Damage;
-	Entry.Age = 0.f;
-	Entry.JitterX = FMath::FRandRange(-12.f, 12.f); // cosmetic, local only (not a gameplay roll)
+	Entry.Lifetime = DamageNumberLifetime;
 	Entry.bCritical = bCritical;
-	Entry.bActive = true;
+}
+
+void UGSHUDWidget::AddCashPopup(const FVector& WorldLocation, int32 Amount)
+{
+	if (Amount <= 0)
+	{
+		return;
+	}
+
+	// Several pieces landing together read as one "+$N" that keeps counting up.
+	if (DamageNumbers.IsValidIndex(LastCashPopup))
+	{
+		FDamageNumber& Last = DamageNumbers[LastCashPopup];
+		if (Last.bActive && Last.bCash && Last.Age < CashPopupMergeWindow)
+		{
+			Last.Cash += Amount;
+			Last.WorldLocation = WorldLocation + FVector(0.f, 0.f, CashPopupHeight);
+			Last.Age = 0.f;
+			return;
+		}
+	}
+
+	FDamageNumber& Entry = AllocateFloatingNumber();
+	Entry.WorldLocation = WorldLocation + FVector(0.f, 0.f, CashPopupHeight);
+	Entry.Cash = Amount;
+	Entry.Lifetime = CashPopupLifetime;
+	Entry.JitterX = 0.f;
+	Entry.bCash = true;
+	LastCashPopup = static_cast<int32>(&Entry - DamageNumbers.GetData());
+}
+
+int32 UGSHUDWidget::GetActiveCashPopupTotal() const
+{
+	int32 Total = 0;
+	for (const FDamageNumber& Entry : DamageNumbers)
+	{
+		Total += (Entry.bActive && Entry.bCash) ? Entry.Cash : 0;
+	}
+	return Total;
 }
 
 void UGSHUDWidget::ShowHitMarker(bool bKill)
@@ -134,6 +238,7 @@ void UGSHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 
 	// The PlayerState may replicate after the HUD is created; bind once it exists (then it's delegate-driven).
 	TryBindAbilitySystem();
+	TryBindCash();
 
 	UpdateWeaponDisplay();
 
@@ -141,12 +246,21 @@ void UGSHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	DamageFlashRemaining = FMath::Max(DamageFlashRemaining - InDeltaTime, 0.f);
 	PulseTime += InDeltaTime;
 
+	// Cash counter punch when cash comes in.
+	if (CashText && (CashPunchRemaining > 0.f || !CashText->GetRenderTransform().Scale.Equals(FVector2D::UnitVector)))
+	{
+		CashPunchRemaining = FMath::Max(CashPunchRemaining - InDeltaTime, 0.f);
+		const float T = CashPunchDuration > 0.f ? CashPunchRemaining / CashPunchDuration : 0.f;
+		const float Scale = FMath::Lerp(1.f, CashPunchScale, FMath::Sin(T * PI));
+		CashText->SetRenderScale(FVector2D(Scale, Scale));
+	}
+
 	for (FDamageNumber& Entry : DamageNumbers)
 	{
 		if (Entry.bActive)
 		{
 			Entry.Age += InDeltaTime;
-			Entry.bActive = Entry.Age < DamageNumberLifetime;
+			Entry.bActive = Entry.Age < Entry.Lifetime;
 		}
 	}
 }
@@ -273,7 +387,7 @@ void UGSHUDWidget::PaintHitMarker(const FGeometry& Geometry, FSlateWindowElement
 void UGSHUDWidget::PaintDamageNumbers(const FGeometry& Geometry, FSlateWindowElementList& OutDrawElements, int32 LayerId) const
 {
 	const APlayerController* PC = GetOwningPlayer();
-	if (!PC || DamageNumberLifetime <= 0.f)
+	if (!PC)
 	{
 		return;
 	}
@@ -282,12 +396,12 @@ void UGSHUDWidget::PaintDamageNumbers(const FGeometry& Geometry, FSlateWindowEle
 
 	for (const FDamageNumber& Entry : DamageNumbers)
 	{
-		if (!Entry.bActive)
+		if (!Entry.bActive || Entry.Lifetime <= 0.f)
 		{
 			continue;
 		}
 
-		const float T = Entry.Age / DamageNumberLifetime;
+		const float T = Entry.Age / Entry.Lifetime;
 		const FVector World = Entry.WorldLocation + FVector(0.f, 0.f, DamageNumberRise * T);
 
 		FVector2D ScreenPos;
@@ -296,15 +410,30 @@ void UGSHUDWidget::PaintDamageNumbers(const FGeometry& Geometry, FSlateWindowEle
 			continue;
 		}
 
-		const FString Text = Entry.bCritical
-			? FString::Printf(TEXT("%.0f!"), Entry.Damage)
-			: FString::Printf(TEXT("%.0f"), Entry.Damage);
-		const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), Entry.bCritical ? CritFontSize : DamageNumberFontSize);
+		FString Text;
+		int32 FontSize = DamageNumberFontSize;
+		FLinearColor Color = DamageNumberColor;
+		if (Entry.bCash)
+		{
+			Text = FString::Printf(TEXT("+$%d"), Entry.Cash);
+			FontSize = CashPopupFontSize;
+			Color = CashPopupColor;
+		}
+		else if (Entry.bCritical)
+		{
+			Text = FString::Printf(TEXT("%.0f!"), Entry.Damage);
+			FontSize = CritFontSize;
+			Color = CritColor;
+		}
+		else
+		{
+			Text = FString::Printf(TEXT("%.0f"), Entry.Damage);
+		}
+		const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), FontSize);
 		const FVector2f TextSize = FVector2f(FontMeasure->Measure(Text, Font));
 		const FVector2f Pos = FVector2f(ScreenPos) - TextSize * 0.5f + FVector2f(Entry.JitterX, 0.f);
 
 		const float Alpha = 1.f - FMath::Square(T);
-		FLinearColor Color = Entry.bCritical ? CritColor : DamageNumberColor;
 		Color.A *= Alpha;
 
 		// Drop shadow, then text.

@@ -3,6 +3,7 @@
 #include "GSPlayerState.h"
 #include "GSAbilitySystemComponent.h"
 #include "GSAttributeSet.h"
+#include "Net/UnrealNetwork.h"
 
 AGSPlayerState::AGSPlayerState()
 {
@@ -15,6 +16,17 @@ AGSPlayerState::AGSPlayerState()
 
 	// ASC on a PlayerState needs a higher update rate than the PlayerState default.
 	SetNetUpdateFrequency(100.f);
+}
+
+void AGSPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(AGSPlayerState, Cash);
+}
+
+void AGSPlayerState::OnRep_Cash(int32 OldCash)
+{
+	OnCashChanged.Broadcast(Cash, Cash - OldCash);
 }
 
 UAbilitySystemComponent* AGSPlayerState::GetAbilitySystemComponent() const

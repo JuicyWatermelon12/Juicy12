@@ -35,6 +35,10 @@
 #include "GSSpawnSettings.h"
 #include "GSWaveDirector.h"
 #include "GSWaveSettings.h"
+#include "GSCashPickup.h"
+#include "GSCashPickupSubsystem.h"
+#include "GSCashSettings.h"
+#include "GSHUDWidget.h"
 #include "GSSpawnTelegraph.h"
 #include "HAL/IConsoleManager.h"
 #include "AIController.h"
@@ -1210,6 +1214,256 @@ bool FGSTimeToKillTest::RunTest(const FString& Parameters)
 
 	Step([]()
 	{
+		GetGameMode()->SetRoundTimerPaused(false);
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+	});
+	EndPIE();
+	return true;
+}
+
+
+// ---------------------------------------------------------------------------
+// Economy: cash pickups
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	UGSCashPickupSubsystem* GetCashSubsystem()
+	{
+		UWorld* World = GetPIEWorld();
+		return World ? World->GetSubsystem<UGSCashPickupSubsystem>() : nullptr;
+	}
+
+	int32 GetPlayerCash()
+	{
+		const AGSPlayerController* PC = GetPC();
+		const AGSPlayerState* PS = PC ? PC->GetPlayerState<AGSPlayerState>() : nullptr;
+		return PS ? PS->GetCash() : -1;
+	}
+
+	int32 GetCashEarnedStat()
+	{
+		const AGSGameState* GS = GetGameState();
+		return GS && GS->GetRunStats() ? GS->GetRunStats()->GetCashEarned() : -1;
+	}
+
+	int32 SumActiveCash()
+	{
+		int32 Sum = 0;
+		for (const AGSCashPickup* Pickup : GetCashSubsystem()->GetActivePickups())
+		{
+			Sum += Pickup ? Pickup->GetValue() : 0;
+		}
+		return Sum;
+	}
+
+	int32 CountMagnetizedCash()
+	{
+		int32 Count = 0;
+		for (const AGSCashPickup* Pickup : GetCashSubsystem()->GetActivePickups())
+		{
+			Count += (Pickup && Pickup->IsMagnetized()) ? 1 : 0;
+		}
+		return Count;
+	}
+
+	/** Spawn a frozen MeleeBandit at Location and kill it as the player, so it drops its CashValue. */
+	bool KillEnemyForCash(FAutomationTestBase* Test, const FVector& Location, FVector& OutDropOrigin, int32& OutCashValue)
+	{
+		UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		AGSEnemyCharacter* Enemy = Data ? AGSEnemyCharacter::SpawnEnemy(GetPIEWorld(), Data, Location, GetPlayer()->GetActorLocation()) : nullptr;
+		if (!Test->TestNotNull(TEXT("Spawned a MeleeBandit to drop cash"), Enemy))
+		{
+			return false;
+		}
+		if (AAIController* AIC = Cast<AAIController>(Enemy->GetController()))
+		{
+			if (UBrainComponent* Brain = AIC->GetBrainComponent())
+			{
+				Brain->StopLogic(TEXT("Cash test"));
+			}
+			AIC->StopMovement();
+		}
+		Enemy->GetCharacterMovement()->DisableMovement();
+
+		OutDropOrigin = Enemy->GetActorLocation();
+		OutCashValue = Data->CashValue;
+		ApplyDamage(Enemy->GetAbilitySystemComponent(), 100000.f, GetPlayerASC());
+		return Test->TestTrue(TEXT("Cash test enemy died"), Enemy->GetHealthComponent()->IsDead());
+	}
+
+	/** Enqueue: wait Seconds of PIE world time. */
+	void WaitWorldSeconds(FAutomationTestBase* Test, double Seconds)
+	{
+		TSharedRef<double> End = MakeShared<double>(-1.0);
+		WaitUntil(Test, FString::Printf(TEXT("%.1f s of game time"), Seconds), [End, Seconds]()
+		{
+			const UWorld* World = GetPIEWorld();
+			if (!World)
+			{
+				return true;
+			}
+			if (*End < 0.0)
+			{
+				*End = World->GetTimeSeconds() + Seconds;
+			}
+			return World->GetTimeSeconds() >= *End;
+		});
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSCashPickupsTest, "BanditBaller.Economy.CashPickups", GSTests::TestFlags)
+bool FGSCashPickupsTest::RunTest(const FString& Parameters)
+{
+	struct FCashState
+	{
+		FVector PlayerHome = FVector(0.f, 0.f, 100.f);
+		FVector EnemyAt = FVector(1000.f, 0.f, 0.f);
+		FVector DropOrigin = FVector::ZeroVector;
+		int32 CashValue = 0;
+		int32 Pieces = 0;
+		int32 CashBefore = 0;
+		int32 EarnedBefore = 0;
+		int32 CollectedBefore = 0;
+		int32 CreatedBefore = 0;
+		int32 ExpiredBefore = 0;
+		bool bSawBlinking = false;
+	};
+	TSharedRef<FCashState> State = MakeShared<FCashState>();
+
+	BeginPIE(this);
+
+	// 1) Split rules + a drop that lands out of reach.
+	Step([this, State]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		UGSCashPickupSubsystem* Cash = GetCashSubsystem();
+		const UGSCashSettings* Settings = GameMode ? GameMode->GetCashSettings() : nullptr;
+		if (!TestNotNull(TEXT("Cash subsystem"), Cash) || !TestNotNull(TEXT("BP_GSGameMode has CashSettings (DA_CashSettings)"), Settings))
+		{
+			return;
+		}
+		GameMode->SetRound(1);
+		GameMode->SetRoundTimerPaused(true);
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		GetPlayer()->TeleportTo(State->PlayerHome, FRotator::ZeroRotator);
+
+		for (const int32 Total : { 1, 3, 10, 15, 37, 500 })
+		{
+			TArray<int32> Pieces;
+			UGSCashPickupSubsystem::SplitValue(*Settings, Total, Pieces);
+			int32 Sum = 0;
+			bool bAllPositive = true;
+			for (const int32 Piece : Pieces)
+			{
+				Sum += Piece;
+				bAllPositive &= Piece >= 1;
+			}
+			TestEqual(FString::Printf(TEXT("Split $%d: pieces sum to the value"), Total), Sum, Total);
+			TestTrue(FString::Printf(TEXT("Split $%d: every piece worth >= 1"), Total), bAllPositive);
+			TestTrue(FString::Printf(TEXT("Split $%d: %d pieces within [min(%d, value), %d]"), Total, Pieces.Num(), Settings->MinPieces, Settings->MaxPieces),
+				Pieces.Num() >= FMath::Min(Settings->MinPieces, Total) && Pieces.Num() <= Settings->MaxPieces);
+		}
+
+		const float Radius = GetPlayerASC()->GetNumericAttribute(UGSAttributeSet::GetPickupRadiusAttribute());
+		TestTrue(FString::Printf(TEXT("Player starts with a PickupRadius (%.0f cm)"), Radius), Radius > 0.f);
+		TestTrue(TEXT("Test drop lands outside the pickup radius"), Radius < 1000.f - Settings->ScatterRadiusMax - 100.f);
+
+		State->CashBefore = GetPlayerCash();
+		State->EarnedBefore = GetCashEarnedStat();
+		State->CollectedBefore = Cash->GetNumCollected();
+
+		if (!KillEnemyForCash(this, State->EnemyAt, State->DropOrigin, State->CashValue))
+		{
+			return;
+		}
+		TArray<int32> Expected;
+		UGSCashPickupSubsystem::SplitValue(*Settings, State->CashValue, Expected);
+		State->Pieces = Expected.Num();
+		TestTrue(TEXT("Enemy has a CashValue"), State->CashValue > 0);
+		TestEqual(TEXT("Drop spawned the split's piece count"), Cash->GetNumActive(), State->Pieces);
+		TestEqual(TEXT("Drop pieces add up to the enemy's CashValue"), SumActiveCash(), State->CashValue);
+		TestTrue(TEXT("Pool prewarmed at least PoolPrewarm pickups"), Cash->GetNumCreated() >= Settings->PoolPrewarm);
+	});
+	WaitWorldSeconds(this, 1.0);
+	Step([this, State]()
+	{
+		UGSCashPickupSubsystem* Cash = GetCashSubsystem();
+		const UGSCashSettings* Settings = GetGameMode()->GetCashSettings();
+		TestEqual(TEXT("Out of reach: pieces stay on the ground"), Cash->GetNumActive(), State->Pieces);
+		TestEqual(TEXT("Out of reach: nothing flies to the player"), CountMagnetizedCash(), 0);
+		TestEqual(TEXT("Out of reach: no cash yet"), GetPlayerCash(), State->CashBefore);
+		for (const AGSCashPickup* Pickup : Cash->GetActivePickups())
+		{
+			const float Flat = FVector::Dist2D(Pickup->GetActorLocation(), State->DropOrigin);
+			TestTrue(FString::Printf(TEXT("Piece scattered within %.0f cm of the body (%.0f)"), Settings->ScatterRadiusMax, Flat), Flat <= Settings->ScatterRadiusMax + 1.f);
+			TestTrue(TEXT("Piece is visible"), !Pickup->IsHidden());
+		}
+
+		// 2) Walk into range (beside the corpse): everything flies in and pays out.
+		GetPlayer()->TeleportTo(State->DropOrigin - FVector(120.f, 0.f, 0.f), FRotator::ZeroRotator);
+	});
+	WaitUntil(this, TEXT("pieces in range to be collected"), []() { return GetCashSubsystem()->GetNumActive() == 0; }, 10.0);
+	Step([this, State]()
+	{
+		UGSCashPickupSubsystem* Cash = GetCashSubsystem();
+		TestEqual(TEXT("Collected: player cash += CashValue"), GetPlayerCash(), State->CashBefore + State->CashValue);
+		TestEqual(TEXT("Collected: run stats CashEarned += CashValue"), GetCashEarnedStat(), State->EarnedBefore + State->CashValue);
+		TestEqual(TEXT("Collected: every piece counted"), Cash->GetNumCollected(), State->CollectedBefore + State->Pieces);
+		if (const UGSHUDWidget* HUD = GetPC()->GetGSHUD())
+		{
+			TestEqual(TEXT("HUD cash counter follows OnCashChanged"), HUD->GetDisplayedCash(), GetPlayerCash());
+			TestTrue(TEXT("HUD shows a +$N popup"), HUD->GetActiveCashPopupTotal() > 0);
+		}
+		else
+		{
+			AddError(TEXT("No UGSHUDWidget on the player controller"));
+		}
+
+		// 3) Pool reuse + RoundClear vacuum.
+		GetPlayer()->TeleportTo(State->PlayerHome, FRotator::ZeroRotator);
+		State->CreatedBefore = Cash->GetNumCreated();
+		State->CashBefore = GetPlayerCash();
+		KillEnemyForCash(this, State->EnemyAt, State->DropOrigin, State->CashValue);
+		TestEqual(TEXT("Second drop reuses pooled pickups (none created)"), Cash->GetNumCreated(), State->CreatedBefore);
+	});
+	WaitWorldSeconds(this, 1.0);
+	Step([this, State]()
+	{
+		TestEqual(TEXT("Before RoundClear: pieces wait on the ground"), CountMagnetizedCash(), 0);
+		GetGameMode()->SetPhase(EGSRoundPhase::RoundClear);
+		TestEqual(TEXT("RoundClear: every piece flies to the player"), CountMagnetizedCash(), GetCashSubsystem()->GetNumActive());
+	});
+	WaitUntil(this, TEXT("vacuumed pieces to arrive"), []() { return GetCashSubsystem()->GetNumActive() == 0; }, 10.0);
+	Step([this, State]()
+	{
+		TestEqual(TEXT("RoundClear vacuum paid the whole drop"), GetPlayerCash(), State->CashBefore + State->CashValue);
+
+		// 4) Expiry: short lifetime, out of reach.
+		IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Cash.Lifetime"))->Set(2.f, ECVF_SetByCode);
+		UGSCashPickupSubsystem* Cash = GetCashSubsystem();
+		State->ExpiredBefore = Cash->GetNumExpired();
+		State->CashBefore = GetPlayerCash();
+		KillEnemyForCash(this, State->EnemyAt, State->DropOrigin, State->CashValue);
+	});
+	WaitUntil(this, TEXT("uncollected pieces to expire"), [State]()
+	{
+		for (const AGSCashPickup* Pickup : GetCashSubsystem()->GetActivePickups())
+		{
+			State->bSawBlinking |= Pickup && Pickup->IsBlinking();
+		}
+		return GetCashSubsystem()->GetNumActive() == 0;
+	}, 10.0);
+	Step([this, State]()
+	{
+		UGSCashPickupSubsystem* Cash = GetCashSubsystem();
+		TestEqual(TEXT("Expired: every piece counted"), Cash->GetNumExpired(), State->ExpiredBefore + State->Pieces);
+		TestEqual(TEXT("Expired: no cash paid"), GetPlayerCash(), State->CashBefore);
+		TestTrue(TEXT("Pieces blink before they vanish"), State->bSawBlinking);
+		TestEqual(TEXT("Expired pickups are back in the pool"), Cash->GetNumPooled(), Cash->GetNumCreated());
+
+		IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Cash.Lifetime"))->Set(0.f, ECVF_SetByCode);
 		GetGameMode()->SetRoundTimerPaused(false);
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
 	});

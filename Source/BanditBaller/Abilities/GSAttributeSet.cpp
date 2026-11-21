@@ -20,6 +20,7 @@ void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME_CONDITION_NOTIFY(UGSAttributeSet, MoveSpeed, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UGSAttributeSet, Damage, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UGSAttributeSet, FireRate, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UGSAttributeSet, PickupRadius, COND_None, REPNOTIFY_Always);
 }
 
 void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue)
@@ -36,7 +37,8 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 	}
 	else if (Attribute == GetMoveSpeedAttribute()
 		|| Attribute == GetDamageAttribute()
-		|| Attribute == GetFireRateAttribute())
+		|| Attribute == GetFireRateAttribute()
+		|| Attribute == GetPickupRadiusAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}
@@ -140,4 +142,9 @@ void UGSAttributeSet::OnRep_Damage(const FGameplayAttributeData& OldValue)
 void UGSAttributeSet::OnRep_FireRate(const FGameplayAttributeData& OldValue)
 {
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UGSAttributeSet, FireRate, OldValue);
+}
+
+void UGSAttributeSet::OnRep_PickupRadius(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UGSAttributeSet, PickupRadius, OldValue);
 }

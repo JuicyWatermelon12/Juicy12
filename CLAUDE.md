@@ -44,7 +44,8 @@ Content/Python/
 ## Game systems (so far)
 - **Player**: `AGSCharacter` (fast movement, slide, dash) with its ASC on `AGSPlayerState`
   (`UGSAbilitySystemComponent`, input-tag activation). Stats in `UGSAttributeSet`: Health, MaxHealth, MoveSpeed,
-  Damage, FireRate (+ IncomingDamage meta attribute). Death/restart via `UGSHealthComponent` + `AGSGameMode`.
+  Damage, FireRate, PickupRadius (+ IncomingDamage meta attribute); starting values from `GE_InitPlayerStats`
+  (PickupRadius 300 cm). Death/restart via `UGSHealthComponent` + `AGSGameMode`.
 - **Weapons**: `UGSWeaponData` assets (`Content/BanditBaller/Weapons`: DA_Rifle, DA_Pistol, DA_BanditCarbine),
   `UGSWeaponComponent` (2 slots, ammo), GA_Fire (hitscan on Visibility) / GA_Reload / GA_SwapWeapon.
 - **Damage**: always GE_Damage (`UGSDamageEffect`) with SetByCaller `Data.Damage`; blocked by `State.Invulnerable`
@@ -70,10 +71,10 @@ Content/Python/
 - **Run seed**: `AGSGameMode` owns a seeded `FRandomStream`, chosen at run start (`-GSSeed=N` launch arg, else
   random) and logged as `Run started: seed N (source)`; `gs.Run.Seed <N>` restarts the run with that seed.
   All gameplay rolls go through `UGSRunRandom` (`Core/GSRunRandom.h`: RandRange, FRandRange, FRand, RandBool,
-  RollChance, VRandCone). Currently used for enemy speed variance, ranged reposition, enemy shot spread and
-  gs.Spawn positions.
+  RollChance, VRandCone). Currently used for enemy speed variance, ranged reposition, enemy shot spread,
+  gs.Spawn positions and cash drop scatter.
 - **Run stats**: `UGSRunStats` component on `AGSGameState` (replicated): rounds cleared (Combat → RoundClear),
-  kills total and per enemy type (enemies killed by players), cash earned/spent (APIs ready for the economy),
+  kills total and per enemy type (enemies killed by players), cash earned (collected pickups) / spent,
   damage dealt/taken (party totals, health actually removed, fed by `UGSAttributeSet` →
   `AGSGameMode::HandleDamageApplied`), run time. Run seed is replicated on the GameState too.
 - **Spawn locations**: `UGSSpawnLocationFinder::FindSpawnLocations(PC, Count)` (`AI/`) is used by all round
@@ -108,6 +109,25 @@ Content/Python/
   `Data.HealthMultiplier` / `Data.DamageMultiplier`) and fills Health. Base stats in UGSEnemyData stay untouched;
   the Damage attribute scales melee AttackDamage and ranged weapon Damage. `AGSGameState` replicates the round's
   `EnemyHealthMultiplier` / `EnemyDamageMultiplier` (shown by gs.Debug.Round).
+- **Cash pickups** (Megabonk-style, `Economy/`): when an enemy dies, `AGSGameMode::HandleEnemyKilled` asks
+  `UGSCashPickupSubsystem` (world subsystem, server) to drop its `UGSEnemyData::CashValue` (Melee $10, Ranged $15)
+  as `AGSCashPickup` actors. Tuning in `UGSCashSettings` (`Data/DA_CashSettings`, set on BP_GSGameMode):
+  - Split into round(value / TargetPieceValue 4) pieces, clamped to MinPieces 2..MaxPieces 6 (sum is exact);
+    pieces worth >= BillThreshold 4 are green bills (Cube), smaller ones gold coins (Cylinder)
+    (`Materials/MI_CashCoin`, `MI_CashBill`).
+  - Scattered 40–140 cm around the body (run stream), tossed in an arc (0.35 s), stopped short of walls, resting
+    25 cm above the floor.
+  - A living player whose `PickupRadius` covers a piece pulls it in (400 → 3000 cm/s, accel 3000); within 80 cm it is
+    collected through `AGSGameMode::AwardCash` → `AGSPlayerState::AddCash` + run stats CashEarned +
+    `ClientNotifyCashCollected` ("+$N" popup).
+  - Uncollected pieces expire after Lifetime 20 s (`gs.Cash.Lifetime <s>` overrides) and blink for the last 4 s.
+  - Entering RoundClear sends every piece on the ground to the nearest living player (`VacuumAll`); dead players
+    collect nothing.
+  - Pooled: PoolPrewarm 48 created on the first drop, hidden + reused (grows if needed); a new run releases all.
+  - Replicated (movement + state); spin / bob / blink are cosmetic on every machine.
+- **HUD**: `UGSHUDWidget` (WBP_HUD) — health, weapon/ammo, cash counter `CashText` (top right, bound to
+  `AGSPlayerState::OnCashChanged`, which fires on server and clients via `OnRep_Cash`; punches on gain), painted damage
+  numbers and green "+$N" cash popups (pickups collected within 0.35 s merge into one popup).
 - **Collision gotcha**: player capsule + mesh ignore `ECC_Visibility`; enemy capsules block it (player hitscan).
   Enemy shots/LOS use `AGSEnemyCharacter::GetShotObjectQueryParams()` (WorldStatic/Dynamic/Pawn).
 
@@ -123,7 +143,8 @@ Implementation is shared in `UGSDebugLibrary` (`Core/GSDebugLibrary.*`, `Core/GS
 | `gs.God [0\|1]` | toggle/set damage immunity (adds one `State.Invulnerable` count) |
 | `gs.KillAll` | kill all living enemies through GE_Damage (credited to the player) |
 | `gs.GiveWeapon <WeaponDataName>` | equip a weapon with a full mag (`Pistol`, `Rifle`, `BanditCarbine`); replaces the equipped one if both slots are full |
-| `gs.SetAttr <Attribute> <Value>` | set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate) |
+| `gs.SetAttr <Attribute> <Value>` | set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius) |
+| `gs.Cash.Lifetime <s>` | cvar: seconds uncollected cash pickups stay (0 = DA_CashSettings Lifetime) |
 | `gs.Perf [Seconds=5]` | log avg/p95/max frame time, game thread and GPU time, enemies alive |
 | `gs.Run.Seed [N]` | print the run seed, or restart the run (fresh stream + stats, round 1) with seed N |
 | `gs.Run.Stats` | print run stats to the log and screen (reads the local replicated copy; works on clients) |
@@ -138,12 +159,13 @@ Implementation is shared in `UGSDebugLibrary` (`Core/GSDebugLibrary.*`, `Core/GS
 | `gs.Debug.Weapons 1` | debug-draw shots; log enemy shots (`[shot]`) |
 | `GSFire`, `GSPress <InputTag>`, `GSAimAt X Y Z` | drive player input from the console (exec on the controller) |
 
-Typing console commands via MCP: `SlateInspectorToolset` → `Observe(ref "")`, `Click tb3`
-(the Output Log "Cmd" box), `Type tb3 "<command>" submit=true`. Refs reset after an editor restart.
+Typing console commands via MCP: `SlateInspectorToolset` → `Observe(ref "")`, `Snapshot` to find the textbox
+right after the "Cmd" combobox (`tb2`/`tb3`, changes per session), then `Click` it and `Type <ref> "<command>" submit=true`.
+Refs reset after an editor restart. Several commands in a row: one `ProgrammaticToolset.execute_tool_script`.
 
 **Project MCP toolset** `banditballer_toolset.toolsets.BanditBallerTools` (needs PIE running):
 - `spawn_enemies(type, count=1)` → spawned actor names (same rules as round spawns)
-- `get_player_attributes()` → attribute values + Ammo, God, Invulnerable, Dead
+- `get_player_attributes()` → attribute values + Ammo, Cash, God, Invulnerable, Dead
 - `list_enemies_alive()` → name, type, health, location, distance to player, attacking (nearest first)
 
 Source: `Content/Python/banditballer_toolset/` (Python `ToolsetDefinition` wrapping `UGSDebugLibrary`);
@@ -152,6 +174,10 @@ registered by `Content/Python/init_unreal.py`, so restart the editor after editi
 PIE notes: `SceneTools.remove_from_scene` is refused during PIE (teleport below KillZ instead). With the editor
 in the background, `EditorPerformanceSettings.bThrottleCPUWhenNotForeground` drops PIE to ~3 FPS, which skews
 timings; turn it off temporarily (in memory) for perf checks.
+
+Blueprint defaults via MCP: after `ObjectTools.set_properties` on a Blueprint CDO (e.g.
+`BP_GSGameMode.Default__BP_GSGameMode_C`), run `BlueprintTools.compile_blueprint` before saving/PIE. Spawned
+instances only copy the CDO values that differed at the last compile, so without it PIE sees the old value.
 
 ## Automation tests
 `Source/BanditBaller/Tests/GSGameplayTests.cpp` (editor-only). Each test starts PIE in the current editor map
@@ -174,6 +200,9 @@ timings; turn it off temporarily (in memory) for perf checks.
 - `BanditBaller.Balance.TimeToKill` (balance report: rounds 1/5/10 x melee/ranged x rifle/pistol through the real fire path; asserts shots-to-kill, logs `[ttk]` lines with measured and ideal time)
 - `BanditBaller.Run.SeedAndStats` (same seed replays the same rolls, restart resets stats, kills per type,
   damage dealt/taken without overkill, rounds cleared)
+- `BanditBaller.Economy.CashPickups` (split sums exactly; drop out of reach stays on the ground; walking into
+  PickupRadius collects it into Cash, CashEarned and the HUD counter + popup; second drop reuses the pool;
+  RoundClear vacuums everything; short gs.Cash.Lifetime → pieces blink, expire unpaid and return to the pool)
 
 Run via MCP: `AutomationTestToolset` → `DiscoverTests`, then `RunTestsByFilter("StartsWith:BanditBaller")`.
 Or in the editor console: `Automation RunTests BanditBaller`.

@@ -12,6 +12,7 @@ class UGSRunStats;
 class UGSSpawnSettings;
 class UGSWaveDirector;
 class UGSDifficultyCurve;
+class UGSCashSettings;
 class UGameplayEffect;
 class AGSEnemyCharacter;
 class ULevelStreaming;
@@ -24,8 +25,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnPlayerDiedSignature, APawn*, P
  * Server-only game rules. Runs the round loop as a state machine over EGSRoundPhase (SetPhase /
  * AdvancePhase) and owns area travel between the Town and the Market District.
  * Replicated round state lives in AGSGameState.
- * Receives deaths from UGSHealthComponent: broadcasts OnEnemyKilled (cash/rounds listen here)
- * and shows the death screen + restart flow for players.
+ * Receives deaths from UGSHealthComponent: enemies drop cash pickups (UGSCashPickupSubsystem) and OnEnemyKilled
+ * is broadcast; players get the death screen + restart flow.
  */
 UCLASS()
 class BANDITBALLER_API AGSGameMode : public AGameModeBase
@@ -110,6 +111,17 @@ public:
 	/** Called by UGSAttributeSet when damage actually removed Health (server): feeds run stats. */
 	void HandleDamageApplied(AActor* Victim, AActor* DamageInstigator, float Amount);
 
+	// --- Cash (server) ---
+
+	/** Cash pickup tuning (DA_CashSettings). Enemies drop no cash if unset. */
+	const UGSCashSettings* GetCashSettings() const { return CashSettings; }
+
+	/**
+	 * A cash pickup reached Player: AGSPlayerState::AddCash, run stats CashEarned, and the "+$N" popup on that
+	 * player's screen (Location = where it was collected).
+	 */
+	void AwardCash(APlayerController* Player, int32 Amount, const FVector& Location);
+
 	// --- Area travel (server) ---
 
 	/**
@@ -148,6 +160,10 @@ protected:
 	/** GE_EnemyRoundScaling (UGSEnemyRoundScalingEffect child); SetByCaller Data.HealthMultiplier / Data.DamageMultiplier. */
 	UPROPERTY(EditDefaultsOnly, Category = "Difficulty")
 	TSubclassOf<UGameplayEffect> EnemyRoundScalingEffect;
+
+	/** Cash drops: split, scatter, lifetime, magnet, looks (DA_CashSettings). */
+	UPROPERTY(EditDefaultsOnly, Category = "Economy")
+	TObjectPtr<UGSCashSettings> CashSettings;
 
 	/** Spawn ring / spacing / attempts for UGSSpawnLocationFinder (DA_SpawnSettings). Class defaults if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Round")

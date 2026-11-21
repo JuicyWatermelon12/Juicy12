@@ -81,7 +81,7 @@ public:
 
 	static bool GiveWeaponTo(AGSPlayerController* PC, UGSWeaponData* WeaponData);
 
-	/** Sets the base value of a UGSAttributeSet attribute (Health, MaxHealth, MoveSpeed, Damage, FireRate). */
+	/** Sets the base value of a UGSAttributeSet attribute (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius). */
 	static bool SetAttributeOn(AGSPlayerController* PC, const FString& AttributeName, float Value);
 
 	static TMap<FString, float> GetAttributesOf(const AGSPlayerController* PC);

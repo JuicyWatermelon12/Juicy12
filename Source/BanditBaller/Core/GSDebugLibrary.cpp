@@ -357,6 +357,10 @@ TMap<FString, float> UGSDebugLibrary::GetAttributesOf(const AGSPlayerController*
 			Result.Add(TEXT("Ammo"), static_cast<float>(Weapons->GetCurrentAmmo()));
 		}
 	}
+	if (const AGSPlayerState* PS = PC->GetPlayerState<AGSPlayerState>())
+	{
+		Result.Add(TEXT("Cash"), static_cast<float>(PS->GetCash()));
+	}
 	Result.Add(TEXT("God"), PC->IsDebugGodMode() ? 1.f : 0.f);
 	Result.Add(TEXT("Invulnerable"), ASC->HasMatchingGameplayTag(GSGameplayTags::State_Invulnerable) ? 1.f : 0.f);
 	Result.Add(TEXT("Dead"), ASC->HasMatchingGameplayTag(GSGameplayTags::State_Dead) ? 1.f : 0.f);
@@ -410,7 +414,7 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 	{
 		if (Args.Num() < 2)
 		{
-			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.SetAttr <Health|MaxHealth|MoveSpeed|Damage|FireRate> <Value>"));
+			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.SetAttr <Health|MaxHealth|MoveSpeed|Damage|FireRate|PickupRadius> <Value>"));
 			return;
 		}
 		SetAttributeOn(PC, Args[0], FCString::Atof(*Args[1]));

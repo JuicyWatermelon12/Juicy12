@@ -45,6 +45,11 @@ public:
 	FGameplayAttributeData FireRate;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, FireRate)
 
+	/** Cash pickups inside this radius (cm) fly to the player. Starting value from GE_InitPlayerStats. */
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_PickupRadius, Category = "Attributes|Economy")
+	FGameplayAttributeData PickupRadius;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, PickupRadius)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;
@@ -73,4 +78,7 @@ protected:
 
 	UFUNCTION()
 	void OnRep_FireRate(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_PickupRadius(const FGameplayAttributeData& OldValue);
 };

@@ -80,7 +80,7 @@ namespace GSCheats
 
 	FAutoConsoleCommandWithWorldAndArgs SetAttrCommand(
 		TEXT("gs.SetAttr"),
-		TEXT("Set a player attribute's base value. Usage: gs.SetAttr <Health|MaxHealth|MoveSpeed|Damage|FireRate> <Value>"),
+		TEXT("Set a player attribute's base value. Usage: gs.SetAttr <Health|MaxHealth|MoveSpeed|Damage|FireRate|PickupRadius> <Value>"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("SetAttr"), Args, World); }),
 		ECVF_Cheat);
 
