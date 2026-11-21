@@ -64,6 +64,30 @@ public:
 	UGSEnemyRoundScalingEffect(const FObjectInitializer& ObjectInitializer);
 };
 
+/**
+ * Level-up reward (GE_LevelUp_MaxHealth derives from this). Infinite, stacks by target without limit; each stack adds
+ * the modifier magnitude (default +10, edit it on the asset) to MaxHealth. UGSProgressionComponent adds one stack per
+ * level-up through UGSLevelRewards and removes all stacks when progression resets.
+ */
+UCLASS()
+class BANDITBALLER_API UGSLevelUpMaxHealthEffect : public UGameplayEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSLevelUpMaxHealthEffect(const FObjectInitializer& ObjectInitializer);
+};
+
+/** Instant: overrides Health with the target's current MaxHealth (GE_FullHeal; used after level-up rewards). */
+UCLASS()
+class BANDITBALLER_API UGSFullHealEffect : public UGameplayEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSFullHealEffect(const FObjectInitializer& ObjectInitializer);
+};
+
 /** Base for damage effects: cannot be applied to targets with State.Invulnerable or State.Dead. */
 UCLASS()
 class BANDITBALLER_API UGSDamageEffect : public UGameplayEffect

@@ -50,6 +50,8 @@
 #include "GSPlayerState.h"
 #include "GSProgressionComponent.h"
 #include "GSXPCurve.h"
+#include "GSLevelRewards.h"
+#include "GSGameplayEffects.h"
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
 #include "Misc/AutomationTest.h"
@@ -1580,6 +1582,155 @@ bool FGSXPAndLevelsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: total XP 0"), Progression->GetTotalXP(), 0);
 		TestEqual(TEXT("New run: XP earned 0"), Stats->GetXPEarned(), 0);
 		TestEqual(TEXT("New run: level reached 1"), Stats->GetLevelReached(), 1);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Level-up rewards
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSLevelUpRewardsTest, "BanditBaller.Progression.LevelUpRewards", GSTests::TestFlags)
+bool FGSLevelUpRewardsTest::RunTest(const FString& Parameters)
+{
+	struct FState
+	{
+		float BaseMaxHealth = 0.f;
+		float PerStack = 0.f;
+		TSubclassOf<UGameplayEffect> StackEffect;
+	};
+	TSharedRef<FState> State = MakeShared<FState>();
+
+	struct FContext
+	{
+		AGSGameMode* GameMode = nullptr;
+		AGSPlayerState* PS = nullptr;
+		UGSProgressionComponent* Progression = nullptr;
+		UGSAbilitySystemComponent* ASC = nullptr;
+		const UGSHUDWidget* HUD = nullptr;
+		bool IsValid() const { return GameMode && PS && Progression && ASC; }
+	};
+	auto GetContext = []()
+	{
+		FContext C;
+		C.GameMode = GetGameMode();
+		AGSPlayerController* PC = GetPC();
+		C.PS = PC ? PC->GetPlayerState<AGSPlayerState>() : nullptr;
+		C.Progression = C.PS ? C.PS->GetProgressionComponent() : nullptr;
+		C.ASC = GetPlayerASC();
+		C.HUD = PC ? PC->GetGSHUD() : nullptr;
+		return C;
+	};
+
+	// Damage, level up once (XP for exactly the next level), check +1 stack and full health (and the HUD).
+	auto LevelUpOnceDamaged = [this, State, GetContext](const TCHAR* Where, float Damage, int32 ExpectedStacks)
+	{
+		const FContext C = GetContext();
+		if (!C.IsValid())
+		{
+			AddError(FString::Printf(TEXT("%s: missing GameMode / PlayerState / progression / ASC"), Where));
+			return;
+		}
+		ApplyDamage(C.ASC, Damage);
+		TestTrue(FString::Printf(TEXT("%s: damaged before the level-up"), Where), GetHealth(C.ASC) < GetMaxHealth(C.ASC));
+		const int32 LevelBefore = C.Progression->GetLevel();
+		C.GameMode->AwardXP(C.PS, static_cast<float>(C.Progression->GetXPForNextLevel()), false);
+		TestEqual(FString::Printf(TEXT("%s: one level gained"), Where), C.Progression->GetLevel(), LevelBefore + 1);
+		TestEqual(FString::Printf(TEXT("%s: MaxHealth +%d stacks"), Where, ExpectedStacks), GetMaxHealth(C.ASC), State->BaseMaxHealth + ExpectedStacks * State->PerStack, 0.01f);
+		TestEqual(FString::Printf(TEXT("%s: fully healed"), Where), GetHealth(C.ASC), GetMaxHealth(C.ASC), 0.01f);
+		if (C.HUD)
+		{
+			TestEqual(FString::Printf(TEXT("%s: HUD MaxHealth"), Where), C.HUD->GetDisplayedMaxHealth(), GetMaxHealth(C.ASC), 0.01f);
+			TestEqual(FString::Printf(TEXT("%s: HUD Health"), Where), C.HUD->GetDisplayedHealth(), GetHealth(C.ASC), 0.01f);
+			TestEqual(FString::Printf(TEXT("%s: HUD level"), Where), C.HUD->GetDisplayedLevel(), C.Progression->GetLevel());
+		}
+	};
+
+	BeginPIE(this);
+	Step([this, State, GetContext]()
+	{
+		const FContext C = GetContext();
+		const UGSLevelRewards* Rewards = C.GameMode ? C.GameMode->GetLevelRewards() : nullptr;
+		const UGSXPCurve* Curve = C.GameMode ? C.GameMode->GetXPCurve() : nullptr;
+		if (!TestTrue(TEXT("Context"), C.IsValid()) || !TestNotNull(TEXT("LevelRewards on the GameMode (DA_LevelRewards)"), Rewards)
+			|| !TestNotNull(TEXT("XP curve"), Curve) || !TestTrue(TEXT("At least one every-level reward"), Rewards->EveryLevelEffects.Num() > 0)
+			|| !TestNotNull(TEXT("Full heal effect"), Rewards->FullHealEffect.Get()))
+		{
+			return;
+		}
+		TestEqual(TEXT("No level-specific rewards yet"), Rewards->LevelSpecificRewards.Num(), 0);
+
+		C.GameMode->SetRoundTimerPaused(true);
+		C.GameMode->RestartRunWithSeed(901);
+
+		State->StackEffect = Rewards->EveryLevelEffects[0];
+		const UGameplayEffect* StackCDO = State->StackEffect->GetDefaultObject<UGameplayEffect>();
+		TestTrue(TEXT("Every-level reward is GE_LevelUp_MaxHealth (UGSLevelUpMaxHealthEffect)"), StackCDO->IsA<UGSLevelUpMaxHealthEffect>());
+		TestTrue(TEXT("MaxHealth reward is infinite"), StackCDO->DurationPolicy == EGameplayEffectDurationType::Infinite);
+		if (StackCDO->Modifiers.Num() > 0)
+		{
+			StackCDO->Modifiers[0].ModifierMagnitude.GetStaticMagnitudeIfPossible(1.f, State->PerStack);
+		}
+		TestEqual(TEXT("+10 MaxHealth per stack"), State->PerStack, 10.f, 0.001f);
+		State->BaseMaxHealth = GetMaxHealth(C.ASC);
+
+		// Damaged, then two level-ups from one XP gain: +20 MaxHealth, full health.
+		ApplyDamage(C.ASC, 30.f);
+		TestEqual(TEXT("Took 30 damage"), GetHealth(C.ASC), State->BaseMaxHealth - 30.f, 0.01f);
+		C.GameMode->AwardXP(C.PS, static_cast<float>(Curve->GetTotalXPToReachLevel(3)), false);
+		TestEqual(TEXT("Two level-ups -> level 3"), C.Progression->GetLevel(), 3);
+		TestEqual(TEXT("MaxHealth +20 after two level-ups"), GetMaxHealth(C.ASC), State->BaseMaxHealth + 20.f, 0.01f);
+		TestEqual(TEXT("Health full after level-ups"), GetHealth(C.ASC), GetMaxHealth(C.ASC), 0.01f);
+		TestEqual(TEXT("Two MaxHealth stacks"), C.ASC->GetGameplayEffectCount(State->StackEffect, nullptr), 2);
+		if (TestNotNull(TEXT("HUD"), C.HUD))
+		{
+			TestEqual(TEXT("HUD MaxHealth follows"), C.HUD->GetDisplayedMaxHealth(), State->BaseMaxHealth + 20.f, 0.01f);
+			TestEqual(TEXT("HUD Health follows"), C.HUD->GetDisplayedHealth(), State->BaseMaxHealth + 20.f, 0.01f);
+			TestEqual(TEXT("HUD level still follows"), C.HUD->GetDisplayedLevel(), 3);
+			TestEqual(TEXT("HUD XP bar still follows (0 XP into level 3)"), C.HUD->GetDisplayedXPPercent(), 0.f, 0.001f);
+		}
+
+		// RoundClear works the same.
+		C.GameMode->AdvancePhase(); // PreRound -> Combat
+		C.GameMode->AdvancePhase(); // Combat -> RoundClear
+		TestTrue(TEXT("In RoundClear"), GetGameState()->GetRoundPhase() == EGSRoundPhase::RoundClear);
+	});
+	Step([LevelUpOnceDamaged]() { LevelUpOnceDamaged(TEXT("RoundClear"), 25.f, 3); });
+
+	// Market District visit works the same.
+	Step([this]() { TestTrue(TEXT("Travel to the Market District starts"), GetGameMode()->TravelToMarketDistrict()); });
+	WaitUntil(this, TEXT("party in the Market District"), []()
+	{
+		return GetGameState() && GetGameState()->GetCurrentArea() == EGSArea::MarketDistrict && !GetGameMode()->IsAreaTravelInProgress();
+	});
+	Step([LevelUpOnceDamaged]() { LevelUpOnceDamaged(TEXT("Market District"), 40.f, 4); });
+	Step([]() { GetGameMode()->ReturnToTown(); });
+	WaitUntil(this, TEXT("party back in town"), []()
+	{
+		return GetGameState() && GetGameState()->GetCurrentArea() == EGSArea::Town && !GetGameMode()->IsAreaTravelInProgress();
+	});
+
+	Step([this, State, GetContext]()
+	{
+		const FContext C = GetContext();
+		if (!C.IsValid())
+		{
+			return;
+		}
+		// A new run removes the stacks; Health is clamped to the lower MaxHealth.
+		C.GameMode->RestartRunWithSeed(902);
+		TestEqual(TEXT("New run: level 1"), C.Progression->GetLevel(), 1);
+		TestEqual(TEXT("New run: no MaxHealth stacks"), C.ASC->GetGameplayEffectCount(State->StackEffect, nullptr), 0);
+		TestEqual(TEXT("New run: base MaxHealth"), GetMaxHealth(C.ASC), State->BaseMaxHealth, 0.01f);
+		TestEqual(TEXT("New run: Health clamped to MaxHealth"), GetHealth(C.ASC), State->BaseMaxHealth, 0.01f);
+
+		// A dead player still gets the stat reward but is not healed back up.
+		ApplyDamage(C.ASC, 10000.f);
+		TestTrue(TEXT("Player is dead"), C.ASC->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
+		C.GameMode->AwardXP(C.PS, static_cast<float>(C.Progression->GetXPForNextLevel()), false);
+		TestEqual(TEXT("Dead: MaxHealth reward applied"), GetMaxHealth(C.ASC), State->BaseMaxHealth + State->PerStack, 0.01f);
+		TestEqual(TEXT("Dead: no heal"), GetHealth(C.ASC), 0.f, 0.01f);
 	});
 	EndPIE();
 	return true;

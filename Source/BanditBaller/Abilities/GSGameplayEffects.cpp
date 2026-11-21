@@ -64,6 +64,39 @@ UGSEnemyRoundScalingEffect::UGSEnemyRoundScalingEffect(const FObjectInitializer&
 	AddMultiplier(UGSAttributeSet::GetDamageAttribute(), GSGameplayTags::Data_DamageMultiplier);
 }
 
+UGSLevelUpMaxHealthEffect::UGSLevelUpMaxHealthEffect(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+
+	PRAGMA_DISABLE_DEPRECATION_WARNINGS
+	StackingType = EGameplayEffectStackingType::AggregateByTarget;
+	PRAGMA_ENABLE_DEPRECATION_WARNINGS
+	StackLimitCount = 0; // no limit: one stack per level-up
+
+	FGameplayModifierInfo& Modifier = Modifiers.AddDefaulted_GetRef();
+	Modifier.Attribute = UGSAttributeSet::GetMaxHealthAttribute();
+	Modifier.ModifierOp = EGameplayModOp::Additive;
+	Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(10.f));
+}
+
+UGSFullHealEffect::UGSFullHealEffect(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	DurationPolicy = EGameplayEffectDurationType::Instant;
+
+	// Health = the target's MaxHealth at application time (after any reward that raised it).
+	FAttributeBasedFloat MaxHealth;
+	MaxHealth.Coefficient = FScalableFloat(1.f);
+	MaxHealth.BackingAttribute = FGameplayEffectAttributeCaptureDefinition(
+		UGSAttributeSet::GetMaxHealthAttribute(), EGameplayEffectAttributeCaptureSource::Target, /*bSnapshot*/ false);
+
+	FGameplayModifierInfo& Modifier = Modifiers.AddDefaulted_GetRef();
+	Modifier.Attribute = UGSAttributeSet::GetHealthAttribute();
+	Modifier.ModifierOp = EGameplayModOp::Override;
+	Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(MaxHealth);
+}
+
 UGSDamageEffect::UGSDamageEffect(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

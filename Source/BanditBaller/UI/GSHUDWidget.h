@@ -45,6 +45,10 @@ public:
 	/** Sum of the "+$N" popups currently on screen (tests). */
 	int32 GetActiveCashPopupTotal() const;
 
+	/** Health / MaxHealth currently shown by the health bar (attribute change delegates; tests). */
+	float GetDisplayedHealth() const { return CurrentHealth; }
+	float GetDisplayedMaxHealth() const { return CurrentMaxHealth; }
+
 	/** Level / XP fill currently shown (from UGSProgressionComponent events; tests). */
 	int32 GetDisplayedLevel() const { return DisplayedLevel; }
 	float GetDisplayedXPPercent() const { return DisplayedXPPercent; }

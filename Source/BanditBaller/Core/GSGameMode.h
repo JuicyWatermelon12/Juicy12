@@ -14,6 +14,7 @@ class UGSWaveDirector;
 class UGSDifficultyCurve;
 class UGSCashSettings;
 class UGSXPCurve;
+class UGSLevelRewards;
 class AGSPlayerState;
 class UGameplayEffect;
 class AGSEnemyCharacter;
@@ -129,6 +130,9 @@ public:
 	/** Player level curve (DA_XPCurve). Levels don't advance if unset. */
 	const UGSXPCurve* GetXPCurve() const { return XPCurve; }
 
+	/** Level-up rewards (DA_LevelRewards). Level-ups grant nothing if unset. */
+	const UGSLevelRewards* GetLevelRewards() const { return LevelRewards; }
+
 	/**
 	 * Grant XP to a player: round(BaseXP x XPGain attribute) when bApplyXPGain, else round(BaseXP). Goes through
 	 * UGSProgressionComponent::AddXP and feeds run stats (XP earned, level reached). Returns the XP granted.
@@ -184,6 +188,10 @@ protected:
 	/** XP needed per player level + max level (DA_XPCurve). */
 	UPROPERTY(EditDefaultsOnly, Category = "Progression")
 	TObjectPtr<UGSXPCurve> XPCurve;
+
+	/** Gameplay Effects granted on level-up + the full heal after them (DA_LevelRewards). */
+	UPROPERTY(EditDefaultsOnly, Category = "Progression")
+	TObjectPtr<UGSLevelRewards> LevelRewards;
 
 	/** Spawn ring / spacing / attempts for UGSSpawnLocationFinder (DA_SpawnSettings). Class defaults if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Round")

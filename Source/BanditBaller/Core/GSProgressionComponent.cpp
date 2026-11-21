@@ -4,6 +4,12 @@
 #include "BanditBaller.h"
 #include "GSGameMode.h"
 #include "GSXPCurve.h"
+#include "GSLevelRewards.h"
+#include "GSAttributeSet.h"
+#include "GSGameplayTags.h"
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemGlobals.h"
+#include "GameplayEffect.h"
 #include "Engine/World.h"
 #include "Net/UnrealNetwork.h"
 
@@ -96,6 +102,12 @@ int32 UGSProgressionComponent::AddXP(int32 Amount)
 		*GetNameSafe(GetOwner()), Amount, State.Level, State.CurrentXP, State.XPForNextLevel, State.TotalXP,
 		LevelsGained > 0 ? *FString::Printf(TEXT(", LEVEL UP x%d"), LevelsGained) : TEXT(""));
 
+	// Rewards before the events, so level-up listeners see the new stats. Works the same in every phase / area.
+	if (LevelsGained > 0)
+	{
+		ApplyLevelUpRewards(OldState.Level + 1, State.Level);
+	}
+
 	BroadcastChanges(OldState, Amount);
 	return LevelsGained;
 }
@@ -106,10 +118,67 @@ void UGSProgressionComponent::ResetProgression()
 	{
 		return;
 	}
+	// Lasting level-up rewards go with the levels (Health is clamped to the lower MaxHealth by the attribute set).
+	if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GetOwner()))
+	{
+		for (const FActiveGameplayEffectHandle& Handle : RewardEffectHandles)
+		{
+			ASC->RemoveActiveGameplayEffect(Handle, /*StacksToRemove*/ -1);
+		}
+	}
+	RewardEffectHandles.Reset();
+
 	const FGSProgressionState OldState = State;
 	State = FGSProgressionState();
 	RefreshFromCurve(GetXPCurve());
 	BroadcastChanges(OldState, 0);
+}
+
+void UGSProgressionComponent::ApplyLevelUpRewards(int32 FirstLevel, int32 LastLevel)
+{
+	const UWorld* World = GetWorld();
+	const AGSGameMode* GameMode = World ? World->GetAuthGameMode<AGSGameMode>() : nullptr;
+	const UGSLevelRewards* Rewards = GameMode ? GameMode->GetLevelRewards() : nullptr;
+	UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GetOwner());
+	if (!Rewards || !ASC)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("[xp] %s: no LevelRewards on the GameMode (or no ASC); level-up grants nothing."), *GetNameSafe(GetOwner()));
+		return;
+	}
+
+	TArray<TSubclassOf<UGameplayEffect>> Effects;
+	for (int32 Level = FirstLevel; Level <= LastLevel; ++Level)
+	{
+		Effects.Reset();
+		Rewards->GetEffectsForLevel(Level, Effects);
+		for (const TSubclassOf<UGameplayEffect>& Effect : Effects)
+		{
+			const FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(Effect, static_cast<float>(Level), ASC->MakeEffectContext());
+			if (!Spec.IsValid())
+			{
+				continue;
+			}
+			const FActiveGameplayEffectHandle Handle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data);
+			if (Handle.IsValid()) // lasting effects only (instant ones have no active handle)
+			{
+				RewardEffectHandles.AddUnique(Handle); // stacking effects return the same handle
+			}
+		}
+	}
+
+	// Full heal to the new MaxHealth through a GE (not for a dead player).
+	if (Rewards->FullHealEffect && !ASC->HasMatchingGameplayTag(GSGameplayTags::State_Dead))
+	{
+		const FGameplayEffectSpecHandle Heal = ASC->MakeOutgoingSpec(Rewards->FullHealEffect, 1.f, ASC->MakeEffectContext());
+		if (Heal.IsValid())
+		{
+			ASC->ApplyGameplayEffectSpecToSelf(*Heal.Data);
+		}
+	}
+
+	UE_LOG(LogBanditBaller, Log, TEXT("[xp] %s level-up rewards for levels %d-%d: MaxHealth %.0f, Health %.0f"),
+		*GetNameSafe(GetOwner()), FirstLevel, LastLevel,
+		ASC->GetNumericAttribute(UGSAttributeSet::GetMaxHealthAttribute()), ASC->GetNumericAttribute(UGSAttributeSet::GetHealthAttribute()));
 }
 
 float UGSProgressionComponent::GetLevelProgress() const

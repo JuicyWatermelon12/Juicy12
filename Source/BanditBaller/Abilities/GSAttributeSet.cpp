@@ -48,6 +48,22 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 	}
 }
 
+void UGSAttributeSet::PostAttributeChange(const FGameplayAttribute& Attribute, float OldValue, float NewValue)
+{
+	Super::PostAttributeChange(Attribute, OldValue, NewValue);
+
+	// MaxHealth went down (e.g. level-up MaxHealth stacks removed on a new run): Health may not stay above it.
+	if (Attribute == GetMaxHealthAttribute() && NewValue < OldValue && GetHealth() > NewValue)
+	{
+		const AActor* Owner = GetOwningActor();
+		UAbilitySystemComponent* ASC = GetOwningAbilitySystemComponent();
+		if (ASC && Owner && Owner->HasAuthority())
+		{
+			ASC->ApplyModToAttribute(GetHealthAttribute(), EGameplayModOp::Override, NewValue);
+		}
+	}
+}
+
 void UGSAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data)
 {
 	Super::PostGameplayEffectExecute(Data);

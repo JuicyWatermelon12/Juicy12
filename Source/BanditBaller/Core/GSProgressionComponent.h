@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "ActiveGameplayEffectHandle.h"
 #include "GSProgressionComponent.generated.h"
 
 class UGSXPCurve;
@@ -39,7 +40,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FGSOnLevelUpSignature, int32, NewLev
 /**
  * Player level and XP, on AGSPlayerState. Server-authoritative: the only way to gain XP is AddXP (authority);
  * UI only reads and listens. XP needed per level comes from the GameMode's UGSXPCurve (DA_XPCurve).
- * A big gain can level up several times; leftover XP carries over. Events fire on server and clients
+ * A big gain can level up several times; leftover XP carries over. Each level gained applies the GameMode's
+ * UGSLevelRewards (server), then the player is fully healed. Events fire on server and clients
  * (OnLevelUp once per level gained, then OnXPChanged).
  */
 UCLASS(ClassGroup = (BanditBaller), meta = (BlueprintSpawnableComponent))
@@ -60,7 +62,7 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Progression")
 	int32 AddXP(int32 Amount);
 
-	/** Server: back to level 1 with 0 XP (new run). */
+	/** Server: back to level 1 with 0 XP (new run). Removes the lasting level-up rewards (e.g. MaxHealth stacks). */
 	void ResetProgression();
 
 	UFUNCTION(BlueprintPure, Category = "Progression")
@@ -108,4 +110,13 @@ private:
 	void RefreshFromCurve(const UGSXPCurve* Curve);
 
 	void BroadcastChanges(const FGSProgressionState& OldState, int32 Delta);
+
+	/**
+	 * Server: UGSLevelRewards for each level FirstLevel..LastLevel, then one full heal (skipped if dead).
+	 * Runs before the level-up events fire, so listeners already see the new stats.
+	 */
+	void ApplyLevelUpRewards(int32 FirstLevel, int32 LastLevel);
+
+	/** Server: lasting reward effects granted by level-ups (removed on reset). */
+	TArray<FActiveGameplayEffectHandle> RewardEffectHandles;
 };
