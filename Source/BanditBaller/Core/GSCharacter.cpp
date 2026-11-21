@@ -29,6 +29,11 @@ AGSCharacter::AGSCharacter()
 
 	// Slides use crouch for the low capsule.
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
+
+	// By default movement ticks before its owner (the engine adds that prerequisite). Slide/dash set
+	// velocity in our Tick, so we need the opposite order; BeginPlay adds "movement after character".
+	// Leaving this on would make that a cycle (LogTick warning) and the engine would drop our ordering.
+	GetCharacterMovement()->bTickBeforeOwner = false;
 }
 
 UAbilitySystemComponent* AGSCharacter::GetAbilitySystemComponent() const
@@ -52,7 +57,8 @@ void AGSCharacter::BeginPlay()
 	ApplyMovementSettings();
 	ApplyFacingMode();
 
-	// Slide/dash override velocity in our Tick; make sure movement runs after it every frame.
+	// Slide/dash override velocity in our Tick; make sure movement runs after it every frame
+	// (requires bTickBeforeOwner = false, set in the constructor).
 	GetCharacterMovement()->PrimaryComponentTick.AddPrerequisite(this, PrimaryActorTick);
 
 	HealthComponent->OnHealthChanged.AddDynamic(this, &AGSCharacter::OnHealthChanged);
