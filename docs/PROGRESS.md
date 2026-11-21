@@ -605,6 +605,9 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 
 ## Next up
 
+Note: steps 1 and 2 below were implemented (0862544 run loop cleanup, 4e7cf93 profile subsystem) and then reverted
+at the user's request (1a84a63). Nothing from them remains in the code or assets, and the plan is unchanged.
+
 Code changes for the design change, in this order (each step builds, is tested, and is committed):
 
 1. **Run loop cleanup.** Remove MarketDecision / MarketVisit from `EGSRoundPhase` and the transition table
