@@ -8,11 +8,21 @@ listen-server co-op is planned for **M6**, after single-player is finished or ne
   `L_Hub_Graybox`; today it is still the streamed sublevel `L_MarketDistrict_Graybox` in the town map). A "Start
   Run" portal sends the player to the town.
 - **Run:** PreRound → Combat → RoundClear → PreRound … in the town until the player dies. There are no market visits
-  during a run. Enemies drop cash and XP as pickups.
+  during a run. Enemies drop cash and XP as pickups: a **flat amount per enemy type, the same in every round**.
+  Income grows because later rounds spawn more enemies and the player kills faster.
 - **After death:** a run summary, then back to the hub to spend or gamble cash.
-- **Permanent progression:** cash and owned items, saved to a player profile and kept across runs and deaths.
-  - Shop purchases and casino prizes are **permanent unlocks**: once owned, they apply to every future run (M3/M4).
-  - Casino bets risk **cash only**, never owned items.
+- **Playthrough progression:** cash, owned items and the gear loadout, saved to a player profile and kept across
+  runs and deaths. Everything the player owns is active or usable from the start of the next run; how depends on the
+  item type (M3):
+  - **Usable items** (consumables) can be bought again and again to restock. Using one in a run uses it up.
+  - **Gear** is bought once. In the hub the player puts it in a loadout slot, swapping out the gear in that slot. The
+    loadout applies at the start of the next run.
+  - Other types (abilities, powerups) are decided in M3.
+  - The **shop is static**: a fixed catalogue the player works through. Its stock is never random or rerolled.
+  - Casino prizes are owned items like shop purchases. Casino bets risk **cash only**, never owned items.
+- **Prestige** (later milestone): the player can choose to prestige. It wipes cash and everything bought or won,
+  and gives bonuses for the next playthrough based on the total cash earned in the playthrough. Only prestige
+  rewards survive it.
 - **Per-run progression** (reset on death): XP, level, and level-up upgrades. XP comes from pickups enemies drop,
   not instantly on the kill.
   - Each level-up fully heals, adds MaxHealth, and offers 3 random upgrades in four rarity tiers (Common, Rare, Epic,
@@ -75,7 +85,12 @@ docs/PROGRESS.md  progress log and reference
   XP, level, level-up upgrades. It never lives in GameMode (server-only) or in widgets.
 - **Permanent state lives in the profile subsystem** (`UGSProfileSubsystem`, a GameInstance subsystem saved to
   `Saved/SaveGames/GSProfile.sav` as `UGSProfileSaveGame`). It survives runs, deaths and map travel. Today that is
-  cash; later, owned items (`OwnedItems`: permanent unlocks from the shop and casino, applied to every run).
+  cash.
+  - In M3 the save layout changes to two layers: **playthrough data** (cash, owned items, loadout, total cash earned
+    this playthrough), which prestige wipes, and **prestige data**, which survives it. Don't build prestige before
+    its milestone.
+  - Owned items become active or usable at the start of the next run, by item type (usable items are used up, gear
+    applies through the loadout).
   - **All cash changes go through it** (`AddCash` / `TrySpendCash`): earning in a run, spending in the shop, gambling.
     Nothing else stores cash (PlayerState has none); the HUD listens to its `OnCashChanged`.
   - Casino bets only ever take cash; owned items are never at stake.
@@ -83,7 +98,10 @@ docs/PROGRESS.md  progress log and reference
   - Automation tests use the `GSProfile_AutomationTest` slot, never the real profile.
 - **All in-run randomness uses the run stream** via `UGSRunRandom` (waves, spawn positions, drops, upgrade choices,
   AI choices), never `FMath::Rand*` / `FRandRange` / `VRandCone`. Only exceptions: local cosmetics and the player's
-  own predicted weapon spread/recoil. Hub randomness (casino) will get its own seeded stream, not the run stream.
+  own predicted weapon spread/recoil. Hub randomness gets its own seeded stream, not the run stream; only the casino
+  uses it (the shop is static).
+- **Cash and XP per enemy are flat**: the same in every round, with no round scaling (the round clear bonus is a flat
+  amount too). Income grows only through more enemies and faster kills.
 - **Everything goes through GAS**: stats, buffs/debuffs, abilities and item effects are AttributeSets,
   GameplayEffects and GameplayAbilities with GameplayTags. Damage always goes through `GE_Damage`
   (SetByCaller `Data.Damage`).

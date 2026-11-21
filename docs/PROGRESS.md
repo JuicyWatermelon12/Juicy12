@@ -10,11 +10,18 @@ first**; 2–4 player listen-server co-op is planned for **M6** (see **Later —
 - **Hub:** the game starts in the safe **Market District** hub (shop + casino), its own map. A "Start Run" portal
   takes the player to the town map (`OpenLevel`).
 - **Run:** PreRound → Combat → RoundClear → PreRound … with harder rounds, until the player dies. Bandits drop cash
-  and XP as pickups, collected during the run.
+  and XP as pickups, collected during the run. Cash and XP per enemy are flat (the same every round); income grows
+  through more enemies and faster kills.
 - **After death:** a run summary, then back to the hub to spend or gamble the cash.
-- **Permanent progression:** cash and owned items (saved profile).
-  - Shop purchases and casino prizes are permanent unlocks that apply to every future run (M3/M4).
-  - Casino bets risk cash only, never owned items.
+- **Playthrough progression:** cash, owned items and the gear loadout (saved profile). Everything owned is active or
+  usable from the start of the next run, depending on the item type (M3):
+  - Usable items (consumables) can be bought again to restock and are used up when used in a run.
+  - Gear is bought once and goes into a loadout slot in the hub (swapping out what was there). The loadout applies
+    at the start of the next run.
+  - Other types (abilities, powerups) are decided in M3.
+  - The shop is a static, fixed catalogue (never random). Casino prizes are owned items too; bets risk cash only.
+- **Prestige** (later milestone): an optional reset that wipes cash and everything bought or won, in exchange for
+  bonuses for the next playthrough based on the total cash earned. Only prestige rewards survive it.
 - **Per-run progression** (reset on death): XP, level, and level-up upgrades.
   - Each level-up fully heals, adds MaxHealth, and offers 3 random upgrades in four rarity tiers (Common, Rare, Epic,
     Legendary).
@@ -23,7 +30,8 @@ first**; 2–4 player listen-server co-op is planned for **M6** (see **Later —
 
 The design changed after M2 Prompt 10; see **Design change — permanent cash, hub market, level-up upgrades**. The
 scope then changed to single-player first; see **Scope change — single-player first**. Five more decisions came
-before M3; see **Design update — decisions before M3**.
+before M3; see **Design update — decisions before M3**. The market, prestige and economy were settled after that;
+see **Design update — market, prestige and economy**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
@@ -53,7 +61,8 @@ State at the time of writing: `main` after Prompt 17, not pushed. The build is c
 | M2 14 | Run loop cleanup: in-run market phases removed (RoundClear → PreRound) | 58f29b7 |
 | M2 15 | Upgrade data + stat upgrades (ReloadSpeed, Damage, MoveSpeed) | 9dbccbf |
 | M2 16 | Extra Jump upgrade (ExtraJumps → JumpMaxCount, consistent air jumps, dash jump queue) | 42a874e |
-| M2 17 | Design update: decisions before M3 (docs only) | see git log |
+| M2 17 | Design update: decisions before M3 (docs only) | 14da7c0 |
+| Design update | Market, prestige and economy decisions (docs only; not a numbered step) | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -525,7 +534,8 @@ Prompt 17. Docs only (plus three stale code comments); no gameplay code changed.
 
 **Decisions (user)**
 1. **Permanent unlocks.** Shop purchases and casino prizes are permanent: once owned, they apply to every future
-   run.
+   run. (Refined in **Design update — market, prestige and economy**: how an item applies depends on its type,
+   usable items are used up, and prestige wipes owned items.)
    - They are stored in the profile (`UGSProfileSaveGame::OwnedItems`, already reserved and empty) and survive death.
    - Built with the shop and casino in M3/M4.
 2. **Upgrade rarities and rerolls.**
@@ -557,6 +567,53 @@ Prompt 17. Docs only (plus three stale code comments); no gameplay code changed.
   - `GSRoundSettings.h`: RoundClear is followed by the next PreRound, not "the market decision".
   - `GSRunRandom.h`: the `RollChance` example no longer mentions "market access".
   - `GSCheatCommands.cpp`: `gs.Market.*` are debug-only until Prompt 26, not "driven by the round flow in M2".
+
+## Design update — market, prestige and economy
+
+Docs only; no code changed. Not a numbered step: **Next up** keeps its 18–28 numbering.
+
+**Decisions (user)**
+1. **Owned things apply from the next run.** Everything the player owns is active or usable from the start of the
+   next run. How depends on the item type.
+2. **Item types so far:**
+   - **Usable items (consumables):** they can be bought again and again to restock. Using one in a run uses it up.
+   - **Gear:** bought once. In the hub the player puts it in a loadout slot, swapping out the gear in that slot. The
+     loadout applies at the start of the next run.
+   - Other types (abilities, powerups) are decided in M3.
+3. **The shop is static:** a fixed catalogue the player works through. Its stock is not random and is never
+   rerolled. Only the casino uses the hub random stream.
+4. **Prestige** (a later milestone):
+   - The player can choose to prestige. It wipes cash and everything bought in the market or won at the casino.
+   - In return it gives bonuses for the next playthrough, based on the cash earned in the whole playthrough. Only the
+     prestige rewards survive.
+   - The profile will therefore have two layers:
+     - playthrough data: cash, owned items, loadout, and total cash earned this playthrough;
+     - prestige data.
+   - None of this is built now; the save layout changes in M3. Today's `UGSProfileSaveGame` has `Cash` and an empty
+     `OwnedItems` (version 1).
+5. **Flat cash and XP per enemy.** Every round pays the same cash and XP per enemy. Income grows because later rounds
+   spawn more enemies and the player kills faster.
+   - There is no round scaling for cash or XP drops. This is what the code already does (`UGSEnemyData::CashValue` /
+     `XPValue`).
+   - The round clear bonus (Prompt 23) is the same amount every round.
+6. **Epic and Legendary upgrades are picked later**, when there are more upgrades. The rarity weights in Prompt 18
+   are placeholders.
+
+**Changes to earlier decisions**
+- "Permanent unlocks apply to every future run" (decisions before M3, item 1) now means: owned items are active or
+  usable from the next run, according to their type. Usable items are used up, gear applies through the loadout,
+  and a prestige wipes cash and items.
+- "Round scaling for cash and XP drops" is no longer an open item; it was decided against.
+
+**Docs changed**
+- CLAUDE.md:
+  - Game summary: flat cash and XP per enemy, item types and the loadout, the static shop, and prestige as a later
+    goal.
+  - The profile rule: the two-layer save comes in M3, and owned items apply by type.
+  - The randomness rule: only the casino uses the hub stream.
+  - New rule: cash and XP per enemy are flat.
+- This file: the game summary, this entry, **Decided (user)**, the open items, and notes under Next up steps 18
+  and 23.
 
 ---
 
@@ -750,7 +807,9 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - **Not yet built for the decisions before M3:**
   - XP pickups: XP is still granted instantly on the kill (Prompt 20).
   - The map boundary (Prompt 21). Until it exists, Extra Jump height is unlimited.
-  - Permanent unlocks in `OwnedItems` (M3/M4).
+  - Owned items in `OwnedItems`, item types (usable items, gear) and the gear loadout (M3/M4).
+- Prestige and the two-layer profile (playthrough data + prestige data) are a later milestone; the save layout
+  changes in M3.
 - Upgrade icons are a placeholder engine texture.
 - **Still in the code until the hub map (Prompts 25–26):** the streamed `L_MarketDistrict_Graybox`,
   `TravelToMarketDistrict` / `ReturnToTown` and `gs.Market.Teleport` / `Return` (debug only).
@@ -760,7 +819,7 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   survives it (profile, saved on death).
 - Profile: there are no upgrade steps yet (version 1 is the only layout). A crash between save points loses the cash
   earned since the last RoundClear.
-- Cash drops don't scale with the round. Neither does enemy XP.
+- Cash drops and enemy XP don't scale with the round. This is by design (flat economy, user decision).
 - The only level-up reward so far is +10 MaxHealth and a full heal. Player death (`?Restart`) reloads the map,
   which also resets levels and their MaxHealth stacks.
 - Level-up feedback is placeholder: an editor chime for the sound and a plain overlay glow, with no VFX or
@@ -832,7 +891,8 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
 17. ~~**Design update — decisions before M3.**~~ Done (docs only).
 18. **Upgrade offers (4 rarity tiers + rerolls).**
     - Append Epic and Legendary to `EGSUpgradeRarity`.
-    - An upgrade pool asset: the DA_Upgrade_* list plus a weight per rarity tier.
+    - An upgrade pool asset: the DA_Upgrade_* list plus a weight per rarity tier. The weights are placeholders, and
+      which upgrades become Epic or Legendary is decided later, when there are more upgrades.
     - On each level-up, roll 3 distinct choices (run stream, rarity-weighted). Store them as pending offers on the
       PlayerState, queued across several level-ups.
     - Picking goes through a gameplay function that takes the PlayerState. There is no skip.
@@ -854,7 +914,7 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
     - Test that players and enemies can't pass and shots can.
     - The hub map gets its own boundary in Prompt 25.
 22. **Kill combo.**
-23. **Round clear bonus.**
+23. **Round clear bonus.** The same amount every round (no round scaling; user decision).
 24. **Round HUD.**
 25. **Hub map + hub GameMode.**
     - **Hub map** `Maps/L_Hub_Graybox`: the district content moves out of the sublevel, gets its own lighting, sky,
@@ -881,15 +941,27 @@ Decided (user):
 - **Hub map:** a separate hub map with its own GameMode; `OpenLevel` between hub and town.
 - **Extra Jump:** no cap (MaxStacks 0); it can be picked any number of times. The map boundary's ceiling
   (Prompt 21) limits the height.
-- **Permanent unlocks:** shop purchases and casino prizes, once owned, apply to every future run. They are stored in
-  the profile (`OwnedItems`) and built in M3/M4.
+- **Owned items:** shop purchases and casino prizes are stored in the profile (`OwnedItems`) and are active or
+  usable from the start of the next run, by item type. Built in M3/M4.
+  - Usable items (consumables) can be bought again to restock; using one in a run uses it up.
+  - Gear is bought once and applies through the hub loadout (one item per slot, swapped in the hub) from the next
+    run.
+  - Other types (abilities, powerups) are decided in M3.
+- **Static shop:** a fixed catalogue, never random or rerolled. Only the casino uses the hub random stream.
+- **Prestige** (later milestone): an optional reset that wipes cash and all bought or won items for bonuses based on
+  the playthrough's total cash earned. The profile gets two layers, playthrough data and prestige data, when the
+  save layout changes in M3.
+- **Flat economy:** cash and XP per enemy are the same every round, and so is the round clear bonus. There is no
+  round scaling for drops.
+- **Epic / Legendary upgrades:** which upgrades get these tiers is decided later; the rarity weights are
+  placeholders.
 - **Upgrade rarities and rerolls:** four tiers (Common, Rare, Epic, Legendary). The 3 choices can be rerolled a
   limited number of times per run (3 to start). There is no skip.
 - **Casino bets** risk cash only, never owned items.
 - **XP pickups:** XP comes from pickups enemies drop, not instantly on the kill.
 - **Map boundary:** every map has invisible walls around the play area and a ceiling, blocking pawns only.
 
-Still open from M2: round scaling for cash and XP drops, more DA_LevelRewards entries.
+Still open from M2: more DA_LevelRewards entries.
 
 ## Later — co-op (M6)
 
