@@ -21,6 +21,7 @@
 #include "GSPlayerController.h"
 #include "GSPlayerState.h"
 #include "GSRunRandom.h"
+#include "GSSpawnLocationFinder.h"
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
 #include "NavigationSystem.h"
@@ -167,7 +168,7 @@ AGSPlayerController* UGSDebugLibrary::GetFirstPlayer(const UObject* WorldContext
 // Server-side operations
 // ---------------------------------------------------------------------------
 
-TArray<AGSEnemyCharacter*> UGSDebugLibrary::SpawnEnemiesAround(AGSPlayerController* PC, UGSEnemyData* EnemyData, int32 Count, float Radius)
+TArray<AGSEnemyCharacter*> UGSDebugLibrary::SpawnEnemiesAround(AGSPlayerController* PC, UGSEnemyData* EnemyData, int32 Count)
 {
 	TArray<AGSEnemyCharacter*> Spawned;
 #if !UE_BUILD_SHIPPING
@@ -187,25 +188,14 @@ TArray<AGSEnemyCharacter*> UGSDebugLibrary::SpawnEnemiesAround(AGSPlayerControll
 	UWorld* World = PC->GetWorld();
 	const APawn* Center = PC->GetPawn();
 	const FVector Origin = Center ? Center->GetActorLocation() : FVector::ZeroVector;
-	const UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
 	const float HalfHeight = GetDefault<AGSEnemyCharacter>()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
 
-	Count = FMath::Min(Count, 200);
-	const float StartAngle = UGSRunRandom::FRandRange(PC, 0.f, 360.f);
-	for (int32 Index = 0; Index < Count; ++Index)
+	// Same location rules as round spawns (ring, NavMesh, reachable, spacing, off-screen, fallback).
+	FGSSpawnSearchStats Stats;
+	const TArray<FGSSpawnPoint> Points = UGSSpawnLocationFinder::FindSpawnLocations(PC, FMath::Min(Count, 200), &Stats);
+	for (const FGSSpawnPoint& Point : Points)
 	{
-		// Even ring with jitter so a group doesn't stack.
-		const float Angle = FMath::DegreesToRadians(StartAngle + 360.f * Index / Count + UGSRunRandom::FRandRange(PC, -8.f, 8.f));
-		const float Distance = Radius * UGSRunRandom::FRandRange(PC, 0.85f, 1.15f);
-		FVector Location = Origin + FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0.f) * Distance;
-
-		FNavLocation NavLocation;
-		if (NavSys && NavSys->ProjectPointToNavigation(Location, NavLocation, FVector(500.f, 500.f, 1000.f)))
-		{
-			Location = NavLocation.Location;
-		}
-		Location.Z += HalfHeight + 2.f;
-
+		const FVector Location = Point.Location + FVector(0.f, 0.f, HalfHeight + 2.f);
 		const FTransform Transform((Origin - Location).GetSafeNormal2D().Rotation(), Location);
 		AGSEnemyCharacter* Enemy = World->SpawnActorDeferred<AGSEnemyCharacter>(AGSEnemyCharacter::StaticClass(), Transform,
 			nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn);
@@ -218,8 +208,8 @@ TArray<AGSEnemyCharacter*> UGSDebugLibrary::SpawnEnemiesAround(AGSPlayerControll
 		Spawned.Add(Enemy);
 	}
 
-	UE_LOG(LogBanditBaller, Log, TEXT("gs.Spawn: spawned %d x %s around %s (radius %.0f)"),
-		Spawned.Num(), *EnemyData->GetName(), *GetNameSafe(Center), Radius);
+	UE_LOG(LogBanditBaller, Log, TEXT("gs.Spawn: spawned %d x %s around %s at %s (%d ring, %d fallback)"),
+		Spawned.Num(), *EnemyData->GetName(), *GetNameSafe(Center), *Origin.ToCompactString(), Stats.Ring, Stats.Fallback);
 #endif
 	return Spawned;
 }
@@ -393,7 +383,7 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 	{
 		if (Args.Num() < 1)
 		{
-			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.Spawn <EnemyDataName> [Count=1] [Radius=2000]. Types: %s"), *FString::Join(GetEnemyDataNames(), TEXT(", ")));
+			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.Spawn <EnemyDataName> [Count=1] (locations from UGSSpawnLocationFinder). Types: %s"), *FString::Join(GetEnemyDataNames(), TEXT(", ")));
 			return;
 		}
 		UGSEnemyData* Data = FindEnemyData(Args[0]);
@@ -403,8 +393,7 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 			return;
 		}
 		const int32 Count = Args.Num() > 1 ? FCString::Atoi(*Args[1]) : 1;
-		const float Radius = Args.Num() > 2 ? FCString::Atof(*Args[2]) : 2000.f;
-		SpawnEnemiesAround(PC, Data, Count, Radius);
+		SpawnEnemiesAround(PC, Data, Count);
 	}
 	else if (Command == TEXT("God"))
 	{
@@ -498,7 +487,7 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 // World-context versions
 // ---------------------------------------------------------------------------
 
-TArray<AGSEnemyCharacter*> UGSDebugLibrary::SpawnEnemies(const UObject* WorldContextObject, const FString& EnemyType, int32 Count, float Radius)
+TArray<AGSEnemyCharacter*> UGSDebugLibrary::SpawnEnemies(const UObject* WorldContextObject, const FString& EnemyType, int32 Count)
 {
 	UGSEnemyData* Data = FindEnemyData(EnemyType);
 	if (!Data)
@@ -506,7 +495,7 @@ TArray<AGSEnemyCharacter*> UGSDebugLibrary::SpawnEnemies(const UObject* WorldCon
 		UE_LOG(LogBanditBaller, Warning, TEXT("SpawnEnemies: unknown enemy '%s'. Types: %s"), *EnemyType, *FString::Join(GetEnemyDataNames(), TEXT(", ")));
 		return {};
 	}
-	return SpawnEnemiesAround(GetFirstPlayer(WorldContextObject), Data, Count, Radius);
+	return SpawnEnemiesAround(GetFirstPlayer(WorldContextObject), Data, Count);
 }
 
 int32 UGSDebugLibrary::KillAll(const UObject* WorldContextObject)

@@ -3,7 +3,8 @@
 // Tuning console commands (non-Shipping). They act on the local player; on a client they are
 // forwarded to the server (AGSPlayerController::ServerExecDebugCommand), so state stays server-authoritative.
 //
-//   gs.Spawn <EnemyDataName> [Count=1] [Radius=2000]   e.g. gs.Spawn MeleeBandit 10
+//   gs.Spawn <EnemyDataName> [Count=1]                  e.g. gs.Spawn MeleeBandit 10 (UGSSpawnLocationFinder)
+//   gs.Debug.Spawns 1                                   draw the spawn ring and chosen points
 //   gs.God [0|1]                                        toggle / set damage immunity
 //   gs.KillAll                                          kill every living enemy (credited to you)
 //   gs.GiveWeapon <WeaponDataName>                      e.g. gs.GiveWeapon Pistol
@@ -55,7 +56,7 @@ namespace GSCheats
 
 	FAutoConsoleCommandWithWorldAndArgs SpawnCommand(
 		TEXT("gs.Spawn"),
-		TEXT("Spawn enemies around the player. Usage: gs.Spawn <EnemyDataName> [Count=1] [Radius=2000], e.g. gs.Spawn MeleeBandit 10"),
+		TEXT("Spawn enemies around the player. Usage: gs.Spawn <EnemyDataName> [Count=1], e.g. gs.Spawn MeleeBandit 10. Locations follow DA_SpawnSettings (ring, NavMesh, off-screen, fallback)"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("Spawn"), Args, World); }),
 		ECVF_Cheat);
 

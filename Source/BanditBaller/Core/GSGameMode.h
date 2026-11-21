@@ -9,6 +9,7 @@
 
 class UGSRoundSettings;
 class UGSRunStats;
+class UGSSpawnSettings;
 class ULevelStreaming;
 class UUserWidget;
 
@@ -66,6 +67,8 @@ public:
 	/** Timer length for a phase; 0 = untimed (waits for code / commands). */
 	float GetPhaseDuration(EGSRoundPhase Phase) const;
 
+	const UGSSpawnSettings* GetSpawnSettings() const { return SpawnSettings; }
+
 	// --- Run (seed + stats) ---
 
 	/** The run's seeded stream. Use it through UGSRunRandom, never directly with FMath::Rand. */
@@ -114,6 +117,10 @@ protected:
 	/** Round timing (DA_RoundSettings). Falls back to UGSRoundSettings defaults if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Round")
 	TObjectPtr<UGSRoundSettings> RoundSettings;
+
+	/** Spawn ring / spacing / attempts for UGSSpawnLocationFinder (DA_SpawnSettings). Class defaults if unset. */
+	UPROPERTY(EditDefaultsOnly, Category = "Round")
+	TObjectPtr<UGSSpawnSettings> SpawnSettings;
 
 	/** Start round 1 automatically when play begins. */
 	UPROPERTY(EditDefaultsOnly, Category = "Round")

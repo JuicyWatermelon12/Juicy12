@@ -76,6 +76,14 @@ Content/Python/
   kills total and per enemy type (enemies killed by players), cash earned/spent (APIs ready for the economy),
   damage dealt/taken (party totals, health actually removed, fed by `UGSAttributeSet` →
   `AGSGameMode::HandleDamageApplied`), run time. Run seed is replicated on the GameState too.
+- **Spawn locations**: `UGSSpawnLocationFinder::FindSpawnLocations(PC, Count)` (`AI/`) is used by all round
+  spawns and gs.Spawn. Settings in `UGSSpawnSettings` (`Data/DA_SpawnSettings`, set on BP_GSGameMode): ring
+  MinRadius 12 m / MaxRadius 25 m, MinSpacing 2 m, MaxAttempts 20, bPreferOffScreen. Per point: random ring
+  point (run stream) → NavMesh projection (town only) → reject if outside the ring, unreachable from the player
+  (also catches NavMesh islands on roofs/crates), closer than MinSpacing to another chosen point, or visible to
+  a player (first half of the attempts only; behind cover counts as off-screen). All attempts fail → farthest
+  on-NavMesh `EnemySpawn` Target Point (warning). Refuses in the Market District. Logs a per-call summary
+  (`SpawnLocationFinder: N requested: ring / fallback / failed | attempts | rejection reasons`).
 - **Collision gotcha**: player capsule + mesh ignore `ECC_Visibility`; enemy capsules block it (player hitscan).
   Enemy shots/LOS use `AGSEnemyCharacter::GetShotObjectQueryParams()` (WorldStatic/Dynamic/Pawn).
 
@@ -85,7 +93,8 @@ Implementation is shared in `UGSDebugLibrary` (`Core/GSDebugLibrary.*`, `Core/GS
 
 | Command | Effect |
 |---|---|
-| `gs.Spawn <EnemyDataName> [Count=1] [Radius=2000]` | spawn enemies on the navmesh around the player (`MeleeBandit`, `RangedBandit`, or full `DA_Enemy_*` name) |
+| `gs.Spawn <EnemyDataName> [Count=1]` | spawn enemies around the player via `UGSSpawnLocationFinder` (`MeleeBandit`, `RangedBandit`, or full `DA_Enemy_*` name) |
+| `gs.Debug.Spawns 1` | draw the spawn ring (min cyan, max blue) and chosen points (green = ring, yellow = fallback) for 8 s |
 | `gs.God [0\|1]` | toggle/set damage immunity (adds one `State.Invulnerable` count) |
 | `gs.KillAll` | kill all living enemies through GE_Damage (credited to the player) |
 | `gs.GiveWeapon <WeaponDataName>` | equip a weapon with a full mag (`Pistol`, `Rifle`, `BanditCarbine`); replaces the equipped one if both slots are full |
@@ -107,7 +116,7 @@ Typing console commands via MCP: `SlateInspectorToolset` → `Observe(ref "")`, 
 (the Output Log "Cmd" box), `Type tb3 "<command>" submit=true`. Refs reset after an editor restart.
 
 **Project MCP toolset** `banditballer_toolset.toolsets.BanditBallerTools` (needs PIE running):
-- `spawn_enemies(type, count=1, radius=2000)` → spawned actor names
+- `spawn_enemies(type, count=1)` → spawned actor names (same rules as round spawns)
 - `get_player_attributes()` → attribute values + Ammo, God, Invulnerable, Dead
 - `list_enemies_alive()` → name, type, health, location, distance to player, attacking (nearest first)
 
@@ -132,6 +141,7 @@ timings; turn it off temporarily (in memory) for perf checks.
 - `BanditBaller.Round.PhaseLoop` (round 1 PreRound on start, PreRound timer → Combat, skips through
   RoundClear/MarketDecision into round 2, gs.Round.Set)
 - `BanditBaller.Player.RestartRestoresInput` (die → death screen takes UI-only input → restart → game input back)
+- `BanditBaller.Spawn.LocationFinder` (12 points at the town center: on NavMesh, reachable, in the ring, spaced; same seed → same points; none in the Market District)
 - `BanditBaller.Run.SeedAndStats` (same seed replays the same rolls, restart resets stats, kills per type,
   damage dealt/taken without overkill, rounds cleared)
 

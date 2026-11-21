@@ -70,8 +70,8 @@ public:
 
 	// --- Server-side operations on a specific player ---
 
-	/** Spawns Count enemies on the navmesh in a ring of Radius around the player's pawn. */
-	static TArray<AGSEnemyCharacter*> SpawnEnemiesAround(AGSPlayerController* PC, UGSEnemyData* EnemyData, int32 Count, float Radius);
+	/** Spawns Count enemies around the player at locations from UGSSpawnLocationFinder (DA_SpawnSettings). */
+	static TArray<AGSEnemyCharacter*> SpawnEnemiesAround(AGSPlayerController* PC, UGSEnemyData* EnemyData, int32 Count);
 
 	/** Kills every living enemy through GE_Damage (credited to PC's pawn). Returns how many. */
 	static int32 KillAllEnemies(AGSPlayerController* PC);
@@ -93,7 +93,7 @@ public:
 
 	/** Spawn Count enemies of EnemyType around the first player. Returns the spawned actors. */
 	UFUNCTION(BlueprintCallable, Category = "BanditBaller|Debug", meta = (WorldContext = "WorldContextObject"))
-	static TArray<AGSEnemyCharacter*> SpawnEnemies(const UObject* WorldContextObject, const FString& EnemyType, int32 Count = 1, float Radius = 2000.f);
+	static TArray<AGSEnemyCharacter*> SpawnEnemies(const UObject* WorldContextObject, const FString& EnemyType, int32 Count = 1);
 
 	UFUNCTION(BlueprintCallable, Category = "BanditBaller|Debug", meta = (WorldContext = "WorldContextObject"))
 	static int32 KillAll(const UObject* WorldContextObject);

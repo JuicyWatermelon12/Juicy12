@@ -30,6 +30,9 @@
 #include "GSRoundSettings.h"
 #include "GSRunRandom.h"
 #include "GSRunStats.h"
+#include "GSSpawnLocationFinder.h"
+#include "GSSpawnSettings.h"
+#include "NavigationPath.h"
 #include "NavigationSystem.h"
 #include "GSHealthComponent.h"
 #include "GSPlayerController.h"
@@ -141,7 +144,7 @@ namespace GSTests
 	AGSEnemyCharacter* SpawnTestEnemy()
 	{
 		UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
-		TArray<AGSEnemyCharacter*> Spawned = UGSDebugLibrary::SpawnEnemiesAround(GetPC(), Data, 1, 1500.f);
+		TArray<AGSEnemyCharacter*> Spawned = UGSDebugLibrary::SpawnEnemiesAround(GetPC(), Data, 1);
 		return Spawned.Num() > 0 ? Spawned[0] : nullptr;
 	}
 
@@ -460,7 +463,7 @@ bool FGSMapTownAndMarketTest::RunTest(const FString& Parameters)
 		const APawn* Player = GetPlayer();
 		TestTrue(TEXT("Player teleported to MarketArrival"), Player && Arrival && FVector::Dist2D(Player->GetActorLocation(), Arrival->GetActorLocation()) < 300.f);
 
-		const TArray<AGSEnemyCharacter*> Spawned = UGSDebugLibrary::SpawnEnemiesAround(GetPC(), UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit")), 3, 1000.f);
+		const TArray<AGSEnemyCharacter*> Spawned = UGSDebugLibrary::SpawnEnemiesAround(GetPC(), UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit")), 3);
 		TestEqual(TEXT("Enemy spawning is refused in the Market District"), Spawned.Num(), 0);
 
 		TestTrue(TEXT("Return to town starts"), GetGameMode()->ReturnToTown());
@@ -661,6 +664,85 @@ bool FGSRunSeedAndStatsTest::RunTest(const FString& Parameters)
 		GameMode->AdvancePhase(); // Combat -> RoundClear
 		TestEqual(TEXT("Round cleared counted"), Stats->GetRoundsCleared(), 1);
 		TestTrue(TEXT("Run time is running"), Stats->GetRunTime() >= 0.f);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Spawn location finder
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSSpawnLocationFinderTest, "BanditBaller.Spawn.LocationFinder", GSTests::TestFlags)
+bool FGSSpawnLocationFinderTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	Step([this]()
+	{
+		UWorld* World = GetPIEWorld();
+		AGSPlayerController* PC = GetPC();
+		const APawn* Player = GetPlayer();
+		const UGSSpawnSettings& Settings = UGSSpawnLocationFinder::GetSettings(World);
+		UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
+		if (!TestNotNull(TEXT("Player"), Player) || !TestNotNull(TEXT("NavSys"), NavSys))
+		{
+			return;
+		}
+
+		FGSSpawnSearchStats Stats;
+		const TArray<FGSSpawnPoint> Points = UGSSpawnLocationFinder::FindSpawnLocations(PC, 12, &Stats);
+		TestEqual(TEXT("All 12 points found at the town center"), Points.Num(), 12);
+		TestEqual(TEXT("Stats add up"), Stats.Ring + Stats.Fallback + Stats.Failed, 12);
+		TestTrue(TEXT("Open town center mostly uses the ring"), Stats.Ring >= 10);
+
+		FNavLocation PlayerNav;
+		NavSys->ProjectPointToNavigation(Player->GetActorLocation(), PlayerNav, FVector(300.f, 300.f, 1000.f));
+		for (int32 Index = 0; Index < Points.Num(); ++Index)
+		{
+			const FGSSpawnPoint& Point = Points[Index];
+			const FString Name = FString::Printf(TEXT("Point %d"), Index);
+			FNavLocation OnNav;
+			TestTrue(Name + TEXT(" is on the NavMesh"), NavSys->ProjectPointToNavigation(Point.Location, OnNav, FVector(10.f, 10.f, 100.f)));
+			const UNavigationPath* Path = UNavigationSystemV1::FindPathToLocationSynchronously(World, Point.Location, PlayerNav.Location);
+			TestTrue(Name + TEXT(" is reachable"), Path && Path->IsValid() && !Path->IsPartial());
+			if (!Point.bFallback)
+			{
+				const float Distance = FVector::Dist2D(Point.Location, Player->GetActorLocation());
+				TestTrue(Name + TEXT(" is inside the ring"), Distance >= Settings.MinRadius - 1.f && Distance <= Settings.MaxRadius + 1.f);
+			}
+			for (int32 Other = 0; Other < Index; ++Other)
+			{
+				TestTrue(Name + TEXT(" keeps MinSpacing"), FVector::Dist2D(Point.Location, Points[Other].Location) >= Settings.MinSpacing - 1.f);
+			}
+		}
+
+		// Same seed -> same points.
+		GetGameMode()->RestartRunWithSeed(99);
+		const TArray<FGSSpawnPoint> A = UGSSpawnLocationFinder::FindSpawnLocations(PC, 5);
+		GetGameMode()->RestartRunWithSeed(99);
+		const TArray<FGSSpawnPoint> B = UGSSpawnLocationFinder::FindSpawnLocations(PC, 5);
+		bool bSame = A.Num() == B.Num();
+		for (int32 Index = 0; bSame && Index < A.Num(); ++Index)
+		{
+			bSame = A[Index].Location.Equals(B[Index].Location, 0.1);
+		}
+		TestTrue(TEXT("Same run seed picks the same points"), bSame);
+
+		TestTrue(TEXT("Travel to the Market District starts"), GetGameMode()->TravelToMarketDistrict());
+	});
+	WaitUntil(this, TEXT("party in the Market District"), []()
+	{
+		return GetGameState() && GetGameState()->GetCurrentArea() == EGSArea::MarketDistrict;
+	});
+	Step([this]()
+	{
+		FGSSpawnSearchStats Stats;
+		TestEqual(TEXT("No spawn points while in the Market District"), UGSSpawnLocationFinder::FindSpawnLocations(GetPC(), 5, &Stats).Num(), 0);
+		GetGameMode()->ReturnToTown();
+	});
+	WaitUntil(this, TEXT("party back in town"), []()
+	{
+		return GetGameState() && GetGameState()->GetCurrentArea() == EGSArea::Town;
 	});
 	EndPIE();
 	return true;

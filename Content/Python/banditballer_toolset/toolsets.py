@@ -24,13 +24,14 @@ class BanditBallerTools(unreal.ToolsetDefinition):
 
     @toolset_registry.tool_call
     @staticmethod
-    def spawn_enemies(type: str, count: int = 1, radius: float = 2000.0) -> list[str]:
-        """Spawns enemies on the navmesh in a ring around the first player.
+    def spawn_enemies(type: str, count: int = 1) -> list[str]:
+        """Spawns enemies around the first player using the round spawn rules (UGSSpawnLocationFinder):
+        a ring from DA_SpawnSettings (12-25 m), on the town NavMesh, reachable, spaced, preferably off-screen,
+        with an EnemySpawn Target Point fallback. Refused while the party is in the Market District.
 
         Args:
             type: Enemy data asset name, e.g. "MeleeBandit", "RangedBandit" or "DA_Enemy_MeleeBandit".
             count: How many to spawn (1-200).
-            radius: Distance from the player in cm (spawn points jitter +/-15%).
 
         Returns:
             Names of the spawned enemy actors.
@@ -38,9 +39,9 @@ class BanditBallerTools(unreal.ToolsetDefinition):
         world = _game_world()
         if not 1 <= count <= 200:
             raise ValueError('count must be between 1 and 200')
-        spawned = unreal.GSDebugLibrary.spawn_enemies(world, type, count, radius)
+        spawned = unreal.GSDebugLibrary.spawn_enemies(world, type, count)
         if not spawned:
-            raise ValueError(f'Nothing spawned: unknown enemy type "{type}" or no player. See the output log for known types.')
+            raise ValueError(f'Nothing spawned: unknown enemy type "{type}", no player, or the party is in the Market District. See the output log.')
         return [enemy.get_name() for enemy in spawned]
 
     @toolset_registry.tool_call
