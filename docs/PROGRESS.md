@@ -5,18 +5,19 @@ milestone section (what was built, new assets/commands, known issues) and update
 
 ## The game
 
-Third-person co-op roguelike shooter set in an off-grid bandit gambling town (UE 5.8, C++ + GAS; single player and
-2–4 player listen-server co-op).
+Third-person roguelike shooter set in an off-grid bandit gambling town (UE 5.8, C++ + GAS). **Single-player
+first**; 2–4 player listen-server co-op is planned for **M6** (see **Later — co-op (M6)**).
 - **Hub:** the game starts in the safe **Market District** hub (shop + casino), its own map. A "Start Run" portal
-  travels the party to the town map.
+  takes the player to the town map (`OpenLevel`).
 - **Run:** PreRound → Combat → RoundClear → PreRound … with harder rounds, until the player dies. The cash bandits
   drop is picked up during the run.
 - **After death:** a run summary, then back to the hub to spend or gamble the cash.
 - **Permanent progression:** cash (saved profile).
 - **Per-run progression** (reset on death): XP, level, and level-up upgrades. Each level-up fully heals, adds
-  MaxHealth, and offers 3 random upgrades with rarities.
+  MaxHealth, and offers 3 random upgrades with rarities. The game pauses while the player chooses.
 
-The design changed after M2 Prompt 10; see **Design change — permanent cash, hub market, level-up upgrades**.
+The design changed after M2 Prompt 10; see **Design change — permanent cash, hub market, level-up upgrades**. The
+scope then changed to single-player first; see **Scope change — single-player first**.
 The code still follows the old in-run-market design until the follow-up prompts land.
 
 **Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–10 are done, plus permanent cash (profile subsystem).
@@ -40,6 +41,7 @@ State at the time of writing: `main` @ `a2dc3b7`, not pushed. The build is clean
 | M2 10 | Progression feedback (XP popups, level-up banner, pulses, glow, sound) | 72534d1 |
 | Design change | Permanent cash (profile), Market District as hub between runs, level-up upgrades (docs only) | 0b2b6f5 |
 | Permanent cash | Profile subsystem + save; cash moved off PlayerState | a2dc3b7 |
+| Scope change | Single-player first; co-op moves to M6 (docs only) | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -389,6 +391,25 @@ Docs only; no code changed yet.
   4. Stopping PIE saved $85 ("Quit"). The next session loaded $85 and the HUD showed "$85".
   5. `gs.Profile.Reset` afterwards left the real profile at $0.
 
+## Scope change — single-player first
+
+Docs only; no code changed.
+
+- **The game is single-player first.** Co-op (2–4 player listen server) is milestone **M6**, after single-player is
+  finished or nearly finished.
+- **New rule (CLAUDE.md), replacing "Server-authoritative": "Co-op-ready, single-player first".**
+  - New work is built and tested for single-player only: no new RPCs, replication or network tests.
+  - Existing replication code stays.
+  - Game state stays in GameMode / GameState / PlayerState and permanent state in the profile subsystem.
+  - State changes only through gameplay functions.
+  - Gameplay code takes the PlayerState / Controller explicitly instead of grabbing player 0.
+  - Co-op gaps are marked `TODO(co-op)`.
+- **Hub ↔ town travel:** single-player uses `OpenLevel`. Seamless / server travel and "the whole party travels
+  together" move to M6.
+- **Upgrade pause:** single-player pauses the game while choosing. The party pause moves to M6.
+- The co-op-only plans (host save with every player's cash, stable player IDs, party pause, Server RPC upgrade picks,
+  seamless travel checks) moved to **Later — co-op (M6)**.
+
 ---
 
 ## Console commands and CVars
@@ -578,22 +599,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   which also resets levels and their MaxHealth stacks.
 - Level-up feedback is placeholder: an editor chime for the sound and a plain overlay glow, with no VFX or
   animation assets.
-- In co-op, the "+N XP" pairing is a best guess. Several kills replicated in one update show their summed XP at the
-  first kill.
 
-**Co-op**
-- Never tested with 2+ players.
-- Known gaps:
-  - Market travel doesn't wait for clients to stream the district (`TODO(co-op)` in `GSGameMode.cpp`). This goes
-    away with the separate hub map. Map travel has to keep co-op clients connected instead; seamless travel needs a
-    check in PIE.
-  - Profiles in co-op: the profile is one balance per machine. On a listen server only the host's pickups are
-    credited; remote players' pickups are not credited (`TODO(co-op)` in `AwardCash`).
-    - The decided design (the host's save holds every player's cash, keyed by a stable player ID) is not built.
-    - Clients' HUDs show their own machine's profile.
-  - Restart on death should become "all players dead" / revive.
-  - Cash goes to whoever collects it, not the killer.
-  - XP goes only to the killing player (not shared with the party). Kills by non-players give no XP.
+**Co-op**: deferred to M6. Known gaps are listed in **Later — co-op (M6)**.
 
 **Not visually verified** (covered by tests or logs only)
 - Spawn telegraph disc, "+$N" popup, pickup blink.
@@ -645,59 +652,75 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 
 ## Next up
 
-Note: steps 1 and 2 below were implemented (0862544 run loop cleanup, 4e7cf93 profile subsystem) and then reverted
-at the user's request (1a84a63). Nothing from them remains in the code or assets, and the plan is unchanged.
-The design-change docs (0b2b6f5, 5bcecb2, 969deaa) were checked afterwards and are intact. CLAUDE.md now has the
-rule "Only do what the current prompt asks": the steps below are suggestions until a prompt asks for one.
+Each step is its own prompt. It builds, is tested and is committed, and it is built and tested for single-player
+only. CLAUDE.md's rule "Only do what the current prompt asks" applies: the steps below are suggestions until a
+prompt asks for one. (Earlier attempts at run loop cleanup and a per-player profile were reverted in 1a84a63.
+Permanent cash was then built as a single local balance in a2dc3b7.)
 
-Permanent cash was then built from its own prompt (a2dc3b7, "Permanent cash — profile subsystem"): a single local
-balance, which replaces the per-player version of step 2 below. Per-player cash in the host's save stays a
-suggestion for co-op.
-
-Code changes for the design change, in this order (each step builds, is tested, and is committed):
-
-1. **Run loop cleanup.** Remove MarketDecision / MarketVisit from `EGSRoundPhase` and the transition table
-   (RoundClear → PreRound). Drop `bMarketOpenThisRound` / `RunMarketDecision`. Update `Round.PhaseLoop` and
-   `gs.Debug.Round`.
-2. ~~**Profile subsystem.**~~ Built as a single local balance (a2dc3b7).
-   - Suggestion for co-op: per-player cash entries in the host's save, keyed by a stable player ID (a GUID each
-     client generates once and sends when it joins). Remote players' pickups would then be credited.
-3. **Hub map, GameMode split and Start Run portal.**
-   - Check first that seamless travel works in PIE (co-op clients must stay connected across map changes).
-   - **Hub map** `Maps/L_Hub_Graybox`: the district content moves out of the sublevel, gets its own lighting and
-     sky, and a PlayerStart at `MarketArrival`. It becomes `GameDefaultMap` / `EditorStartupMap`.
-   - **GameModes:** a hub GameMode (no rounds; shop, casino and portal later) with its own Blueprint. The current
-     `AGSGameMode` keeps the round loop as the town map's GameMode.
-   - **Portal:** a portal actor at `MarketExitPortalSpot` travels the party to `L_Town_Graybox`. The run (seed,
-     stats, round 1) starts when the town loads.
-   - **Town cleanup:** remove the streamed district, `TravelToMarketDistrict` / `ReturnToTown` and the in-town
-     portal points. Repoint `gs.Market.*` to map travel (or retire them).
-   - **Tests:** rework `Map.TownAndMarketDistrict`. Tests open `L_Town_Graybox` explicitly, since the startup map
-     changes.
-4. **Death → summary → hub.**
-   - On player death, enter the GameOver phase.
-   - Run summary widget (run stats: rounds, kills, cash earned, level), then Continue → travel back to the hub.
-   - Nothing from the run carries over except what is chosen explicitly (player name, profile ID), so progression,
-     upgrades, health, weapons and run stats reset by construction. Cash is kept in the profile. This replaces
-     `?Restart`.
-5. **Level-up upgrades.**
-   - Data: `UGSUpgradeData` (name, description, rarity, GE, cap) and an upgrade pool with rarity weights.
-   - Rolling: on each level-up the server rolls 3 distinct choices (run stream, rarity-weighted). They replicate as
-     pending offers and are queued for several level-ups.
-   - Picking: the client picks through a Server RPC. The GE is infinite and stacking, and is removed on reset.
-   - The game pauses while an upgrade is being chosen. In co-op the whole party pauses while any player has an
-     open offer, and the others see who is choosing. Queued offers keep it paused until the last pick.
-   - New attributes: ReloadSpeed (scales the GA_Reload time) and JumpCount (synced to `JumpMaxCount`).
-   - Upgrades: Reload Speed / Damage / Move Speed (common), Extra Jump (rare, no cap).
-   - UI: a choice panel next to the level-up banner.
+14. **Run loop cleanup.** Remove MarketDecision / MarketVisit from `EGSRoundPhase` and the transition table
+    (RoundClear → PreRound). Drop `bMarketOpenThisRound` / `RunMarketDecision`. Update `Round.PhaseLoop` and
+    `gs.Debug.Round`.
+15. **Upgrade data + stat upgrades.**
+    - `UGSUpgradeData` (name, description, rarity, GE, cap) and an upgrade pool with rarity weights.
+    - Each upgrade is an infinite, stacking GE, removed on progression reset.
+    - New attribute ReloadSpeed (scales the GA_Reload time).
+    - Common upgrades: Reload Speed, Damage, Move Speed.
+16. **Extra Jump.** New attribute JumpCount, synced to `JumpMaxCount`. Rare upgrade, +1 jump per pick, no cap.
+17. **Upgrade offers.** On each level-up, roll 3 distinct choices (run stream, rarity-weighted), stored as pending
+    offers on the PlayerState and queued across several level-ups. Picking goes through a gameplay function that
+    takes the PlayerState.
+18. **Choice screen.** A choice panel next to the level-up banner. The game pauses while an offer is open; queued
+    offers keep it paused until the last pick.
+19. **Kill combo.**
+20. **Round clear bonus.**
+21. **Round HUD.**
+22. **Hub map + hub GameMode.**
+    - **Hub map** `Maps/L_Hub_Graybox`: the district content moves out of the sublevel, gets its own lighting and
+      sky, and a PlayerStart at `MarketArrival`. It becomes `GameDefaultMap` / `EditorStartupMap`.
+    - **GameModes:** a hub GameMode (no rounds; shop, casino and portal later) with its own Blueprint. The current
+      `AGSGameMode` keeps the round loop as the town map's GameMode.
+    - **Tests** open `L_Town_Graybox` explicitly, since the startup map changes.
+23. **Start Run portal + town cleanup.**
+    - A portal actor at `MarketExitPortalSpot` opens `L_Town_Graybox` (`OpenLevel`). The run (seed, stats, round 1)
+      starts when the town loads.
+    - Remove the streamed district, `TravelToMarketDistrict` / `ReturnToTown` and the in-town portal points.
+      Repoint `gs.Market.*` to map travel (or retire them). Rework `Map.TownAndMarketDistrict`.
+24. **Death → summary → hub.**
+    - On player death, enter the GameOver phase.
+    - Run summary widget (run stats: rounds, kills, cash earned, level), then Continue → `OpenLevel` back to the hub.
+    - Nothing from the run carries over except what is chosen explicitly, so progression, upgrades, health, weapons
+      and run stats reset by construction. Cash is kept in the profile. This replaces `?Restart`.
+25. **Tests + M2 checkpoint.** Fill test gaps for the new rules, run the full suite, update this file and close M2.
 
 Decided (user):
-- **Co-op profiles:** the host's save holds the cash for each player.
+- **Single-player first;** co-op is M6.
 - **Upgrade choice:** the game pauses while an upgrade is being chosen.
-- **Hub map:** a separate hub map with its own GameMode; map travel between hub and town.
-
-Open questions:
-- A stable player ID without an online subsystem, for the host's per-player cash entries. Candidate: a GUID each
-  client generates once, stores locally and sends when it joins.
+- **Hub map:** a separate hub map with its own GameMode; `OpenLevel` between hub and town.
 
 Still open from M2: round scaling for cash and XP drops, more DA_LevelRewards entries, shop and casino.
+
+## Later — co-op (M6)
+
+Not built now; listed so single-player work stays co-op-ready. Co-op has never been tested with 2+ players.
+
+**Planned**
+- **Travel:** seamless / server travel between hub and town; the whole party travels together. Check first that
+  seamless travel keeps clients connected in PIE.
+- **Co-op profiles (decided):** the host's save holds every player's cash, keyed by a stable player ID.
+  - Open question: a stable player ID without an online subsystem. Candidate: a GUID each client generates once,
+    stores locally and sends when it joins.
+  - Remote players' pickups would then be credited.
+- **Upgrade picks:** clients pick through a Server RPC; offers replicate to the owning client.
+- **Party pause:** the whole party pauses while any player has an open offer, and the others see who is choosing.
+  Queued offers keep it paused until the last pick.
+- **Death:** "all players dead" ends the run, with revive, instead of one player's death.
+
+**Known gaps in today's code**
+- Market travel doesn't wait for clients to stream the district (`TODO(co-op)` in `GSGameMode.cpp`). This goes away
+  with the separate hub map.
+- The profile is one balance per machine. On a listen server only the host's pickups are credited; remote players'
+  pickups are not (`TODO(co-op)` in `AwardCash`). Clients' HUDs show their own machine's profile.
+- Cash goes to whoever collects it, not the killer.
+- XP goes only to the killing player (not shared with the party). Kills by non-players give no XP.
+- The "+N XP" popup pairing is a best guess: several kills replicated in one update show their summed XP at the
+  first kill.

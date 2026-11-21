@@ -2,8 +2,8 @@
 
 Read @docs/PROGRESS.md at the start of every session. After finishing any prompt, add a short entry to docs/PROGRESS.md (what was built, new assets/commands, known issues) and update 'Next up'.
 
-Third-person co-op roguelike shooter in an off-grid bandit gambling town (single player + 2–4 player listen-server
-co-op).
+Third-person roguelike shooter in an off-grid bandit gambling town. **Single-player first**; 2–4 player
+listen-server co-op is planned for **M6**, after single-player is finished or nearly finished.
 - **Hub:** the game starts in the safe **Market District** (shop + casino). It is a separate hub map (planned
   `L_Hub_Graybox`; today it is still the streamed sublevel `L_MarketDistrict_Graybox` in the town map). A "Start
   Run" portal sends the player to the town.
@@ -12,7 +12,8 @@ co-op).
 - **After death:** a run summary, then back to the hub to spend or gamble cash.
 - **Permanent progression:** cash, saved to a player profile and kept across runs and deaths.
 - **Per-run progression** (reset on death): XP, level, and level-up upgrades. Each level-up fully heals, adds
-  MaxHealth, and offers 3 random upgrades with rarities.
+  MaxHealth, and offers 3 random upgrades with rarities. The game pauses while the player chooses (the co-op party
+  pause is M6).
 
 Systems, commands, GAS reference, tuning and known issues live in `docs/PROGRESS.md`.
 
@@ -56,8 +57,15 @@ docs/PROGRESS.md  progress log and reference
   as a suggestion instead.
 - **Gameplay logic in C++; tuning in data.** Numbers (damage, prices, odds, spawn waves) live in Data Assets /
   DataTables under `Content/BanditBaller/Data` (settings assets are set on `BP_GSGameMode`), never hard-coded.
-- **Server-authoritative.** Everything that changes game state runs on the server (authority checks, Server RPCs
-  from clients). Clients only predict or do cosmetics.
+- **Co-op-ready, single-player first.** Co-op comes in M6.
+  - Build and test new work for single-player only. Don't add new RPCs, replication or network tests.
+  - Don't remove existing replication code (replicated properties, RPCs, authority checks).
+  - Keep game state in GameMode / GameState / PlayerState and permanent state in the profile subsystem.
+  - Change state only through gameplay functions (e.g. `AddXP`, `AwardCash`, `SetPhase`), never by poking fields
+    from widgets or other systems.
+  - Pass the PlayerState / Controller explicitly instead of grabbing player 0 (`GetPlayerController(0)`,
+    `GetFirstPlayerController`) deep in gameplay code.
+  - Mark co-op gaps with `TODO(co-op)`.
 - **Run state lives in GameState / PlayerState** and resets when the run ends: round, timers, run stats, team state,
   XP, level, level-up upgrades. It never lives in GameMode (server-only) or in widgets.
 - **Permanent state lives in the profile subsystem** (`UGSProfileSubsystem`, a GameInstance subsystem saved to
@@ -78,13 +86,14 @@ docs/PROGRESS.md  progress log and reference
   in the hub.
 - **Hub and run are separate maps with separate GameModes** (planned: a hub GameMode for shop, casino and portal; a
   run GameMode for the round loop).
-  - Travel between them is a server-driven map travel; in co-op the whole party travels together.
+  - Single-player travels between them with `OpenLevel`. Seamless / server travel and "the whole party travels
+    together" are M6.
   - Each run loads a fresh town, so run state resets by being rebuilt, not by hand-written cleanup.
   - Only what is chosen explicitly carries over a map change. Cash survives because the profile subsystem lives on
     the GameInstance.
-- **Area travel is server-driven.**
+- **Area travel** (single-player: `OpenLevel`; co-op server travel is M6).
   - The game starts in the hub.
-  - The "Start Run" portal starts a run and travels the party to the town.
+  - The "Start Run" portal starts a run and travels the player to the town.
   - Death → run summary → travel back to the hub.
   - There is no travel to the market during a run (`gs.Market.Teleport` / `Return` are debug tools only until the
     hub map replaces them).
