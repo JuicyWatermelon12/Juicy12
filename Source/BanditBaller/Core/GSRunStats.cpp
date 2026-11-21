@@ -20,6 +20,8 @@ void UGSRunStats::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifet
 	DOREPLIFETIME(UGSRunStats, CashSpent);
 	DOREPLIFETIME(UGSRunStats, DamageDealt);
 	DOREPLIFETIME(UGSRunStats, DamageTaken);
+	DOREPLIFETIME(UGSRunStats, XPEarned);
+	DOREPLIFETIME(UGSRunStats, LevelReached);
 	DOREPLIFETIME(UGSRunStats, RunStartTime);
 	DOREPLIFETIME(UGSRunStats, RunEndTime);
 }
@@ -52,6 +54,8 @@ void UGSRunStats::ResetStats(double InRunStartTime)
 	CashSpent = 0;
 	DamageDealt = 0.f;
 	DamageTaken = 0.f;
+	XPEarned = 0;
+	LevelReached = 1;
 	RunStartTime = InRunStartTime;
 	RunEndTime = 0.0;
 	Changed();
@@ -119,6 +123,24 @@ void UGSRunStats::AddDamageTaken(float Amount)
 	}
 }
 
+void UGSRunStats::AddXPEarned(int32 Amount)
+{
+	if (CanWrite() && Amount > 0)
+	{
+		XPEarned = static_cast<int32>(FMath::Min<int64>(static_cast<int64>(XPEarned) + Amount, MAX_int32));
+		Changed();
+	}
+}
+
+void UGSRunStats::RecordLevelReached(int32 Level)
+{
+	if (CanWrite() && Level > LevelReached)
+	{
+		LevelReached = Level;
+		Changed();
+	}
+}
+
 void UGSRunStats::EndRun(double InRunEndTime)
 {
 	if (CanWrite() && RunEndTime <= 0.0)
@@ -160,7 +182,9 @@ FString UGSRunStats::ToDebugString() const
 		TEXT("Cash earned:    %d\n")
 		TEXT("Cash spent:     %d\n")
 		TEXT("Damage dealt:   %.0f\n")
-		TEXT("Damage taken:   %.0f"),
+		TEXT("Damage taken:   %.0f\n")
+		TEXT("XP earned:      %d\n")
+		TEXT("Level reached:  %d"),
 		FMath::FloorToInt(Seconds / 60.f), FMath::FloorToInt(FMath::Fmod(Seconds, 60.f)), Seconds, RunEndTime > 0.0 ? TEXT(" [ended]") : TEXT(""),
-		RoundsCleared, TotalKills, Kills.IsEmpty() ? TEXT("none") : *Kills, CashEarned, CashSpent, DamageDealt, DamageTaken);
+		RoundsCleared, TotalKills, Kills.IsEmpty() ? TEXT("none") : *Kills, CashEarned, CashSpent, DamageDealt, DamageTaken, XPEarned, LevelReached);
 }

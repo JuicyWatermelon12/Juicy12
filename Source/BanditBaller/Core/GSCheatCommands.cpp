@@ -15,6 +15,7 @@
 //   gs.Debug.Round 1                                    on-screen round / phase / time left (AGSGameState)
 //   gs.Run.Seed [N]                                     print seed / restart the run with seed N
 //   gs.Run.Stats                                        print run stats (local replicated copy)
+//   gs.XP.Add <N> / gs.XP.SetLevel <N>                  grant raw XP / jump to a level (UGSProgressionComponent)
 
 #include "BanditBaller.h"
 #include "Containers/Ticker.h"
@@ -80,7 +81,7 @@ namespace GSCheats
 
 	FAutoConsoleCommandWithWorldAndArgs SetAttrCommand(
 		TEXT("gs.SetAttr"),
-		TEXT("Set a player attribute's base value. Usage: gs.SetAttr <Health|MaxHealth|MoveSpeed|Damage|FireRate|PickupRadius> <Value>"),
+		TEXT("Set a player attribute's base value. Usage: gs.SetAttr <Health|MaxHealth|MoveSpeed|Damage|FireRate|PickupRadius|XPGain> <Value>"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("SetAttr"), Args, World); }),
 		ECVF_Cheat);
 
@@ -126,6 +127,20 @@ namespace GSCheats
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("RunSeed"), Args, World); }),
 		ECVF_Cheat);
 
+	// --- XP / levels ---
+
+	FAutoConsoleCommandWithWorldAndArgs XPAddCommand(
+		TEXT("gs.XP.Add"),
+		TEXT("Grant raw XP to the local player (XPGain not applied; may level up several times). Usage: gs.XP.Add <N>"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("XPAdd"), Args, World); }),
+		ECVF_Cheat);
+
+	FAutoConsoleCommandWithWorldAndArgs XPSetLevelCommand(
+		TEXT("gs.XP.SetLevel"),
+		TEXT("Reset the local player to level 1 and add exactly the XP for level N (0 XP into it). Usage: gs.XP.SetLevel <N>"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("XPSetLevel"), Args, World); }),
+		ECVF_Cheat);
+
 	/** Reads the local (replicated) GameState, so it also works on clients. */
 	void RunStatsCommand(const TArray<FString>& Args, UWorld* World)
 	{
@@ -156,7 +171,7 @@ namespace GSCheats
 
 	FAutoConsoleCommandWithWorldAndArgs RunStatsConsoleCommand(
 		TEXT("gs.Run.Stats"),
-		TEXT("Print run stats (rounds cleared, kills by type, cash, damage dealt/taken, run time) to the log and screen."),
+		TEXT("Print run stats (rounds cleared, kills by type, cash, damage dealt/taken, XP, level reached, run time) to the log and screen."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic(&RunStatsCommand));
 
 	// --- gs.Perf: sample frame timing over a window and log one summary line ---

@@ -3,6 +3,7 @@
 #include "GSPlayerState.h"
 #include "GSAbilitySystemComponent.h"
 #include "GSAttributeSet.h"
+#include "GSProgressionComponent.h"
 #include "Net/UnrealNetwork.h"
 
 AGSPlayerState::AGSPlayerState()
@@ -13,6 +14,8 @@ AGSPlayerState::AGSPlayerState()
 
 	// Subobject of the ASC owner, so the ASC registers it automatically.
 	AttributeSet = CreateDefaultSubobject<UGSAttributeSet>(TEXT("AttributeSet"));
+
+	Progression = CreateDefaultSubobject<UGSProgressionComponent>(TEXT("Progression"));
 
 	// ASC on a PlayerState needs a higher update rate than the PlayerState default.
 	SetNetUpdateFrequency(100.f);

@@ -20,6 +20,7 @@
 #include "GSHealthComponent.h"
 #include "GSPlayerController.h"
 #include "GSPlayerState.h"
+#include "GSProgressionComponent.h"
 #include "GSRunRandom.h"
 #include "GSSpawnLocationFinder.h"
 #include "GSWeaponComponent.h"
@@ -360,6 +361,13 @@ TMap<FString, float> UGSDebugLibrary::GetAttributesOf(const AGSPlayerController*
 	if (const AGSPlayerState* PS = PC->GetPlayerState<AGSPlayerState>())
 	{
 		Result.Add(TEXT("Cash"), static_cast<float>(PS->GetCash()));
+		if (const UGSProgressionComponent* Progression = PS->GetProgressionComponent())
+		{
+			Result.Add(TEXT("Level"), static_cast<float>(Progression->GetLevel()));
+			Result.Add(TEXT("XP"), static_cast<float>(Progression->GetCurrentXP()));
+			Result.Add(TEXT("XPForNextLevel"), static_cast<float>(Progression->GetXPForNextLevel()));
+			Result.Add(TEXT("TotalXP"), static_cast<float>(Progression->GetTotalXP()));
+		}
 	}
 	Result.Add(TEXT("God"), PC->IsDebugGodMode() ? 1.f : 0.f);
 	Result.Add(TEXT("Invulnerable"), ASC->HasMatchingGameplayTag(GSGameplayTags::State_Invulnerable) ? 1.f : 0.f);
@@ -414,10 +422,39 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 	{
 		if (Args.Num() < 2)
 		{
-			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.SetAttr <Health|MaxHealth|MoveSpeed|Damage|FireRate|PickupRadius> <Value>"));
+			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.SetAttr <Health|MaxHealth|MoveSpeed|Damage|FireRate|PickupRadius|XPGain> <Value>"));
 			return;
 		}
 		SetAttributeOn(PC, Args[0], FCString::Atof(*Args[1]));
+	}
+	else if (Command == TEXT("XPAdd") || Command == TEXT("XPSetLevel"))
+	{
+		AGSGameMode* GameMode = PC->GetWorld()->GetAuthGameMode<AGSGameMode>();
+		AGSPlayerState* PS = PC->GetPlayerState<AGSPlayerState>();
+		if (!GameMode || !PS)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("gs.XP.*: no AGSGameMode / player state on the server."));
+			return;
+		}
+		const int32 Value = Args.Num() > 0 ? FCString::Atoi(*Args[0]) : 0;
+		if (Command == TEXT("XPAdd"))
+		{
+			if (Value <= 0)
+			{
+				UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.XP.Add <N> (N > 0, raw XP, XPGain not applied)"));
+				return;
+			}
+			GameMode->AwardXP(PS, static_cast<float>(Value), /*bApplyXPGain*/ false);
+		}
+		else
+		{
+			if (Value < 1)
+			{
+				UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.XP.SetLevel <N> (1..max level)"));
+				return;
+			}
+			GameMode->SetPlayerLevelForDebug(PS, Value);
+		}
 	}
 	else if (Command == TEXT("MarketTeleport") || Command == TEXT("MarketReturn"))
 	{

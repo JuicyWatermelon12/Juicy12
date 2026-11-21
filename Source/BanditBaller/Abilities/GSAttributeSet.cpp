@@ -9,6 +9,8 @@
 
 UGSAttributeSet::UGSAttributeSet()
 {
+	// Neutral default so enemies and players without GE_InitPlayerStats still gain x1 XP.
+	InitXPGain(1.f);
 }
 
 void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -21,6 +23,7 @@ void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME_CONDITION_NOTIFY(UGSAttributeSet, Damage, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UGSAttributeSet, FireRate, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UGSAttributeSet, PickupRadius, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UGSAttributeSet, XPGain, COND_None, REPNOTIFY_Always);
 }
 
 void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue)
@@ -38,7 +41,8 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 	else if (Attribute == GetMoveSpeedAttribute()
 		|| Attribute == GetDamageAttribute()
 		|| Attribute == GetFireRateAttribute()
-		|| Attribute == GetPickupRadiusAttribute())
+		|| Attribute == GetPickupRadiusAttribute()
+		|| Attribute == GetXPGainAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}
@@ -148,3 +152,9 @@ void UGSAttributeSet::OnRep_PickupRadius(const FGameplayAttributeData& OldValue)
 {
 	GAMEPLAYATTRIBUTE_REPNOTIFY(UGSAttributeSet, PickupRadius, OldValue);
 }
+
+void UGSAttributeSet::OnRep_XPGain(const FGameplayAttributeData& OldValue)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UGSAttributeSet, XPGain, OldValue);
+}
+

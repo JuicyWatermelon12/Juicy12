@@ -13,6 +13,8 @@ class UGSSpawnSettings;
 class UGSWaveDirector;
 class UGSDifficultyCurve;
 class UGSCashSettings;
+class UGSXPCurve;
+class AGSPlayerState;
 class UGameplayEffect;
 class AGSEnemyCharacter;
 class ULevelStreaming;
@@ -25,8 +27,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnPlayerDiedSignature, APawn*, P
  * Server-only game rules. Runs the round loop as a state machine over EGSRoundPhase (SetPhase /
  * AdvancePhase) and owns area travel between the Town and the Market District.
  * Replicated round state lives in AGSGameState.
- * Receives deaths from UGSHealthComponent: enemies drop cash pickups (UGSCashPickupSubsystem) and OnEnemyKilled
- * is broadcast; players get the death screen + restart flow.
+ * Receives deaths from UGSHealthComponent: enemies drop cash pickups (UGSCashPickupSubsystem), the killer gets
+ * XP (AwardXP) and OnEnemyKilled is broadcast; players get the death screen + restart flow.
  */
 UCLASS()
 class BANDITBALLER_API AGSGameMode : public AGameModeBase
@@ -122,6 +124,20 @@ public:
 	 */
 	void AwardCash(APlayerController* Player, int32 Amount, const FVector& Location);
 
+	// --- XP / levels (server) ---
+
+	/** Player level curve (DA_XPCurve). Levels don't advance if unset. */
+	const UGSXPCurve* GetXPCurve() const { return XPCurve; }
+
+	/**
+	 * Grant XP to a player: round(BaseXP x XPGain attribute) when bApplyXPGain, else round(BaseXP). Goes through
+	 * UGSProgressionComponent::AddXP and feeds run stats (XP earned, level reached). Returns the XP granted.
+	 */
+	int32 AwardXP(AGSPlayerState* Player, float BaseXP, bool bApplyXPGain = true);
+
+	/** Debug (gs.XP.SetLevel): reset Player to level 1, then AddXP exactly the total XP for Level. */
+	void SetPlayerLevelForDebug(AGSPlayerState* Player, int32 Level);
+
 	// --- Area travel (server) ---
 
 	/**
@@ -164,6 +180,10 @@ protected:
 	/** Cash drops: split, scatter, lifetime, magnet, looks (DA_CashSettings). */
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")
 	TObjectPtr<UGSCashSettings> CashSettings;
+
+	/** XP needed per player level + max level (DA_XPCurve). */
+	UPROPERTY(EditDefaultsOnly, Category = "Progression")
+	TObjectPtr<UGSXPCurve> XPCurve;
 
 	/** Spawn ring / spacing / attempts for UGSSpawnLocationFinder (DA_SpawnSettings). Class defaults if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Round")

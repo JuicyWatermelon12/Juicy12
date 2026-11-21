@@ -50,6 +50,11 @@ public:
 	FGameplayAttributeData PickupRadius;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, PickupRadius)
 
+	/** XP multiplier: XP granted = enemy XPValue x XPGain (items can raise it). Default 1. */
+	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_XPGain, Category = "Attributes|Progression")
+	FGameplayAttributeData XPGain;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, XPGain)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;
@@ -81,4 +86,7 @@ protected:
 
 	UFUNCTION()
 	void OnRep_PickupRadius(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	void OnRep_XPGain(const FGameplayAttributeData& OldValue);
 };

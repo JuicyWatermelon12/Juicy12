@@ -169,6 +169,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Reward", meta = (ClampMin = "0"))
 	int32 CashValue = 10;
 
+	/** XP granted to the killing player right away (x their XPGain attribute). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Reward", meta = (ClampMin = "0"))
+	int32 XPValue = 10;
+
 	/** Seconds the ragdoll stays before the actor is destroyed. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Reward", meta = (ClampMin = "0", Units = "s"))
 	float CorpseLifetime = 5.f;

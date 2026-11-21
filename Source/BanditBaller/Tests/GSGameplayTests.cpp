@@ -48,6 +48,8 @@
 #include "GSHealthComponent.h"
 #include "GSPlayerController.h"
 #include "GSPlayerState.h"
+#include "GSProgressionComponent.h"
+#include "GSXPCurve.h"
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
 #include "Misc/AutomationTest.h"
@@ -1466,6 +1468,109 @@ bool FGSCashPickupsTest::RunTest(const FString& Parameters)
 		IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Cash.Lifetime"))->Set(0.f, ECVF_SetByCode);
 		GetGameMode()->SetRoundTimerPaused(false);
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// XP and player levels
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSXPAndLevelsTest, "BanditBaller.Progression.XPAndLevels", GSTests::TestFlags)
+bool FGSXPAndLevelsTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		AGSGameState* GameState = GetGameState();
+		UGSRunStats* Stats = GameState ? GameState->GetRunStats() : nullptr;
+		AGSPlayerController* PC = GetPC();
+		AGSPlayerState* PS = PC ? PC->GetPlayerState<AGSPlayerState>() : nullptr;
+		UGSProgressionComponent* Progression = PS ? PS->GetProgressionComponent() : nullptr;
+		const UGSXPCurve* Curve = GameMode ? GameMode->GetXPCurve() : nullptr;
+		UAbilitySystemComponent* ASC = GetPlayerASC();
+		if (!TestNotNull(TEXT("Run stats"), Stats) || !TestNotNull(TEXT("Progression component"), Progression)
+			|| !TestNotNull(TEXT("XPCurve on the GameMode (DA_XPCurve)"), Curve) || !TestNotNull(TEXT("Player ASC"), ASC))
+		{
+			return;
+		}
+
+		// Curve: level 2 = 100 XP, then ~+25% per level.
+		TestEqual(TEXT("XP to reach level 2"), Curve->GetXPToReachLevel(2), 100);
+		TestEqual(TEXT("XP to reach level 3 (+25%)"), Curve->GetXPToReachLevel(3), 125);
+		TestEqual(TEXT("Max level"), Curve->GetMaxLevel(), 50);
+		FString Table;
+		for (int32 Level = 2; Level <= 10; ++Level)
+		{
+			Table += FString::Printf(TEXT(" L%d=%d"), Level, Curve->GetXPToReachLevel(Level));
+		}
+		AddInfo(FString::Printf(TEXT("[xp] XP needed:%s (total to L10 %lld)"), *Table, Curve->GetTotalXPToReachLevel(10)));
+
+		// Fresh run: level 1, nothing earned; XPGain starts at 1 (GE_InitPlayerStats).
+		GameMode->RestartRunWithSeed(777);
+		TestEqual(TEXT("Start level"), Progression->GetLevel(), 1);
+		TestEqual(TEXT("Start XP"), Progression->GetCurrentXP(), 0);
+		TestEqual(TEXT("XP for level 2"), Progression->GetXPForNextLevel(), 100);
+		TestEqual(TEXT("XPGain default"), ASC->GetNumericAttribute(UGSAttributeSet::GetXPGainAttribute()), 1.f, 0.001f);
+
+		// Partial XP, then one big gain: two level-ups in a row with the remainder carried over.
+		GameMode->AwardXP(PS, 60.f, false);
+		TestEqual(TEXT("60 XP stays in level 1"), Progression->GetLevel(), 1);
+		TestEqual(TEXT("60 XP into level 1"), Progression->GetCurrentXP(), 60);
+		GameMode->AwardXP(PS, 200.f, false);
+		TestEqual(TEXT("260 XP -> level 3"), Progression->GetLevel(), 3);
+		TestEqual(TEXT("Leftover carries over (260 - 100 - 125)"), Progression->GetCurrentXP(), 35);
+		TestEqual(TEXT("XP for level 4"), Progression->GetXPForNextLevel(), Curve->GetXPToReachLevel(4));
+
+		// Kills grant XPValue x XPGain straight away.
+		const UGSEnemyData* MeleeData = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		const int32 MeleeXP = MeleeData ? MeleeData->XPValue : 0;
+		TestTrue(TEXT("Melee bandit has an XPValue"), MeleeXP > 0);
+		auto KillOne = [this]()
+		{
+			AGSEnemyCharacter* Enemy = SpawnTestEnemy();
+			UAbilitySystemComponent* EnemyASC = Enemy ? Enemy->GetAbilitySystemComponent() : nullptr;
+			if (TestNotNull(TEXT("Spawned enemy"), EnemyASC))
+			{
+				ApplyDamage(EnemyASC, GetMaxHealth(EnemyASC) + 100.f, GetPlayerASC());
+			}
+		};
+		int32 TotalBefore = Progression->GetTotalXP();
+		KillOne();
+		TestEqual(TEXT("Kill grants XPValue"), Progression->GetTotalXP() - TotalBefore, MeleeXP);
+
+		ASC->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 2.f);
+		TotalBefore = Progression->GetTotalXP();
+		KillOne();
+		TestEqual(TEXT("Kill grants XPValue x XPGain (2)"), Progression->GetTotalXP() - TotalBefore, MeleeXP * 2);
+		ASC->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 1.f);
+
+		// Run stats.
+		TestEqual(TEXT("Run stats XP earned"), Stats->GetXPEarned(), 260 + MeleeXP * 3);
+		TestEqual(TEXT("Run stats level reached"), Stats->GetLevelReached(), Progression->GetLevel());
+
+		// Debug set level: exactly level N with 0 XP into it.
+		GameMode->SetPlayerLevelForDebug(PS, 10);
+		TestEqual(TEXT("SetLevel 10"), Progression->GetLevel(), 10);
+		TestEqual(TEXT("SetLevel leaves 0 XP"), Progression->GetCurrentXP(), 0);
+		TestEqual(TEXT("XP for level 11"), Progression->GetXPForNextLevel(), Curve->GetXPToReachLevel(11));
+		TestEqual(TEXT("Level reached follows SetLevel"), Stats->GetLevelReached(), 10);
+
+		// Max level caps: no XP bar past it.
+		GameMode->AwardXP(PS, 100000000.f, false);
+		TestEqual(TEXT("Capped at max level"), Progression->GetLevel(), Curve->GetMaxLevel());
+		TestTrue(TEXT("IsMaxLevel"), Progression->IsMaxLevel());
+		TestEqual(TEXT("No XP into max level"), Progression->GetCurrentXP(), 0);
+		TestEqual(TEXT("No next level at max"), Progression->GetXPForNextLevel(), 0);
+
+		// A new run resets levels and XP stats.
+		GameMode->RestartRunWithSeed(778);
+		TestEqual(TEXT("New run: level 1"), Progression->GetLevel(), 1);
+		TestEqual(TEXT("New run: total XP 0"), Progression->GetTotalXP(), 0);
+		TestEqual(TEXT("New run: XP earned 0"), Stats->GetXPEarned(), 0);
+		TestEqual(TEXT("New run: level reached 1"), Stats->GetLevelReached(), 1);
 	});
 	EndPIE();
 	return true;

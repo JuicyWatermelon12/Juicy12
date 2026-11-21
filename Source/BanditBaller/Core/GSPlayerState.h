@@ -10,6 +10,7 @@
 #include "GSPlayerState.generated.h"
 
 class UGSAttributeSet;
+class UGSProgressionComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnCashChangedSignature, int32, NewCash, int32, Delta);
 
@@ -51,6 +52,10 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Economy")
 	bool TrySpendCash(int32 Amount);
 
+	/** Level + XP (server-authoritative; UGSProgressionComponent::AddXP). */
+	UFUNCTION(BlueprintPure, Category = "Progression")
+	UGSProgressionComponent* GetProgressionComponent() const { return Progression; }
+
 	/** Broadcast whenever Cash changes. */
 	UPROPERTY(BlueprintAssignable, Category = "Economy")
 	FGSOnCashChangedSignature OnCashChanged;
@@ -61,6 +66,9 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UGSAttributeSet> AttributeSet;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Progression")
+	TObjectPtr<UGSProgressionComponent> Progression;
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, ReplicatedUsing = OnRep_Cash, Category = "Economy")
 	int32 Cash = 0;

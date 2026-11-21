@@ -27,6 +27,8 @@
 #include "GSCashSettings.h"
 #include "GSDifficultyCurve.h"
 #include "GSGameplayTags.h"
+#include "GSProgressionComponent.h"
+#include "GSXPCurve.h"
 
 const FName AGSGameMode::TownReturnTag(TEXT("TownReturn"));
 const FName AGSGameMode::MarketArrivalTag(TEXT("MarketArrival"));
@@ -57,6 +59,16 @@ namespace
 			return Pawn->IsPlayerControlled();
 		}
 		return Actor && Actor->IsA<APlayerState>();
+	}
+
+	/** The player state behind a killer (player pawn or player state), else nullptr. */
+	AGSPlayerState* GetPlayerStateOf(AActor* Actor)
+	{
+		if (const APawn* Pawn = Cast<APawn>(Actor))
+		{
+			return Pawn->IsPlayerControlled() ? Pawn->GetPlayerState<AGSPlayerState>() : nullptr;
+		}
+		return Cast<AGSPlayerState>(Actor);
 	}
 
 	/** "MeleeBandit" from DA_Enemy_MeleeBandit; class name for anything without enemy data. */
@@ -96,7 +108,64 @@ void AGSGameMode::HandleEnemyKilled(AActor* Enemy, AActor* Killer)
 		}
 	}
 
+	// XP goes straight to the killing player (no pickup).
+	if (EnemyData && EnemyData->XPValue > 0)
+	{
+		if (AGSPlayerState* KillerPS = GetPlayerStateOf(Killer))
+		{
+			AwardXP(KillerPS, static_cast<float>(EnemyData->XPValue));
+		}
+	}
+
 	OnEnemyKilled.Broadcast(Enemy, Killer);
+}
+
+int32 AGSGameMode::AwardXP(AGSPlayerState* Player, float BaseXP, bool bApplyXPGain)
+{
+	UGSProgressionComponent* Progression = Player ? Player->GetProgressionComponent() : nullptr;
+	if (!Progression || BaseXP <= 0.f)
+	{
+		return 0;
+	}
+	float Gain = 1.f;
+	if (bApplyXPGain)
+	{
+		const UAbilitySystemComponent* ASC = Player->GetAbilitySystemComponent();
+		Gain = ASC ? FMath::Max(0.f, ASC->GetNumericAttribute(UGSAttributeSet::GetXPGainAttribute())) : 1.f;
+	}
+	const int32 Amount = FMath::RoundToInt(BaseXP * Gain);
+	if (Amount <= 0)
+	{
+		return 0;
+	}
+	Progression->AddXP(Amount);
+	if (UGSRunStats* Stats = GetRunStats())
+	{
+		Stats->AddXPEarned(Amount);
+		Stats->RecordLevelReached(Progression->GetLevel());
+	}
+	return Amount;
+}
+
+void AGSGameMode::SetPlayerLevelForDebug(AGSPlayerState* Player, int32 Level)
+{
+	UGSProgressionComponent* Progression = Player ? Player->GetProgressionComponent() : nullptr;
+	if (!Progression || !XPCurve)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("gs.XP.SetLevel: no progression component or no XPCurve on the GameMode."));
+		return;
+	}
+	const int32 Target = FMath::Clamp(Level, 1, XPCurve->GetMaxLevel());
+	Progression->ResetProgression();
+	const int64 Total = XPCurve->GetTotalXPToReachLevel(Target);
+	if (Total > 0)
+	{
+		Progression->AddXP(static_cast<int32>(FMath::Min<int64>(Total, MAX_int32)));
+	}
+	if (UGSRunStats* Stats = GetRunStats())
+	{
+		Stats->RecordLevelReached(Progression->GetLevel());
+	}
 }
 
 void AGSGameMode::AwardCash(APlayerController* Player, int32 Amount, const FVector& Location)
@@ -168,6 +237,15 @@ void AGSGameMode::StartRun(int32 Seed, const TCHAR* Source)
 		if (UGSRunStats* Stats = GS->GetRunStats())
 		{
 			Stats->ResetStats(GS->GetServerWorldTimeSeconds());
+		}
+		// Levels are per run.
+		for (APlayerState* PS : GS->PlayerArray)
+		{
+			const AGSPlayerState* GSPS = Cast<AGSPlayerState>(PS);
+			if (UGSProgressionComponent* Progression = GSPS ? GSPS->GetProgressionComponent() : nullptr)
+			{
+				Progression->ResetProgression();
+			}
 		}
 	}
 	UE_LOG(LogBanditBaller, Log, TEXT("Run started: seed %d (%s). Replay with -GSSeed=%d or gs.Run.Seed %d"), Seed, Source, Seed, Seed);

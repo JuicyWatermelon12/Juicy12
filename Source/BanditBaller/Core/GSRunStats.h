@@ -24,7 +24,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FGSOnRunStatsChanged);
 
 /**
  * Party-wide stats for the current run, on AGSGameState (replicated). Written only by AGSGameMode on the
- * server: rounds cleared, kills (total + per enemy type), cash earned/spent, damage dealt/taken, run time.
+ * server: rounds cleared, kills (total + per enemy type), cash earned/spent, damage dealt/taken, XP earned,
+ * highest player level, run time.
  * Damage is the health actually removed (overkill not counted).
  */
 UCLASS(ClassGroup = (BanditBaller), meta = (BlueprintSpawnableComponent))
@@ -46,6 +47,9 @@ public:
 	void AddCashSpent(int32 Amount);
 	void AddDamageDealt(float Amount);
 	void AddDamageTaken(float Amount);
+	void AddXPEarned(int32 Amount);
+	/** Highest player level reached this run (keeps the max). */
+	void RecordLevelReached(int32 Level);
 	/** Freezes the run timer (game over). */
 	void EndRun(double InRunEndTime);
 
@@ -74,6 +78,14 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Stats")
 	float GetDamageTaken() const { return DamageTaken; }
+
+	/** XP granted to players this run (all players, after XPGain). */
+	UFUNCTION(BlueprintPure, Category = "Stats")
+	int32 GetXPEarned() const { return XPEarned; }
+
+	/** Highest level any player reached this run. */
+	UFUNCTION(BlueprintPure, Category = "Stats")
+	int32 GetLevelReached() const { return LevelReached; }
 
 	/** Seconds since the run started (server clock), frozen once the run ends. */
 	UFUNCTION(BlueprintPure, Category = "Stats")
@@ -107,6 +119,12 @@ protected:
 
 	UPROPERTY(VisibleInstanceOnly, ReplicatedUsing = OnRep_Stats, Category = "Stats")
 	float DamageTaken = 0.f;
+
+	UPROPERTY(VisibleInstanceOnly, ReplicatedUsing = OnRep_Stats, Category = "Stats")
+	int32 XPEarned = 0;
+
+	UPROPERTY(VisibleInstanceOnly, ReplicatedUsing = OnRep_Stats, Category = "Stats")
+	int32 LevelReached = 1;
 
 	/** Server world time when the run started / ended (0 = still running). */
 	UPROPERTY(VisibleInstanceOnly, Replicated, Category = "Stats")
