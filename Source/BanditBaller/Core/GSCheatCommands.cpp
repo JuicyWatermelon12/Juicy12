@@ -9,6 +9,7 @@
 //   gs.GiveWeapon <WeaponDataName>                      e.g. gs.GiveWeapon Pistol
 //   gs.SetAttr <Attribute> <Value>                      e.g. gs.SetAttr MoveSpeed 900
 //   gs.Perf [Seconds=5]                                 log avg/max frame, game, render and GPU time
+//   gs.Market.Teleport / gs.Market.Return               temporary area travel (AGSGameMode)
 
 #include "BanditBaller.h"
 #include "Containers/Ticker.h"
@@ -73,6 +74,20 @@ namespace GSCheats
 		TEXT("gs.SetAttr"),
 		TEXT("Set a player attribute's base value. Usage: gs.SetAttr <Health|MaxHealth|MoveSpeed|Damage|FireRate> <Value>"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("SetAttr"), Args, World); }),
+		ECVF_Cheat);
+
+	// --- Temporary Market District travel (the round flow will drive this in M2) ---
+
+	FAutoConsoleCommandWithWorldAndArgs MarketTeleportCommand(
+		TEXT("gs.Market.Teleport"),
+		TEXT("Temporary: stream in the Market District, fade, move the party to MarketArrival (CurrentArea = MarketDistrict)."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("MarketTeleport"), Args, World); }),
+		ECVF_Cheat);
+
+	FAutoConsoleCommandWithWorldAndArgs MarketReturnCommand(
+		TEXT("gs.Market.Return"),
+		TEXT("Temporary: fade, move the party to TownReturn, unload the Market District (CurrentArea = Town)."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("MarketReturn"), Args, World); }),
 		ECVF_Cheat);
 
 	// --- gs.Perf: sample frame timing over a window and log one summary line ---

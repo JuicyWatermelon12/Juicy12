@@ -1,7 +1,10 @@
 # BanditBaller
 
 Third-person co-op roguelike shooter set in an off-grid bandit gambling town.
-Core loop: fight rounds of enemies → earn cash → visit the market (shop + casino) → next round.
+Core loop: fight a round of enemies in the town → earn cash → on some rounds (set rounds or by chance) the
+party teleports to the safe **Market District** (shop + casino) → teleport back → next round.
+The Market District is a separate area (streamed sublevel `L_MarketDistrict_Graybox`, ~2 km from the town),
+not part of the town plaza, and is **not open every round**.
 Modes: single-player and 2–4 player listen-server co-op.
 
 ## Engine
@@ -50,6 +53,13 @@ Content/Python/
   (`Content/BanditBaller/Enemies`: DA_Enemy_MeleeBandit, DA_Enemy_RangedBandit). `AGSEnemyAIController` runs the
   data's StateTree (ST_MeleeBandit, ST_RangedBandit), generated from code with
   `gs.Editor.BuildEnemyStateTree [melee|ranged|all]`. Abilities GA_MeleeAttack / GA_EnemyFire.
+- **Areas**: `L_Town_Graybox` (persistent; combat, NavMesh, `EnemySpawn` points, plaza Target Points `TownReturn`
+  and `MarketPortalSpot`; the old plaza casino/stall boxes are untagged `Cover_*`) and the Market District sublevel
+  `L_MarketDistrict_Graybox` (Blueprint-streamed `ULevelStreamingDynamic`, unloaded by default, centred at
+  X=+200000): walled 50x50 m square, `Casino` building, 4 `MarketStall`s, Target Points `MarketArrival` /
+  `MarketExitPortalSpot`, warm post-process tint, no NavMesh, no spawns. `AGSGameState::CurrentArea`
+  (`EGSArea`), `bMarketOpenThisRound`; round phases include `MarketDecision` and `MarketVisit`.
+  To edit the district with MCP: `gs.Editor.MarketDistrictLevel edit`, place actors, then `... persistent` and save.
 - **Collision gotcha**: player capsule + mesh ignore `ECC_Visibility`; enemy capsules block it (player hitscan).
   Enemy shots/LOS use `AGSEnemyCharacter::GetShotObjectQueryParams()` (WorldStatic/Dynamic/Pawn).
 
@@ -65,6 +75,8 @@ Implementation is shared in `UGSDebugLibrary` (`Core/GSDebugLibrary.*`, `Core/GS
 | `gs.GiveWeapon <WeaponDataName>` | equip a weapon with a full mag (`Pistol`, `Rifle`, `BanditCarbine`); replaces the equipped one if both slots are full |
 | `gs.SetAttr <Attribute> <Value>` | set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate) |
 | `gs.Perf [Seconds=5]` | log avg/p95/max frame time, game thread and GPU time, enemies alive |
+| `gs.Market.Teleport` / `gs.Market.Return` | temporary: travel the party to the Market District and back (`AGSGameMode`); M2's round flow will call these |
+| `gs.Editor.MarketDistrictLevel create\|edit\|persistent` | editor only: create the district sublevel / make it (or the persistent level) current so MCP places actors there |
 | `gs.Damage.Self <n>` | damage the local player through GAS |
 | `gs.Debug.DamageLog 1` | log every health loss: `[dmg] victim took N from X (health) at t=` |
 | `gs.Debug.Weapons 1` | debug-draw shots; log enemy shots (`[shot]`) |
@@ -94,6 +106,8 @@ timings; turn it off temporarily (in memory) for perf checks.
 - `BanditBaller.GAS.DeathAddsStateDead`
 - `BanditBaller.Weapons.FireConsumesAmmoReloadRefills`
 - `BanditBaller.Abilities.DashInvulnerabilityBlocksDamage`
+- `BanditBaller.Map.TownAndMarketDistrict` (town tags/navmesh, district sublevel contents + no navmesh,
+  teleport there and back, spawning refused in the district)
 
 Run via MCP: `AutomationTestToolset` → `DiscoverTests`, then `RunTestsByFilter("StartsWith:BanditBaller")`.
 Or in the editor console: `Automation RunTests BanditBaller`.
@@ -142,6 +156,12 @@ The editor must be open; the server listens on 127.0.0.1:8000 once startup finis
   not in GameMode (server-only) or widgets.
 - **Everything goes through GAS**: stats, buffs/debuffs, abilities, and item effects are
   AttributeSets, GameplayEffects, and GameplayAbilities with GameplayTags.
+- **Combat only in the town.** Enemies spawn, path and fight only in L_Town_Graybox (NavMesh covers the town only).
+  The Market District is safe: no enemy spawns, no NavMesh, enemies ignore players while
+  `AGSGameState::CurrentArea != Town`. Shop and casino actors live only in the Market District.
+- **Area travel is server-driven** (`AGSGameMode::TravelToMarketDistrict` / `ReturnToTown`): the server
+  streams the Market District sublevel in/out, moves the whole party, and sets the replicated `CurrentArea`.
+  Whether the market opens this round (`bMarketOpenThisRound`) is decided in the MarketDecision phase (M2).
 - **Tooling split**: use Unreal MCP (`unreal-mcp`, http://127.0.0.1:8000/mcp, see `.mcp.json`)
   for editor and asset work; use file edits for C++.
 - **Make one MCP call at a time** — wait for each result before the next.

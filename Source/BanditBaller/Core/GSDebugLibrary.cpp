@@ -14,7 +14,9 @@
 #include "GSCharacter.h"
 #include "GSEnemyCharacter.h"
 #include "GSEnemyData.h"
+#include "GSGameMode.h"
 #include "GSGameplayTags.h"
+#include "GSGameState.h"
 #include "GSHealthComponent.h"
 #include "GSPlayerController.h"
 #include "GSPlayerState.h"
@@ -170,6 +172,14 @@ TArray<AGSEnemyCharacter*> UGSDebugLibrary::SpawnEnemiesAround(AGSPlayerControll
 #if !UE_BUILD_SHIPPING
 	if (!GSDebug::CheckAuthority(PC, TEXT("gs.Spawn")) || !EnemyData || Count <= 0)
 	{
+		return Spawned;
+	}
+
+	// Enemies only exist in the town; the Market District is a safe area.
+	const AGSGameState* GameState = PC->GetWorld()->GetGameState<AGSGameState>();
+	if (GameState && GameState->GetCurrentArea() != EGSArea::Town)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("gs.Spawn: refused, the party is in the Market District (enemies only spawn in town)."));
 		return Spawned;
 	}
 
@@ -422,6 +432,23 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 			return;
 		}
 		SetAttributeOn(PC, Args[0], FCString::Atof(*Args[1]));
+	}
+	else if (Command == TEXT("MarketTeleport") || Command == TEXT("MarketReturn"))
+	{
+		AGSGameMode* GameMode = PC->GetWorld()->GetAuthGameMode<AGSGameMode>();
+		if (!GameMode)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("gs.Market.*: no AGSGameMode on the server."));
+			return;
+		}
+		if (Command == TEXT("MarketTeleport"))
+		{
+			GameMode->TravelToMarketDistrict();
+		}
+		else
+		{
+			GameMode->ReturnToTown();
+		}
 	}
 	else
 	{

@@ -8,6 +8,7 @@
 #include "GameFramework/PlayerController.h"
 #include "GSEnemyCharacter.h"
 #include "GSEnemyData.h"
+#include "GSGameState.h"
 #include "GSHealthComponent.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "Perception/AISenseConfig_Sight.h"
@@ -92,6 +93,12 @@ void AGSEnemyAIController::OnTargetPerceptionUpdated(AActor* Actor, FAIStimulus 
 bool AGSEnemyAIController::IsValidTarget(const AActor* Actor)
 {
 	if (!IsValid(Actor))
+	{
+		return false;
+	}
+	// Combat only happens in the town: while the party is in the Market District, nobody is a target.
+	const AGSGameState* GameState = Actor->GetWorld() ? Actor->GetWorld()->GetGameState<AGSGameState>() : nullptr;
+	if (GameState && GameState->GetCurrentArea() != EGSArea::Town)
 	{
 		return false;
 	}

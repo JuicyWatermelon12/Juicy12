@@ -21,8 +21,12 @@
 #include "GSCharacter.h"
 #include "GSDebugLibrary.h"
 #include "GSEnemyCharacter.h"
+#include "Engine/LevelStreaming.h"
 #include "GSEnemyData.h"
+#include "GSGameMode.h"
 #include "GSGameplayTags.h"
+#include "GSGameState.h"
+#include "NavigationSystem.h"
 #include "GSHealthComponent.h"
 #include "GSPlayerController.h"
 #include "GSPlayerState.h"
@@ -349,6 +353,127 @@ bool FGSDashInvulnerabilityTest::RunTest(const FString& Parameters)
 		const float Before = GetHealth(ASC);
 		ApplyDamage(ASC, 25.f);
 		TestEqual(TEXT("Damage after i-frames applies"), GetHealth(ASC), Before - 25.f, 0.01f);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Map: town tags, Market District sublevel and area travel
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	int32 CountTagged(const UWorld* World, FName Tag)
+	{
+		int32 Count = 0;
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			Count += It->ActorHasTag(Tag) ? 1 : 0;
+		}
+		return Count;
+	}
+
+	bool IsOnNavMesh(const UWorld* World, const FVector& Location)
+	{
+		const UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
+		FNavLocation Out;
+		return NavSys && NavSys->ProjectPointToNavigation(Location, Out, FVector(500.f, 500.f, 1000.f));
+	}
+
+	bool IsInMarketDistrictLevel(const AActor* Actor)
+	{
+		return Actor && Actor->GetLevel() && Actor->GetLevel()->GetOutermost()->GetName().Contains(TEXT("L_MarketDistrict_Graybox"));
+	}
+
+	AGSGameMode* GetGameMode() { return GetPIEWorld() ? GetPIEWorld()->GetAuthGameMode<AGSGameMode>() : nullptr; }
+	AGSGameState* GetGameState() { return GetPIEWorld() ? GetPIEWorld()->GetGameState<AGSGameState>() : nullptr; }
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSMapTownAndMarketTest, "BanditBaller.Map.TownAndMarketDistrict", GSTests::TestFlags)
+bool FGSMapTownAndMarketTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	// Town: travel anchors + spawns present, no shop/casino left in the plaza, district not loaded.
+	Step([this]()
+	{
+		UWorld* World = GetPIEWorld();
+		AGSGameMode* GameMode = GetGameMode();
+		AGSGameState* GameState = GetGameState();
+		if (!TestNotNull(TEXT("AGSGameMode"), GameMode) || !TestNotNull(TEXT("AGSGameState"), GameState))
+		{
+			return;
+		}
+		TestTrue(TEXT("Starts in the town"), GameState->GetCurrentArea() == EGSArea::Town);
+		TestFalse(TEXT("Market closed by default"), GameState->IsMarketOpenThisRound());
+
+		const AActor* TownReturn = AGSGameMode::FindTaggedActor(World, TEXT("TownReturn"));
+		TestNotNull(TEXT("Town has a TownReturn point"), TownReturn);
+		TestNotNull(TEXT("Town has a MarketPortalSpot point"), AGSGameMode::FindTaggedActor(World, TEXT("MarketPortalSpot")));
+		TestTrue(TEXT("TownReturn is on the town navmesh"), TownReturn && IsOnNavMesh(World, TownReturn->GetActorLocation()));
+		TestTrue(TEXT("Town has EnemySpawn points"), CountTagged(World, TEXT("EnemySpawn")) > 0);
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			if (It->ActorHasTag(TEXT("EnemySpawn")))
+			{
+				TestTrue(FString::Printf(TEXT("%s is on the town navmesh"), *It->GetActorNameOrLabel()), IsOnNavMesh(World, It->GetActorLocation()));
+			}
+		}
+		TestEqual(TEXT("No Casino in the town"), CountTagged(World, TEXT("Casino")), 0);
+		TestEqual(TEXT("No MarketStall in the town"), CountTagged(World, TEXT("MarketStall")), 0);
+		TestEqual(TEXT("No legacy Market tags in the town"), CountTagged(World, TEXT("Market")), 0);
+
+		ULevelStreaming* District = GameMode->GetMarketDistrictStreamingLevel();
+		if (TestNotNull(TEXT("Town map has the L_MarketDistrict_Graybox sublevel"), District))
+		{
+			TestFalse(TEXT("Market District is unloaded at start"), District->IsLevelLoaded());
+		}
+
+		TestTrue(TEXT("Travel to the Market District starts"), GameMode->TravelToMarketDistrict());
+	});
+	WaitUntil(this, TEXT("party to arrive in the Market District"), []()
+	{
+		const AGSGameState* GameState = GetGameState();
+		return GameState && GameState->GetCurrentArea() == EGSArea::MarketDistrict;
+	});
+
+	// Market District contents, safety, and arrival.
+	Step([this]()
+	{
+		UWorld* World = GetPIEWorld();
+		const AActor* Arrival = AGSGameMode::FindTaggedActor(World, TEXT("MarketArrival"));
+		const AActor* Exit = AGSGameMode::FindTaggedActor(World, TEXT("MarketExitPortalSpot"));
+		const AActor* Casino = AGSGameMode::FindTaggedActor(World, TEXT("Casino"));
+		TestTrue(TEXT("MarketArrival is in the district sublevel"), IsInMarketDistrictLevel(Arrival));
+		TestTrue(TEXT("MarketExitPortalSpot is in the district sublevel"), IsInMarketDistrictLevel(Exit));
+		TestTrue(TEXT("Casino is in the district sublevel"), IsInMarketDistrictLevel(Casino));
+		TestTrue(TEXT("District has at least 3 MarketStalls"), CountTagged(World, TEXT("MarketStall")) >= 3);
+
+		TestFalse(TEXT("No navmesh at MarketArrival (enemies can't path in)"), Arrival && IsOnNavMesh(World, Arrival->GetActorLocation()));
+		TestFalse(TEXT("No navmesh at the Casino"), Casino && IsOnNavMesh(World, Casino->GetActorLocation()));
+
+		const APawn* Player = GetPlayer();
+		TestTrue(TEXT("Player teleported to MarketArrival"), Player && Arrival && FVector::Dist2D(Player->GetActorLocation(), Arrival->GetActorLocation()) < 300.f);
+
+		const TArray<AGSEnemyCharacter*> Spawned = UGSDebugLibrary::SpawnEnemiesAround(GetPC(), UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit")), 3, 1000.f);
+		TestEqual(TEXT("Enemy spawning is refused in the Market District"), Spawned.Num(), 0);
+
+		TestTrue(TEXT("Return to town starts"), GetGameMode()->ReturnToTown());
+	});
+	WaitUntil(this, TEXT("party back in town and district unloaded"), []()
+	{
+		const AGSGameState* GameState = GetGameState();
+		const ULevelStreaming* District = GetGameMode() ? GetGameMode()->GetMarketDistrictStreamingLevel() : nullptr;
+		return GameState && GameState->GetCurrentArea() == EGSArea::Town && District && !District->IsLevelLoaded();
+	});
+	Step([this]()
+	{
+		UWorld* World = GetPIEWorld();
+		const AActor* TownReturn = AGSGameMode::FindTaggedActor(World, TEXT("TownReturn"));
+		const APawn* Player = GetPlayer();
+		TestTrue(TEXT("Player returned to TownReturn"), Player && TownReturn && FVector::Dist2D(Player->GetActorLocation(), TownReturn->GetActorLocation()) < 300.f);
+		TestEqual(TEXT("District actors gone after unload"), CountTagged(World, TEXT("Casino")), 0);
 	});
 	EndPIE();
 	return true;
