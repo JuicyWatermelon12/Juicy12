@@ -10,9 +10,9 @@ Third-person co-op roguelike shooter set in an off-grid bandit gambling town (UE
 rounds the party teleports to the safe **Market District** (shop + casino) → back to town for the next, harder
 round.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–9 are done.
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–10 are done.
 
-State at the time of writing: `main` @ `371cb6e`, not pushed. The build is clean and all 17 automation tests pass.
+State at the time of writing: `main` @ `72534d1`, not pushed. The build is clean and all 18 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -28,6 +28,7 @@ State at the time of writing: `main` @ `371cb6e`, not pushed. The build is clean
 | M2 7 | Cash pickups and magnet | 64e9ac2 |
 | M2 8 | XP on kill and player levels, HUD level + XP bar | b3dda13, 4ba1b32 |
 | M2 9 | Level-up rewards (MaxHealth stack + full heal) | 371cb6e |
+| M2 10 | Progression feedback (XP popups, level-up banner, pulses, glow, sound) | 72534d1 |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -95,7 +96,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–9 done)
+## M2 — The run loop (Prompts 1–10 done)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -250,6 +251,43 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
   - 100/100 → `gs.Damage.Self 40` → 60/100.
   - `gs.XP.Add 225` → level 3 at 120/120. The HUD showed "120 / 120" with a full bar, "LV 3" and "0 / 156 XP".
 
+### Prompt 10 — Progression feedback (72534d1)
+- Audit of the existing LevelText / XPBar / XPText: already event-driven (`AddUniqueDynamic` on
+  OnXPChanged / OnLevelUp).
+  - The per-tick `TryBindProgression` only re-binds when the PlayerState changes; it never reads values.
+  - Several level-ups in one frame are handled: OnLevelUp fires once per level (also on clients from `OnRep_State`)
+    and each refresh reads the final state. Nothing needed fixing.
+- **"+N XP" popups** reuse the painted popup pool (`bXP` entries): light blue, font 17, smaller than the cash
+  popup's 24, 120 cm up.
+  - The amount comes from OnXPChanged's Delta.
+  - The position comes from `UGSHUDWidget::NotifyKill` (called by `AGSPlayerController::ClientNotifyDamageDealt`
+    on a kill). The two pair up if they arrive within `XPPopupPairWindow` 0.25 s of each other, in either order.
+  - XP with no kill (`gs.XP.Add`) pops above the player.
+- **Level-up banner** (built with MCP in WBP_HUD, top center at 22% height):
+  - VerticalBox `LevelUpBanner` holding `LevelUpTitle` ("LEVEL UP!", gold 54), `LevelUpLevelText` ("Level N") and
+    `LevelUpRewardText` (green). The last two are BindWidgetOptional.
+  - It fades in with a pop (0.15 s from ×1.3) and fades out over 0.5 s; it lasts 2.5 s in total.
+  - Level-ups while it is showing merge into it ("Level 4", "+30 Max Health").
+- The reward line comes from `UGSLevelRewards::DescribeRewards(First, Last)`.
+  - It sums the static Additive modifiers of the reward effects per attribute and labels them with the attribute's
+    display name, so the "+10" lives only in GE_LevelUp_MaxHealth.
+  - `AGSGameState` replicates `LevelRewards` (set in `AGSGameMode::StartPlay`) so clients can describe rewards.
+- **Pulses**: the existing LevelText punch, plus an XP bar pulse (height ×2 and the fill flashes pale gold over
+  0.5 s).
+- **Glow**: on OnLevelUp, `AGSCharacter` puts `Materials/M_LevelUpGlow` on the mesh as an overlay material and fades
+  its "Glow" parameter 1 → 0 over 0.8 s.
+  - The material was built with MCP: unlit, additive, emissive = Color × Glow × Fresnel × 5.
+  - The character binds to its own PlayerState's progression, so every machine sees the glow.
+- **Sound**: `LevelUpSound` on WBP_HUD plays once per frame, even when several levels come at once. Placeholder:
+  `/Engine/EditorSounds/Notifications/CompileSuccess`, which is editor content and may not cook into a packaged
+  build.
+- Tuning lives on the WBP_HUD class defaults (HUD|Level, HUD|XP) and on BP_GSCharacter (Level Up).
+- Test `Progression.LevelUpFeedback`.
+- PIE check, with durations raised to 20 s in memory so the captures could catch them (restored afterwards):
+  - The banner showed "LEVEL UP! / Level 3 / +20 Max Health".
+  - "+200 XP" appeared above the player and "+10 XP" above a kill's damage number.
+  - The player mesh brightened during the glow.
+
 ---
 
 ## Console commands and CVars
@@ -329,7 +367,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools` (PIE running):
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (17, all passing)
+## Automation tests (18, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test starts PIE in L_Town_Graybox, waits for the player, removes enemies, runs
 and ends PIE. Stop PIE before running.
@@ -353,6 +391,7 @@ and ends PIE. Stop PIE before running.
 | `Economy.CashPickups` | Exact split; out-of-reach drop stays; radius collects into Cash/CashEarned/HUD + popup; pool reuse; RoundClear vacuum; short lifetime blinks, expires unpaid. |
 | `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over (HUD level + bar follow); kill XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; cap at max level; new run resets. |
 | `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear and the Market District; new run removes stacks and clamps Health; dead player gets the stack but no heal. |
+| `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → "+XPValue XP" popup at once; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); banner/pulse/glow end. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
@@ -421,8 +460,12 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - Crits are stubbed (`TODO(crits)` in `GSAttributeSet.cpp`; damage numbers support them, nothing sets them).
 - The `GameOver` phase exists but is unused. Player death reloads the whole map (`?Restart`).
 - Cash drops don't scale with the round. Neither does enemy XP.
-- The only level-up reward so far is +10 MaxHealth and a full heal. There is no "+N XP" popup or level-up banner
-  yet. Player death (`?Restart`) reloads the map, which also resets levels and their MaxHealth stacks.
+- The only level-up reward so far is +10 MaxHealth and a full heal. Player death (`?Restart`) reloads the map,
+  which also resets levels and their MaxHealth stacks.
+- Level-up feedback is placeholder: an editor chime for the sound and a plain overlay glow, with no VFX or
+  animation assets.
+- In co-op, the "+N XP" pairing is a best guess. Several kills replicated in one update show their summed XP at the
+  first kill.
 
 **Co-op**
 - Never tested with 2+ players.
@@ -454,6 +497,7 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 - Mannequins with tinted materials.
 - `MI_CashCoin` / `MI_CashBill` are instances of `M_Enemy_MeleeBandit` (changing that material changes the cash).
 - The telegraph uses `M_EnemyLaser`.
+- Level-up: `M_LevelUpGlow` overlay and the `CompileSuccess` editor sound.
 
 **Warnings**:
 - `C4701` potentially uninitialized `BestLocation` in `AI/GSSpawnLocationFinder.cpp:246`.
@@ -481,7 +525,7 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 
 ## Next up
 
-**M2 Prompt 10 — not specified yet.** Open M2 items:
+**M2 Prompt 11 — not specified yet.** Open M2 items:
 - Open the market in `RunMarketDecision` (it is always closed).
 - Shop / casino.
 - Round scaling for cash and XP drops.
