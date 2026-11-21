@@ -26,6 +26,7 @@
 #include "GSGameMode.h"
 #include "GSGameplayTags.h"
 #include "GSGameState.h"
+#include "GSRoundSettings.h"
 #include "NavigationSystem.h"
 #include "GSHealthComponent.h"
 #include "GSPlayerController.h"
@@ -474,6 +475,69 @@ bool FGSMapTownAndMarketTest::RunTest(const FString& Parameters)
 		const APawn* Player = GetPlayer();
 		TestTrue(TEXT("Player returned to TownReturn"), Player && TownReturn && FVector::Dist2D(Player->GetActorLocation(), TownReturn->GetActorLocation()) < 300.f);
 		TestEqual(TEXT("District actors gone after unload"), CountTagged(World, TEXT("Casino")), 0);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Round loop state machine
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	bool IsPhase(EGSRoundPhase Phase)
+	{
+		const AGSGameState* GameState = GetGameState();
+		return GameState && GameState->GetRoundPhase() == Phase;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRoundPhaseLoopTest, "BanditBaller.Round.PhaseLoop", GSTests::TestFlags)
+bool FGSRoundPhaseLoopTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	// Play starts round 1 in PreRound with a running timer.
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		AGSGameState* GameState = GetGameState();
+		if (!TestNotNull(TEXT("AGSGameMode"), GameMode) || !TestNotNull(TEXT("AGSGameState"), GameState))
+		{
+			return;
+		}
+		TestEqual(TEXT("Round 1 at start"), GameState->GetRoundNumber(), 1);
+		TestTrue(TEXT("Starts in PreRound"), IsPhase(EGSRoundPhase::PreRound));
+		TestTrue(TEXT("PreRound has an end time"), GameState->GetPhaseEndTime() > 0.0);
+		TestTrue(TEXT("PreRound time left within its duration"),
+			GameState->GetPhaseTimeRemaining() > 0.f && GameState->GetPhaseTimeRemaining() <= GameMode->GetPhaseDuration(EGSRoundPhase::PreRound) + 0.01f);
+	});
+
+	// The PreRound timer advances to Combat on its own.
+	WaitUntil(this, TEXT("PreRound timer to start Combat"), []() { return IsPhase(EGSRoundPhase::Combat); },
+		GetDefault<UGSRoundSettings>()->PreRoundDuration + 10.0);
+
+	// Skips walk the loop; MarketDecision resolves straight to the next round's PreRound (market closed).
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		AGSGameState* GameState = GetGameState();
+		TestTrue(TEXT("Combat uses the fallback timer"),
+			FMath::IsNearlyEqual(GameState->GetPhaseTimeRemaining(), GameMode->GetPhaseDuration(EGSRoundPhase::Combat), 1.f));
+
+		GameMode->AdvancePhase();
+		TestTrue(TEXT("Combat -> RoundClear"), IsPhase(EGSRoundPhase::RoundClear));
+		TestEqual(TEXT("Still round 1 in RoundClear"), GameState->GetRoundNumber(), 1);
+
+		GameMode->AdvancePhase();
+		TestTrue(TEXT("RoundClear -> MarketDecision -> PreRound"), IsPhase(EGSRoundPhase::PreRound));
+		TestEqual(TEXT("Next round started"), GameState->GetRoundNumber(), 2);
+		TestFalse(TEXT("Market stays closed for now"), GameState->IsMarketOpenThisRound());
+
+		GameMode->SetRound(5);
+		TestEqual(TEXT("gs.Round.Set jumps to round 5"), GameState->GetRoundNumber(), 5);
+		TestTrue(TEXT("gs.Round.Set restarts at PreRound"), IsPhase(EGSRoundPhase::PreRound));
 	});
 	EndPIE();
 	return true;

@@ -4,8 +4,10 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "GSGameState.h"
 #include "GSGameMode.generated.h"
 
+class UGSRoundSettings;
 class ULevelStreaming;
 class UUserWidget;
 
@@ -13,8 +15,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnEnemyKilledSignature, AActor*,
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnPlayerDiedSignature, APawn*, Player, AActor*, Killer);
 
 /**
- * Server-only game rules. Will own the round phase flow (combat -> market decision -> optional
- * Market District visit -> next round) and owns area travel between the Town and the Market District.
+ * Server-only game rules. Runs the round loop as a state machine over EGSRoundPhase (SetPhase /
+ * AdvancePhase) and owns area travel between the Town and the Market District.
  * Replicated round state lives in AGSGameState.
  * Receives deaths from UGSHealthComponent: broadcasts OnEnemyKilled (cash/rounds listen here)
  * and shows the death screen + restart flow for players.
@@ -43,6 +45,26 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Events")
 	FGSOnPlayerDiedSignature OnPlayerDied;
 
+	// --- Round loop (server) ---
+	//
+	//   PreRound -> Combat -> RoundClear -> MarketDecision -> (MarketVisit) -> PreRound (round + 1)
+	//
+	// Timed phases advance on their own (durations from UGSRoundSettings); MarketDecision resolves instantly.
+
+	virtual void StartPlay() override;
+
+	/** The only way the phase changes: logs, writes AGSGameState (phase + end time) and arms the phase timer. */
+	void SetPhase(EGSRoundPhase NewPhase);
+
+	/** Leave the current phase for the next one in the loop (also used by gs.Round.Skip). */
+	void AdvancePhase();
+
+	/** Jump to round N (>= 1) and restart it from PreRound (gs.Round.Set). */
+	void SetRound(int32 NewRound);
+
+	/** Timer length for a phase; 0 = untimed (waits for code / commands). */
+	float GetPhaseDuration(EGSRoundPhase Phase) const;
+
 	// --- Area travel (server) ---
 
 	/**
@@ -70,6 +92,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "UI")
 	TSubclassOf<UUserWidget> DeathScreenWidgetClass;
 
+	/** Round timing (DA_RoundSettings). Falls back to UGSRoundSettings defaults if unset. */
+	UPROPERTY(EditDefaultsOnly, Category = "Round")
+	TObjectPtr<UGSRoundSettings> RoundSettings;
+
+	/** Start round 1 automatically when play begins. */
+	UPROPERTY(EditDefaultsOnly, Category = "Round")
+	bool bAutoStartRounds = true;
+
 	/** Short package name of the Market District sublevel in the town map. */
 	UPROPERTY(EditDefaultsOnly, Category = "Market District")
 	FName MarketDistrictLevelName = TEXT("L_MarketDistrict_Graybox");
@@ -87,6 +117,12 @@ protected:
 	float PartySpawnSpacing = 150.f;
 
 private:
+	const UGSRoundSettings& GetRoundSettings() const;
+	void StartNextRound();
+	void RunMarketDecision();
+
+	FTimerHandle PhaseTimer;
+
 	void FadeAllPlayers(bool bFadeOut) const;
 	void MovePartyTo(const AActor& Destination) const;
 	void TickTravelToMarket();

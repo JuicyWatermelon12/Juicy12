@@ -450,6 +450,27 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 			GameMode->ReturnToTown();
 		}
 	}
+	else if (Command == TEXT("RoundSkip") || Command == TEXT("RoundSet"))
+	{
+		AGSGameMode* GameMode = PC->GetWorld()->GetAuthGameMode<AGSGameMode>();
+		if (!GameMode)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("gs.Round.*: no AGSGameMode on the server."));
+			return;
+		}
+		if (Command == TEXT("RoundSkip"))
+		{
+			GameMode->AdvancePhase();
+		}
+		else if (Args.Num() < 1 || FCString::Atoi(*Args[0]) < 1)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.Round.Set <N> (N >= 1)"));
+		}
+		else
+		{
+			GameMode->SetRound(FCString::Atoi(*Args[0]));
+		}
+	}
 	else
 	{
 		UE_LOG(LogBanditBaller, Warning, TEXT("Unknown debug command '%s'"), *Command);

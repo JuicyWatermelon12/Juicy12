@@ -60,6 +60,13 @@ Content/Python/
   `MarketExitPortalSpot`, warm post-process tint, no NavMesh, no spawns. `AGSGameState::CurrentArea`
   (`EGSArea`), `bMarketOpenThisRound`; round phases include `MarketDecision` and `MarketVisit`.
   To edit the district with MCP: `gs.Editor.MarketDistrictLevel edit`, place actors, then `... persistent` and save.
+- **Round loop**: `AGSGameMode` state machine over `EGSRoundPhase`:
+  PreRound → Combat → RoundClear → MarketDecision → (MarketVisit) → PreRound with round + 1. Starts round 1 on
+  `StartPlay`. Every change goes through `SetPhase()` (logs `Round N: Old -> New`); `AdvancePhase()` holds the
+  transition table. Timings in `UGSRoundSettings` (`Content/BanditBaller/Data/DA_RoundSettings`, set on BP_GSGameMode):
+  PreRound 3 s, Combat fallback 60 s, RoundClear 4 s. For now Combat ends on its timer and MarketDecision always
+  closes the market and starts the next round. `AGSGameState` replicates RoundNumber, RoundPhase, PhaseEndTime
+  (server clock; `GetPhaseTimeRemaining()`), and fires `OnPhaseChanged` / `OnRoundChanged` on server and clients.
 - **Collision gotcha**: player capsule + mesh ignore `ECC_Visibility`; enemy capsules block it (player hitscan).
   Enemy shots/LOS use `AGSEnemyCharacter::GetShotObjectQueryParams()` (WorldStatic/Dynamic/Pawn).
 
@@ -75,6 +82,9 @@ Implementation is shared in `UGSDebugLibrary` (`Core/GSDebugLibrary.*`, `Core/GS
 | `gs.GiveWeapon <WeaponDataName>` | equip a weapon with a full mag (`Pistol`, `Rifle`, `BanditCarbine`); replaces the equipped one if both slots are full |
 | `gs.SetAttr <Attribute> <Value>` | set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate) |
 | `gs.Perf [Seconds=5]` | log avg/p95/max frame time, game thread and GPU time, enemies alive |
+| `gs.Round.Skip` | advance to the next round phase |
+| `gs.Round.Set <N>` | jump to round N and restart it from PreRound |
+| `gs.Debug.Round 1` | on-screen `[Server/Client] Round N \| Phase \| time left \| Area \| Market open` (from each machine's replicated GameState) |
 | `gs.Market.Teleport` / `gs.Market.Return` | temporary: travel the party to the Market District and back (`AGSGameMode`); M2's round flow will call these |
 | `gs.Editor.MarketDistrictLevel create\|edit\|persistent` | editor only: create the district sublevel / make it (or the persistent level) current so MCP places actors there |
 | `gs.Damage.Self <n>` | damage the local player through GAS |
@@ -108,6 +118,8 @@ timings; turn it off temporarily (in memory) for perf checks.
 - `BanditBaller.Abilities.DashInvulnerabilityBlocksDamage`
 - `BanditBaller.Map.TownAndMarketDistrict` (town tags/navmesh, district sublevel contents + no navmesh,
   teleport there and back, spawning refused in the district)
+- `BanditBaller.Round.PhaseLoop` (round 1 PreRound on start, PreRound timer → Combat, skips through
+  RoundClear/MarketDecision into round 2, gs.Round.Set)
 
 Run via MCP: `AutomationTestToolset` → `DiscoverTests`, then `RunTestsByFilter("StartsWith:BanditBaller")`.
 Or in the editor console: `Automation RunTests BanditBaller`.

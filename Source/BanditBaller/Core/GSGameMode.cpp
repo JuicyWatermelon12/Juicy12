@@ -7,6 +7,7 @@
 #include "GSHealthComponent.h"
 #include "GSPlayerController.h"
 #include "GSPlayerState.h"
+#include "GSRoundSettings.h"
 #include "Engine/LevelStreaming.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -243,4 +244,153 @@ void AGSGameMode::FinishTravel()
 {
 	GetWorldTimerManager().ClearTimer(TravelTimer);
 	FadeAllPlayers(false);
+}
+
+// ---------------------------------------------------------------------------
+// Round loop
+// ---------------------------------------------------------------------------
+
+namespace
+{
+	FString PhaseName(EGSRoundPhase Phase)
+	{
+		return StaticEnum<EGSRoundPhase>()->GetNameStringByValue(static_cast<int64>(Phase));
+	}
+}
+
+void AGSGameMode::StartPlay()
+{
+	Super::StartPlay();
+
+	if (!RoundSettings)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("%s has no RoundSettings; using UGSRoundSettings defaults."), *GetName());
+	}
+	if (bAutoStartRounds)
+	{
+		StartNextRound();
+	}
+}
+
+const UGSRoundSettings& AGSGameMode::GetRoundSettings() const
+{
+	return RoundSettings ? *RoundSettings : *GetDefault<UGSRoundSettings>();
+}
+
+float AGSGameMode::GetPhaseDuration(EGSRoundPhase Phase) const
+{
+	const UGSRoundSettings& Settings = GetRoundSettings();
+	switch (Phase)
+	{
+	case EGSRoundPhase::PreRound:   return Settings.PreRoundDuration;
+	case EGSRoundPhase::Combat:     return Settings.CombatFallbackDuration;
+	case EGSRoundPhase::RoundClear: return Settings.RoundClearDuration;
+	default:                        return 0.f; // WaitingToStart, MarketDecision (instant), MarketVisit, GameOver
+	}
+}
+
+void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
+{
+	AGSGameState* GS = GetGameState<AGSGameState>();
+	if (!GS)
+	{
+		UE_LOG(LogBanditBaller, Error, TEXT("SetPhase(%s): no AGSGameState."), *PhaseName(NewPhase));
+		return;
+	}
+
+	GetWorldTimerManager().ClearTimer(PhaseTimer);
+
+	const EGSRoundPhase OldPhase = GS->GetRoundPhase();
+	const float Duration = GetPhaseDuration(NewPhase);
+	const double EndTime = Duration > 0.f ? GS->GetServerWorldTimeSeconds() + Duration : 0.0;
+
+	UE_LOG(LogBanditBaller, Log, TEXT("Round %d: %s -> %s (%s) at t=%.2fs"), GS->GetRoundNumber(), *PhaseName(OldPhase), *PhaseName(NewPhase),
+		Duration > 0.f ? *FString::Printf(TEXT("%.1f s"), Duration) : TEXT("untimed"), GetWorld()->GetTimeSeconds());
+
+	GS->SetRoundPhase(NewPhase, EndTime);
+	if (Duration > 0.f)
+	{
+		GetWorldTimerManager().SetTimer(PhaseTimer, this, &AGSGameMode::AdvancePhase, Duration, false);
+	}
+
+	// Phases that resolve immediately on entry.
+	if (NewPhase == EGSRoundPhase::MarketDecision)
+	{
+		RunMarketDecision();
+	}
+}
+
+void AGSGameMode::AdvancePhase()
+{
+	const AGSGameState* GS = GetGameState<AGSGameState>();
+	if (!GS)
+	{
+		return;
+	}
+
+	switch (GS->GetRoundPhase())
+	{
+	case EGSRoundPhase::WaitingToStart: StartNextRound(); break;
+	case EGSRoundPhase::PreRound:       SetPhase(EGSRoundPhase::Combat); break;
+	case EGSRoundPhase::Combat:         SetPhase(EGSRoundPhase::RoundClear); break;
+	case EGSRoundPhase::RoundClear:     SetPhase(EGSRoundPhase::MarketDecision); break;
+	case EGSRoundPhase::MarketDecision: RunMarketDecision(); break;
+	case EGSRoundPhase::MarketVisit:
+		if (GS->GetCurrentArea() == EGSArea::MarketDistrict)
+		{
+			ReturnToTown();
+		}
+		StartNextRound();
+		break;
+	case EGSRoundPhase::GameOver:
+		UE_LOG(LogBanditBaller, Log, TEXT("AdvancePhase: GameOver is final."));
+		break;
+	}
+}
+
+void AGSGameMode::RunMarketDecision()
+{
+	// For now the market never opens; set rounds / chance arrive in a later milestone.
+	AGSGameState* GS = GetGameState<AGSGameState>();
+	const bool bOpenMarket = false;
+	GS->SetMarketOpenThisRound(bOpenMarket);
+	UE_LOG(LogBanditBaller, Log, TEXT("Round %d: market decision -> %s"), GS->GetRoundNumber(), bOpenMarket ? TEXT("open") : TEXT("closed, next round"));
+
+	if (bOpenMarket)
+	{
+		SetPhase(EGSRoundPhase::MarketVisit);
+	}
+	else
+	{
+		StartNextRound();
+	}
+}
+
+void AGSGameMode::StartNextRound()
+{
+	AGSGameState* GS = GetGameState<AGSGameState>();
+	if (!GS)
+	{
+		return;
+	}
+	GS->SetMarketOpenThisRound(false);
+	GS->SetRoundNumber(GS->GetRoundNumber() + 1);
+	SetPhase(EGSRoundPhase::PreRound);
+}
+
+void AGSGameMode::SetRound(int32 NewRound)
+{
+	AGSGameState* GS = GetGameState<AGSGameState>();
+	if (!GS || NewRound < 1)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("gs.Round.Set: round must be >= 1."));
+		return;
+	}
+	if (GS->GetCurrentArea() == EGSArea::MarketDistrict)
+	{
+		ReturnToTown();
+	}
+	GS->SetMarketOpenThisRound(false);
+	GS->SetRoundNumber(NewRound);
+	SetPhase(EGSRoundPhase::PreRound);
 }

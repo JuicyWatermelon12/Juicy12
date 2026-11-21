@@ -10,6 +10,8 @@
 //   gs.SetAttr <Attribute> <Value>                      e.g. gs.SetAttr MoveSpeed 900
 //   gs.Perf [Seconds=5]                                 log avg/max frame, game, render and GPU time
 //   gs.Market.Teleport / gs.Market.Return               temporary area travel (AGSGameMode)
+//   gs.Round.Skip / gs.Round.Set <N>                    round loop control (AGSGameMode)
+//   gs.Debug.Round 1                                    on-screen round / phase / time left (AGSGameState)
 
 #include "BanditBaller.h"
 #include "Containers/Ticker.h"
@@ -88,6 +90,20 @@ namespace GSCheats
 		TEXT("gs.Market.Return"),
 		TEXT("Temporary: fade, move the party to TownReturn, unload the Market District (CurrentArea = Town)."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("MarketReturn"), Args, World); }),
+		ECVF_Cheat);
+
+	// --- Round loop ---
+
+	FAutoConsoleCommandWithWorldAndArgs RoundSkipCommand(
+		TEXT("gs.Round.Skip"),
+		TEXT("Advance the round loop to the next phase (PreRound -> Combat -> RoundClear -> MarketDecision -> next round)."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("RoundSkip"), Args, World); }),
+		ECVF_Cheat);
+
+	FAutoConsoleCommandWithWorldAndArgs RoundSetCommand(
+		TEXT("gs.Round.Set"),
+		TEXT("Jump to round N and restart it from PreRound. Usage: gs.Round.Set <N>"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("RoundSet"), Args, World); }),
 		ECVF_Cheat);
 
 	// --- gs.Perf: sample frame timing over a window and log one summary line ---

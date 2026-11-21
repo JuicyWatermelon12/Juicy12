@@ -6,13 +6,22 @@
 #include "GameFramework/GameStateBase.h"
 #include "GSGameState.generated.h"
 
-/** High-level phase of the current round. */
+/**
+ * Phase of the round loop run by AGSGameMode:
+ * PreRound -> Combat -> RoundClear -> MarketDecision -> (MarketVisit) -> PreRound (next round).
+ */
 UENUM(BlueprintType)
 enum class EGSRoundPhase : uint8
 {
+	/** Before the first round starts. */
 	WaitingToStart,
+	/** Short countdown before combat. */
+	PreRound,
+	/** Enemies fight the party in the town. */
 	Combat,
-	/** After combat: decide whether the Market District opens this round (set rounds or chance, M2). */
+	/** Combat is over: results / breather. */
+	RoundClear,
+	/** Decide whether the Market District opens this round (set rounds or chance). */
 	MarketDecision,
 	/** The party is in the Market District (shop + casino). */
 	MarketVisit,
@@ -29,10 +38,12 @@ enum class EGSArea : uint8
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnAreaChangedSignature, EGSArea, OldArea, EGSArea, NewArea);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnPhaseChangedSignature, EGSRoundPhase, OldPhase, EGSRoundPhase, NewPhase);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FGSOnRoundChangedSignature, int32, NewRound);
 
 /**
- * Shared round state (round number, phase, phase timer, current area, market availability).
- * Written by AGSGameMode on the server; CurrentArea and bMarketOpenThisRound replicate to clients.
+ * Shared, replicated round state: round number, phase, phase end time, current area and market availability.
+ * Written only by AGSGameMode on the server; the delegates fire on the server and on clients (OnRep).
  */
 UCLASS()
 class BANDITBALLER_API AGSGameState : public AGameStateBase
@@ -40,7 +51,12 @@ class BANDITBALLER_API AGSGameState : public AGameStateBase
 	GENERATED_BODY()
 
 public:
+	AGSGameState();
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	virtual void Tick(float DeltaSeconds) override;
+
+	// --- Round ---
 
 	UFUNCTION(BlueprintPure, Category = "Round")
 	int32 GetRoundNumber() const { return RoundNumber; }
@@ -48,8 +64,25 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Round")
 	EGSRoundPhase GetRoundPhase() const { return RoundPhase; }
 
+	/** Server world time when the current phase ends; <= 0 means the phase has no timer. */
 	UFUNCTION(BlueprintPure, Category = "Round")
-	float GetPhaseTimeRemaining() const { return PhaseTimeRemaining; }
+	double GetPhaseEndTime() const { return PhaseEndTime; }
+
+	/** Seconds until the phase ends (0 if untimed), using the replicated server clock. */
+	UFUNCTION(BlueprintPure, Category = "Round")
+	float GetPhaseTimeRemaining() const;
+
+	/** Server only (AGSGameMode). */
+	void SetRoundPhase(EGSRoundPhase NewPhase, double NewPhaseEndTime);
+	void SetRoundNumber(int32 NewRound);
+
+	UPROPERTY(BlueprintAssignable, Category = "Round")
+	FGSOnPhaseChangedSignature OnPhaseChanged;
+
+	UPROPERTY(BlueprintAssignable, Category = "Round")
+	FGSOnRoundChangedSignature OnRoundChanged;
+
+	// --- Area ---
 
 	UFUNCTION(BlueprintPure, Category = "Area")
 	EGSArea GetCurrentArea() const { return CurrentArea; }
@@ -65,27 +98,36 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Area")
 	FGSOnAreaChangedSignature OnAreaChanged;
 
+	/** "Round 2 | Combat | 41.3 s" for debug displays and logs. */
+	FString GetRoundDebugString() const;
+
 protected:
 	/** Current round, 0 before the first round starts. */
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Round")
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, ReplicatedUsing = OnRep_RoundNumber, Category = "Round")
 	int32 RoundNumber = 0;
 
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Round")
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, ReplicatedUsing = OnRep_RoundPhase, Category = "Round")
 	EGSRoundPhase RoundPhase = EGSRoundPhase::WaitingToStart;
 
-	/** Seconds left in the current phase. */
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Round")
-	float PhaseTimeRemaining = 0.f;
+	/** Server world time (GetServerWorldTimeSeconds) when the phase ends; <= 0 if untimed. */
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Replicated, Category = "Round")
+	double PhaseEndTime = 0.0;
 
 	/** Where the party is. Enemies only target players while this is Town. */
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, ReplicatedUsing = OnRep_CurrentArea, Category = "Area")
 	EGSArea CurrentArea = EGSArea::Town;
 
-	/** Whether the Market District opens after this round's combat (decided in MarketDecision, M2). */
+	/** Whether the Market District opens after this round's combat (decided in MarketDecision). */
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Replicated, Category = "Area")
 	bool bMarketOpenThisRound = false;
 
 private:
+	UFUNCTION()
+	void OnRep_RoundNumber();
+
+	UFUNCTION()
+	void OnRep_RoundPhase(EGSRoundPhase OldPhase);
+
 	UFUNCTION()
 	void OnRep_CurrentArea(EGSArea OldArea);
 };
