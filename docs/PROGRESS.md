@@ -10,9 +10,9 @@ Third-person co-op roguelike shooter set in an off-grid bandit gambling town (UE
 rounds the party teleports to the safe **Market District** (shop + casino) → back to town for the next, harder
 round.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–8 are done.
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–9 are done.
 
-State at the time of writing: `main` @ `4ba1b32`, not pushed. The build is clean and all 16 automation tests pass.
+State at the time of writing: `main` @ `371cb6e`, not pushed. The build is clean and all 17 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -27,6 +27,7 @@ State at the time of writing: `main` @ `4ba1b32`, not pushed. The build is clean
 | M2 6 | Enemy scaling per round | 263bd94, fabf651 |
 | M2 7 | Cash pickups and magnet | 64e9ac2 |
 | M2 8 | XP on kill and player levels, HUD level + XP bar | b3dda13, 4ba1b32 |
+| M2 9 | Level-up rewards (MaxHealth stack + full heal) | 371cb6e |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -94,7 +95,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–8 done)
+## M2 — The run loop (Prompts 1–9 done)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -224,6 +225,31 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - PIE check: `gs.XP.Add 160` showed LV 2 with "60 / 125 XP" and the bar about half full. `gs.XP.SetLevel 50`
   showed LV 50 with a full bar and "MAX".
 
+### Prompt 9 — Level-up rewards (371cb6e)
+- `Core/GSLevelRewards.h` (`UGSLevelRewards`) → `Data/DA_LevelRewards`, set as `LevelRewards` on BP_GSGameMode:
+  - `EveryLevelEffects`: [GE_LevelUp_MaxHealth].
+  - `LevelSpecificRewards` (Level → effects): empty for now. Future per-level gains go here.
+  - `FullHealEffect`: GE_FullHeal.
+- `Abilities/GE_LevelUp_MaxHealth` (`UGSLevelUpMaxHealthEffect`): infinite, stacks by target with no limit,
+  Additive +10 MaxHealth per stack (edit the modifier magnitude on the asset). One stack per level gained.
+- `Abilities/GE_FullHeal` (`UGSFullHealEffect`): instant. It overrides Health with the target's MaxHealth, captured
+  live (not snapshotted) when it is applied.
+- `UGSProgressionComponent::AddXP` (server), when levels were gained:
+  1. Applies the rewards for each level gained.
+  2. Applies one full heal. Dead players get the stacks but no heal.
+  3. Then fires OnLevelUp / OnXPChanged, so listeners already see the new MaxHealth.
+- Nothing checks the phase or area, so RoundClear and the Market District work the same (tested).
+- Log line: `[xp] … level-up rewards for levels A-B: MaxHealth X, Health Y`.
+- `ResetProgression` (new run, `gs.Run.Seed`, `gs.XP.SetLevel`) removes every lasting reward through stored
+  handles.
+- New `UGSAttributeSet::PostAttributeChange`: if MaxHealth drops below Health, Health is clamped down (server).
+- HUD: the health bar already follows MaxHealth through the attribute delegates. Test hooks
+  `GetDisplayedHealth()` / `GetDisplayedMaxHealth()` were added.
+- Test `Progression.LevelUpRewards`.
+- PIE check:
+  - 100/100 → `gs.Damage.Self 40` → 60/100.
+  - `gs.XP.Add 225` → level 3 at 120/120. The HUD showed "120 / 120" with a full bar, "LV 3" and "0 / 156 XP".
+
 ---
 
 ## Console commands and CVars
@@ -296,12 +322,14 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools` (PIE running):
 | `GE_Cooldown_Slide` | `UGSCooldownEffect_Slide` | Duration from `Data.Cooldown`; grants `Cooldown.Slide`. |
 | `GE_Cooldown_Dash` | `UGSCooldownEffect_Dash` | One stack per spent charge; grants `Cooldown.Dash`. |
 | `GE_EnemyRoundScaling` | `UGSEnemyRoundScalingEffect` | Infinite; MultiplyCompound MaxHealth / Damage from `Data.HealthMultiplier` / `Data.DamageMultiplier`. |
+| `GE_LevelUp_MaxHealth` | `UGSLevelUpMaxHealthEffect` | Infinite, stacking (no limit); +10 MaxHealth per stack, one stack per level-up (DA_LevelRewards). |
+| `GE_FullHeal` | `UGSFullHealEffect` | Instant; Health = target's current MaxHealth (attribute-based). Applied after level-up rewards. |
 
 **Abilities:**
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (16, all passing)
+## Automation tests (17, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test starts PIE in L_Town_Graybox, waits for the player, removes enemies, runs
 and ends PIE. Stop PIE before running.
@@ -324,6 +352,7 @@ and ends PIE. Stop PIE before running.
 | `Run.SeedAndStats` | Same seed replays rolls; restart resets stats; kills per type; damage dealt/taken; rounds cleared. |
 | `Economy.CashPickups` | Exact split; out-of-reach drop stays; radius collects into Cash/CashEarned/HUD + popup; pool reuse; RoundClear vacuum; short lifetime blinks, expires unpaid. |
 | `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over (HUD level + bar follow); kill XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; cap at max level; new run resets. |
+| `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear and the Market District; new run removes stacks and clamps Health; dead player gets the stack but no heal. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
@@ -392,8 +421,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - Crits are stubbed (`TODO(crits)` in `GSAttributeSet.cpp`; damage numbers support them, nothing sets them).
 - The `GameOver` phase exists but is unused. Player death reloads the whole map (`?Restart`).
 - Cash drops don't scale with the round. Neither does enemy XP.
-- Levels do nothing yet: there are no rewards. The HUD shows the level and XP bar, but there is no "+N XP" popup
-  or level-up banner. Player death (`?Restart`) reloads the map, which also resets levels.
+- The only level-up reward so far is +10 MaxHealth and a full heal. There is no "+N XP" popup or level-up banner
+  yet. Player death (`?Restart`) reloads the map, which also resets levels and their MaxHealth stacks.
 
 **Co-op**
 - Never tested with 2+ players.
@@ -452,4 +481,9 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 
 ## Next up
 
-**M2 Prompt 9 — level-up rewards** (hook `UGSProgressionComponent::OnLevelUp`; the HUD already shows level + XP).
+**M2 Prompt 10 — not specified yet.** Open M2 items:
+- Open the market in `RunMarketDecision` (it is always closed).
+- Shop / casino.
+- Round scaling for cash and XP drops.
+- `GameOver`.
+- More entries in DA_LevelRewards.
