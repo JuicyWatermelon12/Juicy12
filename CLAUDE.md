@@ -129,7 +129,7 @@ Implementation is shared in `UGSDebugLibrary` (`Core/GSDebugLibrary.*`, `Core/GS
 | `gs.Run.Stats` | print run stats to the log and screen (reads the local replicated copy; works on clients) |
 | `gs.Round.Skip` | advance to the next round phase |
 | `gs.Round.Set <N>` | jump to round N and restart it from PreRound |
-| `gs.Round.Pause [0|1]` | freeze / resume the phase timer (the current phase never times out) |
+| `gs.Round.Pause [0\|1]` | freeze / resume the phase timer (the current phase never times out) |
 | `gs.Debug.Round 1` | on-screen `[Server/Client] Round N \| Phase \| time left \| Area \| Market open` + wave counts + `Enemy HP xN DMG xN` (from each machine's replicated GameState) |
 | `gs.Market.Teleport` / `gs.Market.Return` | temporary: travel the party to the Market District and back (`AGSGameMode`); M2's round flow will call these |
 | `gs.Editor.MarketDistrictLevel create\|edit\|persistent` | editor only: create the district sublevel / make it (or the persistent level) current so MCP places actors there |
