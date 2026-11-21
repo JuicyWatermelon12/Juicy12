@@ -50,6 +50,20 @@ public:
 	UGSCooldownEffect_Dash(const FObjectInitializer& ObjectInitializer);
 };
 
+/**
+ * Enemy difficulty scaling (GE_EnemyRoundScaling derives from this). Infinite; multiplies MaxHealth by SetByCaller
+ * Data.HealthMultiplier and Damage by Data.DamageMultiplier (MultiplyCompound). AGSGameMode applies it when an
+ * enemy spawns with magnitudes from UGSDifficultyCurve for the current round.
+ */
+UCLASS()
+class BANDITBALLER_API UGSEnemyRoundScalingEffect : public UGameplayEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSEnemyRoundScalingEffect(const FObjectInitializer& ObjectInitializer);
+};
+
 /** Base for damage effects: cannot be applied to targets with State.Invulnerable or State.Dead. */
 UCLASS()
 class BANDITBALLER_API UGSDamageEffect : public UGameplayEffect

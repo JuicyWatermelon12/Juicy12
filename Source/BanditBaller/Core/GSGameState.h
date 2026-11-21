@@ -118,6 +118,17 @@ public:
 	/** Server only. */
 	void SetWaveCounts(int32 InTotal, int32 InRemaining, int32 InAlive);
 
+	// --- Enemy difficulty (from UGSDifficultyCurve for the current round) ---
+
+	UFUNCTION(BlueprintPure, Category = "Difficulty")
+	float GetEnemyHealthMultiplier() const { return EnemyHealthMultiplier; }
+
+	UFUNCTION(BlueprintPure, Category = "Difficulty")
+	float GetEnemyDamageMultiplier() const { return EnemyDamageMultiplier; }
+
+	/** Server only (AGSGameMode, on every phase change). */
+	void SetEnemyRoundMultipliers(float InHealth, float InDamage);
+
 	/** Party-wide stats for the current run (replicated). */
 	UFUNCTION(BlueprintPure, Category = "Run")
 	UGSRunStats* GetRunStats() const { return RunStats; }
@@ -144,6 +155,13 @@ protected:
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Replicated, Category = "Wave")
 	int32 WaveEnemiesAlive = 0;
+
+	/** Multipliers applied to enemies spawning this round (GE_EnemyRoundScaling). */
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Replicated, Category = "Difficulty")
+	float EnemyHealthMultiplier = 1.f;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Replicated, Category = "Difficulty")
+	float EnemyDamageMultiplier = 1.f;
 
 	/** Current round, 0 before the first round starts. */
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, ReplicatedUsing = OnRep_RoundNumber, Category = "Round")

@@ -12,6 +12,7 @@
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 
 #include "AbilitySystemComponent.h"
+#include "BanditBaller.h"
 #include "Editor.h"
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -36,6 +37,8 @@
 #include "GSWaveSettings.h"
 #include "GSSpawnTelegraph.h"
 #include "HAL/IConsoleManager.h"
+#include "AIController.h"
+#include "BrainComponent.h"
 #include "NavigationPath.h"
 #include "NavigationSystem.h"
 #include "GSHealthComponent.h"
@@ -963,6 +966,252 @@ bool FGSWaveBudgetTest::RunTest(const FString& Parameters)
 	Step([]()
 	{
 		IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Wave.MaxAlive"))->Set(0);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Enemy difficulty scaling
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSDifficultyScalingTest, "BanditBaller.Round.DifficultyScaling", GSTests::TestFlags)
+bool FGSDifficultyScalingTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		AGSGameState* GameState = GetGameState();
+		UGSEnemyData* Melee = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		UGSEnemyData* Ranged = UGSDebugLibrary::FindEnemyData(TEXT("RangedBandit"));
+		if (!TestNotNull(TEXT("MeleeBandit data"), Melee) || !TestNotNull(TEXT("RangedBandit data"), Ranged))
+		{
+			return;
+		}
+
+		auto CheckEnemy = [this](const FString& What, UGSEnemyData* Data, float HealthMult, float DamageMult)
+		{
+			TArray<AGSEnemyCharacter*> Spawned = UGSDebugLibrary::SpawnEnemiesAround(GetPC(), Data, 1);
+			UAbilitySystemComponent* ASC = Spawned.Num() > 0 ? Spawned[0]->GetAbilitySystemComponent() : nullptr;
+			if (!TestNotNull(What + TEXT(" spawned"), ASC))
+			{
+				return;
+			}
+			const float ExpectedMax = Data->MaxHealth * HealthMult;
+			TestEqual(What + TEXT(" MaxHealth = base x curve"), GetMaxHealth(ASC), ExpectedMax, 0.01f);
+			TestEqual(What + TEXT(" spawns at full health"), GetHealth(ASC), ExpectedMax, 0.01f);
+			TestEqual(What + TEXT(" Damage = base x curve"), ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute()), Data->DamageMultiplier * DamageMult, 0.001f);
+			// Base values untouched: the scaling lives in the GE modifier, not in overwritten stats.
+			TestEqual(What + TEXT(" MaxHealth base value unchanged"), ASC->GetNumericAttributeBase(UGSAttributeSet::GetMaxHealthAttribute()), Data->MaxHealth, 0.01f);
+		};
+
+		// Round 1.
+		GameMode->SetRound(1);
+		const float Health1 = GameMode->GetEnemyHealthMultiplier(1);
+		const float Damage1 = GameMode->GetEnemyDamageMultiplier(1);
+		TestEqual(TEXT("GameState shows round 1 HP multiplier"), GameState->GetEnemyHealthMultiplier(), Health1, 0.001f);
+		CheckEnemy(TEXT("Round 1 melee"), Melee, Health1, Damage1);
+
+		// Round 10: tougher.
+		GameMode->SetRound(10);
+		const float Health10 = GameMode->GetEnemyHealthMultiplier(10);
+		const float Damage10 = GameMode->GetEnemyDamageMultiplier(10);
+		TestTrue(TEXT("DA_DifficultyCurve ramps health by round 10"), Health10 > Health1);
+		TestTrue(TEXT("DA_DifficultyCurve ramps damage by round 10"), Damage10 > Damage1);
+		TestEqual(TEXT("GameState shows round 10 HP multiplier"), GameState->GetEnemyHealthMultiplier(), Health10, 0.001f);
+		TestEqual(TEXT("GameState shows round 10 DMG multiplier"), GameState->GetEnemyDamageMultiplier(), Damage10, 0.001f);
+		CheckEnemy(TEXT("Round 10 melee"), Melee, Health10, Damage10);
+		CheckEnemy(TEXT("Round 10 ranged"), Ranged, Health10, Damage10);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Balance report: time-to-kill through the real weapon fire path
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	struct FTTKCase
+	{
+		int32 Round = 1;
+		FString Enemy;
+		FString Weapon;
+	};
+
+	struct FTTKState
+	{
+		TArray<FTTKCase> Cases;
+		int32 CaseIndex = 0;
+		enum class EStep : uint8 { Setup, Aim, Fire } Step = EStep::Setup;
+		TWeakObjectPtr<AGSEnemyCharacter> Target;
+		int32 AimFrames = 0;
+		int32 AmmoBefore = 0;
+		float TargetMaxHealth = 0.f;
+		double CaseStartTime = 0.0;
+		double FirstHitTime = -1.0;
+		TArray<FString> Report;
+	};
+
+	/** Point the local player's view at Target's chest. */
+	void AimAt(const AActor& Target)
+	{
+		AGSPlayerController* PC = GetPC();
+		FVector ViewLocation;
+		FRotator ViewRotation;
+		PC->GetPlayerViewPoint(ViewLocation, ViewRotation);
+		PC->SetControlRotation((Target.GetActorLocation() + FVector(0.f, 0.f, 30.f) - ViewLocation).Rotation());
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSTimeToKillTest, "BanditBaller.Balance.TimeToKill", GSTests::TestFlags)
+bool FGSTimeToKillTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	TSharedRef<FTTKState> State = MakeShared<FTTKState>();
+	for (const int32 Round : { 1, 5, 10 })
+	{
+		for (const TCHAR* Enemy : { TEXT("MeleeBandit"), TEXT("RangedBandit") })
+		{
+			for (const TCHAR* Weapon : { TEXT("Rifle"), TEXT("Pistol") })
+			{
+				State->Cases.Add({ Round, Enemy, Weapon });
+			}
+		}
+	}
+
+	Step([]()
+	{
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+	});
+
+	// One case at a time: freeze a bandit 4 m in front of the player, aim at it every frame and press fire every
+	// frame (the weapon's own refire limit sets the pace). Measures shots fired and first-hit-to-death time.
+	WaitUntil(this, TEXT("all time-to-kill cases"), [this, State]()
+	{
+		UWorld* World = GetPIEWorld();
+		AGSGameMode* GameMode = GetGameMode();
+		AGSCharacter* Player = GetPlayer();
+		if (!World || !GameMode || !Player)
+		{
+			return false;
+		}
+		const double Now = World->GetTimeSeconds();
+		if (State->CaseIndex >= State->Cases.Num())
+		{
+			return true;
+		}
+		const FTTKCase& Case = State->Cases[State->CaseIndex];
+		UGSWeaponComponent* Weapons = Player->GetWeaponComponent();
+
+		switch (State->Step)
+		{
+		case FTTKState::EStep::Setup:
+		{
+			GameMode->SetRound(Case.Round);
+			GameMode->SetRoundTimerPaused(true);
+			RemoveAllEnemies(World);
+
+			UGSWeaponData* WeaponData = UGSDebugLibrary::FindWeaponData(Case.Weapon);
+			UGSDebugLibrary::GiveWeaponTo(GetPC(), WeaponData);
+
+			Player->TeleportTo(FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator);
+			const FVector EnemyNav(400.f, 0.f, 0.f);
+			AGSEnemyCharacter* Enemy = AGSEnemyCharacter::SpawnEnemy(World, UGSDebugLibrary::FindEnemyData(Case.Enemy), EnemyNav, Player->GetActorLocation());
+			if (!TestNotNull(FString::Printf(TEXT("Spawned %s"), *Case.Enemy), Enemy))
+			{
+				++State->CaseIndex;
+				return false;
+			}
+			// Freeze it: no AI, no movement.
+			if (AAIController* AIC = Cast<AAIController>(Enemy->GetController()))
+			{
+				if (UBrainComponent* Brain = AIC->GetBrainComponent())
+				{
+					Brain->StopLogic(TEXT("TTK test"));
+				}
+				AIC->StopMovement();
+			}
+			Enemy->GetCharacterMovement()->DisableMovement();
+
+			State->Target = Enemy;
+			State->TargetMaxHealth = GetMaxHealth(Enemy->GetAbilitySystemComponent());
+			State->AimFrames = 0;
+			State->FirstHitTime = -1.0;
+			State->CaseStartTime = Now;
+			State->Step = FTTKState::EStep::Aim;
+			return false;
+		}
+
+		case FTTKState::EStep::Aim:
+		{
+			AGSEnemyCharacter* Enemy = State->Target.Get();
+			if (!Enemy)
+			{
+				State->Step = FTTKState::EStep::Setup;
+				++State->CaseIndex;
+				return false;
+			}
+			AimAt(*Enemy);
+			if (++State->AimFrames >= 5) // let the camera settle on the new view
+			{
+				State->AmmoBefore = Weapons->GetCurrentAmmo();
+				State->Step = FTTKState::EStep::Fire;
+			}
+			return false;
+		}
+
+		case FTTKState::EStep::Fire:
+		{
+			AGSEnemyCharacter* Enemy = State->Target.Get();
+			UAbilitySystemComponent* EnemyASC = Enemy ? Enemy->GetAbilitySystemComponent() : nullptr;
+			const bool bDead = !Enemy || !EnemyASC || Enemy->GetHealthComponent()->IsDead();
+			if (!bDead)
+			{
+				AimAt(*Enemy);
+				UGSAbilitySystemComponent* ASC = GetPlayerASC();
+				ASC->AbilityInputTagPressed(GSGameplayTags::Ability_Fire);
+				ASC->AbilityInputTagReleased(GSGameplayTags::Ability_Fire);
+				if (State->FirstHitTime < 0.0 && GetHealth(EnemyASC) < State->TargetMaxHealth)
+				{
+					State->FirstHitTime = Now;
+				}
+			}
+
+			const bool bNowDead = !Enemy || Enemy->GetHealthComponent()->IsDead();
+			const bool bTimedOut = Now - State->CaseStartTime > 10.0;
+			if (bNowDead || bTimedOut)
+			{
+				const UGSWeaponData* WeaponData = Weapons->GetCurrentWeaponData();
+				const int32 Shots = State->AmmoBefore - Weapons->GetCurrentAmmo();
+				const int32 Expected = FMath::CeilToInt(State->TargetMaxHealth / WeaponData->Damage);
+				const float IdealTime = (Expected - 1) * WeaponData->GetRefireInterval(1.f);
+				const float Measured = State->FirstHitTime >= 0.0 ? static_cast<float>(Now - State->FirstHitTime) : -1.f;
+
+				const FString Line = FString::Printf(TEXT("[ttk] Round %2d  %-12s %5.0f HP  %-6s (%2.0f dmg): %d shots (expected %d), %.2f s measured, %.2f s ideal%s"),
+					Case.Round, *Case.Enemy, State->TargetMaxHealth, *Case.Weapon, WeaponData->Damage, Shots, Expected, Measured, IdealTime,
+					bTimedOut ? TEXT("  TIMED OUT") : TEXT(""));
+				UE_LOG(LogBanditBaller, Log, TEXT("%s"), *Line);
+				AddInfo(Line);
+				TestFalse(FString::Printf(TEXT("Round %d %s vs %s did not time out"), Case.Round, *Case.Enemy, *Case.Weapon), bTimedOut);
+				TestEqual(FString::Printf(TEXT("Round %d %s vs %s: shots to kill"), Case.Round, *Case.Enemy, *Case.Weapon), Shots, Expected);
+
+				++State->CaseIndex;
+				State->Step = FTTKState::EStep::Setup;
+			}
+			return false;
+		}
+		}
+		return false;
+	}, 180.0);
+
+	Step([]()
+	{
+		GetGameMode()->SetRoundTimerPaused(false);
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
 	});
 	EndPIE();
 	return true;

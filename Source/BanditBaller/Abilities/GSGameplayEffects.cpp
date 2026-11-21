@@ -3,6 +3,7 @@
 #include "GSGameplayEffects.h"
 #include "GameplayEffectComponents/TargetTagRequirementsGameplayEffectComponent.h"
 #include "GameplayEffectComponents/TargetTagsGameplayEffectComponent.h"
+#include "GSAttributeSet.h"
 #include "GSGameplayTags.h"
 
 UGSCooldownEffect::UGSCooldownEffect(const FObjectInitializer& ObjectInitializer)
@@ -42,6 +43,25 @@ UGSCooldownEffect_Dash::UGSCooldownEffect_Dash(const FObjectInitializer& ObjectI
 	StackLimitCount = 0; // no limit here; GA_Dash gates on MaxCharges from its settings
 	StackDurationRefreshPolicy = EGameplayEffectStackingDurationPolicy::NeverRefresh;
 	StackExpirationPolicy = EGameplayEffectStackingExpirationPolicy::RemoveSingleStackAndRefreshDuration;
+}
+
+UGSEnemyRoundScalingEffect::UGSEnemyRoundScalingEffect(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+
+	auto AddMultiplier = [this](const FGameplayAttribute& Attribute, const FGameplayTag& DataTag)
+	{
+		FSetByCallerFloat SetByCaller;
+		SetByCaller.DataTag = DataTag;
+
+		FGameplayModifierInfo& Modifier = Modifiers.AddDefaulted_GetRef();
+		Modifier.Attribute = Attribute;
+		Modifier.ModifierOp = EGameplayModOp::MultiplyCompound;
+		Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(SetByCaller);
+	};
+	AddMultiplier(UGSAttributeSet::GetMaxHealthAttribute(), GSGameplayTags::Data_HealthMultiplier);
+	AddMultiplier(UGSAttributeSet::GetDamageAttribute(), GSGameplayTags::Data_DamageMultiplier);
 }
 
 UGSDamageEffect::UGSDamageEffect(const FObjectInitializer& ObjectInitializer)

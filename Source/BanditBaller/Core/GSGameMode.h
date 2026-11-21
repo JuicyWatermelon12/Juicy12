@@ -11,6 +11,9 @@ class UGSRoundSettings;
 class UGSRunStats;
 class UGSSpawnSettings;
 class UGSWaveDirector;
+class UGSDifficultyCurve;
+class UGameplayEffect;
+class AGSEnemyCharacter;
 class ULevelStreaming;
 class UUserWidget;
 
@@ -65,6 +68,10 @@ public:
 	/** Jump to round N (>= 1) and restart it from PreRound (gs.Round.Set). */
 	void SetRound(int32 NewRound);
 
+	/** Debug / tuning (gs.Round.Pause): freeze the phase timer so the current phase never times out. */
+	void SetRoundTimerPaused(bool bPaused);
+	bool IsRoundTimerPaused() const { return bRoundTimerPaused; }
+
 	/** Timer length for a phase; 0 = untimed (waits for code / commands). */
 	float GetPhaseDuration(EGSRoundPhase Phase) const;
 
@@ -72,6 +79,18 @@ public:
 
 	/** Runs each round's wave during Combat (DT_Waves). */
 	UGSWaveDirector* GetWaveDirector() const { return WaveDirector; }
+
+	// --- Enemy difficulty scaling ---
+
+	/** Multipliers from DifficultyCurve for Round (x1 if no curve asset). */
+	float GetEnemyHealthMultiplier(int32 Round) const;
+	float GetEnemyDamageMultiplier(int32 Round) const;
+
+	/**
+	 * Server: apply GE_EnemyRoundScaling to a freshly initialized enemy using the current round's multipliers,
+	 * then fill Health to the scaled MaxHealth. Called from AGSEnemyCharacter stat initialization.
+	 */
+	void ApplyEnemyRoundScaling(AGSEnemyCharacter& Enemy) const;
 
 	// --- Run (seed + stats) ---
 
@@ -122,6 +141,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Round")
 	TObjectPtr<UGSRoundSettings> RoundSettings;
 
+	/** Enemy Health / Damage multipliers by round (DA_DifficultyCurve). */
+	UPROPERTY(EditDefaultsOnly, Category = "Difficulty")
+	TObjectPtr<UGSDifficultyCurve> DifficultyCurve;
+
+	/** GE_EnemyRoundScaling (UGSEnemyRoundScalingEffect child); SetByCaller Data.HealthMultiplier / Data.DamageMultiplier. */
+	UPROPERTY(EditDefaultsOnly, Category = "Difficulty")
+	TSubclassOf<UGameplayEffect> EnemyRoundScalingEffect;
+
 	/** Spawn ring / spacing / attempts for UGSSpawnLocationFinder (DA_SpawnSettings). Class defaults if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Round")
 	TObjectPtr<UGSSpawnSettings> SpawnSettings;
@@ -159,6 +186,7 @@ private:
 	void RunMarketDecision();
 
 	FTimerHandle PhaseTimer;
+	bool bRoundTimerPaused = false;
 
 	FRandomStream RunStream;
 	int32 RunSeed = 0;

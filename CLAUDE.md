@@ -100,6 +100,14 @@ Content/Python/
     telegraphs and removes leftovers. `[wave]` logs per batch (distance, ON-SCREEN, FALLBACK), cap hits, and a
     per-round summary (time, peak alive, closest spawn).
   - Enemies are no longer placed in the level; rounds spawn them.
+- **Enemy difficulty**: `UGSDifficultyCurve` (`Data/DA_DifficultyCurve`, set on BP_GSGameMode) has
+  `HealthMultiplierByRound` / `DamageMultiplierByRound` curves (linear keys; Health 1→x1.0, 5→x1.4, 10→x2.0,
+  20→x3.5, 30→x5.0; Damage 1→x1.0, 5→x1.15, 10→x1.35, 20→x1.8, 30→x2.3; linear extrapolation past 30). When an
+  enemy initializes (server), `AGSGameMode::ApplyEnemyRoundScaling` applies `GE_EnemyRoundScaling`
+  (`UGSEnemyRoundScalingEffect`: infinite, MultiplyCompound on MaxHealth / Damage from SetByCaller
+  `Data.HealthMultiplier` / `Data.DamageMultiplier`) and fills Health. Base stats in UGSEnemyData stay untouched;
+  the Damage attribute scales melee AttackDamage and ranged weapon Damage. `AGSGameState` replicates the round's
+  `EnemyHealthMultiplier` / `EnemyDamageMultiplier` (shown by gs.Debug.Round).
 - **Collision gotcha**: player capsule + mesh ignore `ECC_Visibility`; enemy capsules block it (player hitscan).
   Enemy shots/LOS use `AGSEnemyCharacter::GetShotObjectQueryParams()` (WorldStatic/Dynamic/Pawn).
 
@@ -121,7 +129,8 @@ Implementation is shared in `UGSDebugLibrary` (`Core/GSDebugLibrary.*`, `Core/GS
 | `gs.Run.Stats` | print run stats to the log and screen (reads the local replicated copy; works on clients) |
 | `gs.Round.Skip` | advance to the next round phase |
 | `gs.Round.Set <N>` | jump to round N and restart it from PreRound |
-| `gs.Debug.Round 1` | on-screen `[Server/Client] Round N \| Phase \| time left \| Area \| Market open` (from each machine's replicated GameState) |
+| `gs.Round.Pause [0|1]` | freeze / resume the phase timer (the current phase never times out) |
+| `gs.Debug.Round 1` | on-screen `[Server/Client] Round N \| Phase \| time left \| Area \| Market open` + wave counts + `Enemy HP xN DMG xN` (from each machine's replicated GameState) |
 | `gs.Market.Teleport` / `gs.Market.Return` | temporary: travel the party to the Market District and back (`AGSGameMode`); M2's round flow will call these |
 | `gs.Editor.MarketDistrictLevel create\|edit\|persistent` | editor only: create the district sublevel / make it (or the persistent level) current so MCP places actors there |
 | `gs.Damage.Self <n>` | damage the local player through GAS |
@@ -161,6 +170,8 @@ timings; turn it off temporarily (in memory) for perf checks.
 - `BanditBaller.Spawn.LocationFinder` (12 points at the town center: on NavMesh, reachable, in the ring, spaced; same seed → same points; none in the Market District)
 - `BanditBaller.Round.WaveDirector` (Round1 wave size matches DT_Waves, killing the wave ends Combat on its own, kills in run stats, skipping removes leftovers)
 - `BanditBaller.Round.WaveBudget` (seeded purchase within budget, MinRound respected, alive cap with telegraphs, waiting spawns resume after kills)
+- `BanditBaller.Round.DifficultyScaling` (round 1 = base stats; round 10 MaxHealth / Damage = base x curve, full health, base values untouched; GameState multipliers)
+- `BanditBaller.Balance.TimeToKill` (balance report: rounds 1/5/10 x melee/ranged x rifle/pistol through the real fire path; asserts shots-to-kill, logs `[ttk]` lines with measured and ideal time)
 - `BanditBaller.Run.SeedAndStats` (same seed replays the same rolls, restart resets stats, kills per type,
   damage dealt/taken without overkill, rounds cleared)
 

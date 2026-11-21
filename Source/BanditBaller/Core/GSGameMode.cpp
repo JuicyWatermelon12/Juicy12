@@ -20,6 +20,11 @@
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "TimerManager.h"
+#include "AbilitySystemComponent.h"
+#include "GameplayEffect.h"
+#include "GSAttributeSet.h"
+#include "GSDifficultyCurve.h"
+#include "GSGameplayTags.h"
 
 const FName AGSGameMode::TownReturnTag(TEXT("TownReturn"));
 const FName AGSGameMode::MarketArrivalTag(TEXT("MarketArrival"));
@@ -442,6 +447,9 @@ void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
 
 	GS->SetRoundPhase(NewPhase, EndTime);
 
+	// Publish this round's enemy multipliers (the round number may have changed).
+	GS->SetEnemyRoundMultipliers(GetEnemyHealthMultiplier(GS->GetRoundNumber()), GetEnemyDamageMultiplier(GS->GetRoundNumber()));
+
 	// Combat finished (timer, skip or, later, all enemies dead): the round counts as cleared.
 	if (OldPhase == EGSRoundPhase::Combat && NewPhase == EGSRoundPhase::RoundClear)
 	{
@@ -453,6 +461,10 @@ void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
 	if (Duration > 0.f)
 	{
 		GetWorldTimerManager().SetTimer(PhaseTimer, this, &AGSGameMode::HandlePhaseTimerExpired, Duration, false);
+		if (bRoundTimerPaused)
+		{
+			GetWorldTimerManager().PauseTimer(PhaseTimer);
+		}
 	}
 
 	// Waves: Combat runs the round's wave; leaving Combat early (skip, safety timer) stops it and removes leftovers.
@@ -545,4 +557,63 @@ void AGSGameMode::SetRound(int32 NewRound)
 	GS->SetMarketOpenThisRound(false);
 	GS->SetRoundNumber(NewRound);
 	SetPhase(EGSRoundPhase::PreRound);
+}
+
+// ---------------------------------------------------------------------------
+// Enemy difficulty scaling
+// ---------------------------------------------------------------------------
+
+float AGSGameMode::GetEnemyHealthMultiplier(int32 Round) const
+{
+	return DifficultyCurve ? DifficultyCurve->GetHealthMultiplier(Round) : 1.f;
+}
+
+float AGSGameMode::GetEnemyDamageMultiplier(int32 Round) const
+{
+	return DifficultyCurve ? DifficultyCurve->GetDamageMultiplier(Round) : 1.f;
+}
+
+void AGSGameMode::ApplyEnemyRoundScaling(AGSEnemyCharacter& Enemy) const
+{
+	UAbilitySystemComponent* ASC = Enemy.GetAbilitySystemComponent();
+	const AGSGameState* GS = GetGameState<AGSGameState>();
+	if (!ASC || !GS)
+	{
+		return;
+	}
+	if (!EnemyRoundScalingEffect)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("%s has no EnemyRoundScalingEffect; enemies are not scaled by round."), *GetName());
+		return;
+	}
+
+	const int32 Round = FMath::Max(GS->GetRoundNumber(), 1);
+	const float HealthMultiplier = GetEnemyHealthMultiplier(Round);
+	const float DamageMultiplier = GetEnemyDamageMultiplier(Round);
+
+	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(EnemyRoundScalingEffect, static_cast<float>(Round), ASC->MakeEffectContext());
+	if (!Spec.IsValid())
+	{
+		return;
+	}
+	Spec.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_HealthMultiplier, HealthMultiplier);
+	Spec.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_DamageMultiplier, DamageMultiplier);
+	ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data);
+
+	// Spawn at full (scaled) health.
+	ASC->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), ASC->GetNumericAttribute(UGSAttributeSet::GetMaxHealthAttribute()));
+}
+
+void AGSGameMode::SetRoundTimerPaused(bool bPaused)
+{
+	bRoundTimerPaused = bPaused;
+	if (bPaused)
+	{
+		GetWorldTimerManager().PauseTimer(PhaseTimer);
+	}
+	else
+	{
+		GetWorldTimerManager().UnPauseTimer(PhaseTimer);
+	}
+	UE_LOG(LogBanditBaller, Log, TEXT("gs.Round.Pause: phase timer %s"), bPaused ? TEXT("PAUSED") : TEXT("running"));
 }

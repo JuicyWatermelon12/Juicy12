@@ -447,7 +447,7 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 		}
 		GameMode->RestartRunWithSeed(FCString::Atoi(*Args[0]));
 	}
-	else if (Command == TEXT("RoundSkip") || Command == TEXT("RoundSet"))
+	else if (Command == TEXT("RoundSkip") || Command == TEXT("RoundSet") || Command == TEXT("RoundPause"))
 	{
 		AGSGameMode* GameMode = PC->GetWorld()->GetAuthGameMode<AGSGameMode>();
 		if (!GameMode)
@@ -458,6 +458,10 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 		if (Command == TEXT("RoundSkip"))
 		{
 			GameMode->AdvancePhase();
+		}
+		else if (Command == TEXT("RoundPause"))
+		{
+			GameMode->SetRoundTimerPaused(Args.Num() > 0 ? Args[0].ToBool() : !GameMode->IsRoundTimerPaused());
 		}
 		else if (Args.Num() < 1 || FCString::Atoi(*Args[0]) < 1)
 		{

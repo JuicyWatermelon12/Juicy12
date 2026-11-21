@@ -13,6 +13,7 @@
 #include "GSEnemyAIController.h"
 #include "GSEnemyData.h"
 #include "GSEnemyHealthBarWidget.h"
+#include "GSGameMode.h"
 #include "GSHealthComponent.h"
 #include "GSRunRandom.h"
 #include "Components/StaticMeshComponent.h"
@@ -335,6 +336,12 @@ void AGSEnemyCharacter::InitializeStats()
 	if (EnemyData->AbilitySet)
 	{
 		EnemyData->AbilitySet->GiveToAbilitySystem(ASC, nullptr, this);
+	}
+
+	// Round difficulty: GE_EnemyRoundScaling with the current round's multipliers (DA_DifficultyCurve).
+	if (const AGSGameMode* GameMode = GetWorld()->GetAuthGameMode<AGSGameMode>())
+	{
+		GameMode->ApplyEnemyRoundScaling(*this);
 	}
 }
 

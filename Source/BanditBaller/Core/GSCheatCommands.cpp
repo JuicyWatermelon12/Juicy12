@@ -112,6 +112,12 @@ namespace GSCheats
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("RoundSet"), Args, World); }),
 		ECVF_Cheat);
 
+	FAutoConsoleCommandWithWorldAndArgs RoundPauseCommand(
+		TEXT("gs.Round.Pause"),
+		TEXT("Freeze / resume the round phase timer (the current phase won't time out). Usage: gs.Round.Pause [0|1]"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("RoundPause"), Args, World); }),
+		ECVF_Cheat);
+
 	// --- Run ---
 
 	FAutoConsoleCommandWithWorldAndArgs RunSeedCommand(

@@ -34,6 +34,17 @@ void AGSGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
 	DOREPLIFETIME(AGSGameState, WaveEnemiesTotal);
 	DOREPLIFETIME(AGSGameState, WaveEnemiesRemaining);
 	DOREPLIFETIME(AGSGameState, WaveEnemiesAlive);
+	DOREPLIFETIME(AGSGameState, EnemyHealthMultiplier);
+	DOREPLIFETIME(AGSGameState, EnemyDamageMultiplier);
+}
+
+void AGSGameState::SetEnemyRoundMultipliers(float InHealth, float InDamage)
+{
+	if (HasAuthority())
+	{
+		EnemyHealthMultiplier = InHealth;
+		EnemyDamageMultiplier = InDamage;
+	}
 }
 
 void AGSGameState::SetWaveCounts(int32 InTotal, int32 InRemaining, int32 InAlive)
@@ -96,8 +107,8 @@ FString AGSGameState::GetRoundDebugString() const
 {
 	const FString Phase = StaticEnum<EGSRoundPhase>()->GetNameStringByValue(static_cast<int64>(RoundPhase));
 	const FString Time = PhaseEndTime > 0.0 ? FString::Printf(TEXT("%.1f s"), GetPhaseTimeRemaining()) : TEXT("--");
-	return FString::Printf(TEXT("Round %d | %s | %s | Enemies alive %d, remaining %d/%d"), RoundNumber, *Phase, *Time,
-		WaveEnemiesAlive, WaveEnemiesRemaining, WaveEnemiesTotal);
+	return FString::Printf(TEXT("Round %d | %s | %s | Enemies alive %d, remaining %d/%d | Enemy HP x%.2f DMG x%.2f"), RoundNumber, *Phase, *Time,
+		WaveEnemiesAlive, WaveEnemiesRemaining, WaveEnemiesTotal, EnemyHealthMultiplier, EnemyDamageMultiplier);
 }
 
 void AGSGameState::Tick(float DeltaSeconds)
