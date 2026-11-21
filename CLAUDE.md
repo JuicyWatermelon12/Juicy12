@@ -8,12 +8,17 @@ listen-server co-op is planned for **M6**, after single-player is finished or ne
   `L_Hub_Graybox`; today it is still the streamed sublevel `L_MarketDistrict_Graybox` in the town map). A "Start
   Run" portal sends the player to the town.
 - **Run:** PreRound → Combat → RoundClear → PreRound … in the town until the player dies. There are no market visits
-  during a run.
+  during a run. Enemies drop cash and XP as pickups.
 - **After death:** a run summary, then back to the hub to spend or gamble cash.
-- **Permanent progression:** cash, saved to a player profile and kept across runs and deaths.
-- **Per-run progression** (reset on death): XP, level, and level-up upgrades. Each level-up fully heals, adds
-  MaxHealth, and offers 3 random upgrades with rarities. The game pauses while the player chooses (the co-op party
-  pause is M6).
+- **Permanent progression:** cash and owned items, saved to a player profile and kept across runs and deaths.
+  - Shop purchases and casino prizes are **permanent unlocks**: once owned, they apply to every future run (M3/M4).
+  - Casino bets risk **cash only**, never owned items.
+- **Per-run progression** (reset on death): XP, level, and level-up upgrades. XP comes from pickups enemies drop,
+  not instantly on the kill.
+  - Each level-up fully heals, adds MaxHealth, and offers 3 random upgrades in four rarity tiers (Common, Rare, Epic,
+    Legendary).
+  - The player must take one (no skip), but can reroll the 3 choices a limited number of times per run (3 to start).
+  - The game pauses while the player chooses (the co-op party pause is M6).
 
 Systems, commands, GAS reference, tuning and known issues live in `docs/PROGRESS.md`.
 
@@ -70,9 +75,10 @@ docs/PROGRESS.md  progress log and reference
   XP, level, level-up upgrades. It never lives in GameMode (server-only) or in widgets.
 - **Permanent state lives in the profile subsystem** (`UGSProfileSubsystem`, a GameInstance subsystem saved to
   `Saved/SaveGames/GSProfile.sav` as `UGSProfileSaveGame`). It survives runs, deaths and map travel. Today that is
-  cash; later, owned items.
+  cash; later, owned items (`OwnedItems`: permanent unlocks from the shop and casino, applied to every run).
   - **All cash changes go through it** (`AddCash` / `TrySpendCash`): earning in a run, spending in the shop, gambling.
     Nothing else stores cash (PlayerState has none); the HUD listens to its `OnCashChanged`.
+  - Casino bets only ever take cash; owned items are never at stake.
   - It saves at each RoundClear (when it ends), at run end (death) and on quit, not on every change.
   - Automation tests use the `GSProfile_AutomationTest` slot, never the real profile.
 - **All in-run randomness uses the run stream** via `UGSRunRandom` (waves, spawn positions, drops, upgrade choices,
@@ -84,6 +90,9 @@ docs/PROGRESS.md  progress log and reference
 - **Combat only in the town.** Enemies spawn, path and fight only in `L_Town_Graybox` (NavMesh covers the town
   only). The Market District hub map is safe: no spawns, no NavMesh, no round loop. Shop and casino actors live only
   in the hub.
+- **Every map has a boundary**: invisible walls around the play area and a ceiling. It blocks pawns only (players and
+  enemies); shots, traces, pickups and the camera pass through. The ceiling is what limits Extra Jump height (Extra
+  Jump has no cap).
 - **Hub and run are separate maps with separate GameModes** (planned: a hub GameMode for shop, casino and portal; a
   run GameMode for the round loop).
   - Single-player travels between them with `OpenLevel`. Seamless / server travel and "the whole party travels

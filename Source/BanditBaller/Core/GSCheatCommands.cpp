@@ -88,7 +88,7 @@ namespace GSCheats
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("SetAttr"), Args, World); }),
 		ECVF_Cheat);
 
-	// --- Temporary Market District travel (the round flow will drive this in M2) ---
+	// --- Market District travel: debug only, not part of the run loop (retired with the hub map, Prompt 26) ---
 
 	FAutoConsoleCommandWithWorldAndArgs MarketTeleportCommand(
 		TEXT("gs.Market.Teleport"),

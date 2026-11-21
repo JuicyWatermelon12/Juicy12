@@ -9,22 +9,28 @@ Third-person roguelike shooter set in an off-grid bandit gambling town (UE 5.8, 
 first**; 2–4 player listen-server co-op is planned for **M6** (see **Later — co-op (M6)**).
 - **Hub:** the game starts in the safe **Market District** hub (shop + casino), its own map. A "Start Run" portal
   takes the player to the town map (`OpenLevel`).
-- **Run:** PreRound → Combat → RoundClear → PreRound … with harder rounds, until the player dies. The cash bandits
-  drop is picked up during the run.
+- **Run:** PreRound → Combat → RoundClear → PreRound … with harder rounds, until the player dies. Bandits drop cash
+  and XP as pickups, collected during the run.
 - **After death:** a run summary, then back to the hub to spend or gamble the cash.
-- **Permanent progression:** cash (saved profile).
-- **Per-run progression** (reset on death): XP, level, and level-up upgrades. Each level-up fully heals, adds
-  MaxHealth, and offers 3 random upgrades with rarities. The game pauses while the player chooses.
+- **Permanent progression:** cash and owned items (saved profile).
+  - Shop purchases and casino prizes are permanent unlocks that apply to every future run (M3/M4).
+  - Casino bets risk cash only, never owned items.
+- **Per-run progression** (reset on death): XP, level, and level-up upgrades.
+  - Each level-up fully heals, adds MaxHealth, and offers 3 random upgrades in four rarity tiers (Common, Rare, Epic,
+    Legendary).
+  - The player must take one (no skip) but can reroll the choices a limited number of times per run (3 to start).
+  - The game pauses while the player chooses.
 
 The design changed after M2 Prompt 10; see **Design change — permanent cash, hub market, level-up upgrades**. The
-scope then changed to single-player first; see **Scope change — single-player first**.
+scope then changed to single-player first; see **Scope change — single-player first**. Five more decisions came
+before M3; see **Design update — decisions before M3**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–10 and 14–16
-are done, plus permanent cash (profile subsystem).
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–17 are done
+(11–13 and 17 were design / scope updates and permanent cash).
 
-State at the time of writing: `main` after Prompt 16, not pushed. The build is clean and all 21 automation tests pass.
+State at the time of writing: `main` after Prompt 17, not pushed. The build is clean and all 21 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -41,12 +47,13 @@ State at the time of writing: `main` after Prompt 16, not pushed. The build is c
 | M2 8 | XP on kill and player levels, HUD level + XP bar | b3dda13, 4ba1b32 |
 | M2 9 | Level-up rewards (MaxHealth stack + full heal) | 371cb6e |
 | M2 10 | Progression feedback (XP popups, level-up banner, pulses, glow, sound) | 72534d1 |
-| Design change | Permanent cash (profile), Market District as hub between runs, level-up upgrades (docs only) | 0b2b6f5 |
-| Permanent cash | Profile subsystem + save; cash moved off PlayerState | a2dc3b7 |
-| Scope change | Single-player first; co-op moves to M6 (docs only) | f1db8b5 |
+| M2 11 | Design change: permanent cash (profile), Market District as hub between runs, level-up upgrades (docs only) | 0b2b6f5 |
+| M2 12 | Permanent cash: profile subsystem + save; cash moved off PlayerState | a2dc3b7 |
+| M2 13 | Scope change: single-player first; co-op moves to M6 (docs only) | f1db8b5 |
 | M2 14 | Run loop cleanup: in-run market phases removed (RoundClear → PreRound) | 58f29b7 |
 | M2 15 | Upgrade data + stat upgrades (ReloadSpeed, Damage, MoveSpeed) | 9dbccbf |
-| M2 16 | Extra Jump upgrade (ExtraJumps → JumpMaxCount, consistent air jumps, dash jump queue) | see git log |
+| M2 16 | Extra Jump upgrade (ExtraJumps → JumpMaxCount, consistent air jumps, dash jump queue) | 42a874e |
+| M2 17 | Design update: decisions before M3 (docs only) | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -114,7 +121,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–10 done)
+## M2 — The run loop (Prompts 1–16 done)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -308,7 +315,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 
 ## Design change — permanent cash, hub market, level-up upgrades (0b2b6f5)
 
-Docs only; no code changed yet.
+Prompt 11. Docs only; no code changed yet.
 
 **New design**
 - **Permanent cash.** Cash is saved to a player profile and kept across runs, even after death.
@@ -367,6 +374,7 @@ Docs only; no code changed yet.
   removed the same way.
 
 ### Permanent cash — profile subsystem (a2dc3b7)
+Prompt 12.
 - `Core/GSProfileSaveGame.h` (`UGSProfileSaveGame`): `SaveVersion` (current 1), `Cash`, and `OwnedItems` (reserved,
   empty).
 - `Core/GSProfileSubsystem.*` (`UGSProfileSubsystem`, GameInstance subsystem) owns the permanent cash balance:
@@ -396,9 +404,9 @@ Docs only; no code changed yet.
   4. Stopping PIE saved $85 ("Quit"). The next session loaded $85 and the HUD showed "$85".
   5. `gs.Profile.Reset` afterwards left the real profile at $0.
 
-## Scope change — single-player first
+## Scope change — single-player first (f1db8b5)
 
-Docs only; no code changed.
+Prompt 13. Docs only; no code changed.
 
 - **The game is single-player first.** Co-op (2–4 player listen server) is milestone **M6**, after single-player is
   finished or nearly finished.
@@ -422,7 +430,7 @@ Docs only; no code changed.
   and on `gs.Round.Skip`. The profile still saves when RoundClear ends.
 - Removed `AGSGameMode::RunMarketDecision`, `AGSGameState::bMarketOpenThisRound` (and its replication,
   `IsMarketOpenThisRound` / `SetMarketOpenThisRound`) and the "Market open" part of the `gs.Debug.Round` line.
-- Kept as debug tools until the hub map (Prompt 23): `gs.Market.Teleport` / `gs.Market.Return`,
+- Kept as debug tools until the hub map (Prompt 26): `gs.Market.Teleport` / `gs.Market.Return`,
   `TravelToMarketDistrict` / `ReturnToTown`, and `gs.Round.Set` returning the party to town first.
 - Tests:
   - `Round.PhaseLoop` checks that the enum has no market phases, that the RoundClear timer starts round 2's
@@ -467,7 +475,7 @@ Docs only; no code changed.
     agreed.
   - A rifle reload took about 1.17 s (1.8 / 1.5 = 1.2 s expected; polled from MCP).
   - A rifle shot hit the target dummy for 26.0 (20 × 1.3).
-- **Not built yet:** the upgrade pool with rarity weights, offers on level-up and the choice UI (Prompts 17–18).
+- **Not built yet:** the upgrade pool with rarity weights, offers on level-up and the choice UI (Prompts 18–19).
 
 ### Prompt 16 — Extra Jump
 - **New attribute `ExtraJumps`** (constructor default 0, clamped to ≥ 0, not replicated, `TODO(co-op)`).
@@ -502,14 +510,53 @@ Docs only; no code changed.
   - The puff was visible at the feet.
 - **Movement issues noticed** (none fixed beyond the dash bug; suggestions only):
   - **Height stacking:** every stack adds ~1.9 m of reachable height, with no cap. **Decided (user): Extra Jump stays
-    uncapped**; it can be picked any number of times. The map will get a ceiling so the player can't climb forever.
-    The ceiling isn't built yet; until then the height is unlimited.
+    uncapped**; it can be picked any number of times. The ceiling of the map boundary (Prompt 21) limits the height.
+    Until it is built the height is unlimited.
   - **Double-tap waste:** an air jump right after the ground jump gains little, because upward speed only goes from
     ~770 to 800. Mashing jump wastes it. This comes from "same speed every time". A short delay before the first
     air jump is possible.
   - **Air jumps keep horizontal speed:** they don't redirect it (AirControl 0.9 still steers). With no input,
     horizontal speed in the air decays to 0 within ~0.6 s (BrakingDecelerationFalling 1500; this was already so).
   - **Jump during a dash waits up to 0.15 s** for the dash to end, rather than cancelling it.
+
+## Design update — decisions before M3
+
+Prompt 17. Docs only (plus three stale code comments); no gameplay code changed.
+
+**Decisions (user)**
+1. **Permanent unlocks.** Shop purchases and casino prizes are permanent: once owned, they apply to every future
+   run.
+   - They are stored in the profile (`UGSProfileSaveGame::OwnedItems`, already reserved and empty) and survive death.
+   - Built with the shop and casino in M3/M4.
+2. **Upgrade rarities and rerolls.**
+   - Level-up upgrades get four rarity tiers: Common, Rare, Epic, Legendary. `EGSUpgradeRarity` has Common and Rare
+     today; Epic and Legendary are appended in Prompt 18.
+   - The player can reroll the 3 choices a limited number of times per run. It starts at 3; the number goes in data.
+     It is run state and resets with the run.
+   - There is no skip: every offer ends with a pick.
+3. **Casino bets risk cash only**, never owned items.
+4. **XP comes from pickups** that enemies drop, not instantly on the kill.
+   - Today `AGSGameMode::HandleEnemyKilled` grants XP to the killer at once (Prompt 8). Prompt 20 changes that.
+   - The pickup details (magnet, RoundClear vacuum, popups, who gets it) are settled in Prompt 20.
+5. **Every map gets a boundary:** invisible walls around the play area and a ceiling.
+   - It blocks pawns only (players and enemies); shots, traces, pickups and the camera pass through.
+   - The ceiling is what limits Extra Jump height; Extra Jump still has no cap.
+   - Built in Prompt 21, for the town map and later the hub map.
+
+**Docs changed**
+- CLAUDE.md: the game summary (XP pickups, rarity tiers and limited rerolls, permanent unlocks, cash-only bets) and
+  a new rule: every map has a boundary that blocks pawns only.
+- This file:
+  - the game summary;
+  - the decisions added to **Decided (user)**, and shop/casino taken off the open items;
+  - **Next up** renumbered (18–28), and the step references updated to match;
+  - the M2 heading changed to "Prompts 1–16 done";
+  - Prompts 11, 12 and 13 marked on the design-change, permanent-cash and scope-change entries;
+  - 42a874e added to the Prompt 16 row.
+- Stale comments fixed (no behaviour change):
+  - `GSRoundSettings.h`: RoundClear is followed by the next PreRound, not "the market decision".
+  - `GSRunRandom.h`: the `RollChance` example no longer mentions "market access".
+  - `GSCheatCommands.cpp`: `gs.Market.*` are debug-only until Prompt 26, not "driven by the round flow in M2".
 
 ---
 
@@ -698,11 +745,16 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - **Not yet built for the design change:**
   - Hub start and Start Run portal.
   - Run summary and return to the hub.
-  - Level-up upgrade choices (upgrade data, stat upgrades and `gs.Upgrade.Grant` exist; no pool, offers or UI).
+  - Level-up upgrade choices (upgrade data, stat upgrades and `gs.Upgrade.Grant` exist; no pool, offers, rerolls,
+    Epic / Legendary tiers or UI; Prompts 18–19).
+- **Not yet built for the decisions before M3:**
+  - XP pickups: XP is still granted instantly on the kill (Prompt 20).
+  - The map boundary (Prompt 21). Until it exists, Extra Jump height is unlimited.
+  - Permanent unlocks in `OwnedItems` (M3/M4).
 - Upgrade icons are a placeholder engine texture.
-- **Still in the code until the hub map (Prompts 22–23):** the streamed `L_MarketDistrict_Graybox`,
+- **Still in the code until the hub map (Prompts 25–26):** the streamed `L_MarketDistrict_Graybox`,
   `TravelToMarketDistrict` / `ReturnToTown` and `gs.Market.Teleport` / `Return` (debug only).
-- No shop or casino logic yet; CashSpent is never used.
+- No shop or casino logic yet (M3/M4); CashSpent is never used.
 - Crits are stubbed (`TODO(crits)` in `GSAttributeSet.cpp`; damage numbers support them, nothing sets them).
 - The `GameOver` phase exists but is unused. Player death reloads the whole map (`?Restart`); the cash balance
   survives it (profile, saved on death).
@@ -774,43 +826,70 @@ prompt asks for one. (Earlier attempts at run loop cleanup and a per-player prof
 Permanent cash was then built as a single local balance in a2dc3b7.)
 
 14. ~~**Run loop cleanup.**~~ Done (see Prompt 14).
-15. ~~**Upgrade data + stat upgrades.**~~ Done (see Prompt 15). The upgrade pool with rarity weights moved to 17.
-16. ~~**Extra Jump.**~~ Done (see Prompt 16). It stays uncapped (user decision). The height limit comes from a map
-    ceiling, which isn't scheduled yet (suggestion: add it with the town / hub map work).
-17. **Upgrade offers.** An upgrade pool asset (the DA_Upgrade_* list plus rarity weights). On each level-up, roll 3
-    distinct choices (run stream, rarity-weighted), stored as pending
-    offers on the PlayerState and queued across several level-ups. Picking goes through a gameplay function that
-    takes the PlayerState.
-18. **Choice screen.** A choice panel next to the level-up banner. The game pauses while an offer is open; queued
-    offers keep it paused until the last pick.
-19. **Kill combo.**
-20. **Round clear bonus.**
-21. **Round HUD.**
-22. **Hub map + hub GameMode.**
-    - **Hub map** `Maps/L_Hub_Graybox`: the district content moves out of the sublevel, gets its own lighting and
-      sky, and a PlayerStart at `MarketArrival`. It becomes `GameDefaultMap` / `EditorStartupMap`.
+15. ~~**Upgrade data + stat upgrades.**~~ Done (see Prompt 15). The upgrade pool with rarity weights moved to 18.
+16. ~~**Extra Jump.**~~ Done (see Prompt 16). It stays uncapped (user decision). The map boundary's ceiling
+    (Prompt 21) limits the height.
+17. ~~**Design update — decisions before M3.**~~ Done (docs only).
+18. **Upgrade offers (4 rarity tiers + rerolls).**
+    - Append Epic and Legendary to `EGSUpgradeRarity`.
+    - An upgrade pool asset: the DA_Upgrade_* list plus a weight per rarity tier.
+    - On each level-up, roll 3 distinct choices (run stream, rarity-weighted). Store them as pending offers on the
+      PlayerState, queued across several level-ups.
+    - Picking goes through a gameplay function that takes the PlayerState. There is no skip.
+    - Reroll replaces the current 3 choices (run stream). Rerolls left per run start at 3 (from data) and reset with
+      the run.
+19. **Choice screen (with reroll).**
+    - A choice panel next to the level-up banner: each card shows its rarity, description and current stacks.
+    - A reroll button shows the rerolls left. There is no skip button.
+    - The game pauses while an offer is open; queued offers keep it paused until the last pick.
+20. **XP pickups.**
+    - Enemies drop XP as pickups instead of granting it on the kill (replaces the instant `AwardXP` in
+      `HandleEnemyKilled`). XPGain still applies.
+    - Settle the details: magnet / radius, RoundClear vacuum, lifetime, and the "+N XP" popups (the kill pairing from
+      Prompt 10 changes).
+21. **Map boundary.**
+    - Invisible walls around the town's play area and a ceiling. Collision blocks pawns only; shots, traces, pickups
+      and the camera pass through.
+    - The ceiling height sets the Extra Jump limit.
+    - Test that players and enemies can't pass and shots can.
+    - The hub map gets its own boundary in Prompt 25.
+22. **Kill combo.**
+23. **Round clear bonus.**
+24. **Round HUD.**
+25. **Hub map + hub GameMode.**
+    - **Hub map** `Maps/L_Hub_Graybox`: the district content moves out of the sublevel, gets its own lighting, sky,
+      boundary (walls + ceiling) and a PlayerStart at `MarketArrival`. It becomes `GameDefaultMap` /
+      `EditorStartupMap`.
     - **GameModes:** a hub GameMode (no rounds; shop, casino and portal later) with its own Blueprint. The current
       `AGSGameMode` keeps the round loop as the town map's GameMode.
     - **Tests** open `L_Town_Graybox` explicitly, since the startup map changes.
-23. **Start Run portal + town cleanup.**
+26. **Start Run portal + town cleanup.**
     - A portal actor at `MarketExitPortalSpot` opens `L_Town_Graybox` (`OpenLevel`). The run (seed, stats, round 1)
       starts when the town loads.
     - Remove the streamed district, `TravelToMarketDistrict` / `ReturnToTown` and the in-town portal points.
       Repoint `gs.Market.*` to map travel (or retire them). Rework `Map.TownAndMarketDistrict`.
-24. **Death → summary → hub.**
+27. **Death → summary → hub.**
     - On player death, enter the GameOver phase.
     - Run summary widget (run stats: rounds, kills, cash earned, level), then Continue → `OpenLevel` back to the hub.
     - Nothing from the run carries over except what is chosen explicitly, so progression, upgrades, health, weapons
       and run stats reset by construction. Cash is kept in the profile. This replaces `?Restart`.
-25. **Tests + M2 checkpoint.** Fill test gaps for the new rules, run the full suite, update this file and close M2.
+28. **Tests + M2 checkpoint.** Fill test gaps for the new rules, run the full suite, update this file and close M2.
 
 Decided (user):
 - **Single-player first;** co-op is M6.
 - **Upgrade choice:** the game pauses while an upgrade is being chosen.
 - **Hub map:** a separate hub map with its own GameMode; `OpenLevel` between hub and town.
-- **Extra Jump:** no cap (MaxStacks 0); it can be picked any number of times. A ceiling on the map limits the height.
+- **Extra Jump:** no cap (MaxStacks 0); it can be picked any number of times. The map boundary's ceiling
+  (Prompt 21) limits the height.
+- **Permanent unlocks:** shop purchases and casino prizes, once owned, apply to every future run. They are stored in
+  the profile (`OwnedItems`) and built in M3/M4.
+- **Upgrade rarities and rerolls:** four tiers (Common, Rare, Epic, Legendary). The 3 choices can be rerolled a
+  limited number of times per run (3 to start). There is no skip.
+- **Casino bets** risk cash only, never owned items.
+- **XP pickups:** XP comes from pickups enemies drop, not instantly on the kill.
+- **Map boundary:** every map has invisible walls around the play area and a ceiling, blocking pawns only.
 
-Still open from M2: round scaling for cash and XP drops, more DA_LevelRewards entries, shop and casino.
+Still open from M2: round scaling for cash and XP drops, more DA_LevelRewards entries.
 
 ## Later — co-op (M6)
 

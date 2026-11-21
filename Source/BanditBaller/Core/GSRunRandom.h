@@ -38,7 +38,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "BanditBaller|Random", meta = (WorldContext = "WorldContextObject"))
 	static bool RandBool(const UObject* WorldContextObject);
 
-	/** True with probability Chance (0..1), e.g. drops, market access. */
+	/** True with probability Chance (0..1), e.g. drops, AI choices. */
 	UFUNCTION(BlueprintCallable, Category = "BanditBaller|Random", meta = (WorldContext = "WorldContextObject"))
 	static bool RollChance(const UObject* WorldContextObject, float Chance);
 
