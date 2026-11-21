@@ -52,6 +52,8 @@ docs/PROGRESS.md  progress log and reference
 ```
 
 ## Rules
+- **Only do what the current prompt asks.** Don't start work from later steps, even if the plan mentions it — list it
+  as a suggestion instead.
 - **Gameplay logic in C++; tuning in data.** Numbers (damage, prices, odds, spawn waves) live in Data Assets /
   DataTables under `Content/BanditBaller/Data` (settings assets are set on `BP_GSGameMode`), never hard-coded.
 - **Server-authoritative.** Everything that changes game state runs on the server (authority checks, Server RPCs

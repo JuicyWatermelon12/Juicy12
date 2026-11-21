@@ -607,6 +607,8 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 
 Note: steps 1 and 2 below were implemented (0862544 run loop cleanup, 4e7cf93 profile subsystem) and then reverted
 at the user's request (1a84a63). Nothing from them remains in the code or assets, and the plan is unchanged.
+The design-change docs (0b2b6f5, 5bcecb2, 969deaa) were checked afterwards and are intact. CLAUDE.md now has the
+rule "Only do what the current prompt asks": the steps below are suggestions until a prompt asks for one.
 
 Code changes for the design change, in this order (each step builds, is tested, and is committed):
 
