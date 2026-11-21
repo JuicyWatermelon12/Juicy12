@@ -19,9 +19,9 @@ Third-person co-op roguelike shooter set in an off-grid bandit gambling town (UE
 The design changed after M2 Prompt 10; see **Design change — permanent cash, hub market, level-up upgrades**.
 The code still follows the old in-run-market design until the follow-up prompts land.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–10 are done.
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–10 are done; design-change step 1 (run loop cleanup) is done.
 
-State at the time of writing: `main` @ `72534d1`, not pushed. The build is clean and all 18 automation tests pass.
+State at the time of writing: `main` @ `0862544`, not pushed. The build is clean and all 18 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -39,6 +39,7 @@ State at the time of writing: `main` @ `72534d1`, not pushed. The build is clean
 | M2 9 | Level-up rewards (MaxHealth stack + full heal) | 371cb6e |
 | M2 10 | Progression feedback (XP popups, level-up banner, pulses, glow, sound) | 72534d1 |
 | Design change | Permanent cash (profile), Market District as hub between runs, level-up upgrades (docs only) | 0b2b6f5 |
+| Design 1 | Run loop cleanup (no market phases) | 0862544 |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -100,7 +101,8 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
   (unloaded by default) at X = +200000 with a walled 50×50 m square, `Casino` building, 4 `MarketStall`s, Target Points
   `MarketArrival` / `MarketExitPortalSpot`, warm tint, no NavMesh, no spawns.
 - The town plaza got Target Points `TownReturn` and `MarketPortalSpot`. The old plaza boxes are untagged `Cover_*`.
-- `AGSGameState`: `EGSArea` (Town, MarketDistrict), replicated `CurrentArea` + `OnAreaChanged`, `bMarketOpenThisRound`.
+- `AGSGameState`: `EGSArea` (Town, MarketDistrict), replicated `CurrentArea` + `OnAreaChanged`, `bMarketOpenThisRound`
+  (removed in design step 1).
 - `AGSGameMode::TravelToMarketDistrict` / `ReturnToTown`: server fades, streams the level and moves the party.
 - Enemies ignore players while `CurrentArea != Town`; spawning is refused there.
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
@@ -111,7 +113,8 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
   table) over `EGSRoundPhase` (`Core/GSGameState.h`): WaitingToStart, PreRound, Combat, RoundClear,
-  MarketDecision, MarketVisit, GameOver. Round 1 starts on `StartPlay`.
+  MarketDecision, MarketVisit, GameOver. Round 1 starts on `StartPlay`. (The two market phases were removed in
+  design step 1.)
 - Timings in `UGSRoundSettings` (`Core/GSRoundSettings.h`) → `Data/DA_RoundSettings`, set on BP_GSGameMode.
 - `AGSGameState` replicates RoundNumber, RoundPhase, PhaseEndTime (`GetPhaseTimeRemaining()`), and fires
   `OnPhaseChanged` / `OnRoundChanged` on server and clients.
@@ -325,8 +328,8 @@ Docs only; no code changed yet.
 
 **Obsolete** (the code still contains it until the follow-up prompts remove or repurpose it)
 - The `MarketDecision` and `MarketVisit` round phases (`EGSRoundPhase`, `AGSGameMode::AdvancePhase`,
-  `RunMarketDecision`). RoundClear will go straight to the next PreRound.
-- `AGSGameState::bMarketOpenThisRound` (and its line in `gs.Debug.Round`).
+  `RunMarketDecision`). RoundClear goes straight to the next PreRound. **Removed in design step 1.**
+- `AGSGameState::bMarketOpenThisRound` (and its line in `gs.Debug.Round`). **Removed in design step 1.**
 - The in-run market plan: "on some rounds the party teleports to the Market District", the market-access roll on
   the run stream, and the "market is always closed for now" stub.
 - `gs.Market.Teleport` / `gs.Market.Return` as part of the loop. **They are kept for now as debug tools.**
@@ -357,6 +360,21 @@ Docs only; no code changed yet.
 - **Progression reset:** `ResetProgression` / reward removal on "new run" is already in place. Upgrades will be
   removed the same way.
 
+### Design step 1 — Run loop cleanup (0862544)
+- `EGSRoundPhase` is now WaitingToStart, PreRound, Combat, RoundClear, GameOver. MarketDecision and MarketVisit
+  are gone, along with `AGSGameMode::RunMarketDecision` and `AGSGameState::bMarketOpenThisRound` (replicated
+  flag, getter/setter, the "Market open" part of `gs.Debug.Round`).
+- `AdvancePhase`: RoundClear → `StartNextRound()` (round + 1, PreRound). The RoundClear timer does this on its own.
+- `StartNextRound` returns the party to town first if a debug `gs.Market.Teleport` left it in the district.
+  `gs.Round.Set` already did that. This keeps "combat only in the town" while the debug teleport exists.
+- No Blueprint, asset or config referenced the removed enum values or the flag. `GameOver` is still unused (step 4).
+- Test `Round.PhaseLoop` now checks:
+  - Combat → RoundClear by skip.
+  - The RoundClear timer starting round 2's PreRound on its own.
+  - A skip walk PreRound → Combat → RoundClear → PreRound into round 3, then `gs.Round.Set 5`.
+  - The `Map` test's market-closed check was removed.
+- PIE: round 1's wave killed → `Combat -> RoundClear (4.0 s)`, then 4 s later `Round 2: RoundClear -> PreRound`.
+
 ---
 
 ## Console commands and CVars
@@ -382,7 +400,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.Market.Teleport` / `gs.Market.Return` | Debug only: move the party to the Market District and back (not part of the run loop since the design change). |
 | `gs.Editor.MarketDistrictLevel create\|edit\|persistent` | Editor only: create the district sublevel / make it or the persistent level current. |
 | `gs.Editor.BuildEnemyStateTree [melee\|ranged\|all]` | Editor only: regenerate ST_MeleeBandit / ST_RangedBandit from code. |
-| `gs.Debug.Round 1` (cvar) | On-screen round, phase, time left, area, market open, wave counts, enemy HP/DMG multipliers. |
+| `gs.Debug.Round 1` (cvar) | On-screen round, phase, time left, area, wave counts, enemy HP/DMG multipliers. |
 | `gs.Debug.Spawns 1` (cvar) | Draw the spawn ring and chosen points (green ring, yellow fallback) for 8 s. |
 | `gs.Debug.Weapons 1` (cvar) | Debug-draw shots and log enemy shots (`[shot]`). |
 | `gs.Debug.DamageLog 1` (cvar) | Log every health loss (`[dmg] victim took N from X (health) at t=`). |
@@ -449,7 +467,7 @@ and ends PIE. Stop PIE before running.
 | `Weapons.FireConsumesAmmoReloadRefills` | GA_Fire uses ammo, GA_Reload refills. |
 | `Abilities.DashInvulnerabilityBlocksDamage` | Dash i-frames block damage. |
 | `Map.TownAndMarketDistrict` | Town tags/NavMesh, district contents, teleport there and back, no spawning there. |
-| `Round.PhaseLoop` | PreRound on start, timer → Combat, skip into round 2, gs.Round.Set. |
+| `Round.PhaseLoop` | PreRound on start; timer → Combat; skip → RoundClear; RoundClear timer → round 2 PreRound (no market phases); skip walk into round 3; gs.Round.Set. |
 | `Player.RestartRestoresInput` | Die → death screen UI input → restart → game input back. |
 | `Spawn.LocationFinder` | 12 points: on NavMesh, reachable, in ring, spaced; same seed → same points; none in the district. |
 | `Round.WaveDirector` | Round 1 size matches DT_Waves; killing the wave ends Combat; skipping removes leftovers. |
@@ -481,8 +499,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   | RangedBandit | 45 | 430 (±12%) | range 15–25 m, backs off < 8 m, 0.4 s aim, 4-shot bursts | 2 | 2 | $15 |
 
   Corpses stay 5 s.
-- **Rounds** (DA_RoundSettings): PreRound 3 s, Combat safety fallback 180 s, RoundClear 4 s. The code still runs
-  MarketDecision (always "closed") after RoundClear; it is obsolete since the design change.
+- **Rounds** (DA_RoundSettings): PreRound 3 s, Combat safety fallback 180 s, RoundClear 4 s, then straight into
+  the next round's PreRound.
 - **Spawn ring** (DA_SpawnSettings): 12–25 m, 2 m spacing, 20 attempts, prefer off-screen. The user chose to keep
   12 m.
 - **Wave table** (DT_Waves; interval s / batch):
@@ -529,8 +547,6 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Hub start and Start Run portal.
   - Run summary and return to the hub.
   - Level-up upgrade choices.
-- **Still in the code but obsolete:** MarketDecision / MarketVisit phases, `bMarketOpenThisRound` and
-  `RunMarketDecision` (hard-coded "closed").
 - No shop or casino logic yet; CashSpent is never used.
 - Crits are stubbed (`TODO(crits)` in `GSAttributeSet.cpp`; damage numbers support them, nothing sets them).
 - The `GameOver` phase exists but is unused. Player death reloads the whole map (`?Restart`), which also loses cash
@@ -607,10 +623,8 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 
 Code changes for the design change, in this order (each step builds, is tested, and is committed):
 
-1. **Run loop cleanup.** Remove MarketDecision / MarketVisit from `EGSRoundPhase` and the transition table
-   (RoundClear → PreRound). Drop `bMarketOpenThisRound` / `RunMarketDecision`. Update `Round.PhaseLoop` and
-   `gs.Debug.Round`.
-2. **Profile subsystem.** `UGSProfileSubsystem` (GameInstance subsystem) + `UGSProfileSaveGame` (version, plus a cash
+1. ~~**Run loop cleanup.**~~ Done (design step 1, 0862544).
+2. **Profile subsystem** (next). `UGSProfileSubsystem` (GameInstance subsystem) + `UGSProfileSaveGame` (version, plus a cash
    entry per player).
    - The host's save holds the cash of every player who has played with that host, keyed by a stable player ID.
      Clients don't save cash themselves.
