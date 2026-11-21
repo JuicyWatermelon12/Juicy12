@@ -19,9 +19,9 @@ Third-person co-op roguelike shooter set in an off-grid bandit gambling town (UE
 The design changed after M2 Prompt 10; see **Design change — permanent cash, hub market, level-up upgrades**.
 The code still follows the old in-run-market design until the follow-up prompts land.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–10 are done.
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–10 are done, plus permanent cash (profile subsystem).
 
-State at the time of writing: `main` @ `72534d1`, not pushed. The build is clean and all 18 automation tests pass.
+State at the time of writing: `main` @ `a2dc3b7`, not pushed. The build is clean and all 19 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -39,6 +39,7 @@ State at the time of writing: `main` @ `72534d1`, not pushed. The build is clean
 | M2 9 | Level-up rewards (MaxHealth stack + full heal) | 371cb6e |
 | M2 10 | Progression feedback (XP popups, level-up banner, pulses, glow, sound) | 72534d1 |
 | Design change | Permanent cash (profile), Market District as hub between runs, level-up upgrades (docs only) | 0b2b6f5 |
+| Permanent cash | Profile subsystem + save; cash moved off PlayerState | a2dc3b7 |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -349,13 +350,44 @@ Docs only; no code changed yet.
 - `UGSRunStats`: becomes the run summary after death.
 
 **Changes meaning**
-- **`AGSPlayerState::Cash` / `AddCash` / `TrySpendCash`:** these become a mirror of the profile.
+- **`AGSPlayerState::Cash` / `AddCash` / `TrySpendCash`:** these become a mirror of the profile. (Done differently
+  in "Permanent cash" below: PlayerState has no cash at all.)
   - `AGSGameMode::AwardCash` will write through the profile subsystem.
   - Run-stats `CashEarned` stays per run.
 - **Player death:** currently `?Restart` reloads the map. It will become the `GameOver` phase → run summary →
   return to the hub. Run state resets and cash is kept.
 - **Progression reset:** `ResetProgression` / reward removal on "new run" is already in place. Upgrades will be
   removed the same way.
+
+### Permanent cash — profile subsystem (a2dc3b7)
+- `Core/GSProfileSaveGame.h` (`UGSProfileSaveGame`): `SaveVersion` (current 1), `Cash`, and `OwnedItems` (reserved,
+  empty).
+- `Core/GSProfileSubsystem.*` (`UGSProfileSubsystem`, GameInstance subsystem) owns the permanent cash balance:
+  - API: `AddCash(N, Reason)`, `TrySpendCash(N, Reason)`, `GetCash()`, `OnCashChanged(NewCash, Delta)`, `Save`,
+    `ResetProfile`. `UGSProfileSubsystem::Get(WorldContext)` finds it.
+  - **Loads on game start** (`Initialize`).
+  - **Saves** at the end of each RoundClear (after its vacuum has paid out), at run end (player death, in
+    `AGSGameMode::HandlePlayerDeath`) and on quit (`Deinitialize`, also at the end of PIE). It does not save on
+    every change.
+  - **Versioning:** older saves are upgraded on load; newer ones load with a warning.
+  - **Slots:** `GSProfile`, or `GSProfile_AutomationTest` while automation tests run.
+- **Cash moved off `AGSPlayerState`:** `Cash`, its replication, `OnCashChanged`, `AddCash` and `TrySpendCash` are
+  removed.
+  - `AGSGameMode::AwardCash` → `UGSProfileSubsystem::AddCash(N, "Pickup")`; run stats CashEarned stays per run.
+  - The HUD cash counter binds to the profile's `OnCashChanged`.
+  - `get_player_attributes` "Cash" reads the profile.
+- **Co-op:** only the local player (single player or the listen-server host) is credited. Remote players' pickups
+  are not credited yet: one warning per session, `TODO(co-op)` in `AwardCash`. This is the decided "host's save
+  holds every player's cash" design, not built in this prompt.
+- **Commands** (run on the local machine, not forwarded): `gs.Profile.AddCash <N>`, `gs.Profile.Reset` (deletes the
+  save, cash 0), `gs.Profile.Save`, `gs.Profile.Print`. Log prefix `[profile]`.
+- Test `Profile.PermanentCash`. `Economy.CashPickups` now reads the profile.
+- PIE on the real slot:
+  1. New profile (cash 0).
+  2. 3 kills + RoundClear vacuum → $35, saved when RoundClear ended.
+  3. `gs.Profile.AddCash 50` → $85 (unsaved).
+  4. Stopping PIE saved $85 ("Quit"). The next session loaded $85 and the HUD showed "$85".
+  5. `gs.Profile.Reset` afterwards left the real profile at $0.
 
 ---
 
@@ -372,6 +404,10 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain). |
 | `gs.XP.Add <N>` | Grant N raw XP to the local player (XPGain not applied; may level up several times). |
 | `gs.XP.SetLevel <N>` | Reset to level 1, then add exactly the XP for level N (0 XP into it; clamped to max level). |
+| `gs.Profile.AddCash <N>` | Add N to the permanent cash balance (local profile; saved at the next save point). |
+| `gs.Profile.Reset` | Wipe the profile: delete the save file, cash 0. |
+| `gs.Profile.Save` | Save the profile now. |
+| `gs.Profile.Print` | Print slot, save version, cash and owned items to the log and screen. |
 | `gs.Damage.Self <n>` | Damage the local player through GAS. |
 | `gs.Perf [Seconds=5]` | Log avg/p95/max frame time, game/render/GPU time and enemies alive. |
 | `gs.Round.Skip` | Advance to the next round phase. |
@@ -394,7 +430,7 @@ Launch arg: `-GSSeed=N` fixes the run seed.
 
 MCP toolset `banditballer_toolset.toolsets.BanditBallerTools` (PIE running):
 - `spawn_enemies(type, count)`
-- `get_player_attributes()`: attributes plus Ammo, Cash, Level, XP, XPForNextLevel, TotalXP, God, Invulnerable,
+- `get_player_attributes()`: attributes plus Ammo, Cash (profile balance), Level, XP, XPForNextLevel, TotalXP, God, Invulnerable,
   Dead.
 - `list_enemies_alive()`
 
@@ -436,7 +472,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools` (PIE running):
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (18, all passing)
+## Automation tests (19, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test starts PIE in L_Town_Graybox, waits for the player, removes enemies, runs
 and ends PIE. Stop PIE before running.
@@ -461,6 +497,7 @@ and ends PIE. Stop PIE before running.
 | `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over (HUD level + bar follow); kill XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; cap at max level; new run resets. |
 | `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear and the Market District; new run removes stacks and clamps Health; dead player gets the stack but no heal. |
 | `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → "+XPValue XP" popup at once; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); banner/pulse/glow end. |
+| `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; save when RoundClear ends (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + `?Restart` (new HUD shows it). |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
@@ -525,7 +562,6 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 
 **Not built yet / stubs**
 - **Not yet built for the design change:**
-  - Profile subsystem and save.
   - Hub start and Start Run portal.
   - Run summary and return to the hub.
   - Level-up upgrade choices.
@@ -533,8 +569,10 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   `RunMarketDecision` (hard-coded "closed").
 - No shop or casino logic yet; CashSpent is never used.
 - Crits are stubbed (`TODO(crits)` in `GSAttributeSet.cpp`; damage numbers support them, nothing sets them).
-- The `GameOver` phase exists but is unused. Player death reloads the whole map (`?Restart`), which also loses cash
-  (it is not saved yet).
+- The `GameOver` phase exists but is unused. Player death reloads the whole map (`?Restart`); the cash balance
+  survives it (profile, saved on death).
+- Profile: there are no upgrade steps yet (version 1 is the only layout). A crash between save points loses the cash
+  earned since the last RoundClear.
 - Cash drops don't scale with the round. Neither does enemy XP.
 - The only level-up reward so far is +10 MaxHealth and a full heal. Player death (`?Restart`) reloads the map,
   which also resets levels and their MaxHealth stacks.
@@ -549,8 +587,10 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Market travel doesn't wait for clients to stream the district (`TODO(co-op)` in `GSGameMode.cpp`). This goes
     away with the separate hub map. Map travel has to keep co-op clients connected instead; seamless travel needs a
     check in PIE.
-  - Profiles in co-op: the host's save holds every player's cash (decided). A stable player ID is still needed
-    (see Next up).
+  - Profiles in co-op: the profile is one balance per machine. On a listen server only the host's pickups are
+    credited; remote players' pickups are not credited (`TODO(co-op)` in `AwardCash`).
+    - The decided design (the host's save holds every player's cash, keyed by a stable player ID) is not built.
+    - Clients' HUDs show their own machine's profile.
   - Restart on death should become "all players dead" / revive.
   - Cash goes to whoever collects it, not the killer.
   - XP goes only to the killing player (not shared with the party). Kills by non-players give no XP.
@@ -610,20 +650,18 @@ at the user's request (1a84a63). Nothing from them remains in the code or assets
 The design-change docs (0b2b6f5, 5bcecb2, 969deaa) were checked afterwards and are intact. CLAUDE.md now has the
 rule "Only do what the current prompt asks": the steps below are suggestions until a prompt asks for one.
 
+Permanent cash was then built from its own prompt (a2dc3b7, "Permanent cash — profile subsystem"): a single local
+balance, which replaces the per-player version of step 2 below. Per-player cash in the host's save stays a
+suggestion for co-op.
+
 Code changes for the design change, in this order (each step builds, is tested, and is committed):
 
 1. **Run loop cleanup.** Remove MarketDecision / MarketVisit from `EGSRoundPhase` and the transition table
    (RoundClear → PreRound). Drop `bMarketOpenThisRound` / `RunMarketDecision`. Update `Round.PhaseLoop` and
    `gs.Debug.Round`.
-2. **Profile subsystem.** `UGSProfileSubsystem` (GameInstance subsystem) + `UGSProfileSaveGame` (version, plus a cash
-   entry per player).
-   - The host's save holds the cash of every player who has played with that host, keyed by a stable player ID.
-     Clients don't save cash themselves.
-   - Loads on start and saves on change and at run end.
-   - `AddCash` / `TrySpendCash` with a reason, for logging.
-   - `AGSGameMode::AwardCash` goes through it; PlayerState mirrors the value.
-   - Commands `gs.Profile.Cash` / `gs.Profile.Reset`.
-   - Test: save/load round trip on a test slot.
+2. ~~**Profile subsystem.**~~ Built as a single local balance (a2dc3b7).
+   - Suggestion for co-op: per-player cash entries in the host's save, keyed by a stable player ID (a GUID each
+     client generates once and sends when it joins). Remote players' pickups would then be credited.
 3. **Hub map, GameMode split and Start Run portal.**
    - Check first that seamless travel works in PIE (co-op clients must stay connected across map changes).
    - **Hub map** `Maps/L_Hub_Graybox`: the district content moves out of the sublevel, gets its own lighting and
