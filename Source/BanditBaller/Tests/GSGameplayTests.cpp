@@ -33,6 +33,9 @@
 #include "GSSpawnLocationFinder.h"
 #include "GSSpawnSettings.h"
 #include "GSWaveDirector.h"
+#include "GSWaveSettings.h"
+#include "GSSpawnTelegraph.h"
+#include "HAL/IConsoleManager.h"
 #include "NavigationPath.h"
 #include "NavigationSystem.h"
 #include "GSHealthComponent.h"
@@ -816,7 +819,7 @@ bool FGSWaveDirectorTest::RunTest(const FString& Parameters)
 		GameMode->AdvancePhase();          // -> Combat: wave starts
 		TestTrue(TEXT("Combat started a wave"), Director->IsWaveActive());
 		TestEqual(TEXT("Wave size matches DT_Waves Round1"), Director->GetTotal(), *Expected);
-		TestTrue(TEXT("First batch spawned immediately"), Director->GetSpawned() > 0);
+		TestTrue(TEXT("First batch chosen immediately (telegraphing)"), Director->GetPending() > 0 || Director->GetSpawned() > 0);
 		TestEqual(TEXT("GameState mirrors the wave total"), GetGameState()->GetWaveEnemiesTotal(), *Expected);
 	});
 
@@ -837,7 +840,7 @@ bool FGSWaveDirectorTest::RunTest(const FString& Parameters)
 		// Skipping Combat mid-wave removes the leftovers.
 		GetGameMode()->SetRound(2);
 		GetGameMode()->AdvancePhase(); // Combat
-		TestTrue(TEXT("Round 2 wave spawned something"), CountLivingEnemies() > 0);
+		TestTrue(TEXT("Round 2 wave started its first batch"), GetGameMode()->GetWaveDirector()->GetPending() > 0 || CountLivingEnemies() > 0);
 		GetGameMode()->AdvancePhase(); // skip -> RoundClear
 	});
 	WaitUntil(this, TEXT("leftovers removed after skipping combat"), []() { return CountLivingEnemies() == 0; }, 5.0);
@@ -845,6 +848,121 @@ bool FGSWaveDirectorTest::RunTest(const FString& Parameters)
 	{
 		TestFalse(TEXT("Wave stopped by the skip"), GetGameMode()->GetWaveDirector()->IsWaveActive());
 		TestEqual(TEXT("GameState wave counts reset"), GetGameState()->GetWaveEnemiesTotal(), 0);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Wave budget, alive cap, spawn telegraph
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	int32 CountTelegraphs()
+	{
+		int32 Count = 0;
+		for (TActorIterator<AGSSpawnTelegraph> It(GetPIEWorld()); It; ++It)
+		{
+			++Count;
+		}
+		return Count;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSWaveBudgetTest, "BanditBaller.Round.WaveBudget", GSTests::TestFlags)
+bool FGSWaveBudgetTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		UGSWaveDirector* Director = GameMode->GetWaveDirector();
+		const UGSWaveSettings& Settings = Director->GetSettings();
+		if (!TestTrue(TEXT("DA_WaveSettings has an enemy pool"), Settings.EnemyPool.Num() > 0))
+		{
+			return;
+		}
+		TestTrue(TEXT("DT_Waves defines some rounds"), Director->GetLastTableRound() > 0);
+
+		// Purchase respects the budget, unlocks and the seed.
+		const int32 Round = Director->GetLastTableRound() + 10;
+		const float Budget = Settings.GetBudget(Round);
+		float CheapestUnlocked = TNumericLimits<float>::Max();
+		for (const UGSEnemyData* Data : Settings.EnemyPool)
+		{
+			if (Data && Data->MinRound <= Round)
+			{
+				CheapestUnlocked = FMath::Min(CheapestUnlocked, Data->SpawnCost);
+			}
+		}
+
+		TArray<UGSEnemyData*> First, Second;
+		float Left = 0.f;
+		GameMode->RestartRunWithSeed(31);
+		UGSWaveDirector::PurchaseWave(GetPC(), Settings.EnemyPool, Budget, Round, Settings.MaxGeneratedEnemies, First, &Left);
+		GameMode->RestartRunWithSeed(31);
+		UGSWaveDirector::PurchaseWave(GetPC(), Settings.EnemyPool, Budget, Round, Settings.MaxGeneratedEnemies, Second);
+		TestTrue(TEXT("Same seed buys the same wave"), First == Second);
+		TestTrue(TEXT("Generated wave is not empty"), First.Num() > 0);
+
+		float Spent = 0.f;
+		for (const UGSEnemyData* Data : First)
+		{
+			Spent += Data->SpawnCost;
+			TestTrue(TEXT("Only unlocked enemies are bought"), Data->MinRound <= Round);
+		}
+		TestTrue(TEXT("Spending stays within the budget"), Spent <= Budget + 0.01f);
+		TestTrue(TEXT("Leftover budget can't buy anything else"), Left < CheapestUnlocked);
+
+		// MinRound: round 1 can't buy anything locked behind later rounds.
+		TArray<UGSEnemyData*> RoundOne;
+		UGSWaveDirector::PurchaseWave(GetPC(), Settings.EnemyPool, 100.f, 1, 200, RoundOne);
+		for (const UGSEnemyData* Data : RoundOne)
+		{
+			TestTrue(TEXT("Round 1 purchase only uses MinRound 1 enemies"), Data->MinRound <= 1);
+		}
+
+		// Alive cap + telegraph on a generated round, with a small cap so it is hit quickly. God mode keeps the
+		// player alive (spawning needs a living player).
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Wave.MaxAlive"))->Set(4);
+		GameMode->SetRound(Round);
+		GameMode->AdvancePhase(); // Combat
+		TestTrue(TEXT("Generated wave started"), Director->IsWaveActive() && Director->GetTotal() > 4);
+		TestTrue(TEXT("First batch shows telegraphs before spawning"), Director->GetPending() > 0 && CountTelegraphs() > 0);
+		TestEqual(TEXT("Nothing spawned during the telegraph"), Director->GetSpawned(), 0);
+	});
+
+	// Run for a while: alive + pending never exceeds the cap; the cap is reached and holds.
+	TSharedRef<bool> bCapRespected = MakeShared<bool>(true);
+	WaitUntil(this, TEXT("alive cap reached"), [bCapRespected]()
+	{
+		UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
+		if (Director->GetAlive() + Director->GetPending() > Director->GetMaxAlive())
+		{
+			*bCapRespected = false;
+		}
+		return Director->GetAlive() == Director->GetMaxAlive();
+	}, 30.0);
+	Step([this, bCapRespected]()
+	{
+		UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
+		TestTrue(TEXT("Alive + telegraphing never exceeded the cap"), *bCapRespected);
+		TestEqual(TEXT("Alive enemies at the cap"), Director->GetAlive(), 4);
+		TestTrue(TEXT("Remaining spawns are waiting"), Director->GetSpawned() < Director->GetTotal());
+		TestEqual(TEXT("Telegraphs are cleaned up after spawning"), CountTelegraphs(), Director->GetPending());
+
+		// Killing frees room for the waiting spawns.
+		KillAllEnemiesAsPlayer();
+	});
+	WaitUntil(this, TEXT("waiting spawns fill the freed room"), []()
+	{
+		return GetGameMode()->GetWaveDirector()->GetAlive() > 0;
+	}, 30.0);
+	Step([]()
+	{
+		IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Wave.MaxAlive"))->Set(0);
 	});
 	EndPIE();
 	return true;

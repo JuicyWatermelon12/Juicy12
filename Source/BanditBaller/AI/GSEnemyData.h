@@ -153,6 +153,16 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged")
 	TObjectPtr<UMaterialInterface> AimLaserMaterial;
 
+	// --- Wave budget (generated waves past the last DT_Waves row) ---
+
+	/** Budget points this enemy costs when the wave director buys a generated wave. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Spawning", meta = (ClampMin = "0.1"))
+	float SpawnCost = 1.f;
+
+	/** First round this enemy may appear in a generated wave. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Spawning", meta = (ClampMin = "1"))
+	int32 MinRound = 1;
+
 	// --- Reward / death ---
 
 	/** Cash awarded on kill (read by the cash system via OnEnemyKilled). */

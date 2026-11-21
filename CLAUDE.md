@@ -84,15 +84,22 @@ Content/Python/
   a player (first half of the attempts only; behind cover counts as off-screen). All attempts fail → farthest
   on-NavMesh `EnemySpawn` Target Point (warning). Refuses in the Market District. Logs a per-call summary
   (`SpawnLocationFinder: N requested: ring / fallback / failed | attempts | rejection reasons`).
-- **Waves**: `UGSWaveDirector` component on `AGSGameMode` (`AI/GSWaveDirector.*`), configured by
-  `Data/DT_Waves` (row struct `FGSWaveRow`, rows `Round1`..`Round5`; later rounds reuse the last row): list of
-  {EnemyData, Count}, SpawnInterval, SpawnBatchSize. On Combat start it shuffles the round's enemies with the run
-  stream and spawns a batch immediately, then one per interval, at `UGSSpawnLocationFinder` points around a random
-  living player (`AGSEnemyCharacter::SpawnEnemy`). It tracks spawned / killed / alive / remaining (mirrored on
-  `AGSGameState`: WaveEnemiesTotal / Remaining / Alive) and ends Combat when all have spawned and none are alive.
-  Leaving Combat early (skip, safety timer) stops the wave and removes leftovers. Logs `[wave]` lines per batch
-  (distance, ON-SCREEN, FALLBACK) and a per-round summary (time, closest spawn, on-screen, fallback count).
-  Enemies are no longer placed in the level; rounds spawn them.
+- **Waves**: `UGSWaveDirector` component on `AGSGameMode` (`AI/GSWaveDirector.*`).
+  - Rounds with a `Data/DT_Waves` row (`FGSWaveRow`, `Round1`..`Round5`): list of {EnemyData, Count},
+    SpawnInterval, SpawnBatchSize.
+  - Rounds past the last row are **generated** from a budget in `Data/DA_WaveSettings` (`UGSWaveSettings`):
+    Budget = BudgetBase 5 + BudgetPerRound 2.5 × round (or `BudgetCurve` if it has keys). The director buys random
+    unlocked, affordable enemies from `EnemyPool` (run stream) using each `UGSEnemyData`'s `SpawnCost` / `MinRound`
+    (MeleeBandit 1 / round 1, RangedBandit 2 / round 2); generated waves spawn GeneratedBatchSize 3 every 1.5 s.
+  - The list is shuffled with the run stream; spawns use `UGSSpawnLocationFinder` around a random living player.
+  - `MaxAliveEnemies` 30 (alive + telegraphing; `gs.Wave.MaxAlive <N>` overrides): extra spawns wait for room.
+  - Each spawn shows an `AGSSpawnTelegraph` ground disc (replicated, `TelegraphMaterial`, grows over
+    `SpawnTelegraphTime` 0.75 s) before the enemy appears.
+  - Tracks spawned / killed / alive / pending / remaining (mirrored on `AGSGameState`: WaveEnemiesTotal / Remaining /
+    Alive) and ends Combat when everything has spawned and died. Leaving Combat early stops the wave, cancels
+    telegraphs and removes leftovers. `[wave]` logs per batch (distance, ON-SCREEN, FALLBACK), cap hits, and a
+    per-round summary (time, peak alive, closest spawn).
+  - Enemies are no longer placed in the level; rounds spawn them.
 - **Collision gotcha**: player capsule + mesh ignore `ECC_Visibility`; enemy capsules block it (player hitscan).
   Enemy shots/LOS use `AGSEnemyCharacter::GetShotObjectQueryParams()` (WorldStatic/Dynamic/Pawn).
 
@@ -103,6 +110,7 @@ Implementation is shared in `UGSDebugLibrary` (`Core/GSDebugLibrary.*`, `Core/GS
 | Command | Effect |
 |---|---|
 | `gs.Spawn <EnemyDataName> [Count=1]` | spawn enemies around the player via `UGSSpawnLocationFinder` (`MeleeBandit`, `RangedBandit`, or full `DA_Enemy_*` name) |
+| `gs.Wave.MaxAlive <N>` | override the max-enemies-alive cap (0 = use DA_WaveSettings) |
 | `gs.Debug.Spawns 1` | draw the spawn ring (min cyan, max blue) and chosen points (green = ring, yellow = fallback) for 8 s |
 | `gs.God [0\|1]` | toggle/set damage immunity (adds one `State.Invulnerable` count) |
 | `gs.KillAll` | kill all living enemies through GE_Damage (credited to the player) |
@@ -152,6 +160,7 @@ timings; turn it off temporarily (in memory) for perf checks.
 - `BanditBaller.Player.RestartRestoresInput` (die → death screen takes UI-only input → restart → game input back)
 - `BanditBaller.Spawn.LocationFinder` (12 points at the town center: on NavMesh, reachable, in the ring, spaced; same seed → same points; none in the Market District)
 - `BanditBaller.Round.WaveDirector` (Round1 wave size matches DT_Waves, killing the wave ends Combat on its own, kills in run stats, skipping removes leftovers)
+- `BanditBaller.Round.WaveBudget` (seeded purchase within budget, MinRound respected, alive cap with telegraphs, waiting spawns resume after kills)
 - `BanditBaller.Run.SeedAndStats` (same seed replays the same rolls, restart resets stats, kills per type,
   damage dealt/taken without overkill, rounds cleared)
 

@@ -11,15 +11,40 @@
 #include "GSHealthComponent.h"
 #include "GSRunRandom.h"
 #include "GSSpawnLocationFinder.h"
+#include "GSSpawnTelegraph.h"
+#include "GSWaveSettings.h"
+#include "HAL/IConsoleManager.h"
 #include "TimerManager.h"
 
 namespace
 {
+	TAutoConsoleVariable<int32> CVarWaveMaxAlive(
+		TEXT("gs.Wave.MaxAlive"), 0,
+		TEXT("Override the wave director's max-enemies-alive cap (0 = use DA_WaveSettings)."));
+
+	constexpr float PendingTickInterval = 0.05f;
+
 	FString EnemyShortName(const UGSEnemyData* Data)
 	{
 		FString Name = GetNameSafe(Data);
 		Name.RemoveFromStart(TEXT("DA_Enemy_"));
 		return Name;
+	}
+
+	/** "20 MeleeBandit, 10 RangedBandit" */
+	FString DescribeComposition(const TArray<TObjectPtr<UGSEnemyData>>& Enemies)
+	{
+		TMap<const UGSEnemyData*, int32> Counts;
+		for (const UGSEnemyData* Data : Enemies)
+		{
+			++Counts.FindOrAdd(Data);
+		}
+		FString Out;
+		for (const TPair<const UGSEnemyData*, int32>& Pair : Counts)
+		{
+			Out += FString::Printf(TEXT("%s%d %s"), Out.IsEmpty() ? TEXT("") : TEXT(", "), Pair.Value, *EnemyShortName(Pair.Key));
+		}
+		return Out;
 	}
 }
 
@@ -38,28 +63,90 @@ void UGSWaveDirector::BeginPlay()
 	}
 	if (!WavesTable)
 	{
-		UE_LOG(LogBanditBaller, Warning, TEXT("UGSWaveDirector on %s has no WavesTable (DT_Waves); combat will only end on the safety timer."), *GetNameSafe(GetOwner()));
+		UE_LOG(LogBanditBaller, Warning, TEXT("UGSWaveDirector on %s has no WavesTable (DT_Waves); every round will be generated."), *GetNameSafe(GetOwner()));
+	}
+	if (!WaveSettings)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("UGSWaveDirector on %s has no WaveSettings (DA_WaveSettings); generated waves have an empty pool."), *GetNameSafe(GetOwner()));
 	}
 }
 
-const FGSWaveRow* UGSWaveDirector::FindWaveRow(int32 Round, FName* OutRowName) const
+const UGSWaveSettings& UGSWaveDirector::GetSettings() const
 {
-	if (!WavesTable || WavesTable->GetRowMap().Num() == 0)
+	return WaveSettings ? *WaveSettings : *GetDefault<UGSWaveSettings>();
+}
+
+int32 UGSWaveDirector::GetMaxAlive() const
+{
+	const int32 Override = CVarWaveMaxAlive.GetValueOnGameThread();
+	return Override > 0 ? Override : GetSettings().MaxAliveEnemies;
+}
+
+const FGSWaveRow* UGSWaveDirector::FindWaveRow(int32 Round) const
+{
+	if (!WavesTable)
 	{
 		return nullptr;
 	}
-
 	const FName RowName(*FString::Printf(TEXT("Round%d"), Round));
-	if (const FGSWaveRow* Row = WavesTable->FindRow<FGSWaveRow>(RowName, TEXT("UGSWaveDirector"), /*bWarnIfRowMissing*/ false))
+	return WavesTable->FindRow<FGSWaveRow>(RowName, TEXT("UGSWaveDirector"), /*bWarnIfRowMissing*/ false);
+}
+
+int32 UGSWaveDirector::GetLastTableRound() const
+{
+	int32 Last = 0;
+	if (WavesTable)
 	{
-		if (OutRowName) { *OutRowName = RowName; }
-		return Row;
+		for (const FName& Name : WavesTable->GetRowNames())
+		{
+			FString Text = Name.ToString();
+			if (Text.RemoveFromStart(TEXT("Round")) && Text.IsNumeric())
+			{
+				Last = FMath::Max(Last, FCString::Atoi(*Text));
+			}
+		}
+	}
+	return Last;
+}
+
+void UGSWaveDirector::PurchaseWave(const UObject* WorldContextObject, const TArray<TObjectPtr<UGSEnemyData>>& Pool, float Budget, int32 Round,
+	int32 MaxCount, TArray<UGSEnemyData*>& OutEnemies, float* OutBudgetLeft)
+{
+	OutEnemies.Reset();
+	TArray<UGSEnemyData*> Unlocked;
+	for (UGSEnemyData* Data : Pool)
+	{
+		if (Data && Data->MinRound <= Round && Data->SpawnCost > 0.f)
+		{
+			Unlocked.Add(Data);
+		}
 	}
 
-	// Past the end of the table: keep using the last row.
-	const TArray<FName> Names = WavesTable->GetRowNames();
-	if (OutRowName) { *OutRowName = Names.Last(); }
-	return WavesTable->FindRow<FGSWaveRow>(Names.Last(), TEXT("UGSWaveDirector"));
+	float Left = Budget;
+	TArray<UGSEnemyData*> Affordable;
+	while (OutEnemies.Num() < MaxCount)
+	{
+		Affordable.Reset();
+		for (UGSEnemyData* Data : Unlocked)
+		{
+			if (Data->SpawnCost <= Left + KINDA_SMALL_NUMBER)
+			{
+				Affordable.Add(Data);
+			}
+		}
+		if (Affordable.IsEmpty())
+		{
+			break;
+		}
+		UGSEnemyData* Pick = Affordable[UGSRunRandom::RandRange(WorldContextObject, 0, Affordable.Num() - 1)];
+		OutEnemies.Add(Pick);
+		Left -= Pick->SpawnCost;
+	}
+
+	if (OutBudgetLeft)
+	{
+		*OutBudgetLeft = FMath::Max(0.f, Left);
+	}
 }
 
 void UGSWaveDirector::StartWave(int32 Round)
@@ -69,26 +156,39 @@ void UGSWaveDirector::StartWave(int32 Round)
 	WaveRound = Round;
 	Spawned = Killed = Lost = 0;
 	OnScreenSpawns = FallbackSpawns = 0;
+	PeakAlive = 0;
+	bLoggedCapThisWave = false;
 	MinSpawnDistance = TNumericLimits<float>::Max();
 	SpawnQueue.Reset();
 	WaveEnemies.Reset();
 
-	FName RowName;
-	const FGSWaveRow* Row = FindWaveRow(Round, &RowName);
-	if (!Row)
-	{
-		Total = 0;
-		PushCounts();
-		UE_LOG(LogBanditBaller, Warning, TEXT("[wave] Round %d: no DT_Waves row; nothing to spawn."), Round);
-		return;
-	}
+	const UGSWaveSettings& Settings = GetSettings();
+	float Interval = Settings.GeneratedSpawnInterval;
+	FString Source;
 
-	for (const FGSWaveEntry& Entry : Row->Enemies)
+	if (const FGSWaveRow* Row = FindWaveRow(Round))
 	{
-		for (int32 Index = 0; Entry.EnemyData && Index < Entry.Count; ++Index)
+		for (const FGSWaveEntry& Entry : Row->Enemies)
 		{
-			SpawnQueue.Add(Entry.EnemyData);
+			for (int32 Index = 0; Entry.EnemyData && Index < Entry.Count; ++Index)
+			{
+				SpawnQueue.Add(Entry.EnemyData);
+			}
 		}
+		Interval = Row->SpawnInterval;
+		BatchSize = FMath::Max(1, Row->SpawnBatchSize);
+		Source = FString::Printf(TEXT("DT_Waves Round%d"), Round);
+	}
+	else
+	{
+		// Past the table: buy the wave from the round's budget.
+		const float Budget = Settings.GetBudget(Round);
+		float Left = 0.f;
+		TArray<UGSEnemyData*> Bought;
+		PurchaseWave(this, Settings.EnemyPool, Budget, Round, Settings.MaxGeneratedEnemies, Bought, &Left);
+		SpawnQueue.Append(Bought);
+		BatchSize = FMath::Max(1, Settings.GeneratedBatchSize);
+		Source = FString::Printf(TEXT("generated, budget %.1f, %.1f left"), Budget, Left);
 	}
 
 	// Shuffle with the run stream (Fisher-Yates) so the order is seeded too.
@@ -98,27 +198,35 @@ void UGSWaveDirector::StartWave(int32 Round)
 	}
 
 	Total = SpawnQueue.Num();
-	BatchSize = FMath::Max(1, Row->SpawnBatchSize);
 	bWaveActive = Total > 0;
 	WaveStartTime = GetWorld()->GetTimeSeconds();
 	PushCounts();
 
-	FString Composition;
-	for (const FGSWaveEntry& Entry : Row->Enemies)
-	{
-		Composition += FString::Printf(TEXT("%s%d %s"), Composition.IsEmpty() ? TEXT("") : TEXT(", "), Entry.Count, *EnemyShortName(Entry.EnemyData));
-	}
-	UE_LOG(LogBanditBaller, Log, TEXT("[wave] Round %d (%s): %d enemies (%s), %d every %.1f s"),
-		Round, *RowName.ToString(), Total, *Composition, BatchSize, Row->SpawnInterval);
+	UE_LOG(LogBanditBaller, Log, TEXT("[wave] Round %d (%s): %d enemies (%s), %d every %.1f s, max alive %d, telegraph %.2f s"),
+		Round, *Source, Total, *DescribeComposition(SpawnQueue), BatchSize, Interval, GetMaxAlive(), Settings.SpawnTelegraphTime);
 
 	if (!bWaveActive)
 	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("[wave] Round %d has no enemies (empty row or pool / budget too small)."), Round);
 		return;
 	}
 	SpawnNextBatch();
-	if (!SpawnQueue.IsEmpty())
+	GetWorld()->GetTimerManager().SetTimer(SpawnTimer, this, &UGSWaveDirector::SpawnNextBatch, Interval, true);
+}
+
+void UGSWaveDirector::ClearPendingSpawns()
+{
+	for (const FGSPendingSpawn& Pending : PendingSpawns)
 	{
-		GetWorld()->GetTimerManager().SetTimer(SpawnTimer, this, &UGSWaveDirector::SpawnNextBatch, Row->SpawnInterval, true);
+		if (AGSSpawnTelegraph* Telegraph = Pending.Telegraph.Get())
+		{
+			Telegraph->Destroy();
+		}
+	}
+	PendingSpawns.Reset();
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(PendingTimer);
 	}
 }
 
@@ -128,6 +236,8 @@ void UGSWaveDirector::StopWave(bool bDespawnLeftovers)
 	{
 		World->GetTimerManager().ClearTimer(SpawnTimer);
 	}
+	const int32 Cancelled = PendingSpawns.Num();
+	ClearPendingSpawns();
 	if (!bWaveActive)
 	{
 		return;
@@ -153,8 +263,8 @@ void UGSWaveDirector::StopWave(bool bDespawnLeftovers)
 			}
 		}
 	}
-	UE_LOG(LogBanditBaller, Warning, TEXT("[wave] Round %d stopped early after %.1f s: %d/%d spawned, %d killed, %d leftovers removed, %d never spawned."),
-		WaveRound, GetWorld()->GetTimeSeconds() - WaveStartTime, Spawned, Total, Killed, Removed, SpawnQueue.Num());
+	UE_LOG(LogBanditBaller, Warning, TEXT("[wave] Round %d stopped early after %.1f s: %d/%d spawned, %d killed, %d leftovers removed, %d telegraphs cancelled, %d never spawned."),
+		WaveRound, GetWorld()->GetTimeSeconds() - WaveStartTime, Spawned, Total, Killed, Removed, Cancelled, SpawnQueue.Num());
 	SpawnQueue.Reset();
 	Total = Spawned = Killed = Lost = 0;
 	PushCounts();
@@ -163,8 +273,27 @@ void UGSWaveDirector::StopWave(bool bDespawnLeftovers)
 void UGSWaveDirector::SpawnNextBatch()
 {
 	UWorld* World = GetWorld();
-	if (!bWaveActive || !World || SpawnQueue.IsEmpty())
+	if (!bWaveActive || !World)
 	{
+		return;
+	}
+	// Keep ticking even when the queue is empty: a failed spawn is re-queued and retried here.
+	// The timer stops when the wave clears or is stopped.
+	if (SpawnQueue.IsEmpty())
+	{
+		return;
+	}
+
+	// Alive cap: telegraphing spawns count as alive.
+	const int32 Room = GetMaxAlive() - GetAlive() - GetPending();
+	if (Room <= 0)
+	{
+		if (!bLoggedCapThisWave)
+		{
+			bLoggedCapThisWave = true;
+			UE_LOG(LogBanditBaller, Log, TEXT("[wave] Round %d t=%.1f s: alive cap %d reached; %d spawns waiting for room."),
+				WaveRound, World->GetTimeSeconds() - WaveStartTime, GetMaxAlive(), SpawnQueue.Num());
+		}
 		return;
 	}
 
@@ -186,34 +315,90 @@ void UGSWaveDirector::SpawnNextBatch()
 	APlayerController* Target = Living[UGSRunRandom::RandRange(this, 0, Living.Num() - 1)];
 	const FVector PlayerLocation = Target->GetPawn()->GetActorLocation();
 
-	const TArray<FGSSpawnPoint> Points = UGSSpawnLocationFinder::FindSpawnLocations(Target, FMath::Min(BatchSize, SpawnQueue.Num()));
+	const UGSWaveSettings& Settings = GetSettings();
+	const int32 Count = FMath::Min3(BatchSize, SpawnQueue.Num(), Room);
+	const TArray<FGSSpawnPoint> Points = UGSSpawnLocationFinder::FindSpawnLocations(Target, Count);
+	const double Now = World->GetTimeSeconds();
+
 	FString Batch;
 	for (const FGSSpawnPoint& Point : Points)
 	{
-		UGSEnemyData* Data = SpawnQueue.Pop();
-		AGSEnemyCharacter* Enemy = AGSEnemyCharacter::SpawnEnemy(World, Data, Point.Location, PlayerLocation);
-		if (!Enemy)
+		FGSPendingSpawn& Pending = PendingSpawns.AddDefaulted_GetRef();
+		Pending.EnemyData = SpawnQueue.Pop();
+		Pending.Location = Point.Location;
+		Pending.FaceTowards = PlayerLocation;
+		Pending.SpawnAt = Now + Settings.SpawnTelegraphTime;
+
+		if (Settings.SpawnTelegraphTime > 0.f)
 		{
-			SpawnQueue.Add(Data); // retry next batch
-			continue;
+			FActorSpawnParameters Params;
+			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			if (AGSSpawnTelegraph* Telegraph = World->SpawnActor<AGSSpawnTelegraph>(AGSSpawnTelegraph::StaticClass(), Point.Location, FRotator::ZeroRotator, Params))
+			{
+				Telegraph->Initialize(Settings.TelegraphMaterial, Settings.SpawnTelegraphTime);
+				Pending.Telegraph = Telegraph;
+			}
 		}
-		Enemy->OnDestroyed.AddDynamic(this, &UGSWaveDirector::HandleEnemyDestroyed);
-		WaveEnemies.Add(Enemy);
-		++Spawned;
 
 		OnScreenSpawns += Point.bOnScreen ? 1 : 0;
 		FallbackSpawns += Point.bFallback ? 1 : 0;
 		MinSpawnDistance = FMath::Min(MinSpawnDistance, Point.DistanceToPlayer);
-		Batch += FString::Printf(TEXT("%s%s %.1f m%s%s"), Batch.IsEmpty() ? TEXT("") : TEXT(", "), *EnemyShortName(Data),
+		Batch += FString::Printf(TEXT("%s%s %.1f m%s%s"), Batch.IsEmpty() ? TEXT("") : TEXT(", "), *EnemyShortName(Pending.EnemyData),
 			Point.DistanceToPlayer / 100.f, Point.bOnScreen ? TEXT(" ON-SCREEN") : TEXT(""), Point.bFallback ? TEXT(" FALLBACK") : TEXT(""));
 	}
 
-	UE_LOG(LogBanditBaller, Log, TEXT("[wave] Round %d t=%.1f s: +%d (%s) | spawned %d/%d, alive %d, remaining %d"),
-		WaveRound, World->GetTimeSeconds() - WaveStartTime, Points.Num(), *Batch, Spawned, Total, GetAlive(), GetRemaining());
-
-	if (SpawnQueue.IsEmpty())
+	if (!Points.IsEmpty())
 	{
-		World->GetTimerManager().ClearTimer(SpawnTimer);
+		UE_LOG(LogBanditBaller, Log, TEXT("[wave] Round %d t=%.1f s: telegraph +%d (%s) | spawned %d/%d, alive %d, pending %d, remaining %d"),
+			WaveRound, Now - WaveStartTime, Points.Num(), *Batch, Spawned, Total, GetAlive(), GetPending(), GetRemaining());
+	}
+
+	ResolvePendingSpawns(); // spawns immediately when the telegraph time is 0
+	if (!PendingSpawns.IsEmpty() && !World->GetTimerManager().IsTimerActive(PendingTimer))
+	{
+		World->GetTimerManager().SetTimer(PendingTimer, this, &UGSWaveDirector::ResolvePendingSpawns, PendingTickInterval, true);
+	}
+	PushCounts();
+}
+
+void UGSWaveDirector::ResolvePendingSpawns()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	const double Now = World->GetTimeSeconds();
+
+	for (int32 Index = PendingSpawns.Num() - 1; Index >= 0; --Index)
+	{
+		FGSPendingSpawn& Pending = PendingSpawns[Index];
+		if (Pending.SpawnAt > Now)
+		{
+			continue;
+		}
+		if (AGSSpawnTelegraph* Telegraph = Pending.Telegraph.Get())
+		{
+			Telegraph->Destroy();
+		}
+
+		if (AGSEnemyCharacter* Enemy = AGSEnemyCharacter::SpawnEnemy(World, Pending.EnemyData, Pending.Location, Pending.FaceTowards))
+		{
+			Enemy->OnDestroyed.AddDynamic(this, &UGSWaveDirector::HandleEnemyDestroyed);
+			WaveEnemies.Add(Enemy);
+			++Spawned;
+			PeakAlive = FMath::Max(PeakAlive, GetAlive());
+		}
+		else
+		{
+			SpawnQueue.Add(Pending.EnemyData); // retry next batch
+		}
+		PendingSpawns.RemoveAtSwap(Index);
+	}
+
+	if (PendingSpawns.IsEmpty())
+	{
+		World->GetTimerManager().ClearTimer(PendingTimer);
 	}
 	PushCounts();
 }
@@ -247,13 +432,14 @@ void UGSWaveDirector::HandleEnemyDestroyed(AActor* DestroyedActor)
 
 void UGSWaveDirector::CheckCleared()
 {
-	if (!bWaveActive || !SpawnQueue.IsEmpty() || Spawned < Total || !WaveEnemies.IsEmpty())
+	if (!bWaveActive || !SpawnQueue.IsEmpty() || !PendingSpawns.IsEmpty() || Spawned < Total || !WaveEnemies.IsEmpty())
 	{
 		return;
 	}
 	bWaveActive = false;
-	UE_LOG(LogBanditBaller, Log, TEXT("[wave] Round %d cleared in %.1f s: %d killed, %d lost | spawns: closest %.1f m, on-screen %d, fallback %d"),
-		WaveRound, GetWorld()->GetTimeSeconds() - WaveStartTime, Killed, Lost, MinSpawnDistance / 100.f, OnScreenSpawns, FallbackSpawns);
+	GetWorld()->GetTimerManager().ClearTimer(SpawnTimer);
+	UE_LOG(LogBanditBaller, Log, TEXT("[wave] Round %d cleared in %.1f s: %d killed, %d lost, peak alive %d | spawns: closest %.1f m, on-screen %d, fallback %d"),
+		WaveRound, GetWorld()->GetTimeSeconds() - WaveStartTime, Killed, Lost, PeakAlive, MinSpawnDistance / 100.f, OnScreenSpawns, FallbackSpawns);
 	OnWaveCleared.Broadcast();
 }
 
