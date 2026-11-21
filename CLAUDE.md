@@ -4,8 +4,9 @@ Read @docs/PROGRESS.md at the start of every session. After finishing any prompt
 
 Third-person co-op roguelike shooter in an off-grid bandit gambling town (single player + 2–4 player listen-server
 co-op).
-- **Hub:** the game starts in the safe **Market District** (shop + casino; currently the streamed sublevel
-  `L_MarketDistrict_Graybox`). A "Start Run" portal sends the player to the town.
+- **Hub:** the game starts in the safe **Market District** (shop + casino). It is a separate hub map (planned
+  `L_Hub_Graybox`; today it is still the streamed sublevel `L_MarketDistrict_Graybox` in the town map). A "Start
+  Run" portal sends the player to the town.
 - **Run:** PreRound → Combat → RoundClear → PreRound … in the town until the player dies. There are no market visits
   during a run.
 - **After death:** a run summary, then back to the hub to spend or gamble cash.
@@ -68,13 +69,20 @@ docs/PROGRESS.md  progress log and reference
   GameplayEffects and GameplayAbilities with GameplayTags. Damage always goes through `GE_Damage`
   (SetByCaller `Data.Damage`).
 - **Combat only in the town.** Enemies spawn, path and fight only in `L_Town_Graybox` (NavMesh covers the town
-  only). The Market District is the safe hub between runs: no spawns, no NavMesh, enemies ignore players while
-  `AGSGameState::CurrentArea != Town`. Shop and casino actors live only in the Market District.
+  only). The Market District hub map is safe: no spawns, no NavMesh, no round loop. Shop and casino actors live only
+  in the hub.
+- **Hub and run are separate maps with separate GameModes** (planned: a hub GameMode for shop, casino and portal; a
+  run GameMode for the round loop).
+  - Travel between them is a server-driven map travel; in co-op the whole party travels together.
+  - Each run loads a fresh town, so run state resets by being rebuilt, not by hand-written cleanup.
+  - Only what is chosen explicitly carries over a map change. Cash survives because the profile subsystem lives on
+    the GameInstance.
 - **Area travel is server-driven.**
   - The game starts in the hub.
-  - The "Start Run" portal starts a run and moves the party to the town.
-  - Death → run summary → back to the hub.
-  - There is no travel to the market during a run (`gs.Market.Teleport` / `Return` are debug tools only).
+  - The "Start Run" portal starts a run and travels the party to the town.
+  - Death → run summary → travel back to the hub.
+  - There is no travel to the market during a run (`gs.Market.Teleport` / `Return` are debug tools only until the
+    hub map replaces them).
 - **Tooling split**: Unreal MCP (`unreal-mcp`, http://127.0.0.1:8000/mcp, see `.mcp.json`) for editor and asset
   work; file edits for C++.
 - **Make one MCP call at a time**; wait for each result before the next (batch with `ProgrammaticToolset` instead).

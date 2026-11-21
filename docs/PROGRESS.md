@@ -7,8 +7,8 @@ milestone section (what was built, new assets/commands, known issues) and update
 
 Third-person co-op roguelike shooter set in an off-grid bandit gambling town (UE 5.8, C++ + GAS; single player and
 2–4 player listen-server co-op).
-- **Hub:** the game starts in the safe **Market District** hub (shop + casino). A "Start Run" portal sends the
-  player to the town.
+- **Hub:** the game starts in the safe **Market District** hub (shop + casino), its own map. A "Start Run" portal
+  travels the party to the town map.
 - **Run:** PreRound → Combat → RoundClear → PreRound … with harder rounds, until the player dies. The cash bandits
   drop is picked up during the run.
 - **After death:** a run summary, then back to the hub to spend or gamble the cash.
@@ -331,9 +331,20 @@ Docs only; no code changed yet.
   the run stream, and the "market is always closed for now" stub.
 - `gs.Market.Teleport` / `gs.Market.Return` as part of the loop. **They are kept for now as debug tools.**
 
+**Hub map decision (user, after the first design-change commit): the hub becomes its own map.**
+- The Market District moves out of the town map into its own hub map (planned `Maps/L_Hub_Graybox`) with its own
+  GameMode.
+- The town map keeps the round loop. Map travel moves the party between the two, and each run loads a fresh town.
+- This also makes obsolete:
+  - streaming `L_MarketDistrict_Graybox` into the town map;
+  - `AGSGameMode::TravelToMarketDistrict` / `ReturnToTown` (replaced by map travel);
+  - the in-town `MarketPortalSpot` / `TownReturn` points.
+
 **Kept and reused**
-- `L_MarketDistrict_Graybox`, `EGSArea` / `CurrentArea`, `TravelToMarketDistrict` / `ReturnToTown`, the safe-area
-  rules and test `Map.TownAndMarketDistrict`. This is the hub travel path now.
+- The district's graybox content (square, `Casino`, 4 `MarketStall`s, `MarketArrival` / `MarketExitPortalSpot`):
+  it moves into the hub map.
+- `EGSArea` / `CurrentArea` and the safe-area rules: the hub map is always MarketDistrict, the town map always Town.
+- Test `Map.TownAndMarketDistrict` becomes a hub-map / town-map test.
 - XP, levels, DA_LevelRewards (MaxHealth stack + full heal) and the level-up feedback.
 - `UGSRunStats`: becomes the run summary after death.
 
@@ -535,8 +546,9 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 **Co-op**
 - Never tested with 2+ players.
 - Known gaps:
-  - Market travel doesn't wait for clients to stream the district (`TODO(co-op)` in `GSGameMode.cpp`). This matters
-    for hub ↔ town travel now.
+  - Market travel doesn't wait for clients to stream the district (`TODO(co-op)` in `GSGameMode.cpp`). This goes
+    away with the separate hub map. Map travel has to keep co-op clients connected instead; seamless travel needs a
+    check in PIE.
   - Profiles in co-op: the host's save holds every player's cash (decided). A stable player ID is still needed
     (see Next up).
   - Restart on death should become "all players dead" / revive.
@@ -607,13 +619,24 @@ Code changes for the design change, in this order (each step builds, is tested, 
    - `AGSGameMode::AwardCash` goes through it; PlayerState mirrors the value.
    - Commands `gs.Profile.Cash` / `gs.Profile.Reset`.
    - Test: save/load round trip on a test slot.
-3. **Death → summary → hub.**
+3. **Hub map, GameMode split and Start Run portal.**
+   - Check first that seamless travel works in PIE (co-op clients must stay connected across map changes).
+   - **Hub map** `Maps/L_Hub_Graybox`: the district content moves out of the sublevel, gets its own lighting and
+     sky, and a PlayerStart at `MarketArrival`. It becomes `GameDefaultMap` / `EditorStartupMap`.
+   - **GameModes:** a hub GameMode (no rounds; shop, casino and portal later) with its own Blueprint. The current
+     `AGSGameMode` keeps the round loop as the town map's GameMode.
+   - **Portal:** a portal actor at `MarketExitPortalSpot` travels the party to `L_Town_Graybox`. The run (seed,
+     stats, round 1) starts when the town loads.
+   - **Town cleanup:** remove the streamed district, `TravelToMarketDistrict` / `ReturnToTown` and the in-town
+     portal points. Repoint `gs.Market.*` to map travel (or retire them).
+   - **Tests:** rework `Map.TownAndMarketDistrict`. Tests open `L_Town_Graybox` explicitly, since the startup map
+     changes.
+4. **Death → summary → hub.**
    - On player death, enter the GameOver phase.
-   - Run summary widget (run stats: rounds, kills, cash earned, level), then Continue → hub.
-   - Reset run state (progression, upgrades, health, weapons, run stats) and keep cash. This replaces `?Restart`.
-4. **Hub start and Start Run portal.**
-   - The game begins in the Market District (CurrentArea = MarketDistrict, no rounds).
-   - A portal actor at `MarketExitPortalSpot` starts the run (seed, stats) and travels to the town.
+   - Run summary widget (run stats: rounds, kills, cash earned, level), then Continue → travel back to the hub.
+   - Nothing from the run carries over except what is chosen explicitly (player name, profile ID), so progression,
+     upgrades, health, weapons and run stats reset by construction. Cash is kept in the profile. This replaces
+     `?Restart`.
 5. **Level-up upgrades.**
    - Data: `UGSUpgradeData` (name, description, rarity, GE, cap) and an upgrade pool with rarity weights.
    - Rolling: on each level-up the server rolls 3 distinct choices (run stream, rarity-weighted). They replicate as
@@ -628,9 +651,9 @@ Code changes for the design change, in this order (each step builds, is tested, 
 Decided (user):
 - **Co-op profiles:** the host's save holds the cash for each player.
 - **Upgrade choice:** the game pauses while an upgrade is being chosen.
+- **Hub map:** a separate hub map with its own GameMode; map travel between hub and town.
 
 Open questions:
-- Whether the hub stays a streamed sublevel of the town map or becomes its own map (comparison requested).
 - A stable player ID without an online subsystem, for the host's per-player cash entries. Candidate: a GUID each
   client generates once, stores locally and sends when it joins.
 
