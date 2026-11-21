@@ -1,7 +1,9 @@
 // BanditBaller
 
 #include "GSAttributeSet.h"
+#include "GameFramework/PlayerState.h"
 #include "GameplayEffectExtension.h"
+#include "GSPlayerController.h"
 #include "Net/UnrealNetwork.h"
 
 UGSAttributeSet::UGSAttributeSet()
@@ -50,7 +52,18 @@ void UGSAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 
 		if (LocalDamage > 0.f)
 		{
-			SetHealth(FMath::Clamp(GetHealth() - LocalDamage, 0.f, GetMaxHealth()));
+			// Record the attacker before Health changes so health listeners (death) can read it.
+			const FGameplayEffectContextHandle& Context = Data.EffectSpec.GetEffectContext();
+			AActor* Causer = Context.GetEffectCauser();
+			LastDamageInstigator = Causer ? Causer : Context.GetOriginalInstigator();
+
+			const float OldHealth = GetHealth();
+			SetHealth(FMath::Clamp(OldHealth - LocalDamage, 0.f, GetMaxHealth()));
+
+			// TODO(crits): read a crit flag/multiplier from the spec (e.g. SetByCaller Data.Crit) once crits exist.
+			const bool bCritical = false;
+			const bool bKilled = OldHealth > 0.f && GetHealth() <= 0.f;
+			NotifyDamageDealt(Data, LocalDamage, bCritical, bKilled);
 		}
 	}
 	else if (Data.EvaluatedData.Attribute == GetHealthAttribute())
@@ -58,6 +71,41 @@ void UGSAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 		// PreAttributeChange only clamps the current value; clamp the base value too.
 		SetHealth(FMath::Clamp(GetHealth(), 0.f, GetMaxHealth()));
 	}
+}
+
+void UGSAttributeSet::NotifyDamageDealt(const FGameplayEffectModCallbackData& Data, float DamageAmount, bool bCritical, bool bKilled) const
+{
+	const FGameplayEffectContextHandle& Context = Data.EffectSpec.GetEffectContext();
+	AActor* TargetAvatar = Data.Target.GetAvatarActor();
+
+	// Find the attacking player's controller: effect causer (pawn) first, then the instigator (pawn or PlayerState).
+	AGSPlayerController* AttackerPC = nullptr;
+	if (const APawn* CauserPawn = Cast<APawn>(Context.GetEffectCauser()))
+	{
+		AttackerPC = Cast<AGSPlayerController>(CauserPawn->GetController());
+	}
+	if (!AttackerPC)
+	{
+		AActor* Instigator = Context.GetOriginalInstigator();
+		if (const APlayerState* InstigatorPS = Cast<APlayerState>(Instigator))
+		{
+			AttackerPC = Cast<AGSPlayerController>(InstigatorPS->GetPlayerController());
+		}
+		else if (const APawn* InstigatorPawn = Cast<APawn>(Instigator))
+		{
+			AttackerPC = Cast<AGSPlayerController>(InstigatorPawn->GetController());
+		}
+	}
+
+	// No feedback for self-damage (e.g. gs.Damage.Self).
+	if (!AttackerPC || !TargetAvatar || AttackerPC->GetPawn() == TargetAvatar)
+	{
+		return;
+	}
+
+	const FHitResult* Hit = Context.GetHitResult();
+	const FVector Location = Hit ? FVector(Hit->ImpactPoint) : TargetAvatar->GetActorLocation() + FVector(0.f, 0.f, 80.f);
+	AttackerPC->ClientNotifyDamageDealt(Location, DamageAmount, bCritical, bKilled);
 }
 
 void UGSAttributeSet::OnRep_Health(const FGameplayAttributeData& OldValue)

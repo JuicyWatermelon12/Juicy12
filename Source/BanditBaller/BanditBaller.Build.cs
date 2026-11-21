@@ -25,7 +25,9 @@ public class BanditBaller : ModuleRules
 			"CommonUI",
 			"NetCore",
 			"Niagara",
-			"Slate"
+			"EngineCameras",
+			"Slate",
+			"SlateCore"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });

@@ -11,6 +11,8 @@
 class UAbilitySystemComponent;
 class UGSAbilitySet;
 class UGSInputConfig;
+class UCameraShakeBase;
+class UGSHealthComponent;
 class UGSMovementSettings;
 class UGSWeaponComponent;
 class UInputAction;
@@ -43,6 +45,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Weapons")
 	UGSWeaponComponent* GetWeaponComponent() const { return WeaponComponent; }
+
+	UFUNCTION(BlueprintPure, Category = "Health")
+	UGSHealthComponent* GetHealthComponent() const { return HealthComponent; }
 
 	/** True while the pawn turns to face the camera (aiming or firing). */
 	UFUNCTION(BlueprintPure, Category = "Movement")
@@ -82,6 +87,14 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapons")
 	TObjectPtr<UGSWeaponComponent> WeaponComponent;
 
+	/** Shared health/death logic (listens to the PlayerState ASC's Health). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Health")
+	TObjectPtr<UGSHealthComponent> HealthComponent;
+
+	/** Played on the local player's camera when they take damage (CS_PlayerHit). */
+	UPROPERTY(EditDefaultsOnly, Category = "Health")
+	TSubclassOf<UCameraShakeBase> HitCameraShake;
+
 private:
 	// --- Ability system ---
 	void InitAbilitySystem();
@@ -95,6 +108,13 @@ private:
 	void OnAimStarted();
 	void OnAimCompleted();
 	void OnShoulderSwap();
+
+	// --- Health / death ---
+	UFUNCTION()
+	void OnHealthChanged(UGSHealthComponent* InHealthComponent, float OldHealth, float NewHealth, AActor* DamageInstigator);
+
+	UFUNCTION()
+	void OnDeathStarted(AActor* DeadActor, AActor* Killer);
 
 	// --- Movement / camera ---
 	void ApplyMovementSettings();

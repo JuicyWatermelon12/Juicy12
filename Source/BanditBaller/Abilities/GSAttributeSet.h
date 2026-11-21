@@ -50,7 +50,15 @@ public:
 	FGameplayAttributeData IncomingDamage;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, IncomingDamage)
 
+	/** Server: who dealt the most recent damage (effect causer, else instigator). Used to report killers. */
+	AActor* GetLastDamageInstigator() const { return LastDamageInstigator.Get(); }
+
 protected:
+	TWeakObjectPtr<AActor> LastDamageInstigator;
+
+	/** Server: tell the attacking player's client about damage they dealt (damage numbers, hit marker). */
+	void NotifyDamageDealt(const struct FGameplayEffectModCallbackData& Data, float DamageAmount, bool bCritical, bool bKilled) const;
+
 	UFUNCTION()
 	void OnRep_Health(const FGameplayAttributeData& OldValue);
 

@@ -7,7 +7,7 @@
 #include "DrawDebugHelpers.h"
 #include "GameplayEffect.h"
 #include "GSAttributeSet.h"
-#include "GSGameplayTags.h"
+#include "GSHealthComponent.h"
 #include "GSWeaponDebug.h"
 #include "TimerManager.h"
 
@@ -25,6 +25,7 @@ AGSTargetDummy::AGSTargetDummy()
 	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Minimal);
 
 	AttributeSet = CreateDefaultSubobject<UGSAttributeSet>(TEXT("AttributeSet"));
+	HealthComponent = CreateDefaultSubobject<UGSHealthComponent>(TEXT("HealthComponent"));
 }
 
 UAbilitySystemComponent* AGSTargetDummy::GetAbilitySystemComponent() const
@@ -37,8 +38,9 @@ void AGSTargetDummy::BeginPlay()
 	Super::BeginPlay();
 
 	AbilitySystemComponent->InitAbilityActorInfo(this, this);
-	AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UGSAttributeSet::GetHealthAttribute())
-		.AddUObject(this, &AGSTargetDummy::OnHealthChanged);
+	HealthComponent->InitializeWithAbilitySystem(AbilitySystemComponent);
+	HealthComponent->OnHealthChanged.AddDynamic(this, &AGSTargetDummy::OnHealthChanged);
+	HealthComponent->OnDeathStarted.AddDynamic(this, &AGSTargetDummy::OnDeathStarted);
 
 	if (HasAuthority())
 	{
@@ -57,32 +59,34 @@ void AGSTargetDummy::ApplyInitEffect()
 	AbilitySystemComponent->ApplyGameplayEffectToSelf(InitEffect->GetDefaultObject<UGameplayEffect>(), 1.f, AbilitySystemComponent->MakeEffectContext());
 }
 
-void AGSTargetDummy::OnHealthChanged(const FOnAttributeChangeData& Data)
+void AGSTargetDummy::OnHealthChanged(UGSHealthComponent* InHealthComponent, float OldHealth, float NewHealth, AActor* DamageInstigator)
 {
-	const float Delta = Data.NewValue - Data.OldValue;
-	if (Delta >= 0.f)
+	const float Damage = OldHealth - NewHealth;
+	if (Damage <= 0.f)
 	{
 		return;
 	}
 
-	UE_LOG(LogBanditBaller, Log, TEXT("%s took %.1f damage (health %.1f)"), *GetActorNameOrLabel(), -Delta, Data.NewValue);
+	UE_LOG(LogBanditBaller, Log, TEXT("%s took %.1f damage (health %.1f)"), *GetActorNameOrLabel(), Damage, NewHealth);
 
 	if (GSWeaponDebug::IsEnabled())
 	{
 		DrawDebugString(GetWorld(), GetActorLocation() + FVector(0.f, 0.f, 120.f),
-			FString::Printf(TEXT("-%.0f (%.0f)"), -Delta, Data.NewValue), nullptr, FColor::Red, GSWeaponDebug::DrawDuration);
+			FString::Printf(TEXT("-%.0f (%.0f)"), Damage, NewHealth), nullptr, FColor::Red, GSWeaponDebug::DrawDuration);
 	}
+}
 
-	if (HasAuthority() && Data.NewValue <= 0.f && !AbilitySystemComponent->HasMatchingGameplayTag(GSGameplayTags::State_Dead))
+void AGSTargetDummy::OnDeathStarted(AActor* DeadActor, AActor* Killer)
+{
+	if (HasAuthority())
 	{
-		AbilitySystemComponent->AddLooseGameplayTag(GSGameplayTags::State_Dead);
-		UE_LOG(LogBanditBaller, Log, TEXT("%s is down; resetting in %.1fs"), *GetActorNameOrLabel(), ResetDelay);
 		GetWorldTimerManager().SetTimer(ResetTimer, this, &AGSTargetDummy::ResetDummy, FMath::Max(ResetDelay, 0.01f));
 	}
 }
 
 void AGSTargetDummy::ResetDummy()
 {
-	AbilitySystemComponent->RemoveLooseGameplayTag(GSGameplayTags::State_Dead);
+	HealthComponent->ResetDeath();
 	ApplyInitEffect();
+	UE_LOG(LogBanditBaller, Log, TEXT("%s reset"), *GetActorNameOrLabel());
 }

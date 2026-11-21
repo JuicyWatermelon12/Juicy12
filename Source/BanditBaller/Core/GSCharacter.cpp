@@ -13,6 +13,9 @@
 #include "GSInputConfig.h"
 #include "GSMovementSettings.h"
 #include "GSPlayerState.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "GSHealthComponent.h"
 #include "GSWeaponComponent.h"
 #include "Net/UnrealNetwork.h"
 
@@ -21,6 +24,7 @@ AGSCharacter::AGSCharacter()
 	PrimaryActorTick.bCanEverTick = true;
 
 	WeaponComponent = CreateDefaultSubobject<UGSWeaponComponent>(TEXT("WeaponComponent"));
+	HealthComponent = CreateDefaultSubobject<UGSHealthComponent>(TEXT("HealthComponent"));
 }
 
 UAbilitySystemComponent* AGSCharacter::GetAbilitySystemComponent() const
@@ -43,6 +47,50 @@ void AGSCharacter::BeginPlay()
 
 	ApplyMovementSettings();
 	ApplyFacingMode();
+
+	HealthComponent->OnHealthChanged.AddDynamic(this, &AGSCharacter::OnHealthChanged);
+	HealthComponent->OnDeathStarted.AddDynamic(this, &AGSCharacter::OnDeathStarted);
+}
+
+void AGSCharacter::OnHealthChanged(UGSHealthComponent* InHealthComponent, float OldHealth, float NewHealth, AActor* DamageInstigator)
+{
+	if (NewHealth < OldHealth && IsLocallyControlled() && HitCameraShake)
+	{
+		if (APlayerController* PC = Cast<APlayerController>(GetController()))
+		{
+			PC->ClientStartCameraShake(HitCameraShake);
+		}
+	}
+}
+
+void AGSCharacter::OnDeathStarted(AActor* DeadActor, AActor* Killer)
+{
+	// Stop moving and acting.
+	bAimHeld = false;
+	bFireHeld = false;
+	if (UGSAbilitySystemComponent* ASC = Cast<UGSAbilitySystemComponent>(CachedAbilitySystem.Get()))
+	{
+		ASC->ClearAbilityInput();
+	}
+
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		DisableInput(PC);
+	}
+
+	UCharacterMovementComponent* CMC = GetCharacterMovement();
+	CMC->StopMovementImmediately();
+	CMC->DisableMovement();
+	CMC->SetComponentTickEnabled(false);
+
+	// Ragdoll (runs on every machine; the capsule stays put so the camera keeps its pivot).
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	MeshComp->SetCollisionProfileName(TEXT("Ragdoll"));
+	MeshComp->SetAllBodiesSimulatePhysics(true);
+	MeshComp->SetSimulatePhysics(true);
+	MeshComp->WakeAllRigidBodies();
+	MeshComp->bBlendPhysics = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +147,7 @@ void AGSCharacter::InitAbilitySystem()
 
 	ASC->InitAbilityActorInfo(PS, this);
 	CachedAbilitySystem = ASC;
+	HealthComponent->InitializeWithAbilitySystem(ASC);
 
 	MoveSpeedChangedHandle = ASC->GetGameplayAttributeValueChangeDelegate(UGSAttributeSet::GetMoveSpeedAttribute())
 		.AddUObject(this, &AGSCharacter::OnMoveSpeedChanged);

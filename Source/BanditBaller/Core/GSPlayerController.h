@@ -4,13 +4,16 @@
 
 #include "CoreMinimal.h"
 #include "BanditBallerPlayerController.h"
+#include "Engine/NetSerialization.h"
 #include "GSPlayerController.generated.h"
 
+class UGameplayEffect;
+class UGSHUDWidget;
 class UUserWidget;
 
 /**
- * Game player controller. Inherits input-mapping setup from the template controller
- * and adds the HUD widget (crosshair) for the local player.
+ * Game player controller. Inherits input-mapping setup from the template controller,
+ * owns the HUD and death screen for the local player, and relays hit feedback.
  */
 UCLASS()
 class BANDITBALLER_API AGSPlayerController : public ABanditBallerPlayerController
@@ -18,6 +21,24 @@ class BANDITBALLER_API AGSPlayerController : public ABanditBallerPlayerControlle
 	GENERATED_BODY()
 
 public:
+	/** Server -> owning client: show the death screen and switch to UI input. */
+	UFUNCTION(Client, Reliable)
+	void ClientShowDeathScreen(TSubclassOf<UUserWidget> WidgetClass);
+
+	/** Death screen -> server: restart the level (only honored while dead). */
+	UFUNCTION(Server, Reliable)
+	void ServerRequestRestart();
+
+	/** Server -> attacker's client: damage number + hit marker for damage this player dealt. */
+	UFUNCTION(Client, Unreliable)
+	void ClientNotifyDamageDealt(FVector_NetQuantize WorldLocation, float Damage, bool bCritical, bool bKilled);
+
+	/** Debug (gs.Damage.Self): apply DebugDamageEffect to our own ASC on the server. */
+	UFUNCTION(Server, Reliable)
+	void ServerDebugDamageSelf(float Amount);
+
+	UGSHUDWidget* GetGSHUD() const;
+
 	/** Debug: press + release the Fire input once (goes through the ASC like the real button). */
 	UFUNCTION(Exec)
 	void GSFire();
@@ -29,10 +50,17 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
-	/** HUD widget added to the local player's screen (WBP_Crosshair for now). */
+	/** HUD widget added to the local player's screen (WBP_HUD). */
 	UPROPERTY(EditDefaultsOnly, Category = "UI")
 	TSubclassOf<UUserWidget> HUDWidgetClass;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UUserWidget> HUDWidget;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UUserWidget> DeathScreenWidget;
+
+	/** Damage GE used by gs.Damage.Self (GE_Damage, SetByCaller Data.Damage). */
+	UPROPERTY(EditDefaultsOnly, Category = "Debug")
+	TSubclassOf<UGameplayEffect> DebugDamageEffect;
 };
