@@ -111,8 +111,8 @@ public:
 	/** Names of all upgrade data assets. */
 	static TArray<FString> GetUpgradeDataNames();
 
-	/** gs.Upgrade.Grant: add one stack of the named upgrade to PC's player (respects MaxStacks). */
-	static bool GrantUpgradeTo(AGSPlayerController* PC, const FString& UpgradeName);
+	/** gs.Upgrade.Grant: add Count stacks of the named upgrade to PC's player (stops at MaxStacks). Returns how many. */
+	static int32 GrantUpgradeTo(AGSPlayerController* PC, const FString& UpgradeName, int32 Count = 1);
 
 	/** gs.Upgrade.List: log + screen every upgrade with this run's stacks, and the stats they change. */
 	static void ListUpgrades(AGSPlayerController* PC);

@@ -62,6 +62,10 @@
 #include "GSUpgradeComponent.h"
 #include "GSUpgradeData.h"
 #include "GSUpgradePool.h"
+#include "GSCollisionChannels.h"
+#include "GSMapBoundary.h"
+#include "Components/BoxComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "GSUpgradeCardWidget.h"
 #include "GSUpgradeChoiceWidget.h"
 #include "GSWeaponComponent.h"
@@ -2356,7 +2360,7 @@ bool FGSStatUpgradesTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Capped upgrade stays at 1"), Upgrades->GetStacks(Capped), 1);
 		TestEqual(TEXT("Damage +10% from the capped upgrade"), GetAttr(UGSAttributeSet::GetDamageAttribute()), 1.4f, 0.001f);
 
-		TestFalse(TEXT("Unknown upgrade name is refused"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("NoSuchUpgrade")));
+		TestEqual(TEXT("Unknown upgrade name is refused"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("NoSuchUpgrade")), 0);
 
 		// A new run removes every upgrade.
 		GetGameMode()->RestartRunWithSeed(4242);
@@ -3027,4 +3031,227 @@ bool FGSUpgradeChoiceUITest::RunTest(const FString& Parameters)
 	return true;
 }
 
+
+// ---------------------------------------------------------------------------
+// Map boundary: blocks pawns only (walls + ceiling), spawns stay inside
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	AGSMapBoundary* GetBoundary()
+	{
+		return AGSMapBoundary::Find(GetPIEWorld());
+	}
+
+	/** True if the trace's first blocking hit is the boundary. */
+	bool TraceHitsBoundary(const FHitResult& Hit, bool bHit)
+	{
+		return bHit && Hit.GetActor() && Hit.GetActor()->IsA<AGSMapBoundary>();
+	}
+
+	/** A frozen MeleeBandit at Location (no AI), for movement tests. */
+	AGSEnemyCharacter* SpawnFrozenBandit(const FVector& Location, const FVector& FaceTowards)
+	{
+		UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		AGSEnemyCharacter* Enemy = Data ? AGSEnemyCharacter::SpawnEnemy(GetPIEWorld(), Data, Location, FaceTowards) : nullptr;
+		if (AAIController* AIC = Enemy ? Cast<AAIController>(Enemy->GetController()) : nullptr)
+		{
+			if (UBrainComponent* Brain = AIC->GetBrainComponent())
+			{
+				Brain->StopLogic(TEXT("Boundary test"));
+			}
+			AIC->StopMovement();
+		}
+		return Enemy;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSMapBoundaryTest, "BanditBaller.Map.Boundary", GSTests::TestFlags)
+bool FGSMapBoundaryTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	struct FBoundaryState
+	{
+		bool bOldThrottle = true;
+		FVector Center = FVector::ZeroVector;
+		float MaxX = 0.f;
+		float GroundZ = 0.f;
+		float CeilingZ = 0.f;
+		float MaxPlayerTop = -1e9f;
+		float HealthBefore = 0.f;
+		FVector2D LaunchXY = FVector2D::ZeroVector;
+		TWeakObjectPtr<AGSEnemyCharacter> Bandit;
+	};
+	TSharedRef<FBoundaryState> S = MakeShared<FBoundaryState>();
+
+	// Placement, collision setup, and what passes through.
+	Step([this, S]()
+	{
+		UEditorPerformanceSettings* Perf = GetMutableDefault<UEditorPerformanceSettings>();
+		S->bOldThrottle = Perf->bThrottleCPUWhenNotForeground;
+		Perf->bThrottleCPUWhenNotForeground = false;
+		GetGameMode()->SetRoundTimerPaused(true);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		const AGSMapBoundary* Boundary = GetBoundary();
+		if (!TestNotNull(TEXT("L_Town_Graybox has an AGSMapBoundary"), Boundary))
+		{
+			return;
+		}
+		TestEqual(TEXT("Ceiling 75 m above the ground"), Boundary->CeilingHeight, 7500.f);
+		TestTrue(TEXT("Player starts inside"), Boundary->IsInside(GetPlayer()->GetActorLocation()));
+		TestNotNull(TEXT("gs.Debug.Boundary cvar"), IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Debug.Boundary")));
+		const FBox Bounds = Boundary->GetPlayBounds();
+		S->Center = Bounds.GetCenter();
+		S->MaxX = Bounds.Max.X;
+		S->GroundZ = Boundary->GetGroundZ();
+		S->CeilingZ = Boundary->GetCeilingZ();
+
+		for (const UBoxComponent* Box : Boundary->GetBoxes())
+		{
+			const FString Name = Box->GetName();
+			TestTrue(Name + TEXT(": object type MapBoundary"), Box->GetCollisionObjectType() == GSCollision::MapBoundary);
+			TestTrue(Name + TEXT(": blocks pawns"), Box->GetCollisionResponseToChannel(ECC_Pawn) == ECR_Block);
+			for (const ECollisionChannel Channel : { ECC_Visibility, ECC_Camera, ECC_WorldStatic, ECC_WorldDynamic, ECC_PhysicsBody })
+			{
+				TestTrue(FString::Printf(TEXT("%s: ignores channel %d"), *Name, static_cast<int32>(Channel)), Box->GetCollisionResponseToChannel(Channel) == ECR_Ignore);
+			}
+			TestFalse(Name + TEXT(": doesn't affect the NavMesh"), Box->CanEverAffectNavigation());
+		}
+		TestTrue(TEXT("Player capsule blocks MapBoundary"), GetPlayer()->GetCapsuleComponent()->GetCollisionResponseToChannel(GSCollision::MapBoundary) == ECR_Block);
+		if (AGSEnemyCharacter* Enemy = SpawnTestEnemy())
+		{
+			TestTrue(TEXT("Enemy capsule blocks MapBoundary"), Enemy->GetCapsuleComponent()->GetCollisionResponseToChannel(GSCollision::MapBoundary) == ECR_Block);
+			RemoveAllEnemies(GetPIEWorld());
+		}
+
+		// Traces through the east wall and through the ceiling.
+		UWorld* World = GetPIEWorld();
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(GSBoundaryTest), false, GetPlayer());
+		const FVector WallStart(Bounds.Max.X - 200.f, S->Center.Y + 1234.f, S->GroundZ + 150.f);
+		const FVector WallEnd = WallStart + FVector(3000.f, 0.f, 0.f);
+		const FVector UpStart(S->Center.X + 777.f, S->Center.Y, S->CeilingZ - 300.f);
+		const FVector UpEnd = UpStart + FVector(0.f, 0.f, 2000.f);
+		for (const TPair<FVector, FVector>& Line : { TPair<FVector, FVector>(WallStart, WallEnd), TPair<FVector, FVector>(UpStart, UpEnd) })
+		{
+			FHitResult Hit;
+			TestFalse(TEXT("Player shots (Visibility) pass through"), TraceHitsBoundary(Hit, World->LineTraceSingleByChannel(Hit, Line.Key, Line.Value, ECC_Visibility, Params)));
+			TestFalse(TEXT("Camera (Camera channel) passes through"), TraceHitsBoundary(Hit, World->LineTraceSingleByChannel(Hit, Line.Key, Line.Value, ECC_Camera, Params)));
+			TestFalse(TEXT("Enemy shots (object query) pass through"), TraceHitsBoundary(Hit, World->LineTraceSingleByObjectType(Hit, Line.Key, Line.Value, AGSEnemyCharacter::GetShotObjectQueryParams(), Params)));
+			TestFalse(TEXT("Pickup traces (WorldStatic) pass through"), TraceHitsBoundary(Hit, World->LineTraceSingleByObjectType(Hit, Line.Key, Line.Value, FCollisionObjectQueryParams(ECC_WorldStatic), Params)));
+			TestTrue(TEXT("A pawn-channel sweep is blocked"), TraceHitsBoundary(Hit, World->SweepSingleByChannel(Hit, Line.Key, Line.Value, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeCapsule(34.f, 88.f), Params)));
+		}
+
+		// Spawn points near a corner stay inside.
+		GetPlayer()->TeleportTo(FVector(Bounds.Max.X - 600.f, Bounds.Max.Y - 600.f, S->GroundZ + 120.f), FRotator::ZeroRotator);
+	});
+	WaitFrames(this, 3);
+	Step([this, S]()
+	{
+		FGSSpawnSearchStats Stats;
+		const TArray<FGSSpawnPoint> Points = UGSSpawnLocationFinder::FindSpawnLocations(GetPC(), 12, &Stats);
+		AddInfo(FString::Printf(TEXT("Corner spawn search: %s"), *Stats.ToString()));
+		bool bAllInside = Points.Num() > 0;
+		for (const FGSSpawnPoint& Point : Points)
+		{
+			bAllInside &= GetBoundary()->IsInside(Point.Location);
+		}
+		TestTrue(TEXT("Spawn points near a corner are inside the boundary"), bAllInside);
+
+		// Player launched at the east wall; an enemy launched at it a few meters along.
+		GetPlayer()->TeleportTo(FVector(S->MaxX - 300.f, S->Center.Y, S->GroundZ + 120.f), FRotator::ZeroRotator);
+		GetPlayer()->LaunchCharacter(FVector(3000.f, 0.f, 300.f), true, true);
+		S->Bandit = SpawnFrozenBandit(FVector(S->MaxX - 400.f, S->Center.Y + 600.f, S->GroundZ), FVector(S->MaxX + 1000.f, S->Center.Y + 600.f, S->GroundZ));
+		if (TestTrue(TEXT("Bandit spawned"), S->Bandit.IsValid()))
+		{
+			S->Bandit->LaunchCharacter(FVector(3000.f, 0.f, 300.f), true, true);
+		}
+	});
+	WaitWorldSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		TestTrue(TEXT("Player stopped by the wall"), GetBoundary()->IsInside(GetPlayer()->GetActorLocation()));
+		TestTrue(TEXT("Enemy stopped by the wall"), S->Bandit.IsValid() && GetBoundary()->IsInside(S->Bandit->GetActorLocation()));
+
+		// Dash into the wall from 3 m away (the dash covers 6 m).
+		GetPlayer()->TeleportTo(FVector(S->MaxX - 300.f, S->Center.Y - 600.f, S->GroundZ + 120.f), FRotator::ZeroRotator);
+	});
+	WaitFrames(this, 3);
+	Step([]()
+	{
+		if (const UGSDashSettings* Dash = LoadObject<UGSDashSettings>(nullptr, TEXT("/Game/BanditBaller/Data/DA_DashSettings.DA_DashSettings")))
+		{
+			GetPlayer()->StartDash(FVector(1.f, 0.f, 0.f), *Dash);
+		}
+	});
+	WaitUntil(this, TEXT("dash into the wall to end"), []() { return !GetPlayer()->IsDashing(); }, 5.0);
+	Step([this, S]()
+	{
+		TestTrue(TEXT("Dash stopped by the wall"), GetBoundary()->IsInside(GetPlayer()->GetActorLocation()));
+
+		// Slide into the wall, facing it.
+		GetPlayer()->TeleportTo(FVector(S->MaxX - 400.f, S->Center.Y - 1200.f, S->GroundZ + 120.f), FRotator::ZeroRotator);
+		GetPlayer()->SetActorRotation(FRotator::ZeroRotator);
+	});
+	WaitFrames(this, 3);
+	Step([this]()
+	{
+		if (const UGSSlideSettings* Slide = LoadObject<UGSSlideSettings>(nullptr, TEXT("/Game/BanditBaller/Data/DA_SlideSettings.DA_SlideSettings")))
+		{
+			GetPlayer()->StartSlide(*Slide);
+		}
+		TestTrue(TEXT("Sliding toward the wall"), GetPlayer()->IsSliding());
+	});
+	WaitWorldSeconds(this, 1.2);
+	Step([this, S]()
+	{
+		TestTrue(TEXT("Slide stopped by the wall"), GetBoundary()->IsInside(GetPlayer()->GetActorLocation()));
+
+		// Launched straight up under the ceiling: it stops there, no damage, no teleport.
+		const FVector Start(S->Center.X + 500.f, S->Center.Y + 500.f, S->CeilingZ - 400.f);
+		GetPlayer()->TeleportTo(Start, FRotator::ZeroRotator);
+		S->LaunchXY = FVector2D(Start);
+		S->HealthBefore = GetHealth(GetPlayerASC());
+		S->MaxPlayerTop = -1e9f;
+		GetPlayer()->LaunchCharacter(FVector(0.f, 0.f, 4000.f), true, true);
+	});
+	WaitUntil(this, TEXT("launch to peak at the ceiling"), [S]()
+	{
+		const AGSCharacter* Player = GetPlayer();
+		S->MaxPlayerTop = FMath::Max(S->MaxPlayerTop, static_cast<float>(Player->GetActorLocation().Z + Player->GetCapsuleComponent()->GetScaledCapsuleHalfHeight()));
+		return Player->GetVelocity().Z < -200.f;
+	}, 5.0);
+	Step([this, S]()
+	{
+		AddInfo(FString::Printf(TEXT("Highest capsule top %.0f, ceiling at %.0f"), S->MaxPlayerTop, S->CeilingZ));
+		TestTrue(TEXT("Ceiling stops the launch"), S->MaxPlayerTop <= S->CeilingZ + 2.f);
+		TestTrue(TEXT("Reached the ceiling"), S->MaxPlayerTop >= S->CeilingZ - 50.f);
+		TestEqual(TEXT("No damage from the ceiling"), GetHealth(GetPlayerASC()), S->HealthBefore, 0.01f);
+		TestTrue(TEXT("No teleport (same XY)"), FVector2D::Distance(FVector2D(GetPlayer()->GetActorLocation()), S->LaunchXY) < 50.f);
+
+		// Air jumps still work under the ceiling (gs.Upgrade.Grant with a count).
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("ExtraJump"), TEXT("3") });
+		TestEqual(TEXT("gs.Upgrade.Grant ExtraJump 3"), GetPlayerUpgrades()->GetStacks(UGSDebugLibrary::FindUpgradeData(TEXT("ExtraJump"))), 3);
+		S->MaxPlayerTop = -1e9f;
+		GetPlayer()->Jump();
+	});
+	WaitUntil(this, TEXT("air jump under the ceiling"), []() { return GetPlayer()->GetAirJumpsSinceLanded() >= 1; }, 3.0);
+	Step([]() { GetPlayer()->StopJumping(); });
+	WaitUntil(this, TEXT("air jump to hit the ceiling and fall"), [S]()
+	{
+		const AGSCharacter* Player = GetPlayer();
+		S->MaxPlayerTop = FMath::Max(S->MaxPlayerTop, static_cast<float>(Player->GetActorLocation().Z + Player->GetCapsuleComponent()->GetScaledCapsuleHalfHeight()));
+		return Player->GetVelocity().Z < -200.f;
+	}, 5.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("The air jump happened"), GetPlayer()->GetAirJumpsSinceLanded(), 1);
+		TestTrue(TEXT("Air jump stopped by the ceiling"), S->MaxPlayerTop <= S->CeilingZ + 2.f);
+		GetPlayer()->TeleportTo(S->Center + FVector(0.f, 0.f, 150.f), FRotator::ZeroRotator);
+		GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = S->bOldThrottle;
+	});
+	EndPIE();
+	return true;
+}
 #endif // WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR

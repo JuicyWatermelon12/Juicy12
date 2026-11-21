@@ -162,24 +162,37 @@ TArray<FString> UGSDebugLibrary::GetUpgradeDataNames()
 	return GSDebug::GetAssetNames(UGSUpgradeData::StaticClass());
 }
 
-bool UGSDebugLibrary::GrantUpgradeTo(AGSPlayerController* PC, const FString& UpgradeName)
+int32 UGSDebugLibrary::GrantUpgradeTo(AGSPlayerController* PC, const FString& UpgradeName, int32 Count)
 {
 #if !UE_BUILD_SHIPPING
 	const AGSPlayerState* PS = PC ? PC->GetPlayerState<AGSPlayerState>() : nullptr;
 	UGSUpgradeComponent* Upgrades = PS ? PS->GetUpgradeComponent() : nullptr;
 	if (!GSDebug::CheckAuthority(PC, TEXT("gs.Upgrade.Grant")) || !Upgrades)
 	{
-		return false;
+		return 0;
 	}
 	const UGSUpgradeData* Upgrade = FindUpgradeData(UpgradeName);
 	if (!Upgrade)
 	{
 		UE_LOG(LogBanditBaller, Warning, TEXT("gs.Upgrade.Grant: unknown upgrade '%s'. Upgrades: %s"), *UpgradeName, *FString::Join(GetUpgradeDataNames(), TEXT(", ")));
-		return false;
+		return 0;
 	}
-	return Upgrades->GrantUpgrade(Upgrade, TEXT("Debug"));
+	int32 Granted = 0;
+	for (int32 Index = 0; Index < FMath::Max(Count, 1); ++Index)
+	{
+		if (!Upgrades->GrantUpgrade(Upgrade, TEXT("Debug")))
+		{
+			break; // at MaxStacks
+		}
+		++Granted;
+	}
+	if (Count > 1)
+	{
+		UE_LOG(LogBanditBaller, Log, TEXT("gs.Upgrade.Grant: %s x%d granted (now %d stacks)."), *Upgrade->GetName(), Granted, Upgrades->GetStacks(Upgrade));
+	}
+	return Granted;
 #else
-	return false;
+	return 0;
 #endif
 }
 
@@ -622,7 +635,8 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.Upgrade.Grant <UpgradeName>. Upgrades: %s"), *FString::Join(GetUpgradeDataNames(), TEXT(", ")));
 			return;
 		}
-		GrantUpgradeTo(PC, Args[0]);
+		const int32 Count = (Args.Num() > 1 && Args[1].IsNumeric()) ? FCString::Atoi(*Args[1]) : 1;
+		GrantUpgradeTo(PC, Args[0], Count);
 	}
 	else if (Command == TEXT("UpgradeList"))
 	{

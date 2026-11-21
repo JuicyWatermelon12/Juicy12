@@ -51,7 +51,8 @@ Systems, commands, GAS reference, tuning and known issues live in `docs/PROGRESS
 Source/BanditBaller/
   Core/       GameMode (round loop, run seed, area travel), GameState, PlayerState, PlayerController,
               character, settings data classes, run random/stats, progression (XP/levels/rewards, upgrades),
-              debug library + cheat commands, profile subsystem + save (permanent cash)
+              debug library + cheat commands, profile subsystem + save (permanent cash),
+              map boundary (AGSMapBoundary) + collision channels
   Abilities/  GAS: ASC, AttributeSet, tags, abilities, effects, ability sets
   Combat/     weapons, health/death component, target dummy, hit camera shake
   AI/         enemies, AI controller, StateTree tasks/builder, spawn finder, wave director, spawn telegraph
@@ -108,9 +109,9 @@ docs/PROGRESS.md  progress log and reference
 - **Combat only in the town.** Enemies spawn, path and fight only in `L_Town_Graybox` (NavMesh covers the town
   only). The Market District hub map is safe: no spawns, no NavMesh, no round loop. Shop and casino actors live only
   in the hub.
-- **Every map has a boundary**: invisible walls around the play area and a ceiling. It blocks pawns only (players and
-  enemies); shots, traces, pickups and the camera pass through. The ceiling is what limits Extra Jump height (Extra
-  Jump has no cap).
+- **Every map has a boundary**: invisible walls around the play area and a ceiling (`AGSMapBoundary`, object type
+  `GSCollision::MapBoundary`). It blocks pawns only (players and enemies); shots, traces, pickups and the camera pass
+  through. The ceiling is what limits Extra Jump height (Extra Jump has no cap). Spawns stay inside it.
 - **Hub and run are separate maps with separate GameModes** (planned: a hub GameMode for shop, casino and portal; a
   run GameMode for the round loop).
   - Single-player travels between them with `OpenLevel`. Seamless / server travel and "the whole party travels

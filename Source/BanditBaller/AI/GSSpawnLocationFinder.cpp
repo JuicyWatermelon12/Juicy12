@@ -8,6 +8,7 @@
 #include "GameFramework/PlayerController.h"
 #include "GSGameMode.h"
 #include "GSGameState.h"
+#include "GSMapBoundary.h"
 #include "GSRunRandom.h"
 #include "GSSpawnSettings.h"
 #include "HAL/IConsoleManager.h"
@@ -62,9 +63,9 @@ namespace
 
 FString FGSSpawnSearchStats::ToString() const
 {
-	return FString::Printf(TEXT("%d requested: %d ring, %d fallback, %d failed | %d attempts (%.1f per point) | rejected: nav %d, ring %d, unreachable %d, spacing %d, on-screen %d"),
+	return FString::Printf(TEXT("%d requested: %d ring, %d fallback, %d failed | %d attempts (%.1f per point) | rejected: nav %d, boundary %d, ring %d, unreachable %d, spacing %d, on-screen %d"),
 		Requested, Ring, Fallback, Failed, Attempts, Requested > 0 ? static_cast<float>(Attempts) / Requested : 0.f,
-		RejectedNoNavMesh, RejectedOutsideRing, RejectedUnreachable, RejectedSpacing, RejectedOnScreen);
+		RejectedNoNavMesh, RejectedOutsideBoundary, RejectedOutsideRing, RejectedUnreachable, RejectedSpacing, RejectedOnScreen);
 }
 
 const UGSSpawnSettings& UGSSpawnLocationFinder::GetSettings(const UWorld* World)
@@ -145,6 +146,10 @@ TArray<FGSSpawnPoint> UGSSpawnLocationFinder::FindSpawnLocations(APlayerControll
 	const float MaxRadius = FMath::Max(Settings.MinRadius, Settings.MaxRadius);
 	const FVector Origin = Player->GetActorLocation();
 
+	// Spawns stay inside the map boundary (with room for an enemy capsule), if the map has one.
+	const AGSMapBoundary* Boundary = AGSMapBoundary::Find(World);
+	constexpr float BoundaryMargin = 60.f;
+
 	// Reachability is tested against the player's position on the NavMesh.
 	FVector PlayerNav;
 	const bool bPlayerOnNav = ProjectToNav(*NavSys, Origin, PlayerNav, FVector(300.f, 300.f, 1000.f));
@@ -172,6 +177,11 @@ TArray<FGSSpawnPoint> UGSSpawnLocationFinder::FindSpawnLocations(APlayerControll
 			if (!ProjectToNav(*NavSys, Candidate, OnNav))
 			{
 				++Stats.RejectedNoNavMesh;
+				continue;
+			}
+			if (Boundary && !Boundary->IsInside(OnNav, BoundaryMargin))
+			{
+				++Stats.RejectedOutsideBoundary;
 				continue;
 			}
 			const float Distance = FVector::Dist2D(OnNav, Origin);
@@ -213,6 +223,12 @@ TArray<FGSSpawnPoint> UGSSpawnLocationFinder::FindSpawnLocations(APlayerControll
 				FVector OnNav;
 				if (!It->ActorHasTag(EnemySpawnTag) || !ProjectToNav(*NavSys, It->GetActorLocation(), OnNav))
 				{
+					continue;
+				}
+				if (Boundary && !Boundary->IsInside(OnNav, BoundaryMargin))
+				{
+					UE_LOG(LogBanditBaller, Warning, TEXT("SpawnLocationFinder: EnemySpawn point %s at %s is outside the map boundary; skipped."),
+						*It->GetActorNameOrLabel(), *OnNav.ToCompactString());
 					continue;
 				}
 				const bool bSpaced = IsFarEnough(OnNav, Chosen, Settings.MinSpacing);
@@ -280,6 +296,17 @@ TArray<FGSSpawnPoint> UGSSpawnLocationFinder::FindSpawnLocations(APlayerControll
 	}
 #endif
 
+	if (Stats.RejectedOutsideBoundary > 0)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("SpawnLocationFinder: %d ring point(s) landed outside the map boundary and were rejected."), Stats.RejectedOutsideBoundary);
+	}
+	for (const FGSSpawnPoint& Point : Chosen)
+	{
+		if (Boundary && !Boundary->IsInside(Point.Location))
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("SpawnLocationFinder: chosen point %s is outside the map boundary."), *Point.Location.ToCompactString());
+		}
+	}
 	UE_LOG(LogBanditBaller, Log, TEXT("SpawnLocationFinder: %s"), *Stats.ToString());
 	if (OutStats) { *OutStats = Stats; }
 	return Chosen;

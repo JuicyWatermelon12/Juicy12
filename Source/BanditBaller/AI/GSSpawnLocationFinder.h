@@ -54,6 +54,8 @@ struct FGSSpawnSearchStats
 	UPROPERTY(BlueprintReadOnly, Category = "Spawn") int32 RejectedUnreachable = 0;
 	UPROPERTY(BlueprintReadOnly, Category = "Spawn") int32 RejectedSpacing = 0;
 	UPROPERTY(BlueprintReadOnly, Category = "Spawn") int32 RejectedOnScreen = 0;
+	/** On the NavMesh but outside the map boundary (AGSMapBoundary). */
+	UPROPERTY(BlueprintReadOnly, Category = "Spawn") int32 RejectedOutsideBoundary = 0;
 
 	FString ToString() const;
 };

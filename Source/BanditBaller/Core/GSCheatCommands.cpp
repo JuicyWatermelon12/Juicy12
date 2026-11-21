@@ -16,7 +16,8 @@
 //   gs.Run.Seed [N]                                     print seed / restart the run with seed N
 //   gs.Run.Stats                                        print run stats (local replicated copy)
 //   gs.XP.Add <N> / gs.XP.SetLevel <N>                  grant raw XP / jump to a level (UGSProgressionComponent)
-//   gs.Upgrade.Grant <Name> / gs.Upgrade.List           add one upgrade stack / list upgrades (UGSUpgradeComponent)
+//   gs.Upgrade.Grant <Name> [N] / gs.Upgrade.List       add upgrade stacks / list upgrades (UGSUpgradeComponent)
+//   gs.Debug.Boundary 1                                 draw the map boundary (AGSMapBoundary)
 //   gs.Upgrade.Offer / Choose <0-2> / Reroll            queue, pick from and reroll level-up offers (AGSGameMode)
 //   gs.Profile.AddCash <N> / Reset / Save / Print       permanent cash (UGSProfileSubsystem; local, not forwarded)
 
@@ -149,7 +150,7 @@ namespace GSCheats
 
 	FAutoConsoleCommandWithWorldAndArgs UpgradeGrantCommand(
 		TEXT("gs.Upgrade.Grant"),
-		TEXT("Add one stack of an upgrade to the local player (respects MaxStacks). Usage: gs.Upgrade.Grant <UpgradeName>, e.g. gs.Upgrade.Grant Damage"),
+		TEXT("Add stacks of an upgrade to the local player (stops at MaxStacks). Usage: gs.Upgrade.Grant <UpgradeName> [Count=1], e.g. gs.Upgrade.Grant Damage, gs.Upgrade.Grant ExtraJump 45"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("UpgradeGrant"), Args, World); }),
 		ECVF_Cheat);
 

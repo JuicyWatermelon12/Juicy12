@@ -35,10 +35,10 @@ see **Design update — market, prestige and economy**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–20 are done
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–21 are done
 (11–13 and 17 were design / scope updates and permanent cash).
 
-State at the time of writing: `main` after Prompt 20, not pushed. The build is clean and all 24 automation tests pass.
+State at the time of writing: `main` after Prompt 21, not pushed. The build is clean and all 25 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -65,7 +65,8 @@ State at the time of writing: `main` after Prompt 20, not pushed. The build is c
 | Design update | Market, prestige and economy decisions (docs only; not a numbered step) | bb1ded0 |
 | M2 18 | Upgrade offers: 4 rarity tiers, DA_UpgradePool, offer queue, choose / reroll, simulator (log only) | bd0e14c |
 | M2 19 | Level-up choice screen: pause, cards, input lock, keys / gamepad / mouse, reroll button | 9bd1d3b |
-| M2 20 | XP orbs: XP dropped as a pickup and granted at collection | see git log |
+| M2 20 | XP orbs: XP dropped as a pickup and granted at collection | 864d029 |
+| M2 21 | Map boundary: invisible walls + 75 m ceiling around the town (pawns only) | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -133,7 +134,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–20 done)
+## M2 — The run loop (Prompts 1–21 done)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -779,6 +780,50 @@ Docs only; no code changed. Not a numbered step: **Next up** keeps its 18–28 n
   - `gs.Round.Skip` ×2 to RoundClear vacuumed 12 pickups (9 cash, 3 orbs): XP +30 (three "+10 XP" log lines at
     pickup) and cash +$30.
 
+### Prompt 21 — Map boundary
+- **New object channel `MapBoundary`** (`ECC_GameTraceChannel1`, `Config/DefaultEngine.ini`
+  [/Script/Engine.CollisionProfile]; `GSCollision::MapBoundary` in `Core/GSCollisionChannels.h`).
+  - Default response Block, so every pawn profile blocks it. The boundary's boxes ignore every channel but Pawn, so
+    only pawns are stopped.
+  - Passing through:
+    - Player shots (Visibility trace).
+    - The camera (Camera trace).
+    - Enemy shots and line of sight (WorldStatic / WorldDynamic / Pawn object query, which doesn't include the new
+      type).
+    - Pickup landing traces (WorldStatic object query).
+    - Pickups themselves (no collision) and ragdolls (PhysicsBody).
+- **`Core/GSMapBoundary.*` (`AGSMapBoundary`)**, placed in `L_Town_Graybox` as `MapBoundary` at (0, 0, 0): the town
+  slab is 150 × 150 m, centered on the origin, top at Z 0.
+  - The actor location is the play-area center at ground level.
+  - Properties:
+    - `PlayAreaSize` 15000 × 15000 cm (the slab edges).
+    - `CeilingHeight` 7500 cm.
+    - `WallThickness` 200, `WallDepthBelowGround` 500.
+  - 4 wall boxes and a ceiling box sit just outside the play area. They are rebuilt in OnConstruction / BeginPlay, so
+    editing the properties when the map grows is enough.
+  - Query-only, hidden, and they don't affect the NavMesh.
+  - Helpers: `IsInside(Location, Margin)`, `GetPlayBounds`, `GetCeilingZ`, `Find(World)`.
+- **Ceiling:** a normal blocking hit. CharacterMovement removes the upward speed and the player falls back: no damage,
+  no teleport. Air jumps still work under it; they bonk. This is the only Extra Jump height limit (no cap).
+- **Spawn finder:**
+  - Ring points outside the boundary (60 cm margin) are rejected (new `RejectedOutsideBoundary` stat, in the log
+    line), with one warning per search if any were.
+  - EnemySpawn fallback points outside are skipped with a warning.
+  - A chosen point outside would also warn.
+- **Debug:** cvar `gs.Debug.Boundary 1` draws the play-area box and a cross on the ceiling. `gs.Upgrade.Grant <Name>
+  [Count]` grants several stacks at once (`gs.Upgrade.Grant ExtraJump 45`).
+- **Test** `Map.Boundary`.
+- **PIE check** (god mode, round paused):
+  - `gs.Upgrade.Grant ExtraJump 45` → JumpMaxCount 46. Tapping jump near each apex climbed for 20 s: the capsule top
+    peaked at ~74.9 m (centre 7393 cm); the last air jumps bonked (upward speed −200 right after the jump). The 47th
+    tap was refused.
+  - Dashing into the east wall from 4 m stopped at x = 7458: the wall face is at 7500, minus the capsule radius.
+  - Sliding into it: the slide was started with 1400 cm/s of ground speed set on the movement component, since the
+    console can't hold a move key. It stopped at the same x = 7458.
+  - `gs.Debug.Boundary 1` drew the red box edges up to the ceiling.
+- **Note:** GA_Slide doesn't start during a dash, and the dash's exit speed brakes below the slide minimum within
+  ~0.2 s, so a "dash, then slide" combo needs the move key held. That is existing behaviour, not changed here.
+
 ---
 
 ## Console commands and CVars
@@ -792,7 +837,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.God [0\|1]` | Toggle/set damage immunity (one `State.Invulnerable` count). |
 | `gs.GiveWeapon <Weapon>` | Equip `Rifle` / `Pistol` / `BanditCarbine` with a full mag (replaces the equipped one if both slots are full). |
 | `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain, ReloadSpeed). |
-| `gs.Upgrade.Grant <Name>` | Add one stack of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed` or `DA_Upgrade_*`); refused at MaxStacks. |
+| `gs.Upgrade.Grant <Name> [Count=1]` | Add stacks of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed`, `ExtraJump` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`. |
 | `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / MoveSpeed. |
 | `gs.Upgrade.Offer` | Queue a level-up offer without the level (opens at once if none is open) and print the open offer. |
 | `gs.Upgrade.Choose <0-2>` | Take a choice of the open offer; the next queued offer opens. |
@@ -815,6 +860,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.Editor.BuildEnemyStateTree [melee\|ranged\|all]` | Editor only: regenerate ST_MeleeBandit / ST_RangedBandit from code. |
 | `gs.Debug.Round 1` (cvar) | On-screen round, phase, time left, area, wave counts, enemy HP/DMG multipliers. |
 | `gs.Debug.Spawns 1` (cvar) | Draw the spawn ring and chosen points (green ring, yellow fallback) for 8 s. |
+| `gs.Debug.Boundary 1` (cvar) | Draw the map boundary's play area (walls + ceiling) every frame. |
 | `gs.Debug.Weapons 1` (cvar) | Debug-draw shots and log enemy shots (`[shot]`). |
 | `gs.Debug.DamageLog 1` (cvar) | Log every health loss (`[dmg] victim took N from X (health) at t=`). |
 | `gs.Wave.MaxAlive <N>` (cvar) | Override the alive cap (0 = DA_WaveSettings). |
@@ -875,7 +921,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (24, all passing)
+## Automation tests (25, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test starts PIE in L_Town_Graybox, waits for the player, removes enemies, runs
 and ends PIE. Stop PIE before running.
@@ -888,6 +934,7 @@ and ends PIE. Stop PIE before running.
 | `Weapons.FireConsumesAmmoReloadRefills` | GA_Fire uses ammo, GA_Reload refills. |
 | `Abilities.DashInvulnerabilityBlocksDamage` | Dash i-frames block damage. |
 | `Map.TownAndMarketDistrict` | Town tags/NavMesh, district contents, teleport there and back, no spawning there. |
+| `Map.Boundary` | AGSMapBoundary in the town (ceiling 7500), player inside, cvar exists; 5 boxes: MapBoundary object type, block Pawn, ignore Visibility/Camera/WorldStatic/WorldDynamic/PhysicsBody, no NavMesh effect; player and enemy capsules block MapBoundary; Visibility / Camera / enemy-shot / pickup traces pass through a wall and the ceiling, a pawn sweep doesn't; spawn points near a corner are inside; player and a frozen enemy launched at a wall stay inside; dash and slide into the wall stop inside; a launch up stops at the ceiling (no damage, same XY); gs.Upgrade.Grant ExtraJump 3; an air jump under the ceiling works and is stopped by it. |
 | `Round.PhaseLoop` | PreRound on start, timer → Combat; no market phases in the enum; RoundClear timer → round 2 PreRound; skips round 2 → round 3 PreRound; gs.Round.Set. |
 | `Player.RestartRestoresInput` | Die → death screen UI input → restart → game input back. |
 | `Spawn.LocationFinder` | 12 points: on NavMesh, reachable, in ring, spaced; same seed → same points; none in the district. |
@@ -984,7 +1031,6 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Run summary and return to the hub.
 - No upgrade is Epic or Legendary yet; those tiers are empty and never offered.
 - **Not yet built for the decisions before M3:**
-  - The map boundary (Prompt 21). Until it exists, Extra Jump height is unlimited.
   - Owned items in `OwnedItems`, item types (usable items, gear) and the gear loadout (M3/M4).
 - Prestige and the two-layer profile (playthrough data + prestige data) are a later milestone; the save layout
   changes in M3.
@@ -1037,7 +1083,7 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
   build).
 
 **Warnings**:
-- `C4701` potentially uninitialized `BestLocation` in `AI/GSSpawnLocationFinder.cpp:246`.
+- `C4701` potentially uninitialized `BestLocation` in `AI/GSSpawnLocationFinder.cpp:262`.
 - Every PIE test logs `LogCrowdFollowing: Unable to find RecastNavMesh instance…` (harmless so far).
 
 **Leftover template code and content**: `Content/ThirdPerson`, `Variant_*` (reference only), and
@@ -1084,12 +1130,7 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
     placeholders, and which upgrades become Epic or Legendary is decided later.
 19. ~~**Choice screen (with reroll).**~~ Done (see Prompt 19).
 20. ~~**XP pickups.**~~ Done (see Prompt 20).
-21. **Map boundary.**
-    - Invisible walls around the town's play area and a ceiling. Collision blocks pawns only; shots, traces, pickups
-      and the camera pass through.
-    - The ceiling height sets the Extra Jump limit.
-    - Test that players and enemies can't pass and shots can.
-    - The hub map gets its own boundary in Prompt 25.
+21. ~~**Map boundary.**~~ Done for the town (see Prompt 21). The hub map gets its own `AGSMapBoundary` in Prompt 25.
 22. **Kill combo.**
 23. **Round clear bonus.** The same amount every round (no round scaling; user decision).
 24. **Round HUD.**
