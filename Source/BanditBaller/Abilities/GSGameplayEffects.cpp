@@ -99,6 +99,20 @@ void UGSUpgradeEffect::AddMultiplierModifier(const FGameplayAttribute& Attribute
 	Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(1.f + PerStackBonus));
 }
 
+void UGSUpgradeEffect::AddAdditiveModifier(const FGameplayAttribute& Attribute, float PerStackAmount)
+{
+	FGameplayModifierInfo& Modifier = Modifiers.AddDefaulted_GetRef();
+	Modifier.Attribute = Attribute;
+	Modifier.ModifierOp = EGameplayModOp::Additive;
+	Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(PerStackAmount));
+}
+
+UGSUpgradeEffect_ExtraJump::UGSUpgradeEffect_ExtraJump(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddAdditiveModifier(UGSAttributeSet::GetExtraJumpsAttribute(), 1.f);
+}
+
 UGSUpgradeEffect_ReloadSpeed::UGSUpgradeEffect_ReloadSpeed(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

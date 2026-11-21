@@ -65,6 +65,15 @@ public:
 	FGameplayAttributeData ReloadSpeed;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, ReloadSpeed)
 
+	/**
+	 * Air jumps on top of the normal jump: AGSCharacter keeps JumpMaxCount = 1 + ExtraJumps. Default 0, clamped to
+	 * >= 0. Raised by the Extra Jump upgrade.
+	 * TODO(co-op): not replicated (single-player first); replicate it in M6 so a client's predicted jump count matches.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Movement")
+	FGameplayAttributeData ExtraJumps;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, ExtraJumps)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;

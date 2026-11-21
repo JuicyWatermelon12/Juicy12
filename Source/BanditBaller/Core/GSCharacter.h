@@ -21,6 +21,8 @@ class UInputAction;
 class UGSProgressionComponent;
 class UMaterialInstanceDynamic;
 class UMaterialInterface;
+class UNiagaraSystem;
+class USoundBase;
 struct FOnAttributeChangeData;
 
 /**
@@ -76,11 +78,32 @@ public:
 	FSimpleMulticastDelegate OnDashFinished;
 
 	//~ ACharacter
-	/** Jumping during a slide ends it and keeps the momentum (slide-hop). */
+	/**
+	 * Jumping during a slide ends it and keeps the momentum (slide-hop). Jumping during a dash is queued and happens
+	 * when the dash ends (the dash would otherwise overwrite the jump's upward speed and waste the jump).
+	 */
 	virtual void Jump() override;
+
+	// --- Extra jumps (ExtraJumps attribute -> JumpMaxCount; tests / debug) ---
+
+	/** Air jumps taken since the player last stood on the ground. */
+	int32 GetAirJumpsSinceLanded() const { return AirJumpsSinceLanded; }
+
+	/** Upward speed the most recent air jump set. */
+	float GetLastAirJumpZVelocity() const { return LastAirJumpZVelocity; }
+
+	/** Air-jump puffs / sounds played so far (cosmetic). */
+	int32 GetAirJumpFeedbackCount() const { return AirJumpFeedbackCount; }
+
+	/** A jump was pressed during the dash and will happen when it ends. */
+	bool IsJumpQueuedAfterDash() const { return bJumpQueuedAfterDash; }
+
+	const UGSMovementSettings* GetMovementSettings() const { return MovementSettings; }
 
 protected:
 	virtual bool CanJumpInternal_Implementation() const override;
+	/** Air jumps (JumpCurrentCount >= 2) set the same upward speed every time and play the air-jump feedback. */
+	virtual void OnJumped_Implementation() override;
 	//~ AActor / APawn / ACharacter
 	virtual void BeginPlay() override;
 	virtual void PossessedBy(AController* NewController) override;
@@ -128,6 +151,12 @@ private:
 	void ClearAbilitySystem();
 	void OnMoveSpeedChanged(const FOnAttributeChangeData& Data);
 	void ApplyMoveSpeed(float NewSpeed);
+	void OnExtraJumpsChanged(const FOnAttributeChangeData& Data);
+	/** JumpMaxCount = 1 + ExtraJumps (rounded, never below 1). */
+	void ApplyExtraJumps(float NewExtraJumps);
+
+	/** Placeholder puff + sound at the feet (local cosmetic; skipped during client move replays). */
+	void PlayAirJumpFeedback();
 
 	// --- Input ---
 	void OnAbilityInputPressed(FGameplayTag InputTag);
@@ -210,6 +239,13 @@ private:
 
 	TWeakObjectPtr<UAbilitySystemComponent> CachedAbilitySystem;
 	FDelegateHandle MoveSpeedChangedHandle;
+	FDelegateHandle ExtraJumpsChangedHandle;
+
+	// --- Extra jump state ---
+	int32 AirJumpsSinceLanded = 0;
+	float LastAirJumpZVelocity = 0.f;
+	int32 AirJumpFeedbackCount = 0;
+	bool bJumpQueuedAfterDash = false;
 
 	// --- Level-up glow (cosmetic, every machine; bound to this player's UGSProgressionComponent::OnLevelUp) ---
 	UFUNCTION()
@@ -237,4 +273,15 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Level Up")
 	FName LevelUpGlowParameter = TEXT("Glow");
+
+	/** Placeholder puff spawned at the feet on each air jump (optional). */
+	UPROPERTY(EditDefaultsOnly, Category = "Jump")
+	TObjectPtr<UNiagaraSystem> AirJumpEffect;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Jump")
+	FVector AirJumpEffectScale = FVector(0.4f);
+
+	/** Placeholder sound played at the feet on each air jump (optional). */
+	UPROPERTY(EditDefaultsOnly, Category = "Jump")
+	TObjectPtr<USoundBase> AirJumpSound;
 };

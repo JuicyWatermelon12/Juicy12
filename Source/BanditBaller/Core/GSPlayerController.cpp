@@ -5,7 +5,9 @@
 #include "BanditBaller.h"
 #include "Blueprint/UserWidget.h"
 #include "Engine/Engine.h"
+#include "GameFramework/Character.h"
 #include "GameplayEffect.h"
+#include "TimerManager.h"
 #include "GSAbilitySystemComponent.h"
 #include "GSDebugLibrary.h"
 #include "GSGameMode.h"
@@ -188,6 +190,27 @@ void AGSPlayerController::GSPress(const FString& InputTagName)
 
 	ASC->AbilityInputTagPressed(Tag);
 	ASC->AbilityInputTagReleased(Tag);
+#endif
+}
+
+void AGSPlayerController::GSJump()
+{
+#if !UE_BUILD_SHIPPING
+	ACharacter* MyCharacter = GetCharacter();
+	if (!MyCharacter)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("GSJump: no character"));
+		return;
+	}
+	MyCharacter->Jump();
+	TWeakObjectPtr<ACharacter> WeakCharacter = MyCharacter;
+	GetWorldTimerManager().SetTimerForNextTick([WeakCharacter]()
+	{
+		if (ACharacter* C = WeakCharacter.Get())
+		{
+			C->StopJumping();
+		}
+	});
 #endif
 }
 

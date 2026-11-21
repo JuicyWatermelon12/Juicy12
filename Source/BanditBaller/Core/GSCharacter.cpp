@@ -19,8 +19,10 @@
 #include "GSHealthComponent.h"
 #include "GSWeaponComponent.h"
 #include "GSProgressionComponent.h"
+#include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Net/UnrealNetwork.h"
+#include "NiagaraFunctionLibrary.h"
 
 AGSCharacter::AGSCharacter()
 {
@@ -167,8 +169,12 @@ void AGSCharacter::InitAbilitySystem()
 	MoveSpeedChangedHandle = ASC->GetGameplayAttributeValueChangeDelegate(UGSAttributeSet::GetMoveSpeedAttribute())
 		.AddUObject(this, &AGSCharacter::OnMoveSpeedChanged);
 
+	ExtraJumpsChangedHandle = ASC->GetGameplayAttributeValueChangeDelegate(UGSAttributeSet::GetExtraJumpsAttribute())
+		.AddUObject(this, &AGSCharacter::OnExtraJumpsChanged);
+
 	// Already initialized (e.g. respawn): sync immediately. A 0 value means stats aren't applied yet.
 	ApplyMoveSpeed(ASC->GetNumericAttribute(UGSAttributeSet::GetMoveSpeedAttribute()));
+	ApplyExtraJumps(ASC->GetNumericAttribute(UGSAttributeSet::GetExtraJumpsAttribute()));
 
 	// Level-up glow on this pawn (server and every client see it; OnLevelUp also fires from replication).
 	if (UGSProgressionComponent* Progression = PS->GetProgressionComponent())
@@ -183,6 +189,7 @@ void AGSCharacter::ClearAbilitySystem()
 	if (UAbilitySystemComponent* ASC = CachedAbilitySystem.Get())
 	{
 		ASC->GetGameplayAttributeValueChangeDelegate(UGSAttributeSet::GetMoveSpeedAttribute()).Remove(MoveSpeedChangedHandle);
+		ASC->GetGameplayAttributeValueChangeDelegate(UGSAttributeSet::GetExtraJumpsAttribute()).Remove(ExtraJumpsChangedHandle);
 	}
 	if (UGSProgressionComponent* Progression = CachedProgression.Get())
 	{
@@ -190,6 +197,7 @@ void AGSCharacter::ClearAbilitySystem()
 	}
 
 	MoveSpeedChangedHandle.Reset();
+	ExtraJumpsChangedHandle.Reset();
 	CachedAbilitySystem.Reset();
 	CachedProgression.Reset();
 }
@@ -236,6 +244,60 @@ void AGSCharacter::ApplyMoveSpeed(float NewSpeed)
 	{
 		GetCharacterMovement()->MaxWalkSpeed = NewSpeed;
 	}
+}
+
+void AGSCharacter::OnExtraJumpsChanged(const FOnAttributeChangeData& Data)
+{
+	ApplyExtraJumps(Data.NewValue);
+}
+
+void AGSCharacter::ApplyExtraJumps(float NewExtraJumps)
+{
+	// Takes effect at once, also mid-air (a jump granted while falling can be used right away).
+	JumpMaxCount = 1 + FMath::Max(0, FMath::RoundToInt(NewExtraJumps));
+}
+
+void AGSCharacter::OnJumped_Implementation()
+{
+	Super::OnJumped_Implementation();
+
+	// JumpCurrentCount already includes this jump: 1 = the ground (or coyote) jump; 2+ = an air jump. Walking off a
+	// ledge past the coyote window makes the first press count 2 as well (the engine skips the missed ground jump).
+	if (JumpCurrentCount < 2 || !MovementSettings)
+	{
+		return;
+	}
+
+	// Same upward speed for every air jump, however fast we are falling (the engine alone only raises a slower Z).
+	UCharacterMovementComponent* CMC = GetCharacterMovement();
+	CMC->Velocity.Z = FMath::Max(MovementSettings->AirJumpZVelocity, 0.f);
+	LastAirJumpZVelocity = CMC->Velocity.Z;
+	++AirJumpsSinceLanded;
+
+	// Cosmetics once per real jump, not again when a client replays saved moves.
+	if (!bClientUpdating)
+	{
+		PlayAirJumpFeedback();
+	}
+}
+
+void AGSCharacter::PlayAirJumpFeedback()
+{
+	if (GetNetMode() == NM_DedicatedServer)
+	{
+		return;
+	}
+	// TODO(co-op): only the machines that simulate this jump (owner + server) see it; multicast it in M6.
+	const FVector Feet = GetActorLocation() - FVector(0.f, 0.f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+	if (AirJumpEffect)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, AirJumpEffect, Feet, FRotator::ZeroRotator, AirJumpEffectScale);
+	}
+	if (AirJumpSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, AirJumpSound, Feet);
+	}
+	++AirJumpFeedbackCount;
 }
 
 // ---------------------------------------------------------------------------
@@ -419,6 +481,12 @@ void AGSCharacter::OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 P
 	if (bWasGrounded && GetCharacterMovement()->IsFalling() && JumpCurrentCount == 0)
 	{
 		LastGroundedTime = GetWorld()->GetTimeSeconds();
+	}
+
+	// Landed: the engine resets JumpCurrentCount (ResetJumpState); air jumps are available again.
+	if (GetCharacterMovement()->IsMovingOnGround())
+	{
+		AirJumpsSinceLanded = 0;
 	}
 }
 
@@ -622,6 +690,13 @@ void AGSCharacter::StopSlide()
 
 void AGSCharacter::Jump()
 {
+	// The dash drives velocity every tick (and zeroes Z), so a jump now would be eaten but still counted.
+	if (IsDashing())
+	{
+		bJumpQueuedAfterDash = true;
+		return;
+	}
+
 	if (const UGSSlideSettings* Settings = ActiveSlide.Get())
 	{
 		// Slide-hop: leave the slide and carry (optionally boosted) speed into the jump.
@@ -660,7 +735,11 @@ void AGSCharacter::StartDash(const FVector& Direction, const UGSDashSettings& Se
 {
 	if (IsDashing())
 	{
+		// Chaining dashes: keep a queued jump for the end of the new dash instead of firing it into it.
+		const bool bKeepQueuedJump = bJumpQueuedAfterDash;
+		bJumpQueuedAfterDash = false;
 		StopDash();
+		bJumpQueuedAfterDash = bKeepQueuedJump;
 	}
 	if (IsSliding())
 	{
@@ -737,4 +816,11 @@ void AGSCharacter::StopDash()
 	ActiveDash.Reset();
 	RestoreFriction();
 	OnDashFinished.Broadcast();
+
+	// A jump pressed during the dash happens now (ground jump, coyote jump or air jump as usual).
+	if (bJumpQueuedAfterDash)
+	{
+		bJumpQueuedAfterDash = false;
+		Jump();
+	}
 }

@@ -55,6 +55,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0", Units = "s"))
 	float CoyoteTime = 0.12f;
 
+	/**
+	 * Upward speed each air jump (ExtraJumps attribute) sets, the same for every air jump whether the player is still
+	 * rising or already falling fast, so each one adds the same height from where it starts.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Jump", meta = (ClampMin = "0", Units = "cm/s"))
+	float AirJumpZVelocity = 800.f;
+
 	// --- Rotation ---
 
 	/** Yaw rate (deg/s) when orienting to movement. */

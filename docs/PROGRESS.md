@@ -21,10 +21,10 @@ scope then changed to single-player first; see **Scope change — single-player 
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–10, 14 and 15
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–10 and 14–16
 are done, plus permanent cash (profile subsystem).
 
-State at the time of writing: `main` after Prompt 15, not pushed. The build is clean and all 20 automation tests pass.
+State at the time of writing: `main` after Prompt 16, not pushed. The build is clean and all 21 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -45,7 +45,8 @@ State at the time of writing: `main` after Prompt 15, not pushed. The build is c
 | Permanent cash | Profile subsystem + save; cash moved off PlayerState | a2dc3b7 |
 | Scope change | Single-player first; co-op moves to M6 (docs only) | f1db8b5 |
 | M2 14 | Run loop cleanup: in-run market phases removed (RoundClear → PreRound) | 58f29b7 |
-| M2 15 | Upgrade data + stat upgrades (ReloadSpeed, Damage, MoveSpeed) | see git log |
+| M2 15 | Upgrade data + stat upgrades (ReloadSpeed, Damage, MoveSpeed) | 9dbccbf |
+| M2 16 | Extra Jump upgrade (ExtraJumps → JumpMaxCount, consistent air jumps, dash jump queue) | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -468,6 +469,48 @@ Docs only; no code changed.
   - A rifle shot hit the target dummy for 26.0 (20 × 1.3).
 - **Not built yet:** the upgrade pool with rarity weights, offers on level-up and the choice UI (Prompts 17–18).
 
+### Prompt 16 — Extra Jump
+- **New attribute `ExtraJumps`** (constructor default 0, clamped to ≥ 0, not replicated, `TODO(co-op)`).
+  - `AGSCharacter` binds its change delegate (like MoveSpeed) and keeps `JumpMaxCount = 1 + ExtraJumps`.
+  - It is synced on possess and respawn, and changes apply at once, also mid-air.
+- **Air jumps** (`AGSCharacter::OnJumped_Implementation`, `JumpCurrentCount >= 2`):
+  - Each one sets the upward speed to the new `AirJumpZVelocity` (DA_PlayerMovementSettings, 800 cm/s). That is the
+    same speed whether the player is still rising or falling fast, so each air jump adds the same height (~1.87 m)
+    from where it starts.
+  - Landing resets the count (engine `ResetJumpState`; `AirJumpsSinceLanded` goes back to 0).
+- **How it combines with other movement:**
+  - **Coyote time:** a jump inside the 0.12 s window after walking off a ledge is the ground jump, and all air
+    jumps remain. After the window, the first press uses an air jump (engine rule).
+  - **Slide-hop:** unchanged. It is the ground jump; air jumps work after it.
+  - **Dash:** a jump pressed during a dash used to be lost: TickDash overwrites the velocity every frame, but the
+    jump was still counted. It is now queued (`IsJumpQueuedAfterDash`) and happens when the dash ends. That is a
+    ground jump after a ground dash and an air jump after an air dash. Chained dashes keep the queue.
+- **Feedback** (placeholder, local only, skipped during client move replays; `TODO(co-op)` to multicast):
+  - `AirJumpEffect` = the Niagara template `/Niagara/DefaultAssets/Templates/Systems/RadialBurst`, at the feet,
+    scale 0.4.
+  - `AirJumpSound` = `/Engine/VREditor/Sounds/VR_teleport_Cue` (editor content).
+  - Both are set on BP_GSCharacter.
+- **Assets:** `Abilities/GE_Upgrade_ExtraJump` (`UGSUpgradeEffect_ExtraJump`, Additive +1 ExtraJumps per stack) and
+  `Data/Upgrades/DA_Upgrade_ExtraJump` (Rare, no cap, "+{PerStack} air jump per stack.").
+- **Debug:** `GSJump` exec on the controller taps jump (Jump, then StopJumping on the next tick).
+- **Test** `Upgrades.ExtraJump`. It turns off editor CPU throttling while it runs, for the coyote timing.
+- **PIE check** (god mode, round paused):
+  - `gs.Upgrade.Grant ExtraJump` ×3 → JumpMaxCount 4.
+  - Tapping `GSJump` 5 times from the ground: +186 cm, then air jumps of +187, +183 and ~+180 cm (sampled every
+    50 ms). The 5th press was refused, and landing reset the count. Apex ~7.2 m above the floor.
+  - Ground dash + jump: the jump came out at the dash end with ~840 cm/s horizontal speed carried over.
+  - The puff was visible at the feet.
+- **Movement issues noticed** (none fixed beyond the dash bug; suggestions only):
+  - **Height stacking:** every stack adds ~1.9 m of reachable height, with no cap. That is enough to reach roofs or
+    hover out of melee reach, and enemies can't follow (NavMesh only on the ground). A cap, diminishing height or
+    roof blockers may be needed.
+  - **Double-tap waste:** an air jump right after the ground jump gains little, because upward speed only goes from
+    ~770 to 800. Mashing jump wastes it. This comes from "same speed every time". A short delay before the first
+    air jump is possible.
+  - **Air jumps keep horizontal speed:** they don't redirect it (AirControl 0.9 still steers). With no input,
+    horizontal speed in the air decays to 0 within ~0.6 s (BrakingDecelerationFalling 1500; this was already so).
+  - **Jump during a dash waits up to 0.15 s** for the dash to end, rather than cancelling it.
+
 ---
 
 ## Console commands and CVars
@@ -505,7 +548,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.Debug.DamageLog 1` (cvar) | Log every health loss (`[dmg] victim took N from X (health) at t=`). |
 | `gs.Wave.MaxAlive <N>` (cvar) | Override the alive cap (0 = DA_WaveSettings). |
 | `gs.Cash.Lifetime <s>` (cvar) | Lifetime of uncollected cash pieces (0 = DA_CashSettings). |
-| `GSFire`, `GSPress <InputTag>`, `GSAimAt X Y Z` | Exec on the controller: drive fire, any ability input, or the camera from the console. |
+| `GSFire`, `GSPress <InputTag>`, `GSAimAt X Y Z`, `GSJump` | Exec on the controller: drive fire, any ability input, the camera, or a jump tap from the console. |
 
 Launch arg: `-GSSeed=N` fixes the run seed.
 
@@ -528,6 +571,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools` (PIE running):
 | PickupRadius | Cash magnet radius in cm (player 300). |
 | XPGain | XP multiplier on kill XP (player 1.0; constructor default 1.0). |
 | ReloadSpeed | Reload time divisor for GA_Reload (constructor default 1.0, min 0.1). Not replicated yet. |
+| ExtraJumps | Air jumps; AGSCharacter keeps JumpMaxCount = 1 + ExtraJumps (constructor default 0, min 0). Not replicated yet. |
 | IncomingDamage | Meta attribute: GE_Damage writes it, the set converts it to Health loss and records the instigator. |
 
 **Gameplay tags** (native, `Abilities/GSGameplayTags.*`; none in config):
@@ -552,12 +596,13 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools` (PIE running):
 | `GE_Upgrade_ReloadSpeed` | `UGSUpgradeEffect_ReloadSpeed` | Infinite, stacking; Multiply (Additive) 1.10 on ReloadSpeed → +10% of base per stack. |
 | `GE_Upgrade_Damage` | `UGSUpgradeEffect_Damage` | Infinite, stacking; Multiply (Additive) 1.10 on Damage → +10% of base per stack. |
 | `GE_Upgrade_MoveSpeed` | `UGSUpgradeEffect_MoveSpeed` | Infinite, stacking; Multiply (Additive) 1.08 on MoveSpeed → +8% of base per stack. |
+| `GE_Upgrade_ExtraJump` | `UGSUpgradeEffect_ExtraJump` | Infinite, stacking; Additive +1 ExtraJumps per stack. |
 
 **Abilities:**
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (20, all passing)
+## Automation tests (21, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test starts PIE in L_Town_Graybox, waits for the player, removes enemies, runs
 and ends PIE. Stop PIE before running.
@@ -584,12 +629,13 @@ and ends PIE. Stop PIE before running.
 | `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → "+XPValue XP" popup at once; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); banner/pulse/glow end. |
 | `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; save when RoundClear ends (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + `?Restart` (new HUD shows it). |
 | `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
+| `Upgrades.ExtraJump` | DA_Upgrade_ExtraJump (Rare, no cap, "+1"); no air jump without it; ×3 → ExtraJumps 3, JumpMaxCount 4; three air jumps (rising, falling, falling fast) each set AirJumpZVelocity, 4th refused, one puff/sound each; landing resets; coyote jump is the ground jump; late jump after walking off uses an air jump; slide-hop then air jump; jump during an air dash is queued and becomes an air jump at the dash end; jump during a ground dash becomes the ground jump; new run → 0 / 1. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
 ## Tuning values (current)
 
-- **Player**: walk 900 cm/s, accel 6000, jump 800, gravity ×1.75, coyote 0.12 s; camera arm 350 / FOV 90, ADS 180 /
+- **Player**: walk 900 cm/s, accel 6000, jump 800, air jump 800 (~1.87 m each), gravity ×1.75, coyote 0.12 s; camera arm 350 / FOV 90, ADS 180 /
   65. Slide: +600 boost, max 1600, 0.8 s, 1 s cooldown. Dash: 600 cm in 0.15 s, 0.25 s i-frames, 2 charges, 3 s
   recharge each.
 - **Weapons** (damage / RPM / mag / reload):
@@ -642,8 +688,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 
   - Reaching level 10 takes 2579 XP in total. Level 20 needs 5551 from level 19, and level 50 needs 4.48 M.
   - Kill XP: MeleeBandit 10, RangedBandit 15. DT_Waves rounds 1–5 give 40 / 65 / 90 / 115 / 150 XP.
-- **Upgrades** (per stack, additive on the base value): Reload Speed +10%, Damage +10%, Move Speed +8%; all Common,
-  no cap.
+- **Upgrades** (per stack, additive on the base value): Reload Speed +10%, Damage +10%, Move Speed +8% (Common);
+  Extra Jump +1 air jump (Rare). None has a cap.
 - **Combo curves**: there is no combo system yet.
 
 ## Known issues, TODOs and deviations
@@ -693,6 +739,8 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 - `MI_CashCoin` / `MI_CashBill` are instances of `M_Enemy_MeleeBandit` (changing that material changes the cash).
 - The telegraph uses `M_EnemyLaser`.
 - Level-up: `M_LevelUpGlow` overlay and the `CompileSuccess` editor sound.
+- Air jump: the Niagara `RadialBurst` template and the `VR_teleport_Cue` editor sound (may not cook into a packaged
+  build).
 
 **Warnings**:
 - `C4701` potentially uninitialized `BestLocation` in `AI/GSSpawnLocationFinder.cpp:246`.
@@ -727,7 +775,8 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
 
 14. ~~**Run loop cleanup.**~~ Done (see Prompt 14).
 15. ~~**Upgrade data + stat upgrades.**~~ Done (see Prompt 15). The upgrade pool with rarity weights moved to 17.
-16. **Extra Jump.** New attribute JumpCount, synced to `JumpMaxCount`. Rare upgrade, +1 jump per pick, no cap.
+16. ~~**Extra Jump.**~~ Done (see Prompt 16). Open: whether Extra Jump needs a cap or roof blockers (height
+    stacking).
 17. **Upgrade offers.** An upgrade pool asset (the DA_Upgrade_* list plus rarity weights). On each level-up, roll 3
     distinct choices (run stream, rarity-weighted), stored as pending
     offers on the PlayerState and queued across several level-ups. Picking goes through a gameplay function that

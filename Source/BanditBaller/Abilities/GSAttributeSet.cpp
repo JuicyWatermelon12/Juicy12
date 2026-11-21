@@ -12,6 +12,7 @@ UGSAttributeSet::UGSAttributeSet()
 	// Neutral default so enemies and players without GE_InitPlayerStats still gain x1 XP.
 	InitXPGain(1.f);
 	InitReloadSpeed(1.f);
+	InitExtraJumps(0.f);
 }
 
 void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -43,7 +44,8 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 		|| Attribute == GetDamageAttribute()
 		|| Attribute == GetFireRateAttribute()
 		|| Attribute == GetPickupRadiusAttribute()
-		|| Attribute == GetXPGainAttribute())
+		|| Attribute == GetXPGainAttribute()
+		|| Attribute == GetExtraJumpsAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}

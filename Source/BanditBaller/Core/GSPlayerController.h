@@ -55,6 +55,10 @@ public:
 	UFUNCTION(Exec)
 	void GSAimAt(float X, float Y, float Z);
 
+	/** Debug: tap the jump input once (Jump, then StopJumping on the next tick), e.g. to try air jumps from the console. */
+	UFUNCTION(Exec)
+	void GSJump();
+
 	/** Debug console commands (gs.Spawn, gs.God, ...) from a client run on the server through this. */
 	UFUNCTION(Server, Reliable)
 	void ServerExecDebugCommand(const FString& Command, const TArray<FString>& Args);

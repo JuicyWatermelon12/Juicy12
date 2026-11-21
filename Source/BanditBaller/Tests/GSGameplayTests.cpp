@@ -56,6 +56,9 @@
 #include "Kismet/GameplayStatics.h"
 #include "GSGameplayEffects.h"
 #include "GSGameplayAbility_Reload.h"
+#include "GSMovementAbilitySettings.h"
+#include "GSMovementSettings.h"
+#include "Editor/EditorPerformanceSettings.h"
 #include "GSUpgradeComponent.h"
 #include "GSUpgradeData.h"
 #include "GSWeaponComponent.h"
@@ -2125,6 +2128,260 @@ bool FGSStatUpgradesTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: Damage back to 1"), GetAttr(UGSAttributeSet::GetDamageAttribute()), 1.f, 0.001f);
 		TestEqual(TEXT("New run: MoveSpeed back to base"), GetAttr(UGSAttributeSet::GetMoveSpeedAttribute()), S->BaseMoveSpeed, 0.5f);
 		TestEqual(TEXT("New run: MaxWalkSpeed back to base"), GetPlayer()->GetCharacterMovement()->MaxWalkSpeed, S->BaseMoveSpeed, 0.5f);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Extra Jump: JumpMaxCount sync, consistent air jumps, coyote / slide-hop / dash, landing reset
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	/** Enqueue: let Frames frames pass. */
+	void WaitFrames(FAutomationTestBase* Test, int32 Frames)
+	{
+		TSharedRef<int32> Left = MakeShared<int32>(Frames);
+		WaitUntil(Test, FString::Printf(TEXT("%d frames"), Frames), [Left]() { return --(*Left) < 0; });
+	}
+
+	/** Enqueue: press jump, release it on the next frame (like a key tap). */
+	void TapJump(FAutomationTestBase* Test)
+	{
+		Step([]() { GetPlayer()->Jump(); });
+		WaitFrames(Test, 1);
+		Step([]() { GetPlayer()->StopJumping(); });
+	}
+
+	bool IsFalling()
+	{
+		const AGSCharacter* Player = GetPlayer();
+		return Player && Player->GetCharacterMovement()->IsFalling();
+	}
+
+	/** Enqueue: wait until the player stands on the ground again with its jumps reset. */
+	void WaitLanded(FAutomationTestBase* Test)
+	{
+		WaitUntil(Test, TEXT("player to land"), []()
+		{
+			const AGSCharacter* Player = GetPlayer();
+			return Player && Player->GetCharacterMovement()->IsMovingOnGround() && Player->JumpCurrentCount == 0;
+		});
+	}
+
+	/** Enqueue: teleport the player Height cm up (like walking off a ledge) and wait until it is falling. */
+	void LiftPlayer(FAutomationTestBase* Test, float Height, TSharedRef<double> FallStart)
+	{
+		Step([Height]() { GetPlayer()->SetActorLocation(GetPlayer()->GetActorLocation() + FVector(0.f, 0.f, Height), false, nullptr, ETeleportType::TeleportPhysics); });
+		WaitUntil(Test, TEXT("player to start falling"), [FallStart]()
+		{
+			if (IsFalling())
+			{
+				*FallStart = GetPIEWorld()->GetTimeSeconds();
+				return true;
+			}
+			return false;
+		});
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSExtraJumpTest, "BanditBaller.Upgrades.ExtraJump", GSTests::TestFlags)
+bool FGSExtraJumpTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	struct FState
+	{
+		bool bOldThrottle = true;
+		float AirJumpZ = 0.f;
+		float JumpZ = 0.f;
+		float Coyote = 0.f;
+		int32 FeedbackBefore = 0;
+	};
+	TSharedRef<FState> S = MakeShared<FState>();
+	TSharedRef<double> FallStart = MakeShared<double>(0.0);
+
+	// Data, defaults, and timing that doesn't depend on the editor being in front.
+	Step([this, S]()
+	{
+		UEditorPerformanceSettings* Perf = GetMutableDefault<UEditorPerformanceSettings>();
+		S->bOldThrottle = Perf->bThrottleCPUWhenNotForeground;
+		Perf->bThrottleCPUWhenNotForeground = false;
+		GetGameMode()->SetRoundTimerPaused(true); // stay in PreRound: no enemies
+
+		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("ExtraJump"));
+		if (TestNotNull(TEXT("DA_Upgrade_ExtraJump exists"), Upgrade))
+		{
+			TestTrue(TEXT("Extra Jump is Rare"), Upgrade->Rarity == EGSUpgradeRarity::Rare);
+			TestEqual(TEXT("Extra Jump has no cap"), Upgrade->MaxStacks, 0);
+			TestTrue(TEXT("Extra Jump effect is an upgrade effect"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect::StaticClass()));
+			const FString Description = Upgrade->GetFormattedDescription().ToString();
+			TestTrue(FString::Printf(TEXT("Description '%s' shows +1"), *Description), Description.Contains(TEXT("+1")));
+		}
+
+		const AGSCharacter* Player = GetPlayer();
+		const UGSMovementSettings* Settings = Player->GetMovementSettings();
+		if (TestNotNull(TEXT("Movement settings"), Settings))
+		{
+			S->AirJumpZ = Settings->AirJumpZVelocity;
+			S->JumpZ = Settings->JumpZVelocity;
+			S->Coyote = Settings->CoyoteTime;
+		}
+		TestEqual(TEXT("ExtraJumps starts at 0"), GetAttr(UGSAttributeSet::GetExtraJumpsAttribute()), 0.f, 0.001f);
+		TestEqual(TEXT("JumpMaxCount starts at 1"), Player->JumpMaxCount, 1);
+		S->FeedbackBefore = Player->GetAirJumpFeedbackCount();
+	});
+
+	// Without the upgrade there is no air jump.
+	TapJump(this);
+	WaitUntil(this, TEXT("ground jump"), []() { return IsFalling() && GetPlayer()->JumpCurrentCount == 1; });
+	TapJump(this);
+	WaitFrames(this, 5);
+	Step([this]() { TestEqual(TEXT("No air jump without the upgrade"), GetPlayer()->GetAirJumpsSinceLanded(), 0); });
+	WaitLanded(this);
+
+	// Three stacks: JumpMaxCount 4.
+	Step([this]()
+	{
+		for (int32 i = 0; i < 3; ++i)
+		{
+			UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("ExtraJump") });
+		}
+		TestEqual(TEXT("ExtraJumps = 3"), GetAttr(UGSAttributeSet::GetExtraJumpsAttribute()), 3.f, 0.001f);
+		TestEqual(TEXT("JumpMaxCount = 1 + 3"), GetPlayer()->JumpMaxCount, 4);
+		TestEqual(TEXT("Stacks tracked"), GetPlayerUpgrades()->GetStacks(UGSDebugLibrary::FindUpgradeData(TEXT("ExtraJump"))), 3);
+	});
+
+	// Ground jump, then three air jumps: one while still rising, two while falling ever faster. Each sets the same Z.
+	TapJump(this);
+	WaitUntil(this, TEXT("rising after the ground jump"), [S]() { return IsFalling() && GetPlayer()->JumpCurrentCount == 1 && GetPlayer()->GetVelocity().Z < S->JumpZ * 0.6f; });
+	TapJump(this);
+	WaitUntil(this, TEXT("air jump 1 (rising)"), []() { return GetPlayer()->GetAirJumpsSinceLanded() == 1; });
+	Step([this, S]() { TestEqual(TEXT("Air jump 1 sets AirJumpZVelocity"), GetPlayer()->GetLastAirJumpZVelocity(), S->AirJumpZ, 0.5f); });
+	WaitUntil(this, TEXT("falling after air jump 1"), []() { return GetPlayer()->GetVelocity().Z < -300.f; });
+	TapJump(this);
+	WaitUntil(this, TEXT("air jump 2 (falling)"), []() { return GetPlayer()->GetAirJumpsSinceLanded() == 2; });
+	Step([this, S]() { TestEqual(TEXT("Air jump 2 sets the same Z"), GetPlayer()->GetLastAirJumpZVelocity(), S->AirJumpZ, 0.5f); });
+	WaitUntil(this, TEXT("falling fast after air jump 2"), []() { return GetPlayer()->GetVelocity().Z < -700.f; });
+	TapJump(this);
+	WaitUntil(this, TEXT("air jump 3 (falling fast)"), []() { return GetPlayer()->GetAirJumpsSinceLanded() == 3; });
+	Step([this, S]() { TestEqual(TEXT("Air jump 3 sets the same Z"), GetPlayer()->GetLastAirJumpZVelocity(), S->AirJumpZ, 0.5f); });
+	TapJump(this);
+	WaitFrames(this, 5);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("A 4th air jump is refused"), GetPlayer()->GetAirJumpsSinceLanded(), 3);
+		TestEqual(TEXT("JumpCurrentCount at the max"), GetPlayer()->JumpCurrentCount, 4);
+		TestEqual(TEXT("One puff/sound per air jump"), GetPlayer()->GetAirJumpFeedbackCount() - S->FeedbackBefore, 3);
+	});
+	WaitLanded(this);
+	Step([this]() { TestEqual(TEXT("Landing resets air jumps"), GetPlayer()->GetAirJumpsSinceLanded(), 0); });
+
+	// Coyote time: walking off a ledge and jumping right away is still the ground jump; air jumps remain.
+	LiftPlayer(this, 300.f, FallStart);
+	TapJump(this);
+	WaitUntil(this, TEXT("coyote jump"), []() { return GetPlayer()->JumpCurrentCount >= 1 && GetPlayer()->GetVelocity().Z > 0.f; });
+	Step([this, S, FallStart]()
+	{
+		AddInfo(FString::Printf(TEXT("Coyote jump %.3f s after leaving the ground (window %.2f s)"), GetPIEWorld()->GetTimeSeconds() - *FallStart, S->Coyote));
+		TestEqual(TEXT("Coyote jump counts as the ground jump"), GetPlayer()->JumpCurrentCount, 1);
+		TestEqual(TEXT("Coyote jump is not an air jump"), GetPlayer()->GetAirJumpsSinceLanded(), 0);
+	});
+	TapJump(this);
+	WaitUntil(this, TEXT("air jump after the coyote jump"), []() { return GetPlayer()->GetAirJumpsSinceLanded() == 1; });
+	WaitLanded(this);
+
+	// Past the coyote window the first press is an air jump.
+	LiftPlayer(this, 600.f, FallStart);
+	WaitUntil(this, TEXT("coyote window to pass"), [S, FallStart]() { return GetPIEWorld()->GetTimeSeconds() - *FallStart > S->Coyote + 0.05f; });
+	TapJump(this);
+	WaitUntil(this, TEXT("air jump after walking off"), []() { return GetPlayer()->GetAirJumpsSinceLanded() == 1; });
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Late jump after walking off uses an air jump"), GetPlayer()->JumpCurrentCount, 2);
+		TestEqual(TEXT("Late jump sets AirJumpZVelocity"), GetPlayer()->GetLastAirJumpZVelocity(), S->AirJumpZ, 0.5f);
+	});
+	WaitLanded(this);
+
+	// Slide-hop keeps the slide speed, then air jumps work as usual.
+	Step([this]()
+	{
+		const UGSSlideSettings* Slide = LoadObject<UGSSlideSettings>(nullptr, TEXT("/Game/BanditBaller/Data/DA_SlideSettings.DA_SlideSettings"));
+		if (TestNotNull(TEXT("DA_SlideSettings"), Slide))
+		{
+			GetPlayer()->StartSlide(*Slide);
+		}
+		TestTrue(TEXT("Sliding"), GetPlayer()->IsSliding());
+	});
+	WaitFrames(this, 3);
+	TapJump(this);
+	WaitUntil(this, TEXT("slide-hop"), []() { return IsFalling() && GetPlayer()->JumpCurrentCount == 1; });
+	Step([this]()
+	{
+		TestFalse(TEXT("Slide-hop ends the slide"), GetPlayer()->IsSliding());
+		AddInfo(FString::Printf(TEXT("Slide-hop horizontal speed %.0f"), GetPlayer()->GetVelocity().Size2D()));
+		TestTrue(TEXT("Slide-hop keeps the slide speed"), GetPlayer()->GetVelocity().Size2D() > 300.f);
+	});
+	WaitFrames(this, 5);
+	TapJump(this);
+	WaitUntil(this, TEXT("air jump after the slide-hop"), []() { return GetPlayer()->GetAirJumpsSinceLanded() == 1; });
+	Step([this, S]() { TestEqual(TEXT("Air jump after slide-hop sets AirJumpZVelocity"), GetPlayer()->GetLastAirJumpZVelocity(), S->AirJumpZ, 0.5f); });
+	WaitLanded(this);
+
+	// Jump during an air dash: queued, then the air jump happens when the dash ends.
+	TSharedRef<const UGSDashSettings*> Dash = MakeShared<const UGSDashSettings*>(nullptr);
+	LiftPlayer(this, 400.f, FallStart);
+	WaitUntil(this, TEXT("coyote window to pass"), [S, FallStart]() { return GetPIEWorld()->GetTimeSeconds() - *FallStart > S->Coyote + 0.05f; });
+	Step([this, Dash]()
+	{
+		*Dash = LoadObject<UGSDashSettings>(nullptr, TEXT("/Game/BanditBaller/Data/DA_DashSettings.DA_DashSettings"));
+		if (!TestNotNull(TEXT("DA_DashSettings"), *Dash))
+		{
+			return;
+		}
+		AGSCharacter* Player = GetPlayer();
+		Player->StartDash(Player->GetActorForwardVector(), **Dash);
+		TestTrue(TEXT("Dashing"), Player->IsDashing());
+		Player->Jump();
+		TestTrue(TEXT("Jump during the dash is queued"), Player->IsJumpQueuedAfterDash());
+		TestEqual(TEXT("No jump spent during the dash"), Player->GetAirJumpsSinceLanded(), 0);
+	});
+	WaitUntil(this, TEXT("dash to end and the queued air jump to happen"), []() { return !GetPlayer()->IsDashing() && GetPlayer()->GetAirJumpsSinceLanded() == 1; });
+	Step([this, S]()
+	{
+		GetPlayer()->StopJumping();
+		TestFalse(TEXT("Queue cleared"), GetPlayer()->IsJumpQueuedAfterDash());
+		TestEqual(TEXT("Air jump after the dash sets AirJumpZVelocity"), GetPlayer()->GetLastAirJumpZVelocity(), S->AirJumpZ, 0.5f);
+	});
+	WaitLanded(this);
+
+	// Jump during a ground dash: the ground jump happens when the dash ends.
+	Step([this, Dash]()
+	{
+		AGSCharacter* Player = GetPlayer();
+		if (*Dash)
+		{
+			Player->StartDash(Player->GetActorForwardVector(), **Dash);
+		}
+		Player->Jump();
+		TestTrue(TEXT("Ground dash: jump queued"), Player->IsJumpQueuedAfterDash());
+	});
+	WaitUntil(this, TEXT("ground jump after the dash"), []() { return !GetPlayer()->IsDashing() && IsFalling() && GetPlayer()->JumpCurrentCount == 1; });
+	Step([this]()
+	{
+		GetPlayer()->StopJumping();
+		TestEqual(TEXT("Ground dash jump is the ground jump"), GetPlayer()->GetAirJumpsSinceLanded(), 0);
+	});
+	WaitLanded(this);
+
+	// A new run removes the extra jumps.
+	Step([this, S]()
+	{
+		GetGameMode()->RestartRunWithSeed(5150);
+		TestEqual(TEXT("New run: ExtraJumps 0"), GetAttr(UGSAttributeSet::GetExtraJumpsAttribute()), 0.f, 0.001f);
+		TestEqual(TEXT("New run: JumpMaxCount 1"), GetPlayer()->JumpMaxCount, 1);
+		GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = S->bOldThrottle;
 	});
 	EndPIE();
 	return true;

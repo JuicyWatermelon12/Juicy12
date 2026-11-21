@@ -82,9 +82,9 @@ public:
  * Base for level-up upgrade effects (GE_Upgrade_* derive from the subclasses below). Infinite, stacks by target with
  * no limit on the effect itself (UGSUpgradeData::MaxStacks caps picks); UGSUpgradeComponent adds one stack per pick
  * and removes them all when a new run starts.
- * Each subclass has one Multiply (Additive) modifier, magnitude 1 + per-stack bonus (edit it on the asset). GAS scales
- * it by the stack count around the bias of 1, so N stacks give base x (1 + bonus x N): +10% per stack stays +10% of
- * the base value, not compounding.
+ * Percent upgrades use one Multiply (Additive) modifier, magnitude 1 + per-stack bonus (edit it on the asset). GAS
+ * scales it by the stack count around the bias of 1, so N stacks give base x (1 + bonus x N): +10% per stack stays
+ * +10% of the base value, not compounding. Flat upgrades (Extra Jump) use one Additive modifier: N stacks add N x it.
  */
 UCLASS(Abstract)
 class BANDITBALLER_API UGSUpgradeEffect : public UGameplayEffect
@@ -97,6 +97,19 @@ public:
 protected:
 	/** Adds the effect's Multiply (Additive) modifier on Attribute with magnitude 1 + PerStackBonus. */
 	void AddMultiplierModifier(const FGameplayAttribute& Attribute, float PerStackBonus);
+
+	/** Adds the effect's Additive modifier on Attribute with magnitude PerStackAmount. */
+	void AddAdditiveModifier(const FGameplayAttribute& Attribute, float PerStackAmount);
+};
+
+/** +1 ExtraJumps per stack (GE_Upgrade_ExtraJump); AGSCharacter keeps JumpMaxCount = 1 + ExtraJumps. */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_ExtraJump : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_ExtraJump(const FObjectInitializer& ObjectInitializer);
 };
 
 /** +10% ReloadSpeed per stack (GE_Upgrade_ReloadSpeed). */
