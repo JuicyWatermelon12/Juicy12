@@ -6,7 +6,7 @@
 //   gs.Spawn <EnemyDataName> [Count=1]                  e.g. gs.Spawn MeleeBandit 10 (UGSSpawnLocationFinder)
 //   gs.Debug.Spawns 1                                   draw the spawn ring and chosen points
 //   gs.God [0|1]                                        toggle / set damage immunity
-//   gs.KillAll                                          kill every living enemy (credited to you)
+//   gs.KillAll                                          kill every living enemy (credited to you; drops cash + XP orbs)
 //   gs.GiveWeapon <WeaponDataName>                      e.g. gs.GiveWeapon Pistol
 //   gs.SetAttr <Attribute> <Value>                      e.g. gs.SetAttr MoveSpeed 900
 //   gs.Perf [Seconds=5]                                 log avg/max frame, game, render and GPU time
@@ -73,7 +73,7 @@ namespace GSCheats
 
 	FAutoConsoleCommandWithWorldAndArgs KillAllCommand(
 		TEXT("gs.KillAll"),
-		TEXT("Kill every living enemy through GE_Damage (credited to the local player)."),
+		TEXT("Kill every living enemy through GE_Damage (credited to the local player). They drop cash and XP orbs; no XP until the orbs are collected."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("KillAll"), Args, World); }),
 		ECVF_Cheat);
 

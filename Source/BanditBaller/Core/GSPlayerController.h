@@ -38,6 +38,9 @@ public:
 	UFUNCTION(Client, Unreliable)
 	void ClientNotifyCashCollected(FVector_NetQuantize WorldLocation, int32 Amount);
 
+	/** An XP orb was collected at WorldLocation: the next "+N XP" popup appears there (local HUD). */
+	void NotifyXPCollected(const FVector& WorldLocation);
+
 	/** Debug (gs.Damage.Self): apply DebugDamageEffect to our own ASC on the server. */
 	UFUNCTION(Server, Reliable)
 	void ServerDebugDamageSelf(float Amount);

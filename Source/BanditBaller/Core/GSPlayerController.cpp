@@ -130,11 +130,16 @@ void AGSPlayerController::ClientNotifyDamageDealt_Implementation(FVector_NetQuan
 	if (UGSHUDWidget* HUD = GetGSHUD())
 	{
 		HUD->AddDamageNumber(WorldLocation, Damage, bCritical);
-		HUD->ShowHitMarker(bKilled);
-		if (bKilled)
-		{
-			HUD->NotifyKill(WorldLocation); // anchors the "+N XP" popup of this kill
-		}
+		HUD->ShowHitMarker(bKilled); // kills give no XP themselves (it comes from the dropped orb)
+	}
+}
+
+void AGSPlayerController::NotifyXPCollected(const FVector& WorldLocation)
+{
+	// TODO(co-op): local HUD only (no RPC, single-player first); a remote client's popup falls back to above its pawn.
+	if (UGSHUDWidget* HUD = GetGSHUD())
+	{
+		HUD->NotifyXPSource(WorldLocation);
 	}
 }
 

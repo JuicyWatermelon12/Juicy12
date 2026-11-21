@@ -35,10 +35,10 @@ see **Design update — market, prestige and economy**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–19 are done
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–20 are done
 (11–13 and 17 were design / scope updates and permanent cash).
 
-State at the time of writing: `main` after Prompt 19, not pushed. The build is clean and all 23 automation tests pass.
+State at the time of writing: `main` after Prompt 20, not pushed. The build is clean and all 24 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -64,7 +64,8 @@ State at the time of writing: `main` after Prompt 19, not pushed. The build is c
 | M2 17 | Design update: decisions before M3 (docs only) | 14da7c0 |
 | Design update | Market, prestige and economy decisions (docs only; not a numbered step) | bb1ded0 |
 | M2 18 | Upgrade offers: 4 rarity tiers, DA_UpgradePool, offer queue, choose / reroll, simulator (log only) | bd0e14c |
-| M2 19 | Level-up choice screen: pause, cards, input lock, keys / gamepad / mouse, reroll button | see git log |
+| M2 19 | Level-up choice screen: pause, cards, input lock, keys / gamepad / mouse, reroll button | 9bd1d3b |
+| M2 20 | XP orbs: XP dropped as a pickup and granted at collection | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -132,7 +133,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–19 done)
+## M2 — The run loop (Prompts 1–20 done)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -298,6 +299,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
   - The amount comes from OnXPChanged's Delta.
   - The position comes from `UGSHUDWidget::NotifyKill` (called by `AGSPlayerController::ClientNotifyDamageDealt`
     on a kill). The two pair up if they arrive within `XPPopupPairWindow` 0.25 s of each other, in either order.
+    (Since Prompt 20 it is `NotifyXPSource`, called where an XP orb is collected; kills give no XP.)
   - XP with no kill (`gs.XP.Add`) pops above the player.
 - **Level-up banner** (built with MCP in WBP_HUD, top center at 22% height):
   - VerticalBox `LevelUpBanner` holding `LevelUpTitle` ("LEVEL UP!", gold 54), `LevelUpLevelText` ("Level N") and
@@ -729,6 +731,54 @@ Docs only; no code changed. Not a numbered step: **Next up** keeps its 18–28 n
   - The first card layout overflowed on two-line names; the card was made taller with smaller fonts, and checked
     again.
 
+### Prompt 20 — XP orbs
+- **XP is a pickup now.** Every killed enemy drops one XP orb worth its `UGSEnemyData::XPValue` (flat, the same every
+  round). No XP is granted on the kill itself.
+  - `AGSGameMode::HandleEnemyKilled` calls `SpawnXPDrop` next to `SpawnCashDrop`; the instant `AwardXP` on kill is
+    gone.
+  - Orbs drop whoever killed the enemy (before, kills by non-players gave no XP).
+- **Reused the cash pickup system** (`Economy/GSCashPickup*`):
+  - `AGSCashPickup` has a kind (`EGSPickupKind`: Cash, XP; `GetKind` / `IsCash` / `IsXPOrb`). Both kinds share one
+    pool, the toss, the magnet (PickupRadius, `CollectDistance`), the RoundClear vacuum (`VacuumAll`) and the clear
+    on a new run (`ReleaseAll`).
+  - `UGSCashPickupSubsystem::SpawnXPDrop` tosses one orb to a random spot around the body (run stream).
+  - `CollectPickup` branches by kind: cash → `AwardCash`; XP → `AGSGameMode::AwardXPPickup(Player, XP, Location)`.
+  - New queries: `GetNumActiveOfKind`, `GetLifetime(Kind)`, XP counters (`GetNumXPOrbsDropped / Collected /
+    Expired`) and `GetLastXPCollectLocation`. The older cash counters count cash pieces only.
+  - The kind isn't replicated (`TODO(co-op)`: clients would show the cash look).
+- **At pickup:** `AwardXPPickup` → `AwardXP` for the collecting player. XPGain applies; level-ups, rewards, upgrade
+  offers and the pause happen then; run stats XPEarned counts it then. `TODO(co-op)`: XP goes to whoever collects
+  the orb.
+- **"+N XP" popup at the collection point:**
+  - `AGSPlayerController::NotifyXPCollected` (not an RPC; local HUD; `TODO(co-op)`) →
+    `UGSHUDWidget::NotifyXPSource`, renamed from `NotifyKill`, anchors the popup before the XP arrives.
+  - Kills no longer anchor XP popups. XP with no source (`gs.XP.Add`) still pops above the player.
+  - Test hook `GetLastXPPopupAnchor()`.
+- **Tuning:** in the existing `DA_CashSettings` (`UGSCashSettings`), which now holds all enemy-drop pickup tuning.
+  - Chosen because the toss, magnet, collect distance and pool are shared with cash.
+  - New "XP Orb" section: `XPOrbLifetime` (0 = never expires, the default), `XPOrbLook`, `XPOrbPulseAmount` 0.15,
+    `XPOrbPulseSpeed` 1.5.
+  - `gs.Cash.Lifetime` still affects cash only.
+- **Look** (placeholder):
+  - `Materials/M_XPOrb`: unlit, emissive `Color` (0.02, 0.22, 1) × `Intensity` 3.
+  - On the engine sphere at scale 0.32, pulsing in size instead of spinning, with the same bob as cash.
+  - The first try (scale 0.22, intensity 6) read as a pale dot on the light floor; this version is clearly blue next
+    to the gold coins and green bills.
+- **Debug:** the `gs.KillAll` help says the enemies drop cash and XP orbs and that XP comes once they are collected.
+  `gs.XP.Add` stays instant.
+- **Tests:**
+  - New `Economy.XPOrbs`.
+  - `Progression.XPAndLevels`: kill → no XP, one orb; vacuum → XPValue, then XPValue × XPGain 2. It now takes its
+    two upgrade offers first.
+  - `Progression.LevelUpFeedback`: the kill shows no popup; the collected orb shows "+XPValue XP" at the collection
+    point.
+  - `Economy.CashPickups`: counts cash pickups only; the XP orbs it leaves never expire.
+- **PIE check** (round paused):
+  - 3 melee bandits killed with `gs.KillAll`: TotalXP stayed 0, and an orb lay beside each corpse with its coins and
+    bill.
+  - `gs.Round.Skip` ×2 to RoundClear vacuumed 12 pickups (9 cash, 3 orbs): XP +30 (three "+10 XP" log lines at
+    pickup) and cash +$30.
+
 ---
 
 ## Console commands and CVars
@@ -738,7 +788,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | Command / CVar | What it does |
 |---|---|
 | `gs.Spawn <Enemy> [Count=1]` | Spawn enemies around the player via the spawn finder (`MeleeBandit`, `RangedBandit` or a full `DA_Enemy_*` name). |
-| `gs.KillAll` | Kill every living enemy through GE_Damage, credited to the player (they drop cash). |
+| `gs.KillAll` | Kill every living enemy through GE_Damage, credited to the player (they drop cash and XP orbs; no XP until the orbs are collected). |
 | `gs.God [0\|1]` | Toggle/set damage immunity (one `State.Invulnerable` count). |
 | `gs.GiveWeapon <Weapon>` | Equip `Rifle` / `Pistol` / `BanditCarbine` with a full mag (replaces the equipped one if both slots are full). |
 | `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain, ReloadSpeed). |
@@ -825,7 +875,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (23, all passing)
+## Automation tests (24, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test starts PIE in L_Town_Graybox, waits for the player, removes enemies, runs
 and ends PIE. Stop PIE before running.
@@ -846,10 +896,11 @@ and ends PIE. Stop PIE before running.
 | `Round.DifficultyScaling` | Round 1 base stats; round 10 = base × curve, full health; GameState multipliers. |
 | `Balance.TimeToKill` | Rifle/pistol shots-to-kill at rounds 1/5/10 vs both bandits via the real fire path (`[ttk]` log). XPGain 0, so kills don't open upgrade offers. |
 | `Run.SeedAndStats` | Same seed replays rolls; restart resets stats; kills per type; damage dealt/taken; rounds cleared. |
-| `Economy.CashPickups` | Exact split; out-of-reach drop stays; radius collects into Cash/CashEarned/HUD + popup; pool reuse; RoundClear vacuum; short lifetime blinks, expires unpaid. |
-| `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over (HUD level + bar follow); kill XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; cap at max level; new run resets. |
+| `Economy.CashPickups` | Exact split; out-of-reach drop stays; radius collects into Cash/CashEarned/HUD + popup; pool reuse; RoundClear vacuum; short lifetime blinks, expires unpaid. Counts cash pickups only (the kills' XP orbs never expire). |
+| `Economy.XPOrbs` | XPOrbLifetime 0; kill → no XP, one orb worth XPValue with the orb mesh / material, no expiry; cash expires (gs.Cash.Lifetime 1.5) but the orb stays, no blink; walking in collects it → XP = XPValue × XPGain 1.5, run stats XPEarned, "+N XP" popup at the collection point; out-of-reach orb waits, RoundClear vacuums it; gs.XP.Add is instant; a new run clears orbs on the ground; a dead player collects nothing. |
+| `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over (HUD level + bar follow); kill gives no XP but one orb; collected orb XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; cap at max level; new run resets. |
 | `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear and the Market District; new run removes stacks and clamps Health; dead player gets the stack but no heal. Takes each upgrade offer (choice 0) so the game unpauses. |
-| `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → "+XPValue XP" popup at once; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); 3 upgrade offers taken; banner/pulse/glow end. |
+| `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → no popup, collected orb → "+XPValue XP" at the collection point; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); 3 upgrade offers taken; banner/pulse/glow end. |
 | `UI.UpgradeChoice` | Choice widget from the PlayerController; level-up pauses (GameMode owns the pause) and the cards wait for the banner; cards match the offer (order, rarity color, "Owned: N"); "Reroll (3 left)", cursor shown; key / click ignored during the 0.3 s lock; R, gamepad Y and the button reroll (label 2/1/0, new cards, lock again), greyed out at 0 and R does nothing; key 2 picks the 2nd card, last pick hides, unpauses, cursor off; 1000 XP → 1 open + 3 queued; D-pad selects, A picks; next offer swaps in at once (no banner wait), locked, still paused; click / numpad 1 / key 3 pick the rest; hidden and unpaused after the queue. |
 | `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; save when RoundClear ends (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + `?Restart` (new HUD shows it). |
 | `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
@@ -904,7 +955,9 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
     $4 + $4 + $4 + $3.
   - Scatter 40–140 cm, toss 0.35 s / 80 cm high, rest 25 cm above the floor.
   - Lifetime 20 s, blink for the last 4 s.
-  - Magnet 400 → 3000 cm/s (accel 3000), collected within 80 cm. Pool prewarm 48.
+  - Magnet 400 → 3000 cm/s (accel 3000), collected within 80 cm. Pool prewarm 48 (shared with XP orbs).
+  - XP orbs: one per kill worth XPValue, same toss / magnet / vacuum, no lifetime (XPOrbLifetime 0), sphere ×0.32
+    with M_XPOrb, pulse ±15% at 1.5 Hz.
 - **XP** (DA_XPCurve; XP needed from the previous level, +25% per level, max level 50):
 
   | Level | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
@@ -912,7 +965,7 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   | XP | 100 | 125 | 156 | 195 | 244 | 305 | 381 | 477 | 596 |
 
   - Reaching level 10 takes 2579 XP in total. Level 20 needs 5551 from level 19, and level 50 needs 4.48 M.
-  - Kill XP: MeleeBandit 10, RangedBandit 15. DT_Waves rounds 1–5 give 40 / 65 / 90 / 115 / 150 XP.
+  - XP per enemy (orb value): MeleeBandit 10, RangedBandit 15. DT_Waves rounds 1–5 drop 40 / 65 / 90 / 115 / 150 XP.
 - **Upgrades** (per stack, additive on the base value): Reload Speed +10%, Damage +10%, Move Speed +8% (Common);
   Extra Jump +1 air jump (Rare). None has a cap.
 - **Upgrade offers** (DA_UpgradePool, placeholders): rarity weights Common 100 / Rare 20 / Epic 6 / Legendary 1,
@@ -931,7 +984,6 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Run summary and return to the hub.
 - No upgrade is Epic or Legendary yet; those tiers are empty and never offered.
 - **Not yet built for the decisions before M3:**
-  - XP pickups: XP is still granted instantly on the kill (Prompt 20).
   - The map boundary (Prompt 21). Until it exists, Extra Jump height is unlimited.
   - Owned items in `OwnedItems`, item types (usable items, gear) and the gear loadout (M3/M4).
 - Prestige and the two-layer profile (playthrough data + prestige data) are a later milestone; the save layout
@@ -980,6 +1032,7 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 - `MI_CashCoin` / `MI_CashBill` are instances of `M_Enemy_MeleeBandit` (changing that material changes the cash).
 - The telegraph uses `M_EnemyLaser`.
 - Level-up: `M_LevelUpGlow` overlay and the `CompileSuccess` editor sound.
+- XP orb: `M_XPOrb` on the engine sphere.
 - Air jump: the Niagara `RadialBurst` template and the `VR_teleport_Cue` editor sound (may not cook into a packaged
   build).
 
@@ -1030,11 +1083,7 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
 18. ~~**Upgrade offers (4 rarity tiers + rerolls).**~~ Done (see Prompt 18; log / console only). The weights are
     placeholders, and which upgrades become Epic or Legendary is decided later.
 19. ~~**Choice screen (with reroll).**~~ Done (see Prompt 19).
-20. **XP pickups.**
-    - Enemies drop XP as pickups instead of granting it on the kill (replaces the instant `AwardXP` in
-      `HandleEnemyKilled`). XPGain still applies.
-    - Settle the details: magnet / radius, RoundClear vacuum, lifetime, and the "+N XP" popups (the kill pairing from
-      Prompt 10 changes).
+20. ~~**XP pickups.**~~ Done (see Prompt 20).
 21. **Map boundary.**
     - Invisible walls around the town's play area and a ceiling. Collision blocks pawns only; shots, traces, pickups
       and the camera pass through.
@@ -1113,6 +1162,7 @@ Not built now; listed so single-player work stays co-op-ready. Co-op has never b
 - The profile is one balance per machine. On a listen server only the host's pickups are credited; remote players'
   pickups are not (`TODO(co-op)` in `AwardCash`). Clients' HUDs show their own machine's profile.
 - Cash goes to whoever collects it, not the killer.
-- XP goes only to the killing player (not shared with the party). Kills by non-players give no XP.
-- The "+N XP" popup pairing is a best guess: several kills replicated in one update show their summed XP at the
-  first kill.
+- XP goes to whoever collects the orb (not shared with the party), like cash.
+- The XP orb's kind isn't replicated, so clients would show it with the cash look.
+- The "+N XP" collection point reaches only the local HUD (`NotifyXPCollected` is not an RPC); a remote client's
+  popup falls back to above its pawn.

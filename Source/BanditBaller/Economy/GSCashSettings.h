@@ -30,8 +30,11 @@ struct FGSCashPieceLook
 };
 
 /**
- * Cash pickup tuning (DA_CashSettings), read by UGSCashPickupSubsystem via AGSGameMode and replicated to clients
- * on each AGSCashPickup (for the look and blink timing).
+ * Pickup tuning for both kinds of enemy drops (DA_CashSettings), read by UGSCashPickupSubsystem via AGSGameMode and
+ * replicated to clients on each AGSCashPickup (for the look and blink timing).
+ * - Cash pieces: Split, Lifetime, CoinLook / BillLook.
+ * - XP orbs: the "XP Orb" section.
+ * - Shared by both: Scatter (toss), Magnet, Pool.
  */
 UCLASS(BlueprintType, Const)
 class BANDITBALLER_API UGSCashSettings : public UPrimaryDataAsset
@@ -110,4 +113,21 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Look")
 	FGSCashPieceLook BillLook;
+
+	// --- XP orbs (one per killed enemy, worth its XPValue) ---
+
+	/** Seconds an uncollected XP orb stays; 0 = it never expires. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "XP Orb", meta = (ClampMin = "0", Units = "s"))
+	float XPOrbLifetime = 0.f;
+
+	/** Placeholder look: a glowing blue sphere (it pulses instead of spinning). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "XP Orb")
+	FGSCashPieceLook XPOrbLook;
+
+	/** Scale pulse of the orb: +-XPOrbPulseAmount around its look scale, XPOrbPulseSpeed times per second. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "XP Orb", meta = (ClampMin = "0", ClampMax = "1"))
+	float XPOrbPulseAmount = 0.15f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "XP Orb", meta = (ClampMin = "0"))
+	float XPOrbPulseSpeed = 1.5f;
 };

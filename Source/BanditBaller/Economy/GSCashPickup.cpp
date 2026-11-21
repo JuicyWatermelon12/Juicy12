@@ -56,8 +56,9 @@ void AGSCashPickup::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLif
 // Pool lifecycle (server)
 // ---------------------------------------------------------------------------
 
-void AGSCashPickup::ActivatePickup(int32 InValue, bool bInBill, const UGSCashSettings* InSettings, const FVector& From, const FVector& Landing, double InExpireAtServerTime)
+void AGSCashPickup::ActivatePickup(EGSPickupKind InKind, int32 InValue, bool bInBill, const UGSCashSettings* InSettings, const FVector& From, const FVector& Landing, double InExpireAtServerTime)
 {
+	Kind = InKind;
 	Value = InValue;
 	bBill = bInBill;
 	Settings = InSettings;
@@ -115,22 +116,35 @@ void AGSCashPickup::ApplyActive()
 	Mesh->SetVisibility(true);
 }
 
-void AGSCashPickup::ApplyLook()
+const FGSCashPieceLook* AGSCashPickup::GetLook() const
 {
 	if (!Settings)
 	{
+		return nullptr;
+	}
+	if (Kind == EGSPickupKind::XP)
+	{
+		return &Settings->XPOrbLook;
+	}
+	return bBill ? &Settings->BillLook : &Settings->CoinLook;
+}
+
+void AGSCashPickup::ApplyLook()
+{
+	const FGSCashPieceLook* Look = GetLook();
+	if (!Look)
+	{
 		return;
 	}
-	const FGSCashPieceLook& Look = bBill ? Settings->BillLook : Settings->CoinLook;
-	if (Look.Mesh)
+	if (Look->Mesh)
 	{
-		Mesh->SetStaticMesh(Look.Mesh);
+		Mesh->SetStaticMesh(Look->Mesh);
 	}
-	if (Look.Material)
+	if (Look->Material)
 	{
-		Mesh->SetMaterial(0, Look.Material);
+		Mesh->SetMaterial(0, Look->Material);
 	}
-	Mesh->SetRelativeScale3D(Look.Scale);
+	Mesh->SetRelativeScale3D(Look->Scale);
 }
 
 // ---------------------------------------------------------------------------
@@ -234,11 +248,12 @@ void AGSCashPickup::TickServer(float DeltaSeconds)
 		APawn* Target = MagnetTarget.Get();
 		if (!IsLivingPlayer(Target))
 		{
-			// Target died or left: wait on the ground again with a fresh lifetime.
+			// Target died or left: wait on the ground again with a fresh lifetime (none for XP orbs by default).
 			const AGameStateBase* GameState = GetWorld()->GetGameState();
 			State = EState::Idle;
 			MagnetTarget.Reset();
-			ExpireAtServerTime = GameState ? GameState->GetServerWorldTimeSeconds() + Subsystem->GetLifetime() : 0.0;
+			const float Lifetime = Subsystem->GetLifetime(Kind);
+			ExpireAtServerTime = (GameState && Lifetime > 0.f) ? GameState->GetServerWorldTimeSeconds() + Lifetime : 0.0;
 			break;
 		}
 
@@ -262,9 +277,19 @@ void AGSCashPickup::TickCosmetic(float DeltaSeconds)
 {
 	CosmeticTime += DeltaSeconds;
 
-	// Spin + bob on the mesh only (the replicated root stays where the server puts it).
-	const FRotator BaseRotation = Settings ? (bBill ? Settings->BillLook.Rotation : Settings->CoinLook.Rotation) : FRotator::ZeroRotator;
-	Mesh->SetRelativeRotation(FRotator(0.f, CosmeticTime * SpinDegreesPerSecond, 0.f).Quaternion() * BaseRotation.Quaternion());
+	// Spin (cash) or pulse (XP orb) + bob, on the mesh only (the replicated root stays where the server puts it).
+	const FGSCashPieceLook* Look = GetLook();
+	const FRotator BaseRotation = Look ? Look->Rotation : FRotator::ZeroRotator;
+	if (Kind == EGSPickupKind::XP)
+	{
+		const float Pulse = Settings ? 1.f + Settings->XPOrbPulseAmount * FMath::Sin(CosmeticTime * Settings->XPOrbPulseSpeed * UE_TWO_PI) : 1.f;
+		Mesh->SetRelativeScale3D((Look ? Look->Scale : FVector::OneVector) * Pulse);
+		Mesh->SetRelativeRotation(BaseRotation);
+	}
+	else
+	{
+		Mesh->SetRelativeRotation(FRotator(0.f, CosmeticTime * SpinDegreesPerSecond, 0.f).Quaternion() * BaseRotation.Quaternion());
+	}
 	Mesh->SetRelativeLocation(FVector(0.f, 0.f, BobHeight * FMath::Sin(CosmeticTime * BobSpeed)));
 
 	// Blink during the last BlinkTime seconds, faster as it runs out.

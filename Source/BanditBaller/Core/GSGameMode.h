@@ -126,6 +126,12 @@ public:
 	 */
 	void AwardCash(APlayerController* Player, int32 Amount, const FVector& Location);
 
+	/**
+	 * An XP orb reached Player: AwardXP for that player (XPGain applies; level-ups, rewards and upgrade offers happen
+	 * now), with the "+N XP" popup at Location (where it was collected). Returns the XP granted.
+	 */
+	int32 AwardXPPickup(APlayerController* Player, int32 BaseXP, const FVector& Location);
+
 	// --- XP / levels (server) ---
 
 	/** Player level curve (DA_XPCurve). Levels don't advance if unset. */

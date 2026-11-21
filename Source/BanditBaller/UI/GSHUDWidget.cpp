@@ -176,11 +176,11 @@ void UGSHUDWidget::HandleXPChanged(int32 CurrentXP, int32 XPForNextLevel, int32 
 	{
 		return;
 	}
-	// Pair with a kill that already arrived; otherwise wait briefly for its kill notification.
-	if (RecentKills.Num() > 0)
+	// Pair with an XP source (collected orb) that already arrived; otherwise wait briefly for it.
+	if (RecentXPSources.Num() > 0)
 	{
-		AddXPPopup(RecentKills[0].Location, Delta);
-		RecentKills.RemoveAt(0);
+		AddXPPopup(RecentXPSources[0].Location, Delta);
+		RecentXPSources.RemoveAt(0);
 		return;
 	}
 	if (PendingXP <= 0)
@@ -284,7 +284,7 @@ void UGSHUDWidget::TickLevelUpFeedback(float DeltaTime)
 // "+N XP" popups
 // ---------------------------------------------------------------------------
 
-void UGSHUDWidget::NotifyKill(const FVector& WorldLocation)
+void UGSHUDWidget::NotifyXPSource(const FVector& WorldLocation)
 {
 	if (PendingXP > 0)
 	{
@@ -292,25 +292,25 @@ void UGSHUDWidget::NotifyKill(const FVector& WorldLocation)
 		PendingXP = 0;
 		return;
 	}
-	if (RecentKills.Num() >= 16)
+	if (RecentXPSources.Num() >= 16)
 	{
-		RecentKills.RemoveAt(0);
+		RecentXPSources.RemoveAt(0);
 	}
-	RecentKills.Add({ WorldLocation, 0.f });
+	RecentXPSources.Add({ WorldLocation, 0.f });
 }
 
 void UGSHUDWidget::TickXPPopupPairing(float DeltaTime)
 {
-	for (int32 Index = RecentKills.Num() - 1; Index >= 0; --Index)
+	for (int32 Index = RecentXPSources.Num() - 1; Index >= 0; --Index)
 	{
-		RecentKills[Index].Age += DeltaTime;
-		if (RecentKills[Index].Age > XPPopupPairWindow)
+		RecentXPSources[Index].Age += DeltaTime;
+		if (RecentXPSources[Index].Age > XPPopupPairWindow)
 		{
-			RecentKills.RemoveAt(Index); // a kill that gave no XP (dummy, XPValue 0)
+			RecentXPSources.RemoveAt(Index); // a source that gave no XP
 		}
 	}
 
-	// XP without a kill (gs.XP.Add, or the kill notice never came): show it above the player.
+	// XP without a source (gs.XP.Add): show it above the player.
 	if (PendingXP > 0)
 	{
 		PendingXPAge += DeltaTime;
@@ -331,6 +331,7 @@ void UGSHUDWidget::AddXPPopup(const FVector& WorldLocation, int32 Amount)
 	{
 		return;
 	}
+	LastXPPopupAnchor = WorldLocation;
 	FDamageNumber& Entry = AllocateFloatingNumber();
 	Entry.WorldLocation = WorldLocation + FVector(0.f, 0.f, XPPopupHeight);
 	Entry.XP = Amount;

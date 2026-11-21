@@ -26,8 +26,8 @@ struct FOnAttributeChangeData;
  *   from UGSLevelRewards::DescribeRewards; level-ups while it shows merge into it) and LevelUpSound.
  * - Painted overlays (no extra widgets): floating damage numbers, "+$N" cash popups and "+N XP" popups, crosshair
  *   hit marker, red screen-edge flash when hit and pulse at low health.
- * - "+N XP": the amount comes from OnXPChanged; it is placed at the kill reported by NotifyKill when the two arrive
- *   within XPPopupPairWindow of each other (either order), otherwise above the player.
+ * - "+N XP": the amount comes from OnXPChanged; it is placed where the XP orb was collected (NotifyXPSource) when the
+ *   two arrive within XPPopupPairWindow of each other (either order), otherwise above the player (gs.XP.Add).
  * Tuning values are editable on WBP_HUD's class defaults.
  */
 UCLASS(Abstract)
@@ -59,11 +59,14 @@ public:
 	int32 GetDisplayedLevel() const { return DisplayedLevel; }
 	float GetDisplayedXPPercent() const { return DisplayedXPPercent; }
 
-	/** The local player killed something at WorldLocation (from AGSPlayerController::ClientNotifyDamageDealt). */
-	void NotifyKill(const FVector& WorldLocation);
+	/** XP is about to be (or was just) gained from something at WorldLocation, e.g. a collected XP orb. */
+	void NotifyXPSource(const FVector& WorldLocation);
 
 	/** Sum of the "+N XP" popups currently on screen (tests). */
 	int32 GetActiveXPPopupTotal() const;
+
+	/** Where the last "+N XP" popup was anchored, before its height offset (tests). */
+	FVector GetLastXPPopupAnchor() const { return LastXPPopupAnchor; }
 
 	// --- Level-up feedback state (tests) ---
 	bool IsLevelUpBannerShowing() const { return LevelUpBannerRemaining > 0.f; }
@@ -346,15 +349,16 @@ private:
 	uint64 LastLevelUpSoundFrame = 0;
 	int32 LevelUpSoundsPlayed = 0;
 
-	// "+N XP" popups: pair XP gains (OnXPChanged) with kill locations (NotifyKill).
+	// "+N XP" popups: pair XP gains (OnXPChanged) with where the XP came from (NotifyXPSource).
 	void AddXPPopup(const FVector& WorldLocation, int32 Amount);
 	void TickXPPopupPairing(float DeltaTime);
-	struct FRecentKill
+	struct FXPSource
 	{
 		FVector Location = FVector::ZeroVector;
 		float Age = 0.f;
 	};
-	TArray<FRecentKill> RecentKills;
+	TArray<FXPSource> RecentXPSources;
+	FVector LastXPPopupAnchor = FVector::ZeroVector;
 	int32 PendingXP = 0;
 	float PendingXPAge = 0.f;
 

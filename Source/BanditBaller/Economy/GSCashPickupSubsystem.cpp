@@ -91,7 +91,11 @@ void UGSCashPickupSubsystem::ReleasePickup(AGSCashPickup* Pickup, bool bExpired)
 	{
 		return;
 	}
-	if (bExpired)
+	if (bExpired && Pickup->IsXPOrb())
+	{
+		++NumXPOrbsExpired;
+	}
+	else if (bExpired)
 	{
 		++NumExpired;
 		ValueExpired += Pickup->GetValue();
@@ -109,14 +113,50 @@ void UGSCashPickupSubsystem::ReleaseAll()
 	}
 }
 
-float UGSCashPickupSubsystem::GetLifetime() const
+float UGSCashPickupSubsystem::GetLifetime(EGSPickupKind Kind) const
 {
+	if (Kind == EGSPickupKind::XP)
+	{
+		return LastSettings ? FMath::Max(LastSettings->XPOrbLifetime, 0.f) : 0.f;
+	}
 	const float Override = CVarCashLifetime.GetValueOnGameThread();
 	if (Override > 0.f)
 	{
 		return Override;
 	}
 	return LastSettings ? LastSettings->Lifetime : 20.f;
+}
+
+double UGSCashPickupSubsystem::GetExpireAt(EGSPickupKind Kind) const
+{
+	const float Lifetime = GetLifetime(Kind);
+	if (Lifetime <= 0.f)
+	{
+		return 0.0; // never expires
+	}
+	const UWorld* World = GetWorld();
+	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
+	const double Now = GameState ? GameState->GetServerWorldTimeSeconds() : (World ? World->GetTimeSeconds() : 0.0);
+	return Now + Lifetime;
+}
+
+int32 UGSCashPickupSubsystem::GetNumActiveOfKind(EGSPickupKind Kind) const
+{
+	int32 Count = 0;
+	for (const AGSCashPickup* Pickup : Active)
+	{
+		Count += (Pickup && Pickup->GetKind() == Kind) ? 1 : 0;
+	}
+	return Count;
+}
+
+void UGSCashPickupSubsystem::PrewarmOnce(const UGSCashSettings& Settings)
+{
+	if (!bPrewarmed)
+	{
+		bPrewarmed = true;
+		Prewarm(Settings.PoolPrewarm);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -181,19 +221,12 @@ int32 UGSCashPickupSubsystem::SpawnCashDrop(const UGSCashSettings* Settings, con
 		return 0;
 	}
 	LastSettings = Settings;
-
-	if (!bPrewarmed)
-	{
-		bPrewarmed = true;
-		Prewarm(Settings->PoolPrewarm);
-	}
+	PrewarmOnce(*Settings);
 
 	TArray<int32> Pieces;
 	SplitValue(*Settings, TotalValue, Pieces);
 
-	const AGameStateBase* GameState = World->GetGameState();
-	const double Now = GameState ? GameState->GetServerWorldTimeSeconds() : World->GetTimeSeconds();
-	const double ExpireAt = Now + GetLifetime();
+	const double ExpireAt = GetExpireAt(EGSPickupKind::Cash);
 
 	// Spread pieces around the body: even angles with jitter, random radius (run stream).
 	const float StartAngle = UGSRunRandom::FRandRange(this, 0.f, UE_TWO_PI);
@@ -211,13 +244,42 @@ int32 UGSCashPickupSubsystem::SpawnCashDrop(const UGSCashSettings* Settings, con
 			break;
 		}
 		const bool bBill = Pieces[Index] >= Settings->BillThreshold;
-		Pickup->ActivatePickup(Pieces[Index], bBill, Settings, Origin, Landing, ExpireAt);
+		Pickup->ActivatePickup(EGSPickupKind::Cash, Pieces[Index], bBill, Settings, Origin, Landing, ExpireAt);
 		Active.Add(Pickup);
 	}
 
 	UE_LOG(LogBanditBaller, Verbose, TEXT("[cash] drop $%d in %d pieces at %s (active %d, pooled %d)"),
 		TotalValue, Pieces.Num(), *Origin.ToCompactString(), Active.Num(), Pool.Num());
 	return Pieces.Num();
+}
+
+AGSCashPickup* UGSCashPickupSubsystem::SpawnXPDrop(const UGSCashSettings* Settings, const FVector& Origin, int32 XPValue)
+{
+	UWorld* World = GetWorld();
+	if (!Settings || XPValue <= 0 || !World || World->GetNetMode() == NM_Client)
+	{
+		return nullptr;
+	}
+	LastSettings = Settings;
+	PrewarmOnce(*Settings);
+
+	// Tossed like a cash piece, to a random spot around the body (run stream).
+	const float Angle = UGSRunRandom::FRandRange(this, 0.f, UE_TWO_PI);
+	const float Radius = UGSRunRandom::FRandRange(this, Settings->ScatterRadiusMin, FMath::Max(Settings->ScatterRadiusMin, Settings->ScatterRadiusMax));
+	const FVector Target = Origin + FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0.f) * Radius;
+	const FVector Landing = FindLanding(*Settings, Origin, Target);
+
+	AGSCashPickup* Orb = AcquirePickup();
+	if (!Orb)
+	{
+		UE_LOG(LogBanditBaller, Error, TEXT("[xp] could not create an XP orb."));
+		return nullptr;
+	}
+	Orb->ActivatePickup(EGSPickupKind::XP, XPValue, false, Settings, Origin, Landing, GetExpireAt(EGSPickupKind::XP));
+	Active.Add(Orb);
+	++NumXPOrbsDropped;
+	UE_LOG(LogBanditBaller, Verbose, TEXT("[xp] orb %d XP dropped at %s"), XPValue, *Origin.ToCompactString());
+	return Orb;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,11 +294,24 @@ void UGSCashPickupSubsystem::CollectPickup(AGSCashPickup* Pickup, APlayerControl
 	}
 	const int32 Value = Pickup->GetValue();
 	const FVector Location = Pickup->GetActorLocation();
+	const bool bXPOrb = Pickup->IsXPOrb();
 	ReleasePickup(Pickup, /*bExpired*/ false);
+
+	AGSGameMode* GameMode = GetWorld()->GetAuthGameMode<AGSGameMode>();
+	if (bXPOrb)
+	{
+		++NumXPOrbsCollected;
+		LastXPCollectLocation = Location;
+		if (GameMode)
+		{
+			GameMode->AwardXPPickup(Player, Value, Location);
+		}
+		return;
+	}
 
 	++NumCollected;
 	ValueCollected += Value;
-	if (AGSGameMode* GameMode = GetWorld()->GetAuthGameMode<AGSGameMode>())
+	if (GameMode)
 	{
 		GameMode->AwardCash(Player, Value, Location);
 	}

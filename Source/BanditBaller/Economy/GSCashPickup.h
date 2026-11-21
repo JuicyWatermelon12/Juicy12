@@ -8,13 +8,25 @@
 
 class UGSCashSettings;
 class UStaticMeshComponent;
+struct FGSCashPieceLook;
+
+/** What an enemy-drop pickup pays out when collected. */
+UENUM(BlueprintType)
+enum class EGSPickupKind : uint8
+{
+	/** A coin or bill: permanent cash (AGSGameMode::AwardCash). */
+	Cash,
+	/** An XP orb: run XP for the collecting player (AGSGameMode::AwardXPPickup). */
+	XP
+};
 
 /**
- * One coin or bill dropped by an enemy (Megabonk-style). Pooled by UGSCashPickupSubsystem; never placed.
+ * One enemy drop (Megabonk-style): a coin or bill, or an XP orb. Pooled by UGSCashPickupSubsystem (one pool for both
+ * kinds; the look is set on activation); never placed.
  *
  * Server: tosses to a landing spot, waits; when a living player's PickupRadius covers it, flies to that player
- * (accelerating) and is collected (AGSGameMode::AwardCash). Uncollected pieces return to the pool after their
- * lifetime. Clients: cosmetic spin, bob and blink before expiry. Replicated (movement + state).
+ * (accelerating) and is collected. Uncollected pickups return to the pool after their lifetime (XP orbs: none by
+ * default). Clients: cosmetic spin (cash) or pulse (XP), bob, and blink before expiry. Replicated (movement + state).
  */
 UCLASS(NotPlaceable)
 class BANDITBALLER_API AGSCashPickup : public AActor
@@ -27,8 +39,11 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void Tick(float DeltaSeconds) override;
 
-	/** Server: take this pooled pickup out of the pool. ExpireAtServerTime is a GameState server time. */
-	void ActivatePickup(int32 InValue, bool bInBill, const UGSCashSettings* InSettings, const FVector& From, const FVector& Landing, double InExpireAtServerTime);
+	/**
+	 * Server: take this pooled pickup out of the pool. ExpireAtServerTime is a GameState server time (0 = never
+	 * expires). bInBill only matters for cash.
+	 */
+	void ActivatePickup(EGSPickupKind InKind, int32 InValue, bool bInBill, const UGSCashSettings* InSettings, const FVector& From, const FVector& Landing, double InExpireAtServerTime);
 
 	/** Server: fly to Target regardless of its pickup radius (vacuum) or because it came in range. */
 	void StartMagnet(APawn* Target);
@@ -39,6 +54,14 @@ public:
 	bool IsActivePickup() const { return bActive; }
 	bool IsMagnetized() const { return State == EState::Magnet; }
 	int32 GetValue() const { return Value; }
+	EGSPickupKind GetKind() const { return Kind; }
+	bool IsCash() const { return Kind == EGSPickupKind::Cash; }
+	bool IsXPOrb() const { return Kind == EGSPickupKind::XP; }
+
+	/** Server time it expires; 0 = never (or flying to a player). */
+	double GetExpireAtServerTime() const { return ExpireAtServerTime; }
+
+	UStaticMeshComponent* GetMesh() const { return Mesh; }
 
 	/** In its last BlinkTime seconds before expiring (any machine; uses the replicated server time). */
 	bool IsBlinking() const;
@@ -66,6 +89,7 @@ private:
 
 	void ApplyLook();
 	void ApplyActive();
+	const FGSCashPieceLook* GetLook() const;
 
 	// --- Replicated ---
 
@@ -77,6 +101,10 @@ private:
 
 	UPROPERTY(ReplicatedUsing = OnRep_Look)
 	bool bBill = false;
+
+	/** TODO(co-op): not replicated (single-player first); clients need it in M6 to show the XP orb look. */
+	UPROPERTY()
+	EGSPickupKind Kind = EGSPickupKind::Cash;
 
 	UPROPERTY(ReplicatedUsing = OnRep_Look)
 	TObjectPtr<const UGSCashSettings> Settings;

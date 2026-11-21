@@ -137,7 +137,7 @@ public:
 	/** Spawns Count enemies around the player at locations from UGSSpawnLocationFinder (DA_SpawnSettings). */
 	static TArray<AGSEnemyCharacter*> SpawnEnemiesAround(AGSPlayerController* PC, UGSEnemyData* EnemyData, int32 Count);
 
-	/** Kills every living enemy through GE_Damage (credited to PC's pawn). Returns how many. */
+	/** Kills every living enemy through GE_Damage (credited to PC's pawn; they drop cash and XP orbs). Returns how many. */
 	static int32 KillAllEnemies(AGSPlayerController* PC);
 
 	/** Turns damage immunity (State.Invulnerable) on/off for PC's player. */

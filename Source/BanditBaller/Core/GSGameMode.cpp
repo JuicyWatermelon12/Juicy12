@@ -65,16 +65,6 @@ namespace
 		return Actor && Actor->IsA<APlayerState>();
 	}
 
-	/** The player state behind a killer (player pawn or player state), else nullptr. */
-	AGSPlayerState* GetPlayerStateOf(AActor* Actor)
-	{
-		if (const APawn* Pawn = Cast<APawn>(Actor))
-		{
-			return Pawn->IsPlayerControlled() ? Pawn->GetPlayerState<AGSPlayerState>() : nullptr;
-		}
-		return Cast<AGSPlayerState>(Actor);
-	}
-
 	/** "MeleeBandit" from DA_Enemy_MeleeBandit; class name for anything without enemy data. */
 	FName GetEnemyTypeName(const AActor* Enemy)
 	{
@@ -101,23 +91,20 @@ void AGSGameMode::HandleEnemyKilled(AActor* Enemy, AActor* Killer)
 		Stats->RecordKill(GetEnemyTypeName(Enemy));
 	}
 
-	// Cash drop before the broadcast: if this kill clears the wave, RoundClear's vacuum includes it.
+	// Drops before the broadcast: if this kill clears the wave, RoundClear's vacuum includes them. Cash and XP per
+	// enemy are flat (the same every round). No XP on the kill itself: it comes from the orb, at pickup.
 	const AGSEnemyCharacter* EnemyCharacter = Cast<AGSEnemyCharacter>(Enemy);
 	const UGSEnemyData* EnemyData = EnemyCharacter ? EnemyCharacter->GetEnemyData() : nullptr;
-	if (EnemyData && EnemyData->CashValue > 0 && CashSettings)
+	UGSCashPickupSubsystem* Pickups = GetWorld()->GetSubsystem<UGSCashPickupSubsystem>();
+	if (EnemyData && Pickups && CashSettings)
 	{
-		if (UGSCashPickupSubsystem* Cash = GetWorld()->GetSubsystem<UGSCashPickupSubsystem>())
+		if (EnemyData->CashValue > 0)
 		{
-			Cash->SpawnCashDrop(CashSettings, Enemy->GetActorLocation(), EnemyData->CashValue);
+			Pickups->SpawnCashDrop(CashSettings, Enemy->GetActorLocation(), EnemyData->CashValue);
 		}
-	}
-
-	// XP goes straight to the killing player (no pickup).
-	if (EnemyData && EnemyData->XPValue > 0)
-	{
-		if (AGSPlayerState* KillerPS = GetPlayerStateOf(Killer))
+		if (EnemyData->XPValue > 0)
 		{
-			AwardXP(KillerPS, static_cast<float>(EnemyData->XPValue));
+			Pickups->SpawnXPDrop(CashSettings, Enemy->GetActorLocation(), EnemyData->XPValue);
 		}
 	}
 
@@ -253,6 +240,22 @@ void AGSGameMode::AwardCash(APlayerController* Player, int32 Amount, const FVect
 	{
 		PC->ClientNotifyCashCollected(Location, Amount);
 	}
+}
+
+int32 AGSGameMode::AwardXPPickup(APlayerController* Player, int32 BaseXP, const FVector& Location)
+{
+	AGSPlayerState* PS = Player ? Player->GetPlayerState<AGSPlayerState>() : nullptr;
+	if (!PS || BaseXP <= 0)
+	{
+		return 0;
+	}
+	// TODO(co-op): XP goes to whoever collects the orb (not shared with the party). The popup position reaches only
+	// the local HUD; remote clients' "+N XP" falls back to above their pawn until M6 adds an RPC.
+	if (AGSPlayerController* PC = Cast<AGSPlayerController>(Player))
+	{
+		PC->NotifyXPCollected(Location); // before AwardXP, so the popup pairs with this XP gain at once
+	}
+	return AwardXP(PS, static_cast<float>(BaseXP)); // XPGain applies here; level-ups, rewards and offers follow
 }
 
 void AGSGameMode::HandleDamageApplied(AActor* Victim, AActor* DamageInstigator, float Amount)

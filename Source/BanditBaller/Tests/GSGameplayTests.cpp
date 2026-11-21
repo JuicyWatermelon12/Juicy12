@@ -191,6 +191,18 @@ namespace GSTests
 		return Spawned.Num() > 0 ? Spawned[0] : nullptr;
 	}
 
+	/** Spawns a MeleeBandit near the player and kills it as the player (it drops cash and an XP orb). */
+	AGSEnemyCharacter* KillTestEnemyAsPlayer(FAutomationTestBase* Test)
+	{
+		AGSEnemyCharacter* Enemy = SpawnTestEnemy();
+		UAbilitySystemComponent* EnemyASC = Enemy ? Enemy->GetAbilitySystemComponent() : nullptr;
+		if (Test->TestNotNull(TEXT("Spawned enemy"), EnemyASC))
+		{
+			ApplyDamage(EnemyASC, GetMaxHealth(EnemyASC) + 100.f, GetPlayerASC());
+		}
+		return Enemy;
+	}
+
 	/** Enqueue: poll Predicate every frame until true; fail the test after Timeout seconds. */
 	void WaitUntil(FAutomationTestBase* Test, const FString& What, TFunction<bool()> Predicate, double Timeout = DefaultTimeout)
 	{
@@ -1309,7 +1321,7 @@ namespace GSTests
 		int32 Sum = 0;
 		for (const AGSCashPickup* Pickup : GetCashSubsystem()->GetActivePickups())
 		{
-			Sum += Pickup ? Pickup->GetValue() : 0;
+			Sum += (Pickup && Pickup->IsCash()) ? Pickup->GetValue() : 0;
 		}
 		return Sum;
 	}
@@ -1319,7 +1331,7 @@ namespace GSTests
 		int32 Count = 0;
 		for (const AGSCashPickup* Pickup : GetCashSubsystem()->GetActivePickups())
 		{
-			Count += (Pickup && Pickup->IsMagnetized()) ? 1 : 0;
+			Count += (Pickup && Pickup->IsCash() && Pickup->IsMagnetized()) ? 1 : 0;
 		}
 		return Count;
 	}
@@ -1439,7 +1451,7 @@ bool FGSCashPickupsTest::RunTest(const FString& Parameters)
 		UGSCashPickupSubsystem::SplitValue(*Settings, State->CashValue, Expected);
 		State->Pieces = Expected.Num();
 		TestTrue(TEXT("Enemy has a CashValue"), State->CashValue > 0);
-		TestEqual(TEXT("Drop spawned the split's piece count"), Cash->GetNumActive(), State->Pieces);
+		TestEqual(TEXT("Drop spawned the split's piece count"), Cash->GetNumActiveOfKind(EGSPickupKind::Cash), State->Pieces);
 		TestEqual(TEXT("Drop pieces add up to the enemy's CashValue"), SumActiveCash(), State->CashValue);
 		TestTrue(TEXT("Pool prewarmed at least PoolPrewarm pickups"), Cash->GetNumCreated() >= Settings->PoolPrewarm);
 	});
@@ -1448,7 +1460,7 @@ bool FGSCashPickupsTest::RunTest(const FString& Parameters)
 	{
 		UGSCashPickupSubsystem* Cash = GetCashSubsystem();
 		const UGSCashSettings* Settings = GetGameMode()->GetCashSettings();
-		TestEqual(TEXT("Out of reach: pieces stay on the ground"), Cash->GetNumActive(), State->Pieces);
+		TestEqual(TEXT("Out of reach: pieces stay on the ground"), Cash->GetNumActiveOfKind(EGSPickupKind::Cash), State->Pieces);
 		TestEqual(TEXT("Out of reach: nothing flies to the player"), CountMagnetizedCash(), 0);
 		TestEqual(TEXT("Out of reach: no cash yet"), GetPlayerCash(), State->CashBefore);
 		for (const AGSCashPickup* Pickup : Cash->GetActivePickups())
@@ -1461,7 +1473,7 @@ bool FGSCashPickupsTest::RunTest(const FString& Parameters)
 		// 2) Walk into range (beside the corpse): everything flies in and pays out.
 		GetPlayer()->TeleportTo(State->DropOrigin - FVector(120.f, 0.f, 0.f), FRotator::ZeroRotator);
 	});
-	WaitUntil(this, TEXT("pieces in range to be collected"), []() { return GetCashSubsystem()->GetNumActive() == 0; }, 10.0);
+	WaitUntil(this, TEXT("pieces in range to be collected"), []() { return GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash) == 0; }, 10.0);
 	Step([this, State]()
 	{
 		UGSCashPickupSubsystem* Cash = GetCashSubsystem();
@@ -1490,9 +1502,9 @@ bool FGSCashPickupsTest::RunTest(const FString& Parameters)
 	{
 		TestEqual(TEXT("Before RoundClear: pieces wait on the ground"), CountMagnetizedCash(), 0);
 		GetGameMode()->SetPhase(EGSRoundPhase::RoundClear);
-		TestEqual(TEXT("RoundClear: every piece flies to the player"), CountMagnetizedCash(), GetCashSubsystem()->GetNumActive());
+		TestEqual(TEXT("RoundClear: every piece flies to the player"), CountMagnetizedCash(), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash));
 	});
-	WaitUntil(this, TEXT("vacuumed pieces to arrive"), []() { return GetCashSubsystem()->GetNumActive() == 0; }, 10.0);
+	WaitUntil(this, TEXT("vacuumed pieces to arrive"), []() { return GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash) == 0; }, 10.0);
 	Step([this, State]()
 	{
 		TestEqual(TEXT("RoundClear vacuum paid the whole drop"), GetPlayerCash(), State->CashBefore + State->CashValue);
@@ -1510,7 +1522,7 @@ bool FGSCashPickupsTest::RunTest(const FString& Parameters)
 		{
 			State->bSawBlinking |= Pickup && Pickup->IsBlinking();
 		}
-		return GetCashSubsystem()->GetNumActive() == 0;
+		return GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash) == 0;
 	}, 10.0);
 	Step([this, State]()
 	{
@@ -1518,11 +1530,176 @@ bool FGSCashPickupsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Expired: every piece counted"), Cash->GetNumExpired(), State->ExpiredBefore + State->Pieces);
 		TestEqual(TEXT("Expired: no cash paid"), GetPlayerCash(), State->CashBefore);
 		TestTrue(TEXT("Pieces blink before they vanish"), State->bSawBlinking);
-		TestEqual(TEXT("Expired pickups are back in the pool"), Cash->GetNumPooled(), Cash->GetNumCreated());
+		// The kill's XP orb never expires, so it is still out; everything else is back in the pool.
+		TestEqual(TEXT("Expired pickups are back in the pool (XP orbs stay)"), Cash->GetNumPooled() + Cash->GetNumActiveOfKind(EGSPickupKind::XP), Cash->GetNumCreated());
 
 		IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Cash.Lifetime"))->Set(0.f, ECVF_SetByCode);
 		GetGameMode()->SetRoundTimerPaused(false);
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// XP orbs
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	AGSCashPickup* FindActiveXPOrb()
+	{
+		for (AGSCashPickup* Pickup : GetCashSubsystem()->GetActivePickups())
+		{
+			if (Pickup && Pickup->IsXPOrb())
+			{
+				return Pickup;
+			}
+		}
+		return nullptr;
+	}
+
+	int32 GetPlayerTotalXP()
+	{
+		const AGSPlayerState* PS = GetPC() ? GetPC()->GetPlayerState<AGSPlayerState>() : nullptr;
+		return PS ? PS->GetProgressionComponent()->GetTotalXP() : -1;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSXPOrbsTest, "BanditBaller.Economy.XPOrbs", GSTests::TestFlags)
+bool FGSXPOrbsTest::RunTest(const FString& Parameters)
+{
+	struct FOrbState
+	{
+		FVector PlayerHome = FVector(0.f, 0.f, 100.f);
+		FVector EnemyAt = FVector(1000.f, 0.f, 0.f);
+		FVector DropOrigin = FVector::ZeroVector;
+		int32 CashValue = 0;
+		int32 XPValue = 0;
+		int32 ExpectedXP = 0;
+		int32 TotalBefore = 0;
+		int32 EarnedBefore = 0;
+		int32 CollectedBefore = 0;
+	};
+	TSharedRef<FOrbState> S = MakeShared<FOrbState>();
+
+	BeginPIE(this);
+
+	// A kill drops one orb out of reach; no XP yet.
+	Step([this, S]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		const UGSCashSettings* Settings = GameMode->GetCashSettings();
+		if (!TestNotNull(TEXT("Pickup settings (DA_CashSettings)"), Settings))
+		{
+			return;
+		}
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->RestartRunWithSeed(41);
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		GetPlayer()->TeleportTo(S->PlayerHome, FRotator::ZeroRotator);
+		GetPlayerASC()->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 1.5f);
+		IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Cash.Lifetime"))->Set(1.5f, ECVF_SetByCode);
+		TestEqual(TEXT("XP orbs never expire by default"), Settings->XPOrbLifetime, 0.f);
+
+		const UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		S->XPValue = Data ? Data->XPValue : 0;
+		S->ExpectedXP = FMath::RoundToInt(S->XPValue * 1.5f);
+		S->TotalBefore = GetPlayerTotalXP();
+		S->EarnedBefore = GetGameState()->GetRunStats()->GetXPEarned();
+		S->CollectedBefore = GetCashSubsystem()->GetNumXPOrbsCollected();
+		if (!KillEnemyForCash(this, S->EnemyAt, S->DropOrigin, S->CashValue))
+		{
+			return;
+		}
+		TestEqual(TEXT("Kill grants no XP"), GetPlayerTotalXP(), S->TotalBefore);
+		TestEqual(TEXT("One XP orb"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::XP), 1);
+		const AGSCashPickup* Orb = FindActiveXPOrb();
+		if (TestNotNull(TEXT("XP orb"), Orb))
+		{
+			TestEqual(TEXT("Orb worth the enemy's XPValue"), Orb->GetValue(), S->XPValue);
+			TestEqual(TEXT("Orb has no expiry"), Orb->GetExpireAtServerTime(), 0.0);
+			TestTrue(TEXT("Orb uses the XP orb mesh"), Settings->XPOrbLook.Mesh && Orb->GetMesh()->GetStaticMesh() == Settings->XPOrbLook.Mesh);
+			TestTrue(TEXT("Orb uses the XP orb material"), Settings->XPOrbLook.Material && Orb->GetMesh()->GetMaterial(0) == Settings->XPOrbLook.Material);
+			TestFalse(TEXT("Orb is visible"), Orb->IsHidden());
+		}
+	});
+
+	// Cash expires (1.5 s); the orb stays and doesn't blink.
+	WaitWorldSeconds(this, 2.5);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Cash expired"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash), 0);
+		const AGSCashPickup* Orb = FindActiveXPOrb();
+		TestTrue(TEXT("Orb still on the ground"), Orb && !Orb->IsMagnetized());
+		TestFalse(TEXT("Orb doesn't blink"), Orb && Orb->IsBlinking());
+		TestEqual(TEXT("Still no XP"), GetPlayerTotalXP(), S->TotalBefore);
+		if (Orb)
+		{
+			GetPlayer()->TeleportTo(Orb->GetActorLocation() + FVector(-60.f, 0.f, 60.f), FRotator::ZeroRotator);
+		}
+	});
+	WaitUntil(this, TEXT("orb in range to be collected"), []() { return GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::XP) == 0; }, 10.0);
+
+	// XP at pickup with XPGain; popup where it was collected; then the RoundClear vacuum.
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Collected: XPValue x XPGain"), GetPlayerTotalXP() - S->TotalBefore, S->ExpectedXP);
+		TestEqual(TEXT("Run stats XP earned at pickup"), GetGameState()->GetRunStats()->GetXPEarned() - S->EarnedBefore, S->ExpectedXP);
+		TestEqual(TEXT("Orb counted as collected"), GetCashSubsystem()->GetNumXPOrbsCollected(), S->CollectedBefore + 1);
+		const UGSHUDWidget* HUD = GetPC()->GetGSHUD();
+		TestTrue(TEXT("+N XP popup shown"), HUD && HUD->GetActiveXPPopupTotal() >= S->ExpectedXP);
+		TestTrue(TEXT("Popup where the orb was collected"), HUD && HUD->GetLastXPPopupAnchor().Equals(GetCashSubsystem()->GetLastXPCollectLocation(), 1.f));
+
+		GetPlayer()->TeleportTo(S->PlayerHome, FRotator::ZeroRotator);
+		S->TotalBefore = GetPlayerTotalXP();
+		KillEnemyForCash(this, S->EnemyAt, S->DropOrigin, S->CashValue);
+	});
+	WaitWorldSeconds(this, 1.0);
+	Step([this]()
+	{
+		TestTrue(TEXT("Out of reach: orb waits"), FindActiveXPOrb() && !FindActiveXPOrb()->IsMagnetized());
+		GetGameMode()->SetPhase(EGSRoundPhase::RoundClear);
+		TestTrue(TEXT("RoundClear: orb flies to the player"), FindActiveXPOrb() && FindActiveXPOrb()->IsMagnetized());
+	});
+	WaitUntil(this, TEXT("vacuumed orb to arrive"), []() { return GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::XP) == 0; }, 10.0);
+
+	// gs.XP.Add stays instant; a new run clears orbs on the ground.
+	Step([this, S]()
+	{
+		TestEqual(TEXT("RoundClear vacuum paid the orb"), GetPlayerTotalXP() - S->TotalBefore, S->ExpectedXP);
+
+		const int32 Before = GetPlayerTotalXP();
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("XPAdd"), { TEXT("5") });
+		TestEqual(TEXT("gs.XP.Add is instant"), GetPlayerTotalXP() - Before, 5);
+
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRound(1);
+		GameMode->SetRoundTimerPaused(true);
+		KillEnemyForCash(this, S->EnemyAt, S->DropOrigin, S->CashValue);
+		TestEqual(TEXT("Orb on the ground before the new run"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::XP), 1);
+		GameMode->RestartRunWithSeed(42);
+		TestEqual(TEXT("New run clears XP orbs"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::XP), 0);
+		TestEqual(TEXT("New run: XP 0"), GetPlayerTotalXP(), 0);
+
+		// A dead player collects nothing.
+		KillEnemyForCash(this, S->EnemyAt, S->DropOrigin, S->CashValue);
+		const AGSCashPickup* Orb = FindActiveXPOrb();
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		ApplyDamage(GetPlayerASC(), 100000.f);
+		TestTrue(TEXT("Player is dead"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
+		if (Orb)
+		{
+			GetPlayer()->SetActorLocation(Orb->GetActorLocation() + FVector(-60.f, 0.f, 60.f), false, nullptr, ETeleportType::TeleportPhysics);
+		}
+	});
+	WaitWorldSeconds(this, 1.5);
+	Step([this]()
+	{
+		TestEqual(TEXT("Dead player: orb stays"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::XP), 1);
+		TestEqual(TEXT("Dead player: no XP"), GetPlayerTotalXP(), 0);
+		IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Cash.Lifetime"))->Set(0.f, ECVF_SetByCode);
 	});
 	EndPIE();
 	return true;
@@ -1535,8 +1712,16 @@ bool FGSCashPickupsTest::RunTest(const FString& Parameters)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSXPAndLevelsTest, "BanditBaller.Progression.XPAndLevels", GSTests::TestFlags)
 bool FGSXPAndLevelsTest::RunTest(const FString& Parameters)
 {
+	struct FXPState
+	{
+		int32 TotalBefore = 0;
+		int32 OrbsBefore = 0;
+		int32 MeleeXP = 0;
+	};
+	TSharedRef<FXPState> S = MakeShared<FXPState>();
+
 	BeginPIE(this);
-	Step([this]()
+	Step([this, S]()
 	{
 		AGSGameMode* GameMode = GetGameMode();
 		AGSGameState* GameState = GetGameState();
@@ -1564,6 +1749,7 @@ bool FGSXPAndLevelsTest::RunTest(const FString& Parameters)
 		AddInfo(FString::Printf(TEXT("[xp] XP needed:%s (total to L10 %lld)"), *Table, Curve->GetTotalXPToReachLevel(10)));
 
 		// Fresh run: level 1, nothing earned; XPGain starts at 1 (GE_InitPlayerStats).
+		GameMode->SetRoundTimerPaused(true);
 		GameMode->RestartRunWithSeed(777);
 		TestEqual(TEXT("Start level"), Progression->GetLevel(), 1);
 		TestEqual(TEXT("Start XP"), Progression->GetCurrentXP(), 0);
@@ -1588,30 +1774,45 @@ bool FGSXPAndLevelsTest::RunTest(const FString& Parameters)
 			AddError(TEXT("No HUD widget on the player controller"));
 		}
 
-		// Kills grant XPValue x XPGain straight away.
-		const UGSEnemyData* MeleeData = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
-		const int32 MeleeXP = MeleeData ? MeleeData->XPValue : 0;
-		TestTrue(TEXT("Melee bandit has an XPValue"), MeleeXP > 0);
-		auto KillOne = [this]()
-		{
-			AGSEnemyCharacter* Enemy = SpawnTestEnemy();
-			UAbilitySystemComponent* EnemyASC = Enemy ? Enemy->GetAbilitySystemComponent() : nullptr;
-			if (TestNotNull(TEXT("Spawned enemy"), EnemyASC))
-			{
-				ApplyDamage(EnemyASC, GetMaxHealth(EnemyASC) + 100.f, GetPlayerASC());
-			}
-		};
-		int32 TotalBefore = Progression->GetTotalXP();
-		KillOne();
-		TestEqual(TEXT("Kill grants XPValue"), Progression->GetTotalXP() - TotalBefore, MeleeXP);
+		// The two level-ups opened upgrade offers (game paused); take them so orbs can fly.
+		TestEqual(TEXT("Two upgrade offers"), PickAllUpgradeOffers(), 2);
 
-		ASC->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 2.f);
-		TotalBefore = Progression->GetTotalXP();
-		KillOne();
-		TestEqual(TEXT("Kill grants XPValue x XPGain (2)"), Progression->GetTotalXP() - TotalBefore, MeleeXP * 2);
-		ASC->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 1.f);
+		// A kill grants no XP itself; it drops one orb worth XPValue.
+		S->TotalBefore = Progression->GetTotalXP();
+		S->OrbsBefore = GetCashSubsystem()->GetNumXPOrbsDropped();
+		KillTestEnemyAsPlayer(this);
+		TestEqual(TEXT("Kill grants no XP by itself"), Progression->GetTotalXP(), S->TotalBefore);
+		TestEqual(TEXT("Kill drops one XP orb"), GetCashSubsystem()->GetNumXPOrbsDropped(), S->OrbsBefore + 1);
+		GetCashSubsystem()->VacuumAll();
+	});
+	WaitUntil(this, TEXT("XP orb 1 collected"), []() { return GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::XP) == 0; }, 10.0);
+	Step([this, S]()
+	{
+		UGSProgressionComponent* Progression = GetPC()->GetPlayerState<AGSPlayerState>()->GetProgressionComponent();
+		const UGSEnemyData* MeleeData = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		S->MeleeXP = MeleeData ? MeleeData->XPValue : 0;
+		TestTrue(TEXT("Melee bandit has an XPValue"), S->MeleeXP > 0);
+		TestEqual(TEXT("Collected orb grants XPValue"), Progression->GetTotalXP() - S->TotalBefore, S->MeleeXP);
+
+		// XPGain applies at pickup.
+		GetPlayerASC()->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 2.f);
+		S->TotalBefore = Progression->GetTotalXP();
+		KillTestEnemyAsPlayer(this);
+		GetCashSubsystem()->VacuumAll();
+	});
+	WaitUntil(this, TEXT("XP orb 2 collected"), []() { return GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::XP) == 0; }, 10.0);
+	Step([this, S]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		UGSRunStats* Stats = GetGameState()->GetRunStats();
+		AGSPlayerState* PS = GetPC()->GetPlayerState<AGSPlayerState>();
+		UGSProgressionComponent* Progression = PS->GetProgressionComponent();
+		const UGSXPCurve* Curve = GameMode->GetXPCurve();
+		TestEqual(TEXT("Orb grants XPValue x XPGain (2) at pickup"), Progression->GetTotalXP() - S->TotalBefore, S->MeleeXP * 2);
+		GetPlayerASC()->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 1.f);
 
 		// Run stats.
+		const int32 MeleeXP = S->MeleeXP;
 		TestEqual(TEXT("Run stats XP earned"), Stats->GetXPEarned(), 260 + MeleeXP * 3);
 		TestEqual(TEXT("Run stats level reached"), Stats->GetLevelReached(), Progression->GetLevel());
 
@@ -1799,9 +2000,11 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSLevelUpFeedbackTest, "BanditBaller.Progressi
 bool FGSLevelUpFeedbackTest::RunTest(const FString& Parameters)
 {
 	TSharedRef<int32> NonKillXP = MakeShared<int32>(0);
+	TSharedRef<int32> PopupsBefore = MakeShared<int32>(0);
+	TSharedRef<int32> KillXP = MakeShared<int32>(0);
 
 	BeginPIE(this);
-	Step([this, NonKillXP]()
+	Step([this, PopupsBefore, KillXP]()
 	{
 		AGSGameMode* GameMode = GetGameMode();
 		AGSPlayerController* PC = GetPC();
@@ -1823,16 +2026,24 @@ bool FGSLevelUpFeedbackTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Describe two levels"), Rewards->DescribeRewards(2, 3).ToString(), FString(TEXT("+20 Max Health")));
 		TestFalse(TEXT("Banner hidden before any level-up"), HUD->IsLevelUpBannerShowing());
 
-		// Kill: "+N XP" appears right away at the kill (XP gain and kill notice pair up).
-		const int32 PopupsBefore = HUD->GetActiveXPPopupTotal();
-		AGSEnemyCharacter* Enemy = SpawnTestEnemy();
-		UAbilitySystemComponent* EnemyASC = Enemy ? Enemy->GetAbilitySystemComponent() : nullptr;
-		const int32 KillXP = Enemy && Enemy->GetEnemyData() ? Enemy->GetEnemyData()->XPValue : 0;
-		if (TestNotNull(TEXT("Spawned enemy"), EnemyASC))
-		{
-			ApplyDamage(EnemyASC, GetMaxHealth(EnemyASC) + 100.f, GetPlayerASC());
-			TestEqual(TEXT("Kill shows +XPValue XP popup"), HUD->GetActiveXPPopupTotal() - PopupsBefore, KillXP);
-		}
+		// Kill: no "+N XP" yet (no XP on the kill); the orb's XP pops where the orb is collected.
+		*PopupsBefore = HUD->GetActiveXPPopupTotal();
+		const AGSEnemyCharacter* Enemy = KillTestEnemyAsPlayer(this);
+		*KillXP = Enemy && Enemy->GetEnemyData() ? Enemy->GetEnemyData()->XPValue : 0;
+		TestEqual(TEXT("Kill alone shows no XP popup"), HUD->GetActiveXPPopupTotal(), *PopupsBefore);
+		GetCashSubsystem()->VacuumAll();
+	});
+	WaitUntil(this, TEXT("the kill's XP orb to be collected"), []() { return GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::XP) == 0; }, 10.0);
+	Step([this, NonKillXP, PopupsBefore, KillXP]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		AGSPlayerState* PS = GetPC()->GetPlayerState<AGSPlayerState>();
+		UGSProgressionComponent* Progression = PS->GetProgressionComponent();
+		const UGSHUDWidget* HUD = GetPC()->GetGSHUD();
+		const AGSCharacter* Player = GetPlayer();
+		TestEqual(TEXT("Collected orb shows +XPValue XP popup"), HUD->GetActiveXPPopupTotal() - *PopupsBefore, *KillXP);
+		TestTrue(TEXT("Popup anchored where the orb was collected"),
+			HUD->GetLastXPPopupAnchor().Equals(GetCashSubsystem()->GetLastXPCollectLocation(), 1.f));
 
 		// Two level-ups from one gain: banner "Level 3" + "+20 Max Health", pulse, one sound, glow.
 		const int32 SoundsBefore = HUD->GetLevelUpSoundsPlayed();
@@ -1848,7 +2059,7 @@ bool FGSLevelUpFeedbackTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Player glows"), Player->IsLevelUpGlowActive());
 	});
 
-	// XP that didn't come from a kill pops above the player after the pairing window.
+	// XP with no source (AwardXP directly, gs.XP.Add) pops above the player after the pairing window.
 	WaitUntil(this, TEXT("+N XP popup for the non-kill XP"), [NonKillXP]()
 	{
 		const UGSHUDWidget* HUD = GetPC() ? GetPC()->GetGSHUD() : nullptr;
