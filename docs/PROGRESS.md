@@ -537,7 +537,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - Known gaps:
   - Market travel doesn't wait for clients to stream the district (`TODO(co-op)` in `GSGameMode.cpp`). This matters
     for hub ↔ town travel now.
-  - Profiles in co-op: whose profile a client's cash is saved to is still undecided (see Next up).
+  - Profiles in co-op: the host's save holds every player's cash (decided). A stable player ID is still needed
+    (see Next up).
   - Restart on death should become "all players dead" / revive.
   - Cash goes to whoever collects it, not the killer.
   - XP goes only to the killing player (not shared with the party). Kills by non-players give no XP.
@@ -597,7 +598,10 @@ Code changes for the design change, in this order (each step builds, is tested, 
 1. **Run loop cleanup.** Remove MarketDecision / MarketVisit from `EGSRoundPhase` and the transition table
    (RoundClear → PreRound). Drop `bMarketOpenThisRound` / `RunMarketDecision`. Update `Round.PhaseLoop` and
    `gs.Debug.Round`.
-2. **Profile subsystem.** `UGSProfileSubsystem` (GameInstance subsystem) + `UGSProfileSaveGame` (Cash, version).
+2. **Profile subsystem.** `UGSProfileSubsystem` (GameInstance subsystem) + `UGSProfileSaveGame` (version, plus a cash
+   entry per player).
+   - The host's save holds the cash of every player who has played with that host, keyed by a stable player ID.
+     Clients don't save cash themselves.
    - Loads on start and saves on change and at run end.
    - `AddCash` / `TrySpendCash` with a reason, for logging.
    - `AGSGameMode::AwardCash` goes through it; PlayerState mirrors the value.
@@ -615,13 +619,19 @@ Code changes for the design change, in this order (each step builds, is tested, 
    - Rolling: on each level-up the server rolls 3 distinct choices (run stream, rarity-weighted). They replicate as
      pending offers and are queued for several level-ups.
    - Picking: the client picks through a Server RPC. The GE is infinite and stacking, and is removed on reset.
+   - The game pauses while an upgrade is being chosen. In co-op the whole party pauses while any player has an
+     open offer, and the others see who is choosing. Queued offers keep it paused until the last pick.
    - New attributes: ReloadSpeed (scales the GA_Reload time) and JumpCount (synced to `JumpMaxCount`).
    - Upgrades: Reload Speed / Damage / Move Speed (common), Extra Jump (rare, no cap).
    - UI: a choice panel next to the level-up banner.
 
+Decided (user):
+- **Co-op profiles:** the host's save holds the cash for each player.
+- **Upgrade choice:** the game pauses while an upgrade is being chosen.
+
 Open questions:
-- Co-op profile ownership (host-only vs. each client sending its own cash).
-- Whether to pause or slow down while choosing an upgrade (single player only?).
-- Whether the hub stays a streamed sublevel or becomes its own map.
+- Whether the hub stays a streamed sublevel of the town map or becomes its own map (comparison requested).
+- A stable player ID without an online subsystem, for the host's per-player cash entries. Candidate: a GUID each
+  client generates once, stores locally and sends when it joins.
 
 Still open from M2: round scaling for cash and XP drops, more DA_LevelRewards entries, shop and casino.
