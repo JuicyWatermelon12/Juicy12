@@ -28,7 +28,6 @@
 #include "GSDifficultyCurve.h"
 #include "GSGameplayTags.h"
 #include "GSProgressionComponent.h"
-#include "GSProfileSubsystem.h"
 #include "GSXPCurve.h"
 #include "GSLevelRewards.h"
 
@@ -177,13 +176,7 @@ void AGSGameMode::AwardCash(APlayerController* Player, int32 Amount, const FVect
 	{
 		return;
 	}
-	// Permanent cash: the profile (saved) is the only writer; the PlayerState mirrors it.
-	UGSProfileSubsystem* Profile = GetGameInstance() ? GetGameInstance()->GetSubsystem<UGSProfileSubsystem>() : nullptr;
-	if (!Profile || !Profile->AddCash(PS, Amount, TEXT("Pickup")))
-	{
-		UE_LOG(LogBanditBaller, Warning, TEXT("[cash] AwardCash: no profile subsystem / rejected for %s ($%d lost)."), *GetNameSafe(PS), Amount);
-		return;
-	}
+	PS->AddCash(Amount);
 	if (UGSRunStats* Stats = GetRunStats())
 	{
 		Stats->AddCashEarned(Amount);
@@ -553,7 +546,7 @@ float AGSGameMode::GetPhaseDuration(EGSRoundPhase Phase) const
 	case EGSRoundPhase::PreRound:   return Settings.PreRoundDuration;
 	case EGSRoundPhase::Combat:     return Settings.CombatFallbackDuration;
 	case EGSRoundPhase::RoundClear: return Settings.RoundClearDuration;
-	default:                        return 0.f; // WaitingToStart, GameOver
+	default:                        return 0.f; // WaitingToStart, MarketDecision (instant), MarketVisit, GameOver
 	}
 }
 
@@ -615,6 +608,12 @@ void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
 			Cash->VacuumAll();
 		}
 	}
+
+	// Phases that resolve immediately on entry.
+	if (NewPhase == EGSRoundPhase::MarketDecision)
+	{
+		RunMarketDecision();
+	}
 }
 
 void AGSGameMode::AdvancePhase()
@@ -630,10 +629,36 @@ void AGSGameMode::AdvancePhase()
 	case EGSRoundPhase::WaitingToStart: StartNextRound(); break;
 	case EGSRoundPhase::PreRound:       SetPhase(EGSRoundPhase::Combat); break;
 	case EGSRoundPhase::Combat:         SetPhase(EGSRoundPhase::RoundClear); break;
-	case EGSRoundPhase::RoundClear:     StartNextRound(); break;
+	case EGSRoundPhase::RoundClear:     SetPhase(EGSRoundPhase::MarketDecision); break;
+	case EGSRoundPhase::MarketDecision: RunMarketDecision(); break;
+	case EGSRoundPhase::MarketVisit:
+		if (GS->GetCurrentArea() == EGSArea::MarketDistrict)
+		{
+			ReturnToTown();
+		}
+		StartNextRound();
+		break;
 	case EGSRoundPhase::GameOver:
 		UE_LOG(LogBanditBaller, Log, TEXT("AdvancePhase: GameOver is final."));
 		break;
+	}
+}
+
+void AGSGameMode::RunMarketDecision()
+{
+	// For now the market never opens; set rounds / chance arrive in a later milestone.
+	AGSGameState* GS = GetGameState<AGSGameState>();
+	const bool bOpenMarket = false;
+	GS->SetMarketOpenThisRound(bOpenMarket);
+	UE_LOG(LogBanditBaller, Log, TEXT("Round %d: market decision -> %s"), GS->GetRoundNumber(), bOpenMarket ? TEXT("open") : TEXT("closed, next round"));
+
+	if (bOpenMarket)
+	{
+		SetPhase(EGSRoundPhase::MarketVisit);
+	}
+	else
+	{
+		StartNextRound();
 	}
 }
 
@@ -644,11 +669,7 @@ void AGSGameMode::StartNextRound()
 	{
 		return;
 	}
-	// Combat only happens in the town; bring the party back if a debug teleport (gs.Market.Teleport) left it away.
-	if (GS->GetCurrentArea() == EGSArea::MarketDistrict)
-	{
-		ReturnToTown();
-	}
+	GS->SetMarketOpenThisRound(false);
 	GS->SetRoundNumber(GS->GetRoundNumber() + 1);
 	SetPhase(EGSRoundPhase::PreRound);
 }
@@ -665,6 +686,7 @@ void AGSGameMode::SetRound(int32 NewRound)
 	{
 		ReturnToTown();
 	}
+	GS->SetMarketOpenThisRound(false);
 	GS->SetRoundNumber(NewRound);
 	SetPhase(EGSRoundPhase::PreRound);
 }

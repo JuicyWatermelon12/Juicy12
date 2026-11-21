@@ -21,7 +21,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "1", Units = "s"))
 	float CombatFallbackDuration = 60.f;
 
-	/** Pause after combat (results / breather) before the next round. */
+	/** Pause after combat (results / breather) before the market decision. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Round", meta = (ClampMin = "0", Units = "s"))
 	float RoundClearDuration = 4.f;
 };

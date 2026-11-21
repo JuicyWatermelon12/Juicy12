@@ -29,6 +29,7 @@ void AGSGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
 	DOREPLIFETIME(AGSGameState, RoundPhase);
 	DOREPLIFETIME(AGSGameState, PhaseEndTime);
 	DOREPLIFETIME(AGSGameState, CurrentArea);
+	DOREPLIFETIME(AGSGameState, bMarketOpenThisRound);
 	DOREPLIFETIME(AGSGameState, RunSeed);
 	DOREPLIFETIME(AGSGameState, LevelRewards);
 	DOREPLIFETIME(AGSGameState, WaveEnemiesTotal);
@@ -123,7 +124,8 @@ void AGSGameState::Tick(float DeltaSeconds)
 		// Stable key per GameState so the line updates in place; one line per PIE instance.
 		const int32 Key = 0x6A5000 + static_cast<int32>(GetUniqueID() & 0xFFF);
 		GEngine->AddOnScreenDebugMessage(Key, 0.5f, FColor::Yellow,
-			FString::Printf(TEXT("[%s] %s | Area: %s"), Who, *GetRoundDebugString(), *Area));
+			FString::Printf(TEXT("[%s] %s | Area: %s | Market open: %s"), Who, *GetRoundDebugString(), *Area,
+				bMarketOpenThisRound ? TEXT("yes") : TEXT("no")));
 	}
 #endif
 }

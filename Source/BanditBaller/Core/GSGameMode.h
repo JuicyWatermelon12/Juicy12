@@ -57,9 +57,9 @@ public:
 
 	// --- Round loop (server) ---
 	//
-	//   PreRound -> Combat -> RoundClear -> PreRound (round + 1) ... until the run ends
+	//   PreRound -> Combat -> RoundClear -> MarketDecision -> (MarketVisit) -> PreRound (round + 1)
 	//
-	// Timed phases advance on their own (durations from UGSRoundSettings). No market visits during a run.
+	// Timed phases advance on their own (durations from UGSRoundSettings); MarketDecision resolves instantly.
 
 	virtual void StartPlay() override;
 
@@ -120,7 +120,7 @@ public:
 	const UGSCashSettings* GetCashSettings() const { return CashSettings; }
 
 	/**
-	 * A cash pickup reached Player: UGSProfileSubsystem::AddCash (permanent, saved), run stats CashEarned, and the "+$N" popup on that
+	 * A cash pickup reached Player: AGSPlayerState::AddCash, run stats CashEarned, and the "+$N" popup on that
 	 * player's screen (Location = where it was collected).
 	 */
 	void AwardCash(APlayerController* Player, int32 Amount, const FVector& Location);
@@ -227,6 +227,7 @@ private:
 	void HandleWaveCleared();
 	/** Phase timer expiry; for Combat this is only the safety fallback (warns if the wave isn't done). */
 	void HandlePhaseTimerExpired();
+	void RunMarketDecision();
 
 	FTimerHandle PhaseTimer;
 	bool bRoundTimerPaused = false;

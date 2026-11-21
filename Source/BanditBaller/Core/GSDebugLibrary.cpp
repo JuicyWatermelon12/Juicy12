@@ -20,7 +20,6 @@
 #include "GSHealthComponent.h"
 #include "GSPlayerController.h"
 #include "GSPlayerState.h"
-#include "GSProfileSubsystem.h"
 #include "GSProgressionComponent.h"
 #include "GSRunRandom.h"
 #include "GSSpawnLocationFinder.h"
@@ -455,50 +454,6 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 				return;
 			}
 			GameMode->SetPlayerLevelForDebug(PS, Value);
-		}
-	}
-	else if (Command == TEXT("ProfileCash") || Command == TEXT("ProfileReset") || Command == TEXT("ProfileList"))
-	{
-		UGSProfileSubsystem* Profile = UGSProfileSubsystem::Get(PC);
-		AGSPlayerState* PS = PC->GetPlayerState<AGSPlayerState>();
-		if (!Profile || !PS)
-		{
-			UE_LOG(LogBanditBaller, Warning, TEXT("gs.Profile.*: no profile subsystem / player state on the server."));
-			return;
-		}
-		if (Command == TEXT("ProfileCash"))
-		{
-			if (Args.Num() > 0)
-			{
-				const bool bSet = Profile->SetCash(PS, FMath::Max(0, FCString::Atoi(*Args[0])), TEXT("Debug"));
-				Profile->SaveNow();
-				UE_LOG(LogBanditBaller, Log, TEXT("gs.Profile.Cash: %s"), bSet ? *FString::Printf(TEXT("set to %d"), Profile->GetCash(PS))
-					: TEXT("FAILED (player not bound to a profile yet)"));
-			}
-			else
-			{
-				UE_LOG(LogBanditBaller, Log, TEXT("gs.Profile.Cash: %s has %d (profile %s, slot %s). Usage: gs.Profile.Cash [N]"),
-					*PS->GetPlayerName(), Profile->GetCash(PS), *PS->GetProfileKey(), *Profile->GetSlotName());
-			}
-		}
-		else if (Command == TEXT("ProfileReset"))
-		{
-			Profile->ResetAllCash(TEXT("Debug"));
-			Profile->SaveNow();
-		}
-		else
-		{
-			const UGSProfileSaveGame* Save = Profile->GetSave();
-			UE_LOG(LogBanditBaller, Log, TEXT("gs.Profile.List: slot %s, local player %s, %d entr%s:"), *Profile->GetSlotName(),
-				*UGSProfileSubsystem::IdToKey(Profile->GetLocalPlayerId()), Save ? Save->Players.Num() : 0, Save && Save->Players.Num() == 1 ? TEXT("y") : TEXT("ies"));
-			if (Save)
-			{
-				for (const TPair<FString, FGSProfilePlayerEntry>& Pair : Save->Players)
-				{
-					UE_LOG(LogBanditBaller, Log, TEXT("  %s  %-20s cash %d  last seen %s"), *Pair.Key, *Pair.Value.DisplayName, Pair.Value.Cash,
-						*Pair.Value.LastSeen.ToString());
-				}
-			}
 		}
 	}
 	else if (Command == TEXT("MarketTeleport") || Command == TEXT("MarketReturn"))
