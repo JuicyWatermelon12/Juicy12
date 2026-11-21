@@ -5,12 +5,47 @@
 #include "AbilitySystemGlobals.h"
 #include "BanditBaller.h"
 #include "GameplayEffect.h"
+#include "GSGameMode.h"
+#include "GSPlayerState.h"
+#include "GSProgressionComponent.h"
+#include "GSRunRandom.h"
 #include "GSUpgradeData.h"
+#include "GSUpgradePool.h"
 
 UGSUpgradeComponent::UGSUpgradeComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 }
+
+void UGSUpgradeComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	const AGSPlayerState* PS = Cast<AGSPlayerState>(GetOwner());
+	if (UGSProgressionComponent* Progression = PS ? PS->GetProgressionComponent() : nullptr)
+	{
+		Progression->OnLevelUp.AddUniqueDynamic(this, &UGSUpgradeComponent::HandleLevelUp);
+	}
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		const UGSUpgradePool* Pool = GetPool();
+		SetRerollsLeft(Pool ? Pool->RerollsPerRun : 0);
+	}
+}
+
+void UGSUpgradeComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	const AGSPlayerState* PS = Cast<AGSPlayerState>(GetOwner());
+	if (UGSProgressionComponent* Progression = PS ? PS->GetProgressionComponent() : nullptr)
+	{
+		Progression->OnLevelUp.RemoveDynamic(this, &UGSUpgradeComponent::HandleLevelUp);
+	}
+	Super::EndPlay(EndPlayReason);
+}
+
+// ---------------------------------------------------------------------------
+// Stacks
+// ---------------------------------------------------------------------------
 
 bool UGSUpgradeComponent::GrantUpgrade(const UGSUpgradeData* Upgrade, const TCHAR* Source)
 {
@@ -72,6 +107,161 @@ int32 UGSUpgradeComponent::GetTotalPicks() const
 	return Total;
 }
 
+// ---------------------------------------------------------------------------
+// Offers
+// ---------------------------------------------------------------------------
+
+const UGSUpgradePool* UGSUpgradeComponent::GetPool() const
+{
+	const UWorld* World = GetWorld();
+	const AGSGameMode* GameMode = World ? World->GetAuthGameMode<AGSGameMode>() : nullptr;
+	return GameMode ? GameMode->GetUpgradePool() : nullptr;
+}
+
+TArray<UGSUpgradeData*> UGSUpgradeComponent::RollChoices() const
+{
+	const UGSUpgradePool* Pool = GetPool();
+	if (!Pool)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("[upgrade] No UpgradePool on the GameMode; no offer rolled."));
+		return {};
+	}
+	return Pool->RollOffer(UGSRunRandom::GetStream(this), [this](const UGSUpgradeData* Upgrade) { return GetStacks(Upgrade); });
+}
+
+void UGSUpgradeComponent::HandleLevelUp(int32 NewLevel)
+{
+	// OnLevelUp also fires on clients from replication; offers are rolled on the server only.
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		QueueOffer(*FString::Printf(TEXT("level %d"), NewLevel));
+	}
+}
+
+void UGSUpgradeComponent::QueueOffer(const TCHAR* Source)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+	++QueuedOffers;
+	UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: offer queued (%s)."), *GetNameSafe(GetOwner()), Source);
+	if (!HasOpenOffer())
+	{
+		OpenNextOffer();
+	}
+}
+
+void UGSUpgradeComponent::OpenNextOffer()
+{
+	while (QueuedOffers > 0)
+	{
+		--QueuedOffers;
+		TArray<UGSUpgradeData*> Choices = RollChoices();
+		if (Choices.Num() > 0)
+		{
+			CurrentChoices = Choices;
+			UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: offer opened. %s"), *GetNameSafe(GetOwner()), *DescribeOffer());
+			BroadcastOfferChanged(EGSUpgradeOfferChange::Opened);
+			return;
+		}
+		UE_LOG(LogBanditBaller, Warning, TEXT("[upgrade] %s: no upgrade available; offer dropped."), *GetNameSafe(GetOwner()));
+	}
+}
+
+bool UGSUpgradeComponent::ChooseUpgrade(int32 Index)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return false;
+	}
+	if (!HasOpenOffer() || !CurrentChoices.IsValidIndex(Index))
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("[upgrade] %s: can't choose %d (%s)."), *GetNameSafe(GetOwner()), Index,
+			HasOpenOffer() ? *FString::Printf(TEXT("choices 0-%d"), CurrentChoices.Num() - 1) : TEXT("no offer open"));
+		return false;
+	}
+
+	const UGSUpgradeData* Picked = CurrentChoices[Index];
+	if (!GrantUpgrade(Picked, TEXT("LevelUp")))
+	{
+		return false; // e.g. capped meanwhile by gs.Upgrade.Grant; the offer stays open
+	}
+
+	UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: chose [%d] %s."), *GetNameSafe(GetOwner()), Index, *Picked->GetName());
+	CurrentChoices.Reset();
+	BroadcastOfferChanged(EGSUpgradeOfferChange::Closed);
+	OpenNextOffer();
+	return true;
+}
+
+bool UGSUpgradeComponent::RerollOffer()
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return false;
+	}
+	if (!HasOpenOffer() || RerollsLeft <= 0)
+	{
+		UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: reroll refused (%s)."), *GetNameSafe(GetOwner()),
+			HasOpenOffer() ? TEXT("no rerolls left") : TEXT("no offer open"));
+		return false;
+	}
+
+	TArray<UGSUpgradeData*> Choices = RollChoices();
+	if (Choices.Num() == 0)
+	{
+		return false; // can't happen while the open offer's upgrades are still available; keep the offer
+	}
+	SetRerollsLeft(RerollsLeft - 1);
+	CurrentChoices = Choices;
+	UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: offer rerolled. %s"), *GetNameSafe(GetOwner()), *DescribeOffer());
+	BroadcastOfferChanged(EGSUpgradeOfferChange::Rerolled);
+	return true;
+}
+
+TArray<UGSUpgradeData*> UGSUpgradeComponent::GetCurrentChoices() const
+{
+	TArray<UGSUpgradeData*> Result;
+	for (const TObjectPtr<UGSUpgradeData>& Choice : CurrentChoices)
+	{
+		Result.Add(Choice);
+	}
+	return Result;
+}
+
+FString UGSUpgradeComponent::DescribeOffer() const
+{
+	FString Text = HasOpenOffer() ? TEXT("Offer:") : TEXT("No offer open.");
+	for (int32 Index = 0; Index < CurrentChoices.Num(); ++Index)
+	{
+		const UGSUpgradeData* Choice = CurrentChoices[Index];
+		Text += FString::Printf(TEXT(" [%d] %s (%s, x%d)"), Index, *Choice->GetName(), *UGSUpgradeData::GetRarityName(Choice->Rarity), GetStacks(Choice));
+	}
+	return Text + FString::Printf(TEXT(" | %d queued | %d reroll(s) left"), QueuedOffers, RerollsLeft);
+}
+
+void UGSUpgradeComponent::SetRerollsLeft(int32 NewRerollsLeft)
+{
+	if (NewRerollsLeft == RerollsLeft)
+	{
+		return;
+	}
+	RerollsLeft = NewRerollsLeft;
+	OnRerollsLeftChanged.Broadcast(RerollsLeft);
+	OnRerollsLeftChangedNative.Broadcast(RerollsLeft);
+}
+
+void UGSUpgradeComponent::BroadcastOfferChanged(EGSUpgradeOfferChange Change)
+{
+	OnUpgradeOfferChanged.Broadcast(Change);
+	OnUpgradeOfferChangedNative.Broadcast(Change);
+}
+
+// ---------------------------------------------------------------------------
+// Reset
+// ---------------------------------------------------------------------------
+
 void UGSUpgradeComponent::ResetUpgrades()
 {
 	AActor* Owner = GetOwner();
@@ -96,4 +286,14 @@ void UGSUpgradeComponent::ResetUpgrades()
 	{
 		OnUpgradeStacksChanged.Broadcast(Entry.Upgrade, 0);
 	}
+
+	// Offers and rerolls are per run too.
+	QueuedOffers = 0;
+	if (HasOpenOffer())
+	{
+		CurrentChoices.Reset();
+		BroadcastOfferChanged(EGSUpgradeOfferChange::Closed);
+	}
+	const UGSUpgradePool* Pool = GetPool();
+	SetRerollsLeft(Pool ? Pool->RerollsPerRun : 0);
 }

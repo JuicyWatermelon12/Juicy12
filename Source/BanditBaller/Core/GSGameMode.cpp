@@ -150,6 +150,26 @@ int32 AGSGameMode::AwardXP(AGSPlayerState* Player, float BaseXP, bool bApplyXPGa
 	return Amount;
 }
 
+bool AGSGameMode::ChooseUpgrade(AGSPlayerState* Player, int32 Index)
+{
+	UGSUpgradeComponent* Upgrades = Player ? Player->GetUpgradeComponent() : nullptr;
+	return Upgrades && Upgrades->ChooseUpgrade(Index);
+}
+
+bool AGSGameMode::RerollUpgradeOffer(AGSPlayerState* Player)
+{
+	UGSUpgradeComponent* Upgrades = Player ? Player->GetUpgradeComponent() : nullptr;
+	return Upgrades && Upgrades->RerollOffer();
+}
+
+void AGSGameMode::QueueUpgradeOfferForDebug(AGSPlayerState* Player)
+{
+	if (UGSUpgradeComponent* Upgrades = Player ? Player->GetUpgradeComponent() : nullptr)
+	{
+		Upgrades->QueueOffer(TEXT("debug"));
+	}
+}
+
 void AGSGameMode::SetPlayerLevelForDebug(AGSPlayerState* Player, int32 Level)
 {
 	UGSProgressionComponent* Progression = Player ? Player->GetProgressionComponent() : nullptr;

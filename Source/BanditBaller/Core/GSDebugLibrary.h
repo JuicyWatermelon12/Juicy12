@@ -42,6 +42,46 @@ struct FGSEnemyDebugInfo
 	bool bAttacking = false;
 };
 
+/** Result of UGSDebugLibrary::SimulateUpgradeOffers: how often upgrades and rarities came up. */
+USTRUCT(BlueprintType)
+struct FGSUpgradeOfferSimulation
+{
+	GENERATED_BODY()
+
+	/** The pool asset that was rolled (empty if none was found). */
+	UPROPERTY(BlueprintReadOnly, Category = "Debug")
+	FString Pool;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Debug")
+	int32 Seed = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Debug")
+	int32 Offers = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Debug")
+	int32 ChoicesPerOffer = 0;
+
+	/** All choices rolled (Offers x ChoicesPerOffer unless some offers came up short). */
+	UPROPERTY(BlueprintReadOnly, Category = "Debug")
+	int32 TotalChoices = 0;
+
+	/** Offers with fewer than ChoicesPerOffer choices (not enough upgrades available). */
+	UPROPERTY(BlueprintReadOnly, Category = "Debug")
+	int32 ShortOffers = 0;
+
+	/** Upgrade asset name -> offers it appeared in (at most once per offer). */
+	UPROPERTY(BlueprintReadOnly, Category = "Debug")
+	TMap<FString, int32> UpgradeOffers;
+
+	/** Rarity name -> choices of that rarity. */
+	UPROPERTY(BlueprintReadOnly, Category = "Debug")
+	TMap<FString, int32> RarityChoices;
+
+	/** Rarity name -> offers with at least one choice of that rarity. */
+	UPROPERTY(BlueprintReadOnly, Category = "Debug")
+	TMap<FString, int32> RarityOffers;
+};
+
 /**
  * Tuning/debug helpers shared by the gs.* console commands, the BanditBaller Python MCP toolset and
  * automation tests. Every mutation runs on the server (authority) world. Disabled in Shipping.
@@ -76,6 +116,17 @@ public:
 
 	/** gs.Upgrade.List: log + screen every upgrade with this run's stacks, and the stats they change. */
 	static void ListUpgrades(AGSPlayerController* PC);
+
+	/** Log + screen PC's open offer, queued offers and rerolls left (gs.Upgrade.Offer / Choose / Reroll). */
+	static void PrintUpgradeOffer(AGSPlayerController* PC);
+
+	/**
+	 * Roll Count offers from the project's upgrade pool (DA_UpgradePool) with a private stream seeded by Seed, as for a
+	 * fresh run with no picks, and count how often each upgrade and rarity comes up. Never touches the run stream and
+	 * needs no PIE. Used by the MCP tool simulate_upgrade_offers.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "BanditBaller|Debug")
+	static FGSUpgradeOfferSimulation SimulateUpgradeOffers(int32 Count, int32 Seed);
 
 	/** Names of all enemy / weapon data assets (for help text and errors). */
 	static TArray<FString> GetEnemyDataNames();

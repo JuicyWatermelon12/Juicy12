@@ -15,6 +15,7 @@ class UGSDifficultyCurve;
 class UGSCashSettings;
 class UGSXPCurve;
 class UGSLevelRewards;
+class UGSUpgradePool;
 class AGSPlayerState;
 class UGameplayEffect;
 class AGSEnemyCharacter;
@@ -142,6 +143,20 @@ public:
 	/** Debug (gs.XP.SetLevel): reset Player to level 1, then AddXP exactly the total XP for Level. */
 	void SetPlayerLevelForDebug(AGSPlayerState* Player, int32 Level);
 
+	// --- Level-up upgrade offers (server; state on the player's UGSUpgradeComponent) ---
+
+	/** Upgrade pool for level-up offers (DA_UpgradePool). Level-ups offer nothing if unset. */
+	const UGSUpgradePool* GetUpgradePool() const { return UpgradePool; }
+
+	/** Player takes choice Index of their open offer; the next queued offer opens. False if refused. */
+	bool ChooseUpgrade(AGSPlayerState* Player, int32 Index);
+
+	/** Player spends a reroll on their open offer. False with no open offer or no rerolls left. */
+	bool RerollUpgradeOffer(AGSPlayerState* Player);
+
+	/** Debug (gs.Upgrade.Offer): queue an offer for Player as a level-up would, without the level. */
+	void QueueUpgradeOfferForDebug(AGSPlayerState* Player);
+
 	// --- Area travel (server) ---
 
 	/**
@@ -192,6 +207,10 @@ protected:
 	/** Gameplay Effects granted on level-up + the full heal after them (DA_LevelRewards). */
 	UPROPERTY(EditDefaultsOnly, Category = "Progression")
 	TObjectPtr<UGSLevelRewards> LevelRewards;
+
+	/** Upgrades, rarity weights, choices per offer and rerolls per run for level-up offers (DA_UpgradePool). */
+	UPROPERTY(EditDefaultsOnly, Category = "Progression")
+	TObjectPtr<UGSUpgradePool> UpgradePool;
 
 	/** Spawn ring / spacing / attempts for UGSSpawnLocationFinder (DA_SpawnSettings). Class defaults if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Round")

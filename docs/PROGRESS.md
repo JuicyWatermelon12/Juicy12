@@ -35,10 +35,10 @@ see **Design update — market, prestige and economy**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–17 are done
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–18 are done
 (11–13 and 17 were design / scope updates and permanent cash).
 
-State at the time of writing: `main` after Prompt 17, not pushed. The build is clean and all 21 automation tests pass.
+State at the time of writing: `main` after Prompt 18, not pushed. The build is clean and all 22 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -62,7 +62,8 @@ State at the time of writing: `main` after Prompt 17, not pushed. The build is c
 | M2 15 | Upgrade data + stat upgrades (ReloadSpeed, Damage, MoveSpeed) | 9dbccbf |
 | M2 16 | Extra Jump upgrade (ExtraJumps → JumpMaxCount, consistent air jumps, dash jump queue) | 42a874e |
 | M2 17 | Design update: decisions before M3 (docs only) | 14da7c0 |
-| Design update | Market, prestige and economy decisions (docs only; not a numbered step) | see git log |
+| Design update | Market, prestige and economy decisions (docs only; not a numbered step) | bb1ded0 |
+| M2 18 | Upgrade offers: 4 rarity tiers, DA_UpgradePool, offer queue, choose / reroll, simulator (log only) | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -130,7 +131,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–16 done)
+## M2 — The run loop (Prompts 1–18 done)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -615,6 +616,60 @@ Docs only; no code changed. Not a numbered step: **Next up** keeps its 18–28 n
 - This file: the game summary, this entry, **Decided (user)**, the open items, and notes under Next up steps 18
   and 23.
 
+### Prompt 18 — Upgrade offers (log only, no UI)
+- **Rarities:** `EGSUpgradeRarity` is Common, Rare, Epic, Legendary (Epic and Legendary appended). No upgrade uses the
+  new tiers yet.
+- **`Core/GSUpgradePool.*` (`UGSUpgradePool`) → `Data/DA_UpgradePool`**, set as `UpgradePool` on BP_GSGameMode:
+  - `Upgrades`: the four DA_Upgrade_* assets.
+  - `RarityWeights`: Common 100, Rare 20, Epic 6, Legendary 1 (placeholders; class defaults, so the asset only
+    stores them once edited).
+  - `ChoicesPerOffer` 3, `RerollsPerRun` 3.
+- **Roll** (`UGSUpgradePool::RollOffer(Stream, GetStacks)`): for each of the 3 choices, pick a rarity by weight, then
+  a random upgrade of that rarity.
+  - A rarity is left out of the weighting when nothing in it is available: the tier is empty, its upgrades are all
+    at MaxStacks, or they are already in this offer.
+  - With fewer available upgrades than choices, the offer is shorter. An offer with nothing in it is dropped.
+  - Weights are per tier, not per upgrade. Today the lone Rare (Extra Jump) is in 1 − (100/120)³ ≈ 42% of offers.
+- **Offers** (`UGSUpgradeComponent` on the PlayerState; run state):
+  - Each level-up queues one offer. The component listens to the progression component's `OnLevelUp`, which fires
+    after the MaxHealth reward and the heal. Several level-ups at once queue several offers.
+  - The front offer is rolled with the run stream (`UGSRunRandom::GetStream`) when it opens. So a queued offer
+    already accounts for the pick made in the offer before it (MaxStacks).
+  - `AGSGameMode::ChooseUpgrade(PlayerState, Index)` grants the choice (`GrantUpgrade`, source "LevelUp") and opens
+    the next queued offer. A bad index or no open offer is refused. There is no skip.
+  - `AGSGameMode::RerollUpgradeOffer(PlayerState)` replaces the open offer with a fresh roll for one reroll. It is
+    refused with no open offer or no rerolls left. A reroll may repeat upgrades.
+  - `AGSGameMode::StartRun` → `ResetUpgrades` drops all offers and refills the rerolls from the pool. The first
+    value comes from the pool at BeginPlay.
+  - Read access: `HasOpenOffer()`, `GetCurrentChoices()`, `GetQueuedOffers()`, `GetRerollsLeft()`,
+    `DescribeOffer()`.
+- **Events for the UI:**
+  - `OnUpgradeOfferChanged(EGSUpgradeOfferChange)` with Opened / Rerolled / Closed. A pick fires Closed, then Opened
+    if another offer is queued.
+  - `OnRerollsLeftChanged(RerollsLeft)`.
+  - Both are BlueprintAssignable, with native mirrors `OnUpgradeOfferChangedNative` / `OnRerollsLeftChangedNative`
+    for C++ listeners and tests.
+  - Not replicated (`TODO(co-op)`).
+- **Console:**
+  - `gs.Upgrade.Offer` queues an offer as a level-up would (no level) and prints the open offer.
+  - `gs.Upgrade.Choose <0-2>` and `gs.Upgrade.Reroll` act on the open offer and print it.
+  - Log lines use the `[upgrade]` prefix ("offer queued / opened / rerolled", "chose [i] …").
+- **Simulator:**
+  - `UGSDebugLibrary::SimulateUpgradeOffers(Count, Seed)` rolls the project pool with a private `FRandomStream`, as
+    for a fresh run with no picks. It never touches the run stream and needs no PIE.
+  - MCP tool `simulate_upgrade_offers(count, seed)` returns its report as JSON text: the toolset registry rejects an
+    untyped `dict` return and then skips the whole toolset.
+- **Test** `Upgrades.Offers`.
+- **PIE check** (round paused):
+  - `gs.XP.Add 100` opened an offer of Extra Jump / Damage / Move Speed after "MaxHealth 110, Health 110".
+  - `gs.XP.Add 281` (two levels) queued 2 offers.
+  - Three `gs.Upgrade.Reroll` gave new offers (rerolls 2 → 1 → 0, repeats allowed); the 4th was refused.
+  - `gs.Upgrade.Choose 7` was refused.
+  - Choose 0 / 1 / 2 granted Damage, Extra Jump and Move Speed, each opening the next offer, and then closed.
+  - Reroll with no offer was refused. `gs.Upgrade.Offer` opened a debug offer.
+- **Simulation, 10,000 offers, seed 1:** see Tuning values.
+- **Note:** `gs.XP.SetLevel N` queues N − 1 offers, as N − 1 level-ups do.
+
 ---
 
 ## Console commands and CVars
@@ -630,6 +685,9 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain, ReloadSpeed). |
 | `gs.Upgrade.Grant <Name>` | Add one stack of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed` or `DA_Upgrade_*`); refused at MaxStacks. |
 | `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / MoveSpeed. |
+| `gs.Upgrade.Offer` | Queue a level-up offer without the level (opens at once if none is open) and print the open offer. |
+| `gs.Upgrade.Choose <0-2>` | Take a choice of the open offer; the next queued offer opens. |
+| `gs.Upgrade.Reroll` | Reroll the open offer for one of this run's rerolls (refused with none left or no offer). |
 | `gs.XP.Add <N>` | Grant N raw XP to the local player (XPGain not applied; may level up several times). |
 | `gs.XP.SetLevel <N>` | Reset to level 1, then add exactly the XP for level N (0 XP into it; clamped to max level). |
 | `gs.Profile.AddCash <N>` | Add N to the permanent cash balance (local profile; saved at the next save point). |
@@ -656,11 +714,13 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 
 Launch arg: `-GSSeed=N` fixes the run seed.
 
-MCP toolset `banditballer_toolset.toolsets.BanditBallerTools` (PIE running):
-- `spawn_enemies(type, count)`
-- `get_player_attributes()`: attributes plus Ammo, Cash (profile balance), Level, XP, XPForNextLevel, TotalXP, God, Invulnerable,
-  Dead.
-- `list_enemies_alive()`
+MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
+- `spawn_enemies(type, count)` (PIE)
+- `get_player_attributes()` (PIE): attributes plus Ammo, Cash (profile balance), Level, XP, XPForNextLevel, TotalXP,
+  God, Invulnerable, Dead.
+- `list_enemies_alive()` (PIE)
+- `simulate_upgrade_offers(count=10000, seed=1)` (no PIE needed): rolls DA_UpgradePool offers with its own stream and
+  returns JSON text with how often each upgrade and rarity appears.
 
 ## GAS reference
 
@@ -706,7 +766,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools` (PIE running):
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (21, all passing)
+## Automation tests (22, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test starts PIE in L_Town_Graybox, waits for the player, removes enemies, runs
 and ends PIE. Stop PIE before running.
@@ -734,6 +794,7 @@ and ends PIE. Stop PIE before running.
 | `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; save when RoundClear ends (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + `?Restart` (new HUD shows it). |
 | `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
 | `Upgrades.ExtraJump` | DA_Upgrade_ExtraJump (Rare, no cap, "+1"); no air jump without it; ×3 → ExtraJumps 3, JumpMaxCount 4; three air jumps (rising, falling, falling fast) each set AirJumpZVelocity, 4th refused, one puff/sound each; landing resets; coyote jump is the ground jump; late jump after walking off uses an air jump; slide-hop then air jump; jump during an air dash is queued and becomes an air jump at the dash end; jump during a ground dash becomes the ground jump; new run → 0 / 1. |
+| `Upgrades.Offers` | DA_UpgradePool on the GameMode (4 upgrades, 100/20/6/1, 3 choices, 3 rerolls), 4 rarities; roll rules: 3000 offers all 3 different, Rare in ~42%, same seed same offers, 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer; simulator deterministic, no short offers, no Epic / Legendary, run stream untouched. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
@@ -794,6 +855,12 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Kill XP: MeleeBandit 10, RangedBandit 15. DT_Waves rounds 1–5 give 40 / 65 / 90 / 115 / 150 XP.
 - **Upgrades** (per stack, additive on the base value): Reload Speed +10%, Damage +10%, Move Speed +8% (Common);
   Extra Jump +1 air jump (Rare). None has a cap.
+- **Upgrade offers** (DA_UpgradePool, placeholders): rarity weights Common 100 / Rare 20 / Epic 6 / Legendary 1,
+  3 choices, 3 rerolls per run.
+  - `simulate_upgrade_offers(10000, 1)`, fresh run with no picks: Damage in 86.3% of offers, Reload Speed 86.0%,
+    Move Speed 85.9%, Extra Jump 41.7%.
+  - That is expected: the lone Rare is in 1 − (5/6)³ = 42.1% of offers and each Common in ~86.0%.
+  - By choices: Common 86.1%, Rare 13.9%, Epic and Legendary 0 (empty tiers). No short offers.
 - **Combo curves**: there is no combo system yet.
 
 ## Known issues, TODOs and deviations
@@ -802,8 +869,9 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - **Not yet built for the design change:**
   - Hub start and Start Run portal.
   - Run summary and return to the hub.
-  - Level-up upgrade choices (upgrade data, stat upgrades and `gs.Upgrade.Grant` exist; no pool, offers, rerolls,
-    Epic / Legendary tiers or UI; Prompts 18–19).
+  - The level-up choice screen (Prompt 19). Offers, rerolls and picks work but are console / log only, and the game
+    doesn't pause while an offer is open.
+- No upgrade is Epic or Legendary yet; those tiers are empty and never offered.
 - **Not yet built for the decisions before M3:**
   - XP pickups: XP is still granted instantly on the kill (Prompt 20).
   - The map boundary (Prompt 21). Until it exists, Extra Jump height is unlimited.
@@ -874,6 +942,9 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
   that race. Slow Slate lookups in between can let the wave kill the player.
 - `ObjectTools.set_properties` refuses an array whose size and elements both change ("insertion points are
   ambiguous"). To append a GE modifier, read the array, append a deep copy and set it back in one script.
+- The MCP toolset registry needs typed containers in tool signatures (`dict[str, float]`, `list[...]`). A bare `dict`
+  fails registration of the whole `BanditBallerTools` toolset (`LogPython: Error: … missing specification for
+  contained type`), so nested results are returned as JSON text. Restart the editor after Python edits.
 
 ---
 
@@ -889,16 +960,11 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
 16. ~~**Extra Jump.**~~ Done (see Prompt 16). It stays uncapped (user decision). The map boundary's ceiling
     (Prompt 21) limits the height.
 17. ~~**Design update — decisions before M3.**~~ Done (docs only).
-18. **Upgrade offers (4 rarity tiers + rerolls).**
-    - Append Epic and Legendary to `EGSUpgradeRarity`.
-    - An upgrade pool asset: the DA_Upgrade_* list plus a weight per rarity tier. The weights are placeholders, and
-      which upgrades become Epic or Legendary is decided later, when there are more upgrades.
-    - On each level-up, roll 3 distinct choices (run stream, rarity-weighted). Store them as pending offers on the
-      PlayerState, queued across several level-ups.
-    - Picking goes through a gameplay function that takes the PlayerState. There is no skip.
-    - Reroll replaces the current 3 choices (run stream). Rerolls left per run start at 3 (from data) and reset with
-      the run.
+18. ~~**Upgrade offers (4 rarity tiers + rerolls).**~~ Done (see Prompt 18; log / console only). The weights are
+    placeholders, and which upgrades become Epic or Legendary is decided later.
 19. **Choice screen (with reroll).**
+    - Bind to `UGSUpgradeComponent::OnUpgradeOfferChanged` / `OnRerollsLeftChanged` and call
+      `AGSGameMode::ChooseUpgrade` / `RerollUpgradeOffer`.
     - A choice panel next to the level-up banner: each card shows its rarity, description and current stacks.
     - A reroll button shows the rerolls left. There is no skip button.
     - The game pauses while an offer is open; queued offers keep it paused until the last pick.

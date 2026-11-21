@@ -26,6 +26,7 @@
 #include "GSSpawnLocationFinder.h"
 #include "GSUpgradeComponent.h"
 #include "GSUpgradeData.h"
+#include "GSUpgradePool.h"
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
 #include "NavigationSystem.h"
@@ -220,6 +221,87 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 		GEngine->AddOnScreenDebugMessage(-1, 8.f, FColor::Cyan, Text);
 	}
 #endif
+}
+
+void UGSDebugLibrary::PrintUpgradeOffer(AGSPlayerController* PC)
+{
+#if !UE_BUILD_SHIPPING
+	const AGSPlayerState* PS = PC ? PC->GetPlayerState<AGSPlayerState>() : nullptr;
+	const UGSUpgradeComponent* Upgrades = PS ? PS->GetUpgradeComponent() : nullptr;
+	if (!Upgrades)
+	{
+		return;
+	}
+	FString Text = Upgrades->DescribeOffer();
+	const TArray<UGSUpgradeData*> Choices = Upgrades->GetCurrentChoices();
+	for (int32 Index = 0; Index < Choices.Num(); ++Index)
+	{
+		Text += FString::Printf(TEXT("\n  [%d] %s: %s"), Index, *Choices[Index]->DisplayName.ToString(), *Choices[Index]->GetFormattedDescription().ToString());
+	}
+	TArray<FString> Lines;
+	Text.ParseIntoArrayLines(Lines);
+	for (const FString& Line : Lines)
+	{
+		UE_LOG(LogBanditBaller, Log, TEXT("%s"), *Line);
+	}
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 8.f, FColor::Cyan, Text);
+	}
+#endif
+}
+
+FGSUpgradeOfferSimulation UGSDebugLibrary::SimulateUpgradeOffers(int32 Count, int32 Seed)
+{
+	FGSUpgradeOfferSimulation Result;
+	Result.Seed = Seed;
+
+	const TArray<FAssetData> Pools = GSDebug::GetAssetsOfClass(UGSUpgradePool::StaticClass());
+	const UGSUpgradePool* Pool = Pools.Num() > 0 ? Cast<UGSUpgradePool>(Pools[0].GetAsset()) : nullptr;
+	if (!Pool)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("SimulateUpgradeOffers: no UGSUpgradePool asset found."));
+		return Result;
+	}
+	Result.Pool = Pool->GetName();
+	Result.ChoicesPerOffer = Pool->ChoicesPerOffer;
+
+	// Every rarity and pooled upgrade starts at 0, so ones that never come up are reported too.
+	for (const EGSUpgradeRarity Rarity : UGSUpgradePool::GetAllRarities())
+	{
+		Result.RarityChoices.Add(UGSUpgradeData::GetRarityName(Rarity), 0);
+		Result.RarityOffers.Add(UGSUpgradeData::GetRarityName(Rarity), 0);
+	}
+	for (const UGSUpgradeData* Upgrade : Pool->Upgrades)
+	{
+		if (Upgrade)
+		{
+			Result.UpgradeOffers.Add(Upgrade->GetName(), 0);
+		}
+	}
+
+	// A private stream: the run stream is never touched.
+	FRandomStream Stream(Seed);
+	for (int32 OfferIndex = 0; OfferIndex < FMath::Max(Count, 0); ++OfferIndex)
+	{
+		const TArray<UGSUpgradeData*> Offer = Pool->RollOffer(Stream, [](const UGSUpgradeData*) { return 0; });
+		++Result.Offers;
+		Result.TotalChoices += Offer.Num();
+		Result.ShortOffers += Offer.Num() < Pool->ChoicesPerOffer ? 1 : 0;
+
+		TSet<EGSUpgradeRarity> RaritiesInOffer;
+		for (const UGSUpgradeData* Choice : Offer)
+		{
+			++Result.UpgradeOffers.FindOrAdd(Choice->GetName());
+			++Result.RarityChoices.FindOrAdd(UGSUpgradeData::GetRarityName(Choice->Rarity));
+			RaritiesInOffer.Add(Choice->Rarity);
+		}
+		for (const EGSUpgradeRarity Rarity : RaritiesInOffer)
+		{
+			++Result.RarityOffers.FindOrAdd(UGSUpgradeData::GetRarityName(Rarity));
+		}
+	}
+	return Result;
 }
 
 TArray<FString> UGSDebugLibrary::GetEnemyDataNames()
@@ -545,6 +627,34 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 	else if (Command == TEXT("UpgradeList"))
 	{
 		ListUpgrades(PC);
+	}
+	else if (Command == TEXT("UpgradeOffer") || Command == TEXT("UpgradeChoose") || Command == TEXT("UpgradeReroll"))
+	{
+		AGSGameMode* GameMode = PC->GetWorld()->GetAuthGameMode<AGSGameMode>();
+		AGSPlayerState* PS = PC->GetPlayerState<AGSPlayerState>();
+		if (!GameMode || !PS)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("gs.Upgrade.*: no AGSGameMode / player state on the server."));
+			return;
+		}
+		if (Command == TEXT("UpgradeOffer"))
+		{
+			GameMode->QueueUpgradeOfferForDebug(PS);
+		}
+		else if (Command == TEXT("UpgradeChoose"))
+		{
+			if (Args.Num() < 1 || !Args[0].IsNumeric())
+			{
+				UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.Upgrade.Choose <0-2>"));
+				return;
+			}
+			GameMode->ChooseUpgrade(PS, FCString::Atoi(*Args[0]));
+		}
+		else
+		{
+			GameMode->RerollUpgradeOffer(PS);
+		}
+		PrintUpgradeOffer(PC);
 	}
 	else if (Command == TEXT("MarketTeleport") || Command == TEXT("MarketReturn"))
 	{

@@ -61,6 +61,7 @@
 #include "Editor/EditorPerformanceSettings.h"
 #include "GSUpgradeComponent.h"
 #include "GSUpgradeData.h"
+#include "GSUpgradePool.h"
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
 #include "Misc/AutomationTest.h"
@@ -2110,7 +2111,8 @@ bool FGSStatUpgradesTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Three upgrades tracked"), Upgrades->GetUpgradeStacks().Num(), 3);
 
 		// Cap: MaxStacks 1 allows one pick only.
-		UGSUpgradeData* Capped = NewObject<UGSUpgradeData>(GetTransientPackage(), TEXT("DA_Upgrade_TestCapped"), RF_Transient);
+		UGSUpgradeData* Capped = NewObject<UGSUpgradeData>(GetTransientPackage(),
+			MakeUniqueObjectName(GetTransientPackage(), UGSUpgradeData::StaticClass(), TEXT("DA_Upgrade_TestCapped")), RF_Transient);
 		Capped->Effect = UGSUpgradeEffect_Damage::StaticClass();
 		Capped->MaxStacks = 1;
 		TestTrue(TEXT("Capped upgrade: first pick"), Upgrades->GrantUpgrade(Capped, TEXT("Test")));
@@ -2382,6 +2384,237 @@ bool FGSExtraJumpTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: ExtraJumps 0"), GetAttr(UGSAttributeSet::GetExtraJumpsAttribute()), 0.f, 0.001f);
 		TestEqual(TEXT("New run: JumpMaxCount 1"), GetPlayer()->JumpMaxCount, 1);
 		GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = S->bOldThrottle;
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Upgrade offers: pool, roll rules, queue, choose, reroll, reset, simulator
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	UGSUpgradePool* MakeTestPool(const TArray<UGSUpgradeData*>& Upgrades)
+	{
+		UGSUpgradePool* Pool = NewObject<UGSUpgradePool>(GetTransientPackage(), NAME_None, RF_Transient);
+		for (UGSUpgradeData* Upgrade : Upgrades)
+		{
+			Pool->Upgrades.Add(Upgrade);
+		}
+		return Pool;
+	}
+
+	UGSUpgradeData* MakeTestUpgrade(const TCHAR* Name, EGSUpgradeRarity Rarity, int32 MaxStacks = 0)
+	{
+		// Unique name: a fixed one would collide when the tests run again in the same editor session.
+		UGSUpgradeData* Upgrade = NewObject<UGSUpgradeData>(GetTransientPackage(),
+			MakeUniqueObjectName(GetTransientPackage(), UGSUpgradeData::StaticClass(), FName(Name)), RF_Transient);
+		Upgrade->Effect = UGSUpgradeEffect_Damage::StaticClass();
+		Upgrade->Rarity = Rarity;
+		Upgrade->MaxStacks = MaxStacks;
+		return Upgrade;
+	}
+
+	bool AllDifferent(const TArray<UGSUpgradeData*>& Offer)
+	{
+		return TSet<UGSUpgradeData*>(Offer).Num() == Offer.Num() && !Offer.Contains(nullptr);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSUpgradeOffersTest, "BanditBaller.Upgrades.Offers", GSTests::TestFlags)
+bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	struct FState
+	{
+		TArray<EGSUpgradeOfferChange> Changes;
+		TArray<int32> Rerolls;
+		float MaxHealthAtOpen = -1.f;
+		float HealthAtOpen = -1.f;
+		float BaseMaxHealth = 0.f;
+		TArray<UGSUpgradeData*> FirstOffer;
+	};
+	TSharedRef<FState> S = MakeShared<FState>();
+
+	// Pool data and the pure roll rules.
+	Step([this, S]()
+	{
+		GetGameMode()->SetRoundTimerPaused(true); // stay in PreRound: no kills, nothing else uses the run stream
+
+		const UGSUpgradePool* Pool = GetGameMode()->GetUpgradePool();
+		if (!TestNotNull(TEXT("UpgradePool set on the GameMode"), Pool))
+		{
+			return;
+		}
+		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
+		TestEqual(TEXT("Pool has the 4 upgrades"), Pool->Upgrades.Num(), 4);
+		TestEqual(TEXT("Common weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Common), 100.f);
+		TestEqual(TEXT("Rare weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Rare), 20.f);
+		TestEqual(TEXT("Epic weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Epic), 6.f);
+		TestEqual(TEXT("Legendary weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Legendary), 1.f);
+		TestEqual(TEXT("3 choices per offer"), Pool->ChoicesPerOffer, 3);
+		TestEqual(TEXT("3 rerolls per run"), Pool->RerollsPerRun, 3);
+		TestEqual(TEXT("Four rarities"), UGSUpgradePool::GetAllRarities().Num(), 4);
+		TestEqual(TEXT("Epic after Rare"), static_cast<int32>(EGSUpgradeRarity::Epic), 2);
+		TestEqual(TEXT("Legendary last"), static_cast<int32>(EGSUpgradeRarity::Legendary), 3);
+
+		const UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		TestEqual(TEXT("Run starts with 3 rerolls"), Upgrades->GetRerollsLeft(), 3);
+		TestFalse(TEXT("No offer at start"), Upgrades->HasOpenOffer());
+		TestEqual(TEXT("Nothing queued at start"), Upgrades->GetQueuedOffers(), 0);
+
+		auto NoStacks = [](const UGSUpgradeData*) { return 0; };
+
+		// Real pool: always 3 different upgrades (empty Epic / Legendary tiers never waste a pick), and the lone Rare
+		// shows up in about 1 - (100/120)^3 = 42% of offers.
+		FRandomStream Stream(7);
+		int32 WithRare = 0;
+		bool bAllFull = true, bAllDifferent = true;
+		for (int32 i = 0; i < 3000; ++i)
+		{
+			const TArray<UGSUpgradeData*> Offer = Pool->RollOffer(Stream, NoStacks);
+			bAllFull &= Offer.Num() == 3;
+			bAllDifferent &= AllDifferent(Offer);
+			WithRare += Offer.ContainsByPredicate([](const UGSUpgradeData* U) { return U->Rarity == EGSUpgradeRarity::Rare; }) ? 1 : 0;
+		}
+		TestTrue(TEXT("Every offer has 3 choices"), bAllFull);
+		TestTrue(TEXT("Choices in an offer are different"), bAllDifferent);
+		AddInfo(FString::Printf(TEXT("Rare in %.1f%% of 3000 offers (expected 42.1%%)"), 100.0 * WithRare / 3000.0));
+		TestTrue(TEXT("Rare frequency matches the tier weights"), FMath::Abs(WithRare / 3000.0 - 0.4213) < 0.03);
+
+		// Same seed -> same offers.
+		FRandomStream A(99), B(99);
+		bool bSame = true;
+		for (int32 i = 0; i < 20; ++i)
+		{
+			bSame &= Pool->RollOffer(A, NoStacks) == Pool->RollOffer(B, NoStacks);
+		}
+		TestTrue(TEXT("Same seed rolls the same offers"), bSame);
+
+		// Fewer upgrades than choices: offer what's left.
+		UGSUpgradePool* Small = MakeTestPool({ MakeTestUpgrade(TEXT("TestUp_A"), EGSUpgradeRarity::Common), MakeTestUpgrade(TEXT("TestUp_B"), EGSUpgradeRarity::Legendary) });
+		const TArray<UGSUpgradeData*> SmallOffer = Small->RollOffer(Stream, NoStacks);
+		TestEqual(TEXT("Two upgrades -> offer of 2"), SmallOffer.Num(), 2);
+		TestTrue(TEXT("Small offer different"), AllDifferent(SmallOffer));
+
+		// An upgrade at MaxStacks is never offered; an empty pool offers nothing.
+		UGSUpgradeData* Capped = MakeTestUpgrade(TEXT("TestUp_Capped"), EGSUpgradeRarity::Common, 1);
+		UGSUpgradePool* WithCapped = MakeTestPool({ Capped, MakeTestUpgrade(TEXT("TestUp_C"), EGSUpgradeRarity::Common),
+			MakeTestUpgrade(TEXT("TestUp_D"), EGSUpgradeRarity::Common), MakeTestUpgrade(TEXT("TestUp_E"), EGSUpgradeRarity::Rare) });
+		bool bCappedSeen = false;
+		for (int32 i = 0; i < 200; ++i)
+		{
+			const TArray<UGSUpgradeData*> Offer = WithCapped->RollOffer(Stream, [Capped](const UGSUpgradeData* U) { return U == Capped ? 1 : 0; });
+			bCappedSeen |= Offer.Contains(Capped);
+			bAllFull &= Offer.Num() == 3;
+		}
+		TestFalse(TEXT("Upgrade at MaxStacks is never offered"), bCappedSeen);
+		TestTrue(TEXT("The other 3 still fill the offer"), bAllFull);
+		TestEqual(TEXT("Empty pool -> empty offer"), MakeTestPool({})->RollOffer(Stream, NoStacks).Num(), 0);
+
+		// Listen to the events like the UI will.
+		UGSUpgradeComponent* Mutable = GetPlayerUpgrades();
+		Mutable->OnUpgradeOfferChangedNative.AddLambda([S](EGSUpgradeOfferChange Change)
+		{
+			S->Changes.Add(Change);
+			if (Change == EGSUpgradeOfferChange::Opened && S->MaxHealthAtOpen < 0.f)
+			{
+				S->MaxHealthAtOpen = GetMaxHealth(GetPlayerASC());
+				S->HealthAtOpen = GetHealth(GetPlayerASC());
+			}
+		});
+		Mutable->OnRerollsLeftChangedNative.AddLambda([S](int32 Left) { S->Rerolls.Add(Left); });
+
+		// Damage first, so the level-up heal has something to restore.
+		S->BaseMaxHealth = GetMaxHealth(GetPlayerASC());
+		ApplyDamage(GetPlayerASC(), 30.f);
+	});
+
+	// One level-up opens one offer, after the MaxHealth reward and heal.
+	Step([this, S]()
+	{
+		GetGameMode()->AwardXP(GetPC()->GetPlayerState<AGSPlayerState>(), 100.f, /*bApplyXPGain*/ false);
+		const UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		TestTrue(TEXT("Level-up opened an offer"), Upgrades->HasOpenOffer());
+		TestEqual(TEXT("3 choices"), Upgrades->GetCurrentChoices().Num(), 3);
+		TestTrue(TEXT("Choices different"), AllDifferent(Upgrades->GetCurrentChoices()));
+		TestTrue(TEXT("Opened event"), S->Changes.Num() == 1 && S->Changes[0] == EGSUpgradeOfferChange::Opened);
+		TestEqual(TEXT("Offer opened after the MaxHealth reward"), S->MaxHealthAtOpen, S->BaseMaxHealth + 10.f, 0.01f);
+		TestEqual(TEXT("Offer opened after the heal"), S->HealthAtOpen, S->MaxHealthAtOpen, 0.01f);
+
+		// Two more level-ups at once queue two offers behind the open one.
+		GetGameMode()->AwardXP(GetPC()->GetPlayerState<AGSPlayerState>(), 125.f + 156.f, false);
+		TestEqual(TEXT("Two offers queued"), Upgrades->GetQueuedOffers(), 2);
+		TestEqual(TEXT("The open offer didn't change"), S->Changes.Num(), 1);
+
+		// Rerolls: 3, then refused.
+		const TArray<UGSUpgradeData*> Before = Upgrades->GetCurrentChoices();
+		for (int32 i = 0; i < 3; ++i)
+		{
+			TestTrue(FString::Printf(TEXT("Reroll %d"), i + 1), GetGameMode()->RerollUpgradeOffer(GetPC()->GetPlayerState<AGSPlayerState>()));
+			TestEqual(TEXT("Rerolled offer has 3 choices"), Upgrades->GetCurrentChoices().Num(), 3);
+		}
+		TestEqual(TEXT("No rerolls left"), Upgrades->GetRerollsLeft(), 0);
+		TestTrue(TEXT("Rerolls-left events 2, 1, 0"), S->Rerolls == TArray<int32>({ 2, 1, 0 }));
+		TestEqual(TEXT("Three Rerolled events"), S->Changes.FilterByPredicate([](EGSUpgradeOfferChange C) { return C == EGSUpgradeOfferChange::Rerolled; }).Num(), 3);
+		const TArray<UGSUpgradeData*> AfterRerolls = Upgrades->GetCurrentChoices();
+		TestFalse(TEXT("4th reroll refused"), GetGameMode()->RerollUpgradeOffer(GetPC()->GetPlayerState<AGSPlayerState>()));
+		TestTrue(TEXT("Refused reroll keeps the offer"), Upgrades->GetCurrentChoices() == AfterRerolls);
+		AddInfo(FString::Printf(TEXT("Offer before rerolls %s; after: %s"), *FString::JoinBy(Before, TEXT(", "), [](const UGSUpgradeData* U) { return U->GetName(); }),
+			*FString::JoinBy(AfterRerolls, TEXT(", "), [](const UGSUpgradeData* U) { return U->GetName(); })));
+
+		// Choosing.
+		AGSPlayerState* PS = GetPC()->GetPlayerState<AGSPlayerState>();
+		TestFalse(TEXT("Index out of range refused"), GetGameMode()->ChooseUpgrade(PS, 5));
+		TestTrue(TEXT("Bad index keeps the offer"), Upgrades->GetCurrentChoices() == AfterRerolls);
+		const UGSUpgradeData* Picked = AfterRerolls[1];
+		S->Changes.Reset();
+		TestTrue(TEXT("Choose 1"), GetGameMode()->ChooseUpgrade(PS, 1));
+		TestEqual(TEXT("Chosen upgrade got a stack"), Upgrades->GetStacks(Picked), 1);
+		TestTrue(TEXT("Closed, then the next offer opened"), S->Changes == TArray<EGSUpgradeOfferChange>({ EGSUpgradeOfferChange::Closed, EGSUpgradeOfferChange::Opened }));
+		TestEqual(TEXT("One left in the queue"), Upgrades->GetQueuedOffers(), 1);
+		TestTrue(TEXT("Choose 0"), GetGameMode()->ChooseUpgrade(PS, 0));
+		TestEqual(TEXT("Queue empty"), Upgrades->GetQueuedOffers(), 0);
+		TestTrue(TEXT("Last offer open"), Upgrades->HasOpenOffer());
+		S->Changes.Reset();
+		TestTrue(TEXT("Choose 2"), GetGameMode()->ChooseUpgrade(PS, 2));
+		TestFalse(TEXT("No offer after the last pick"), Upgrades->HasOpenOffer());
+		TestTrue(TEXT("Only Closed after the last pick"), S->Changes == TArray<EGSUpgradeOfferChange>({ EGSUpgradeOfferChange::Closed }));
+		TestEqual(TEXT("Three picks"), Upgrades->GetTotalPicks(), 3);
+		TestFalse(TEXT("Choose with no offer refused"), GetGameMode()->ChooseUpgrade(PS, 0));
+
+		// New run: rerolls refilled, offers dropped, upgrades gone; reroll without an offer refused.
+		GetGameMode()->QueueUpgradeOfferForDebug(PS);
+		TestTrue(TEXT("Debug offer opened"), Upgrades->HasOpenOffer());
+		S->Changes.Reset();
+		GetGameMode()->RestartRunWithSeed(31);
+		TestTrue(TEXT("New run closes the open offer"), S->Changes == TArray<EGSUpgradeOfferChange>({ EGSUpgradeOfferChange::Closed }));
+		TestFalse(TEXT("New run: no offer"), Upgrades->HasOpenOffer());
+		TestEqual(TEXT("New run: rerolls refilled"), Upgrades->GetRerollsLeft(), 3);
+		TestEqual(TEXT("New run: no picks"), Upgrades->GetTotalPicks(), 0);
+		TestFalse(TEXT("Reroll with no offer refused"), GetGameMode()->RerollUpgradeOffer(PS));
+		TestEqual(TEXT("Refused reroll costs nothing"), Upgrades->GetRerollsLeft(), 3);
+
+		// Same run seed -> same first offer (the roll uses the run stream).
+		GetGameMode()->AwardXP(PS, 100.f, false);
+		S->FirstOffer = Upgrades->GetCurrentChoices();
+		GetGameMode()->RestartRunWithSeed(31);
+		GetGameMode()->AwardXP(PS, 100.f, false);
+		TestTrue(TEXT("Same seed -> same first offer"), Upgrades->GetCurrentChoices() == S->FirstOffer);
+
+		// The simulator uses its own stream: same result for the same seed, run stream untouched.
+		const int32 RunSeedState = GetGameMode()->GetRunStream().GetCurrentSeed();
+		const FGSUpgradeOfferSimulation Sim1 = UGSDebugLibrary::SimulateUpgradeOffers(2000, 5);
+		const FGSUpgradeOfferSimulation Sim2 = UGSDebugLibrary::SimulateUpgradeOffers(2000, 5);
+		TestEqual(TEXT("Run stream untouched by the simulator"), GetGameMode()->GetRunStream().GetCurrentSeed(), RunSeedState);
+		TestEqual(TEXT("Simulated offers"), Sim1.Offers, 2000);
+		TestEqual(TEXT("Simulated choices"), Sim1.TotalChoices, 6000);
+		TestEqual(TEXT("No short offers"), Sim1.ShortOffers, 0);
+		TestTrue(TEXT("Simulator is deterministic"), Sim1.UpgradeOffers.OrderIndependentCompareEqual(Sim2.UpgradeOffers));
+		TestEqual(TEXT("No Epic choices (empty tier)"), Sim1.RarityChoices.FindRef(TEXT("Epic")), 0);
+		TestEqual(TEXT("No Legendary choices (empty tier)"), Sim1.RarityChoices.FindRef(TEXT("Legendary")), 0);
 	});
 	EndPIE();
 	return true;

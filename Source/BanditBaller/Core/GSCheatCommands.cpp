@@ -17,6 +17,7 @@
 //   gs.Run.Stats                                        print run stats (local replicated copy)
 //   gs.XP.Add <N> / gs.XP.SetLevel <N>                  grant raw XP / jump to a level (UGSProgressionComponent)
 //   gs.Upgrade.Grant <Name> / gs.Upgrade.List           add one upgrade stack / list upgrades (UGSUpgradeComponent)
+//   gs.Upgrade.Offer / Choose <0-2> / Reroll            queue, pick from and reroll level-up offers (AGSGameMode)
 //   gs.Profile.AddCash <N> / Reset / Save / Print       permanent cash (UGSProfileSubsystem; local, not forwarded)
 
 #include "BanditBaller.h"
@@ -156,6 +157,24 @@ namespace GSCheats
 		TEXT("gs.Upgrade.List"),
 		TEXT("List every upgrade with rarity, this run's stacks / cap and description, plus the stats they change."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("UpgradeList"), Args, World); }),
+		ECVF_Cheat);
+
+	FAutoConsoleCommandWithWorldAndArgs UpgradeOfferCommand(
+		TEXT("gs.Upgrade.Offer"),
+		TEXT("Queue a level-up upgrade offer without the level (opens at once if none is open), then print the open offer."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("UpgradeOffer"), Args, World); }),
+		ECVF_Cheat);
+
+	FAutoConsoleCommandWithWorldAndArgs UpgradeChooseCommand(
+		TEXT("gs.Upgrade.Choose"),
+		TEXT("Take a choice of the open upgrade offer; the next queued offer opens. Usage: gs.Upgrade.Choose <0-2>"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("UpgradeChoose"), Args, World); }),
+		ECVF_Cheat);
+
+	FAutoConsoleCommandWithWorldAndArgs UpgradeRerollCommand(
+		TEXT("gs.Upgrade.Reroll"),
+		TEXT("Reroll the open upgrade offer for one of this run's rerolls."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("UpgradeReroll"), Args, World); }),
 		ECVF_Cheat);
 
 	/** Reads the local (replicated) GameState, so it also works on clients. */

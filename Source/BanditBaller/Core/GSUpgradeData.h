@@ -9,12 +9,14 @@
 class UGameplayEffect;
 class UTexture2D;
 
-/** How rare a level-up upgrade is (offer weights come with the upgrade pool). Append new rarities at the end. */
+/** How rare a level-up upgrade is (offer weights per rarity live in UGSUpgradePool). Append new rarities at the end. */
 UENUM(BlueprintType)
 enum class EGSUpgradeRarity : uint8
 {
 	Common,
-	Rare
+	Rare,
+	Epic,
+	Legendary
 };
 
 /**
