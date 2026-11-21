@@ -119,6 +119,10 @@ void AGSPlayerController::ClientNotifyDamageDealt_Implementation(FVector_NetQuan
 	{
 		HUD->AddDamageNumber(WorldLocation, Damage, bCritical);
 		HUD->ShowHitMarker(bKilled);
+		if (bKilled)
+		{
+			HUD->NotifyKill(WorldLocation); // anchors the "+N XP" popup of this kill
+		}
 	}
 }
 

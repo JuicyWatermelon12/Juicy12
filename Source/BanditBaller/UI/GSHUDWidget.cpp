@@ -9,8 +9,11 @@
 #include "Framework/Application/SlateApplication.h"
 #include "GameFramework/Pawn.h"
 #include "GSAttributeSet.h"
+#include "GSGameState.h"
+#include "GSLevelRewards.h"
 #include "GSPlayerState.h"
 #include "GSProgressionComponent.h"
+#include "Kismet/GameplayStatics.h"
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
 #include "Rendering/DrawElements.h"
@@ -54,6 +57,20 @@ void UGSHUDWidget::UnbindAbilitySystem()
 		ASC->GetGameplayAttributeValueChangeDelegate(UGSAttributeSet::GetMaxHealthAttribute()).Remove(MaxHealthChangedHandle);
 	}
 	BoundAbilitySystem.Reset();
+}
+
+void UGSHUDWidget::NativeConstruct()
+{
+	Super::NativeConstruct();
+
+	if (LevelUpBanner)
+	{
+		LevelUpBanner->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (XPBar)
+	{
+		XPBarBaseFillColor = XPBar->GetFillColorAndOpacity();
+	}
 }
 
 void UGSHUDWidget::NativeDestruct()
@@ -153,12 +170,182 @@ void UGSHUDWidget::UnbindProgression()
 void UGSHUDWidget::HandleXPChanged(int32 CurrentXP, int32 XPForNextLevel, int32 Delta)
 {
 	RefreshProgressionDisplay();
+
+	if (Delta <= 0)
+	{
+		return;
+	}
+	// Pair with a kill that already arrived; otherwise wait briefly for its kill notification.
+	if (RecentKills.Num() > 0)
+	{
+		AddXPPopup(RecentKills[0].Location, Delta);
+		RecentKills.RemoveAt(0);
+		return;
+	}
+	if (PendingXP <= 0)
+	{
+		PendingXPAge = 0.f;
+	}
+	PendingXP += Delta;
 }
 
 void UGSHUDWidget::HandleLevelUp(int32 NewLevel)
 {
+	// Fires once per level gained (several in one frame for a big XP gain); the state is already final.
 	LevelPunchRemaining = LevelUpPunchDuration;
+	XPBarPulseRemaining = XPBarPulseDuration;
 	RefreshProgressionDisplay();
+	ShowLevelUpBanner(NewLevel);
+
+	if (LevelUpSound && LastLevelUpSoundFrame != GFrameCounter)
+	{
+		LastLevelUpSoundFrame = GFrameCounter;
+		++LevelUpSoundsPlayed;
+		UGameplayStatics::PlaySound2D(this, LevelUpSound);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Level-up banner + XP bar pulse
+// ---------------------------------------------------------------------------
+
+void UGSHUDWidget::ShowLevelUpBanner(int32 NewLevel)
+{
+	// Level-ups while the banner is up merge into it ("Level 4", "+20 Max Health").
+	if (LevelUpBannerRemaining <= 0.f)
+	{
+		BannerFirstLevel = NewLevel;
+	}
+	BannerLastLevel = NewLevel;
+	LevelUpBannerRemaining = LevelUpBannerDuration;
+
+	if (LevelUpLevelText)
+	{
+		LevelUpLevelText->SetText(FText::Format(NSLOCTEXT("GSHUD", "LevelUpLevel", "Level {0}"), FText::AsNumber(BannerLastLevel)));
+	}
+	if (LevelUpRewardText)
+	{
+		const FText Rewards = GetLevelUpRewardText();
+		LevelUpRewardText->SetText(Rewards);
+		LevelUpRewardText->SetVisibility(Rewards.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+	}
+	if (LevelUpBanner)
+	{
+		LevelUpBanner->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
+}
+
+FText UGSHUDWidget::GetLevelUpRewardText() const
+{
+	const UWorld* World = GetWorld();
+	const AGSGameState* GS = World ? World->GetGameState<AGSGameState>() : nullptr;
+	const UGSLevelRewards* Rewards = GS ? GS->GetLevelRewards() : nullptr;
+	return (Rewards && BannerFirstLevel > 0) ? Rewards->DescribeRewards(BannerFirstLevel, BannerLastLevel) : FText::GetEmpty();
+}
+
+void UGSHUDWidget::TickLevelUpFeedback(float DeltaTime)
+{
+	if (LevelUpBanner && LevelUpBannerRemaining > 0.f)
+	{
+		LevelUpBannerRemaining = FMath::Max(LevelUpBannerRemaining - DeltaTime, 0.f);
+		const float Elapsed = LevelUpBannerDuration - LevelUpBannerRemaining;
+		float Alpha = 1.f;
+		float Scale = 1.f;
+		if (LevelUpBannerFadeIn > 0.f && Elapsed < LevelUpBannerFadeIn)
+		{
+			const float T = Elapsed / LevelUpBannerFadeIn;
+			Alpha = T;
+			Scale = FMath::Lerp(LevelUpBannerPopScale, 1.f, T);
+		}
+		else if (LevelUpBannerFadeOut > 0.f && LevelUpBannerRemaining < LevelUpBannerFadeOut)
+		{
+			Alpha = LevelUpBannerRemaining / LevelUpBannerFadeOut;
+		}
+		LevelUpBanner->SetRenderOpacity(Alpha);
+		LevelUpBanner->SetRenderScale(FVector2D(Scale, Scale));
+		if (LevelUpBannerRemaining <= 0.f)
+		{
+			LevelUpBanner->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+
+	if (XPBar && (XPBarPulseRemaining > 0.f || !XPBar->GetRenderTransform().Scale.Equals(FVector2D::UnitVector)))
+	{
+		XPBarPulseRemaining = FMath::Max(XPBarPulseRemaining - DeltaTime, 0.f);
+		const float T = XPBarPulseDuration > 0.f ? XPBarPulseRemaining / XPBarPulseDuration : 0.f;
+		const float Wave = FMath::Sin(T * PI);
+		XPBar->SetRenderScale(FVector2D(1.f, FMath::Lerp(1.f, XPBarPulseScale, Wave)));
+		XPBar->SetFillColorAndOpacity(FMath::Lerp(XPBarBaseFillColor, XPBarPulseColor, Wave));
+	}
+}
+
+// ---------------------------------------------------------------------------
+// "+N XP" popups
+// ---------------------------------------------------------------------------
+
+void UGSHUDWidget::NotifyKill(const FVector& WorldLocation)
+{
+	if (PendingXP > 0)
+	{
+		AddXPPopup(WorldLocation, PendingXP);
+		PendingXP = 0;
+		return;
+	}
+	if (RecentKills.Num() >= 16)
+	{
+		RecentKills.RemoveAt(0);
+	}
+	RecentKills.Add({ WorldLocation, 0.f });
+}
+
+void UGSHUDWidget::TickXPPopupPairing(float DeltaTime)
+{
+	for (int32 Index = RecentKills.Num() - 1; Index >= 0; --Index)
+	{
+		RecentKills[Index].Age += DeltaTime;
+		if (RecentKills[Index].Age > XPPopupPairWindow)
+		{
+			RecentKills.RemoveAt(Index); // a kill that gave no XP (dummy, XPValue 0)
+		}
+	}
+
+	// XP without a kill (gs.XP.Add, or the kill notice never came): show it above the player.
+	if (PendingXP > 0)
+	{
+		PendingXPAge += DeltaTime;
+		if (PendingXPAge > XPPopupPairWindow)
+		{
+			if (const APawn* Pawn = GetOwningPlayerPawn())
+			{
+				AddXPPopup(Pawn->GetActorLocation(), PendingXP);
+			}
+			PendingXP = 0;
+		}
+	}
+}
+
+void UGSHUDWidget::AddXPPopup(const FVector& WorldLocation, int32 Amount)
+{
+	if (Amount <= 0)
+	{
+		return;
+	}
+	FDamageNumber& Entry = AllocateFloatingNumber();
+	Entry.WorldLocation = WorldLocation + FVector(0.f, 0.f, XPPopupHeight);
+	Entry.XP = Amount;
+	Entry.Lifetime = XPPopupLifetime;
+	Entry.JitterX = 0.f;
+	Entry.bXP = true;
+}
+
+int32 UGSHUDWidget::GetActiveXPPopupTotal() const
+{
+	int32 Total = 0;
+	for (const FDamageNumber& Entry : DamageNumbers)
+	{
+		Total += (Entry.bActive && Entry.bXP) ? Entry.XP : 0;
+	}
+	return Total;
 }
 
 void UGSHUDWidget::RefreshProgressionDisplay()
@@ -317,6 +504,8 @@ void UGSHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	TryBindProgression();
 
 	UpdateWeaponDisplay();
+	TickLevelUpFeedback(InDeltaTime);
+	TickXPPopupPairing(InDeltaTime);
 
 	// Level label punch on level-up.
 	if (LevelText && (LevelPunchRemaining > 0.f || !LevelText->GetRenderTransform().Scale.Equals(FVector2D::UnitVector)))
@@ -503,6 +692,12 @@ void UGSHUDWidget::PaintDamageNumbers(const FGeometry& Geometry, FSlateWindowEle
 			Text = FString::Printf(TEXT("+$%d"), Entry.Cash);
 			FontSize = CashPopupFontSize;
 			Color = CashPopupColor;
+		}
+		else if (Entry.bXP)
+		{
+			Text = FString::Printf(TEXT("+%d XP"), Entry.XP);
+			FontSize = XPPopupFontSize;
+			Color = XPPopupColor;
 		}
 		else if (Entry.bCritical)
 		{

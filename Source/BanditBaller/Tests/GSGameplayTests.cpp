@@ -1736,4 +1736,91 @@ bool FGSLevelUpRewardsTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ---------------------------------------------------------------------------
+// Level-up feedback (HUD banner, XP popups, pulses, glow, sound)
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSLevelUpFeedbackTest, "BanditBaller.Progression.LevelUpFeedback", GSTests::TestFlags)
+bool FGSLevelUpFeedbackTest::RunTest(const FString& Parameters)
+{
+	TSharedRef<int32> NonKillXP = MakeShared<int32>(0);
+
+	BeginPIE(this);
+	Step([this, NonKillXP]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		AGSPlayerController* PC = GetPC();
+		AGSPlayerState* PS = PC ? PC->GetPlayerState<AGSPlayerState>() : nullptr;
+		UGSProgressionComponent* Progression = PS ? PS->GetProgressionComponent() : nullptr;
+		const UGSHUDWidget* HUD = PC ? PC->GetGSHUD() : nullptr;
+		const AGSCharacter* Player = GetPlayer();
+		const UGSLevelRewards* Rewards = GetGameState() ? GetGameState()->GetLevelRewards() : nullptr;
+		if (!TestNotNull(TEXT("GameMode"), GameMode) || !TestNotNull(TEXT("Progression"), Progression) || !TestNotNull(TEXT("HUD"), HUD)
+			|| !TestNotNull(TEXT("Player"), Player) || !TestNotNull(TEXT("Level rewards replicated on GameState"), Rewards))
+		{
+			return;
+		}
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->RestartRunWithSeed(903);
+
+		// Reward text comes from the reward effects (no second copy of the +10).
+		TestEqual(TEXT("Describe one level"), Rewards->DescribeRewards(2, 2).ToString(), FString(TEXT("+10 Max Health")));
+		TestEqual(TEXT("Describe two levels"), Rewards->DescribeRewards(2, 3).ToString(), FString(TEXT("+20 Max Health")));
+		TestFalse(TEXT("Banner hidden before any level-up"), HUD->IsLevelUpBannerShowing());
+
+		// Kill: "+N XP" appears right away at the kill (XP gain and kill notice pair up).
+		const int32 PopupsBefore = HUD->GetActiveXPPopupTotal();
+		AGSEnemyCharacter* Enemy = SpawnTestEnemy();
+		UAbilitySystemComponent* EnemyASC = Enemy ? Enemy->GetAbilitySystemComponent() : nullptr;
+		const int32 KillXP = Enemy && Enemy->GetEnemyData() ? Enemy->GetEnemyData()->XPValue : 0;
+		if (TestNotNull(TEXT("Spawned enemy"), EnemyASC))
+		{
+			ApplyDamage(EnemyASC, GetMaxHealth(EnemyASC) + 100.f, GetPlayerASC());
+			TestEqual(TEXT("Kill shows +XPValue XP popup"), HUD->GetActiveXPPopupTotal() - PopupsBefore, KillXP);
+		}
+
+		// Two level-ups from one gain: banner "Level 3" + "+20 Max Health", pulse, one sound, glow.
+		const int32 SoundsBefore = HUD->GetLevelUpSoundsPlayed();
+		*NonKillXP = static_cast<int32>(GameMode->GetXPCurve()->GetTotalXPToReachLevel(3)) - Progression->GetTotalXP();
+		GameMode->AwardXP(PS, static_cast<float>(*NonKillXP), false);
+		TestEqual(TEXT("Level 3"), Progression->GetLevel(), 3);
+		TestTrue(TEXT("Banner showing"), HUD->IsLevelUpBannerShowing());
+		TestEqual(TEXT("Banner shows the new level"), HUD->GetLevelUpBannerLevel(), 3);
+		TestEqual(TEXT("Banner rewards for both levels"), HUD->GetLevelUpRewardText().ToString(), FString(TEXT("+20 Max Health")));
+		TestEqual(TEXT("Level label follows"), HUD->GetDisplayedLevel(), 3);
+		TestTrue(TEXT("XP bar pulses"), HUD->IsXPBarPulsing());
+		TestEqual(TEXT("One level-up sound for both levels"), HUD->GetLevelUpSoundsPlayed() - SoundsBefore, 1);
+		TestTrue(TEXT("Player glows"), Player->IsLevelUpGlowActive());
+	});
+
+	// XP that didn't come from a kill pops above the player after the pairing window.
+	WaitUntil(this, TEXT("+N XP popup for the non-kill XP"), [NonKillXP]()
+	{
+		const UGSHUDWidget* HUD = GetPC() ? GetPC()->GetGSHUD() : nullptr;
+		return HUD && HUD->GetActiveXPPopupTotal() >= *NonKillXP;
+	}, 3.0);
+
+	Step([this]()
+	{
+		// Another level-up while the banner is up merges into it.
+		AGSPlayerController* PC = GetPC();
+		AGSPlayerState* PS = PC->GetPlayerState<AGSPlayerState>();
+		UGSProgressionComponent* Progression = PS->GetProgressionComponent();
+		const UGSHUDWidget* HUD = PC->GetGSHUD();
+		GetGameMode()->AwardXP(PS, static_cast<float>(Progression->GetXPForNextLevel()), false);
+		TestEqual(TEXT("Merged banner: level 4"), HUD->GetLevelUpBannerLevel(), 4);
+		TestEqual(TEXT("Merged banner: rewards for levels 2-4"), HUD->GetLevelUpRewardText().ToString(), FString(TEXT("+30 Max Health")));
+	});
+
+	// Everything fades out again.
+	WaitUntil(this, TEXT("banner, pulse and glow to finish"), []()
+	{
+		const UGSHUDWidget* HUD = GetPC() ? GetPC()->GetGSHUD() : nullptr;
+		const AGSCharacter* Player = GetPlayer();
+		return HUD && Player && !HUD->IsLevelUpBannerShowing() && !HUD->IsXPBarPulsing() && !Player->IsLevelUpGlowActive();
+	}, 8.0);
+	EndPIE();
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR

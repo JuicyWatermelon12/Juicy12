@@ -7,6 +7,7 @@
 #include "GSGameState.generated.h"
 
 class UGSRunStats;
+class UGSLevelRewards;
 
 /**
  * Phase of the round loop run by AGSGameMode:
@@ -140,7 +141,16 @@ public:
 	/** Server only (AGSGameMode). */
 	void SetRunSeed(int32 InSeed) { RunSeed = InSeed; }
 
+	/** The GameMode's level-up rewards (DA_LevelRewards), replicated so clients can describe them (level-up banner). */
+	const UGSLevelRewards* GetLevelRewards() const { return LevelRewards; }
+
+	/** Server only (AGSGameMode::StartPlay). */
+	void SetLevelRewards(UGSLevelRewards* InRewards) { LevelRewards = InRewards; }
+
 protected:
+	UPROPERTY(VisibleInstanceOnly, Replicated, Category = "Progression")
+	TObjectPtr<UGSLevelRewards> LevelRewards;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Run")
 	TObjectPtr<UGSRunStats> RunStats;
 

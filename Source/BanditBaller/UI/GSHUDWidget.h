@@ -12,6 +12,7 @@ class UProgressBar;
 class UTextBlock;
 class UGSWeaponComponent;
 class UGSProgressionComponent;
+class USoundBase;
 struct FOnAttributeChangeData;
 
 /**
@@ -19,9 +20,13 @@ struct FOnAttributeChangeData;
  * - Health bar/text bound to Health/MaxHealth attribute change delegates (no polling of values).
  * - Weapon name + ammo.
  * - Cash counter bound to AGSPlayerState::OnCashChanged.
- * - Level label + XP bar/text bound to UGSProgressionComponent::OnXPChanged / OnLevelUp (punch on level-up).
- * - Painted overlays (no extra widgets): floating damage numbers and "+$N" cash popups, crosshair hit marker,
- *   red screen-edge flash when hit and pulse at low health.
+ * - Level label + XP bar/text bound to UGSProgressionComponent::OnXPChanged / OnLevelUp.
+ * - Level-up feedback (OnLevelUp): label punch, XP bar pulse, "LEVEL UP!" banner (LevelUpBanner: new level + rewards
+ *   from UGSLevelRewards::DescribeRewards; level-ups while it shows merge into it) and LevelUpSound.
+ * - Painted overlays (no extra widgets): floating damage numbers, "+$N" cash popups and "+N XP" popups, crosshair
+ *   hit marker, red screen-edge flash when hit and pulse at low health.
+ * - "+N XP": the amount comes from OnXPChanged; it is placed at the kill reported by NotifyKill when the two arrive
+ *   within XPPopupPairWindow of each other (either order), otherwise above the player.
  * Tuning values are editable on WBP_HUD's class defaults.
  */
 UCLASS(Abstract)
@@ -53,7 +58,21 @@ public:
 	int32 GetDisplayedLevel() const { return DisplayedLevel; }
 	float GetDisplayedXPPercent() const { return DisplayedXPPercent; }
 
+	/** The local player killed something at WorldLocation (from AGSPlayerController::ClientNotifyDamageDealt). */
+	void NotifyKill(const FVector& WorldLocation);
+
+	/** Sum of the "+N XP" popups currently on screen (tests). */
+	int32 GetActiveXPPopupTotal() const;
+
+	// --- Level-up feedback state (tests) ---
+	bool IsLevelUpBannerShowing() const { return LevelUpBannerRemaining > 0.f; }
+	int32 GetLevelUpBannerLevel() const { return BannerLastLevel; }
+	FText GetLevelUpRewardText() const;
+	bool IsXPBarPulsing() const { return XPBarPulseRemaining > 0.f; }
+	int32 GetLevelUpSoundsPlayed() const { return LevelUpSoundsPlayed; }
+
 protected:
+	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 	virtual int32 NativePaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect,
@@ -90,6 +109,18 @@ protected:
 	/** "135 / 156 XP", or "MAX" at max level. */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> XPText;
+
+	/** "LEVEL UP!" banner container; collapsed until a level-up, then fades in/out. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> LevelUpBanner;
+
+	/** "Level 3" inside the banner. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> LevelUpLevelText;
+
+	/** "+10 Max Health" inside the banner (UGSLevelRewards::DescribeRewards). */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> LevelUpRewardText;
 
 	// --- Tuning ---
 
@@ -179,6 +210,52 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|Level", meta = (Units = "s"))
 	float LevelUpPunchDuration = 0.4f;
 
+	/** How long the "LEVEL UP!" banner stays (including fades); restarted by further level-ups. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Level", meta = (Units = "s"))
+	float LevelUpBannerDuration = 2.5f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Level", meta = (Units = "s"))
+	float LevelUpBannerFadeIn = 0.15f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Level", meta = (Units = "s"))
+	float LevelUpBannerFadeOut = 0.5f;
+
+	/** The banner starts at this scale and settles to 1 over the fade-in. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Level", meta = (ClampMin = "1"))
+	float LevelUpBannerPopScale = 1.3f;
+
+	/** XP bar pulse on level-up: height scale at the peak and the fill color it flashes to. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Level", meta = (Units = "s"))
+	float XPBarPulseDuration = 0.5f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Level", meta = (ClampMin = "1"))
+	float XPBarPulseScale = 2.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Level")
+	FLinearColor XPBarPulseColor = FLinearColor(1.f, 0.95f, 0.6f);
+
+	/** 2D sound on level-up (once per frame, even for several level-ups). Placeholder on WBP_HUD. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Level")
+	TObjectPtr<USoundBase> LevelUpSound;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|XP", meta = (Units = "s"))
+	float XPPopupLifetime = 1.0f;
+
+	/** Smaller than the cash popup. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|XP")
+	int32 XPPopupFontSize = 17;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|XP")
+	FLinearColor XPPopupColor = FLinearColor(0.45f, 0.75f, 1.f);
+
+	/** Popups start this far above the kill point / player (cm); above the cash popup height. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|XP")
+	float XPPopupHeight = 120.f;
+
+	/** An XP gain and a kill notification this close in time belong together (either order). */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|XP", meta = (Units = "s"))
+	float XPPopupPairWindow = 0.25f;
+
 private:
 	/** A floating damage number or "+$N" cash popup (shared pool). */
 	struct FDamageNumber
@@ -186,11 +263,13 @@ private:
 		FVector WorldLocation = FVector::ZeroVector;
 		float Damage = 0.f;
 		int32 Cash = 0;
+		int32 XP = 0;
 		float Age = 0.f;
 		float Lifetime = 1.f;
 		float JitterX = 0.f;
 		bool bCritical = false;
 		bool bCash = false;
+		bool bXP = false;
 		bool bActive = false;
 	};
 
@@ -254,6 +333,29 @@ private:
 	int32 DisplayedLevel = 0;
 	float DisplayedXPPercent = 0.f;
 	float LevelPunchRemaining = 0.f;
+
+	// Level-up feedback.
+	void ShowLevelUpBanner(int32 NewLevel);
+	void TickLevelUpFeedback(float DeltaTime);
+	float LevelUpBannerRemaining = 0.f;
+	int32 BannerFirstLevel = 0;
+	int32 BannerLastLevel = 0;
+	float XPBarPulseRemaining = 0.f;
+	FLinearColor XPBarBaseFillColor = FLinearColor::White;
+	uint64 LastLevelUpSoundFrame = 0;
+	int32 LevelUpSoundsPlayed = 0;
+
+	// "+N XP" popups: pair XP gains (OnXPChanged) with kill locations (NotifyKill).
+	void AddXPPopup(const FVector& WorldLocation, int32 Amount);
+	void TickXPPopupPairing(float DeltaTime);
+	struct FRecentKill
+	{
+		FVector Location = FVector::ZeroVector;
+		float Age = 0.f;
+	};
+	TArray<FRecentKill> RecentKills;
+	int32 PendingXP = 0;
+	float PendingXPAge = 0.f;
 
 	// Weapon text cache.
 	TWeakObjectPtr<const UObject> LastWeaponData;

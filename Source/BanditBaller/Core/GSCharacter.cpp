@@ -18,6 +18,8 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "GSHealthComponent.h"
 #include "GSWeaponComponent.h"
+#include "GSProgressionComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Net/UnrealNetwork.h"
 
 AGSCharacter::AGSCharacter()
@@ -167,6 +169,13 @@ void AGSCharacter::InitAbilitySystem()
 
 	// Already initialized (e.g. respawn): sync immediately. A 0 value means stats aren't applied yet.
 	ApplyMoveSpeed(ASC->GetNumericAttribute(UGSAttributeSet::GetMoveSpeedAttribute()));
+
+	// Level-up glow on this pawn (server and every client see it; OnLevelUp also fires from replication).
+	if (UGSProgressionComponent* Progression = PS->GetProgressionComponent())
+	{
+		Progression->OnLevelUp.AddUniqueDynamic(this, &AGSCharacter::HandleLevelUp);
+		CachedProgression = Progression;
+	}
 }
 
 void AGSCharacter::ClearAbilitySystem()
@@ -175,9 +184,45 @@ void AGSCharacter::ClearAbilitySystem()
 	{
 		ASC->GetGameplayAttributeValueChangeDelegate(UGSAttributeSet::GetMoveSpeedAttribute()).Remove(MoveSpeedChangedHandle);
 	}
+	if (UGSProgressionComponent* Progression = CachedProgression.Get())
+	{
+		Progression->OnLevelUp.RemoveDynamic(this, &AGSCharacter::HandleLevelUp);
+	}
 
 	MoveSpeedChangedHandle.Reset();
 	CachedAbilitySystem.Reset();
+	CachedProgression.Reset();
+}
+
+void AGSCharacter::HandleLevelUp(int32 NewLevel)
+{
+	// Cosmetic only; several level-ups in one frame just restart it.
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	if (!LevelUpGlowMaterial || !MeshComp || GetNetMode() == NM_DedicatedServer)
+	{
+		return;
+	}
+	if (!LevelUpGlowMID)
+	{
+		LevelUpGlowMID = UMaterialInstanceDynamic::Create(LevelUpGlowMaterial, this);
+	}
+	LevelUpGlowMID->SetScalarParameterValue(LevelUpGlowParameter, 1.f);
+	MeshComp->SetOverlayMaterial(LevelUpGlowMID);
+	LevelUpGlowRemaining = LevelUpGlowDuration;
+}
+
+void AGSCharacter::TickLevelUpGlow(float DeltaSeconds)
+{
+	LevelUpGlowRemaining = FMath::Max(LevelUpGlowRemaining - DeltaSeconds, 0.f);
+	const float Alpha = LevelUpGlowDuration > 0.f ? LevelUpGlowRemaining / LevelUpGlowDuration : 0.f;
+	if (LevelUpGlowMID)
+	{
+		LevelUpGlowMID->SetScalarParameterValue(LevelUpGlowParameter, Alpha);
+	}
+	if (LevelUpGlowRemaining <= 0.f && GetMesh())
+	{
+		GetMesh()->SetOverlayMaterial(nullptr);
+	}
 }
 
 void AGSCharacter::OnMoveSpeedChanged(const FOnAttributeChangeData& Data)
@@ -403,6 +448,10 @@ void AGSCharacter::Tick(float DeltaSeconds)
 	if (IsDashing())
 	{
 		TickDash(DeltaSeconds);
+	}
+	if (LevelUpGlowRemaining > 0.f)
+	{
+		TickLevelUpGlow(DeltaSeconds);
 	}
 
 	if (IsLocallyControlled())

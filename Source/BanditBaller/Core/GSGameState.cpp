@@ -31,6 +31,7 @@ void AGSGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLife
 	DOREPLIFETIME(AGSGameState, CurrentArea);
 	DOREPLIFETIME(AGSGameState, bMarketOpenThisRound);
 	DOREPLIFETIME(AGSGameState, RunSeed);
+	DOREPLIFETIME(AGSGameState, LevelRewards);
 	DOREPLIFETIME(AGSGameState, WaveEnemiesTotal);
 	DOREPLIFETIME(AGSGameState, WaveEnemiesRemaining);
 	DOREPLIFETIME(AGSGameState, WaveEnemiesAlive);

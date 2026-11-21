@@ -29,6 +29,7 @@
 #include "GSGameplayTags.h"
 #include "GSProgressionComponent.h"
 #include "GSXPCurve.h"
+#include "GSLevelRewards.h"
 
 const FName AGSGameMode::TownReturnTag(TEXT("TownReturn"));
 const FName AGSGameMode::MarketArrivalTag(TEXT("MarketArrival"));
@@ -499,6 +500,12 @@ void AGSGameMode::StartPlay()
 	}
 
 	WaveDirector->OnWaveCleared.AddUObject(this, &AGSGameMode::HandleWaveCleared);
+
+	// Clients describe level-up rewards from this (HUD banner).
+	if (AGSGameState* GS = GetGameState<AGSGameState>())
+	{
+		GS->SetLevelRewards(LevelRewards);
+	}
 
 	if (bAutoStartRounds)
 	{

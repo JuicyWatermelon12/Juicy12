@@ -18,6 +18,9 @@ class UGSMovementSettings;
 class UGSSlideSettings;
 class UGSWeaponComponent;
 class UInputAction;
+class UGSProgressionComponent;
+class UMaterialInstanceDynamic;
+class UMaterialInterface;
 struct FOnAttributeChangeData;
 
 /**
@@ -207,4 +210,31 @@ private:
 
 	TWeakObjectPtr<UAbilitySystemComponent> CachedAbilitySystem;
 	FDelegateHandle MoveSpeedChangedHandle;
+
+	// --- Level-up glow (cosmetic, every machine; bound to this player's UGSProgressionComponent::OnLevelUp) ---
+	UFUNCTION()
+	void HandleLevelUp(int32 NewLevel);
+	void TickLevelUpGlow(float DeltaSeconds);
+
+	TWeakObjectPtr<UGSProgressionComponent> CachedProgression;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> LevelUpGlowMID;
+
+	float LevelUpGlowRemaining = 0.f;
+
+public:
+	/** Level-up glow playing on the mesh (tests). */
+	bool IsLevelUpGlowActive() const { return LevelUpGlowRemaining > 0.f; }
+
+protected:
+	/** Placeholder level-up flash: overlay material on the mesh (M_LevelUpGlow, scalar "Glow" faded 1 -> 0). */
+	UPROPERTY(EditDefaultsOnly, Category = "Level Up")
+	TObjectPtr<UMaterialInterface> LevelUpGlowMaterial;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Level Up", meta = (Units = "s"))
+	float LevelUpGlowDuration = 0.8f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Level Up")
+	FName LevelUpGlowParameter = TEXT("Glow");
 };

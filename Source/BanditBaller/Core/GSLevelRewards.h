@@ -59,6 +59,13 @@ public:
 		}
 	}
 
+	/**
+	 * Player-facing summary of what levels FirstLevel..LastLevel grant, built from the effects' static Additive
+	 * modifiers and summed per attribute, e.g. "+20 Max Health" for two levels of GE_LevelUp_MaxHealth.
+	 * One line per attribute; empty if nothing is describable. Used by the level-up banner (HUD).
+	 */
+	FText DescribeRewards(int32 FirstLevel, int32 LastLevel) const;
+
 	/** Applied on every level-up (e.g. GE_LevelUp_MaxHealth: one +MaxHealth stack per level). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Rewards")
 	TArray<TSubclassOf<UGameplayEffect>> EveryLevelEffects;
