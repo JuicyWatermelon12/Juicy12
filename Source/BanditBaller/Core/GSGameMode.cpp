@@ -28,6 +28,7 @@
 #include "GSDifficultyCurve.h"
 #include "GSGameplayTags.h"
 #include "GSProgressionComponent.h"
+#include "GSUpgradeComponent.h"
 #include "GSProfileSubsystem.h"
 #include "GSXPCurve.h"
 #include "GSLevelRewards.h"
@@ -255,13 +256,17 @@ void AGSGameMode::StartRun(int32 Seed, const TCHAR* Source)
 		{
 			Stats->ResetStats(GS->GetServerWorldTimeSeconds());
 		}
-		// Levels are per run.
+		// Levels and upgrades are per run.
 		for (APlayerState* PS : GS->PlayerArray)
 		{
 			const AGSPlayerState* GSPS = Cast<AGSPlayerState>(PS);
 			if (UGSProgressionComponent* Progression = GSPS ? GSPS->GetProgressionComponent() : nullptr)
 			{
 				Progression->ResetProgression();
+			}
+			if (UGSUpgradeComponent* Upgrades = GSPS ? GSPS->GetUpgradeComponent() : nullptr)
+			{
+				Upgrades->ResetUpgrades();
 			}
 		}
 	}

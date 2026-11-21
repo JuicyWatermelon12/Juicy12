@@ -80,6 +80,43 @@ UGSLevelUpMaxHealthEffect::UGSLevelUpMaxHealthEffect(const FObjectInitializer& O
 	Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(10.f));
 }
 
+UGSUpgradeEffect::UGSUpgradeEffect(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+
+	PRAGMA_DISABLE_DEPRECATION_WARNINGS
+	StackingType = EGameplayEffectStackingType::AggregateByTarget;
+	PRAGMA_ENABLE_DEPRECATION_WARNINGS
+	StackLimitCount = 0; // no limit here; UGSUpgradeData::MaxStacks caps picks
+}
+
+void UGSUpgradeEffect::AddMultiplierModifier(const FGameplayAttribute& Attribute, float PerStackBonus)
+{
+	FGameplayModifierInfo& Modifier = Modifiers.AddDefaulted_GetRef();
+	Modifier.Attribute = Attribute;
+	Modifier.ModifierOp = EGameplayModOp::MultiplyAdditive;
+	Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(1.f + PerStackBonus));
+}
+
+UGSUpgradeEffect_ReloadSpeed::UGSUpgradeEffect_ReloadSpeed(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddMultiplierModifier(UGSAttributeSet::GetReloadSpeedAttribute(), 0.10f);
+}
+
+UGSUpgradeEffect_Damage::UGSUpgradeEffect_Damage(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddMultiplierModifier(UGSAttributeSet::GetDamageAttribute(), 0.10f);
+}
+
+UGSUpgradeEffect_MoveSpeed::UGSUpgradeEffect_MoveSpeed(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddMultiplierModifier(UGSAttributeSet::GetMoveSpeedAttribute(), 0.08f);
+}
+
 UGSFullHealEffect::UGSFullHealEffect(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

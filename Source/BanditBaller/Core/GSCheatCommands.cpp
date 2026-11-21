@@ -16,6 +16,7 @@
 //   gs.Run.Seed [N]                                     print seed / restart the run with seed N
 //   gs.Run.Stats                                        print run stats (local replicated copy)
 //   gs.XP.Add <N> / gs.XP.SetLevel <N>                  grant raw XP / jump to a level (UGSProgressionComponent)
+//   gs.Upgrade.Grant <Name> / gs.Upgrade.List           add one upgrade stack / list upgrades (UGSUpgradeComponent)
 //   gs.Profile.AddCash <N> / Reset / Save / Print       permanent cash (UGSProfileSubsystem; local, not forwarded)
 
 #include "BanditBaller.h"
@@ -83,7 +84,7 @@ namespace GSCheats
 
 	FAutoConsoleCommandWithWorldAndArgs SetAttrCommand(
 		TEXT("gs.SetAttr"),
-		TEXT("Set a player attribute's base value. Usage: gs.SetAttr <Health|MaxHealth|MoveSpeed|Damage|FireRate|PickupRadius|XPGain> <Value>"),
+		TEXT("Set a player attribute's base value. Usage: gs.SetAttr <Health|MaxHealth|MoveSpeed|Damage|FireRate|PickupRadius|XPGain|ReloadSpeed> <Value>"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("SetAttr"), Args, World); }),
 		ECVF_Cheat);
 
@@ -141,6 +142,20 @@ namespace GSCheats
 		TEXT("gs.XP.SetLevel"),
 		TEXT("Reset the local player to level 1 and add exactly the XP for level N (0 XP into it). Usage: gs.XP.SetLevel <N>"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("XPSetLevel"), Args, World); }),
+		ECVF_Cheat);
+
+	// --- Level-up upgrades (per run) ---
+
+	FAutoConsoleCommandWithWorldAndArgs UpgradeGrantCommand(
+		TEXT("gs.Upgrade.Grant"),
+		TEXT("Add one stack of an upgrade to the local player (respects MaxStacks). Usage: gs.Upgrade.Grant <UpgradeName>, e.g. gs.Upgrade.Grant Damage"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("UpgradeGrant"), Args, World); }),
+		ECVF_Cheat);
+
+	FAutoConsoleCommandWithWorldAndArgs UpgradeListCommand(
+		TEXT("gs.Upgrade.List"),
+		TEXT("List every upgrade with rarity, this run's stacks / cap and description, plus the stats they change."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("UpgradeList"), Args, World); }),
 		ECVF_Cheat);
 
 	/** Reads the local (replicated) GameState, so it also works on clients. */

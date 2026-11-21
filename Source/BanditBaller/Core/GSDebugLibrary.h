@@ -9,6 +9,7 @@
 class AGSEnemyCharacter;
 class AGSPlayerController;
 class UGSEnemyData;
+class UGSUpgradeData;
 class UGSWeaponData;
 
 /** One living enemy, for list_enemies_alive / tuning dashboards. */
@@ -63,6 +64,18 @@ public:
 
 	/** Finds a UGSWeaponData asset by name: "DA_Pistol", "Pistol", "BanditCarbine". */
 	static UGSWeaponData* FindWeaponData(const FString& Name);
+
+	/** Finds a UGSUpgradeData asset by name: "DA_Upgrade_Damage", "Damage" or "damage". */
+	static UGSUpgradeData* FindUpgradeData(const FString& Name);
+
+	/** Names of all upgrade data assets. */
+	static TArray<FString> GetUpgradeDataNames();
+
+	/** gs.Upgrade.Grant: add one stack of the named upgrade to PC's player (respects MaxStacks). */
+	static bool GrantUpgradeTo(AGSPlayerController* PC, const FString& UpgradeName);
+
+	/** gs.Upgrade.List: log + screen every upgrade with this run's stacks, and the stats they change. */
+	static void ListUpgrades(AGSPlayerController* PC);
 
 	/** Names of all enemy / weapon data assets (for help text and errors). */
 	static TArray<FString> GetEnemyDataNames();

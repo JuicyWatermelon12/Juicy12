@@ -35,7 +35,7 @@ Systems, commands, GAS reference, tuning and known issues live in `docs/PROGRESS
 ```
 Source/BanditBaller/
   Core/       GameMode (round loop, run seed, area travel), GameState, PlayerState, PlayerController,
-              character, settings data classes, run random/stats, progression (XP/levels/rewards),
+              character, settings data classes, run random/stats, progression (XP/levels/rewards, upgrades),
               debug library + cheat commands, profile subsystem + save (permanent cash)
   Abilities/  GAS: ASC, AttributeSet, tags, abilities, effects, ability sets
   Combat/     weapons, health/death component, target dummy, hit camera shake
@@ -113,7 +113,7 @@ docs/PROGRESS.md  progress log and reference
 - Debug commands: `gs.` prefix, cheat-only, implemented in `UGSDebugLibrary` and registered in
   `GSCheatCommands.cpp`. Clients forward them through `ServerExecDebugCommand`. Debug toggles are `gs.Debug.*`
   cvars.
-- Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`, `[xp]`, `[profile]`).
+- Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`, `[xp]`, `[profile]`, `[upgrade]`).
 - Tests: PIE-based latent tests in `Tests/GSGameplayTests.cpp`, built from the `GSTests` helpers (`BeginPIE`,
   `WaitUntil`, `Step`, `EndPIE`, …). When appending, keep the closing `#endif` last.
 - Commit messages: short imperative title, then a body listing what changed.

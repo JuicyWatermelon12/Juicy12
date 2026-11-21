@@ -11,6 +11,7 @@
 
 class UGSAttributeSet;
 class UGSProgressionComponent;
+class UGSUpgradeComponent;
 
 /**
  * Per-player run state. Owns the player's AbilitySystemComponent + attributes (so they survive pawn changes) and
@@ -41,6 +42,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Progression")
 	UGSProgressionComponent* GetProgressionComponent() const { return Progression; }
 
+	/** Level-up upgrades picked this run (UGSUpgradeComponent::GrantUpgrade). */
+	UFUNCTION(BlueprintPure, Category = "Progression")
+	UGSUpgradeComponent* GetUpgradeComponent() const { return Upgrades; }
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Abilities")
 	TObjectPtr<UGSAbilitySystemComponent> AbilitySystemComponent;
@@ -50,6 +55,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Progression")
 	TObjectPtr<UGSProgressionComponent> Progression;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Progression")
+	TObjectPtr<UGSUpgradeComponent> Upgrades;
 
 private:
 	FGSAbilitySetGrantedHandles StartupAbilitySetHandles;

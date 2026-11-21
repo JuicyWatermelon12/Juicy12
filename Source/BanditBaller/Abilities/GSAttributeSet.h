@@ -56,10 +56,22 @@ public:
 	FGameplayAttributeData XPGain;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, XPGain)
 
+	/**
+	 * Reload speed multiplier: GA_Reload takes ReloadTime / ReloadSpeed (1.2 = 20% faster). Default 1, clamped to
+	 * >= 0.1. Raised by the ReloadSpeed upgrade.
+	 * TODO(co-op): not replicated (single-player first); replicate it in M6 so a client's predicted reload matches.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData ReloadSpeed;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, ReloadSpeed)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, IncomingDamage)
+
+	/** Lowest ReloadSpeed allowed (keeps the reload time finite). */
+	static constexpr float MinReloadSpeed = 0.1f;
 
 	/** Server: who dealt the most recent damage (effect causer, else instigator). Used to report killers. */
 	AActor* GetLastDamageInstigator() const { return LastDamageInstigator.Get(); }

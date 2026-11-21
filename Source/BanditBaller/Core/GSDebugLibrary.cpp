@@ -24,6 +24,8 @@
 #include "GSProgressionComponent.h"
 #include "GSRunRandom.h"
 #include "GSSpawnLocationFinder.h"
+#include "GSUpgradeComponent.h"
+#include "GSUpgradeData.h"
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
 #include "NavigationSystem.h"
@@ -34,7 +36,7 @@ namespace GSDebug
 	FString NormalizeAssetName(FString Name)
 	{
 		Name = Name.TrimStartAndEnd().ToLower();
-		for (const TCHAR* Prefix : { TEXT("da_enemy_"), TEXT("da_weapon_"), TEXT("da_") })
+		for (const TCHAR* Prefix : { TEXT("da_enemy_"), TEXT("da_weapon_"), TEXT("da_upgrade_"), TEXT("da_") })
 		{
 			if (Name.StartsWith(Prefix))
 			{
@@ -147,6 +149,77 @@ UGSEnemyData* UGSDebugLibrary::FindEnemyData(const FString& Name)
 UGSWeaponData* UGSDebugLibrary::FindWeaponData(const FString& Name)
 {
 	return Cast<UGSWeaponData>(GSDebug::FindAssetByName(UGSWeaponData::StaticClass(), Name));
+}
+
+UGSUpgradeData* UGSDebugLibrary::FindUpgradeData(const FString& Name)
+{
+	return Cast<UGSUpgradeData>(GSDebug::FindAssetByName(UGSUpgradeData::StaticClass(), Name));
+}
+
+TArray<FString> UGSDebugLibrary::GetUpgradeDataNames()
+{
+	return GSDebug::GetAssetNames(UGSUpgradeData::StaticClass());
+}
+
+bool UGSDebugLibrary::GrantUpgradeTo(AGSPlayerController* PC, const FString& UpgradeName)
+{
+#if !UE_BUILD_SHIPPING
+	const AGSPlayerState* PS = PC ? PC->GetPlayerState<AGSPlayerState>() : nullptr;
+	UGSUpgradeComponent* Upgrades = PS ? PS->GetUpgradeComponent() : nullptr;
+	if (!GSDebug::CheckAuthority(PC, TEXT("gs.Upgrade.Grant")) || !Upgrades)
+	{
+		return false;
+	}
+	const UGSUpgradeData* Upgrade = FindUpgradeData(UpgradeName);
+	if (!Upgrade)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("gs.Upgrade.Grant: unknown upgrade '%s'. Upgrades: %s"), *UpgradeName, *FString::Join(GetUpgradeDataNames(), TEXT(", ")));
+		return false;
+	}
+	return Upgrades->GrantUpgrade(Upgrade, TEXT("Debug"));
+#else
+	return false;
+#endif
+}
+
+void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
+{
+#if !UE_BUILD_SHIPPING
+	const AGSPlayerState* PS = PC ? PC->GetPlayerState<AGSPlayerState>() : nullptr;
+	const UGSUpgradeComponent* Upgrades = PS ? PS->GetUpgradeComponent() : nullptr;
+	const UAbilitySystemComponent* ASC = GSDebug::GetPlayerASC(PC);
+
+	FString Text = FString::Printf(TEXT("Upgrades this run: %d pick(s)"), Upgrades ? Upgrades->GetTotalPicks() : 0);
+	for (const FString& Name : GetUpgradeDataNames())
+	{
+		const UGSUpgradeData* Upgrade = FindUpgradeData(Name);
+		if (!Upgrade)
+		{
+			continue;
+		}
+		const int32 Stacks = Upgrades ? Upgrades->GetStacks(Upgrade) : 0;
+		Text += FString::Printf(TEXT("\n  %s [%s] x%d/%s: %s"), *Name, *UGSUpgradeData::GetRarityName(Upgrade->Rarity), Stacks,
+			Upgrade->MaxStacks > 0 ? *FString::FromInt(Upgrade->MaxStacks) : TEXT("inf"), *Upgrade->GetFormattedDescription().ToString());
+	}
+	if (ASC)
+	{
+		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, MoveSpeed %.0f"),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetReloadSpeedAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetMoveSpeedAttribute()));
+	}
+
+	TArray<FString> Lines;
+	Text.ParseIntoArrayLines(Lines);
+	for (const FString& Line : Lines)
+	{
+		UE_LOG(LogBanditBaller, Log, TEXT("%s"), *Line);
+	}
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 8.f, FColor::Cyan, Text);
+	}
+#endif
 }
 
 TArray<FString> UGSDebugLibrary::GetEnemyDataNames()
@@ -426,7 +499,7 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 	{
 		if (Args.Num() < 2)
 		{
-			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.SetAttr <Health|MaxHealth|MoveSpeed|Damage|FireRate|PickupRadius|XPGain> <Value>"));
+			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.SetAttr <Health|MaxHealth|MoveSpeed|Damage|FireRate|PickupRadius|XPGain|ReloadSpeed> <Value>"));
 			return;
 		}
 		SetAttributeOn(PC, Args[0], FCString::Atof(*Args[1]));
@@ -459,6 +532,19 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 			}
 			GameMode->SetPlayerLevelForDebug(PS, Value);
 		}
+	}
+	else if (Command == TEXT("UpgradeGrant"))
+	{
+		if (Args.Num() < 1)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.Upgrade.Grant <UpgradeName>. Upgrades: %s"), *FString::Join(GetUpgradeDataNames(), TEXT(", ")));
+			return;
+		}
+		GrantUpgradeTo(PC, Args[0]);
+	}
+	else if (Command == TEXT("UpgradeList"))
+	{
+		ListUpgrades(PC);
 	}
 	else if (Command == TEXT("MarketTeleport") || Command == TEXT("MarketReturn"))
 	{

@@ -21,10 +21,10 @@ scope then changed to single-player first; see **Scope change — single-player 
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–10 and 14 are
-done, plus permanent cash (profile subsystem).
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–10, 14 and 15
+are done, plus permanent cash (profile subsystem).
 
-State at the time of writing: `main` after Prompt 14, not pushed. The build is clean and all 19 automation tests pass.
+State at the time of writing: `main` after Prompt 15, not pushed. The build is clean and all 20 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -44,7 +44,8 @@ State at the time of writing: `main` after Prompt 14, not pushed. The build is c
 | Design change | Permanent cash (profile), Market District as hub between runs, level-up upgrades (docs only) | 0b2b6f5 |
 | Permanent cash | Profile subsystem + save; cash moved off PlayerState | a2dc3b7 |
 | Scope change | Single-player first; co-op moves to M6 (docs only) | f1db8b5 |
-| M2 14 | Run loop cleanup: in-run market phases removed (RoundClear → PreRound) | see git log |
+| M2 14 | Run loop cleanup: in-run market phases removed (RoundClear → PreRound) | 58f29b7 |
+| M2 15 | Upgrade data + stat upgrades (ReloadSpeed, Damage, MoveSpeed) | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -432,6 +433,41 @@ Docs only; no code changed.
 - Unrelated test-log warning seen: `M_LevelUpGlow` is missing the SkeletalMesh usage flag, so the default material
   is used for the glow until the material is resaved with that flag.
 
+### Prompt 15 — Upgrade data + stat upgrades
+- **New attribute `ReloadSpeed`** (`UGSAttributeSet`, constructor default 1.0, clamped to ≥ 0.1). `GA_Reload` waits
+  `ReloadTime / ReloadSpeed` (`UGSGameplayAbility_Reload::GetReloadDuration`). Not replicated (`TODO(co-op)`).
+- **`Core/GSUpgradeData.*` (`UGSUpgradeData`, Primary Data Asset, type `Upgrade`)**:
+  - Fields: DisplayName, Description, Icon (soft texture; placeholder `/Engine/EngineResources/DefaultTexture`),
+    Rarity (`EGSUpgradeRarity`: Common, Rare; append new ones at the end), Effect, MaxStacks (0 = no cap).
+  - The description uses a `{PerStack}` placeholder. `GetFormattedDescription()` fills it from the effect's first
+    static modifier (Multiply magnitude 1.1 → "10"), so the number lives only in the GE.
+- **Upgrade effects** (`Abilities/GSGameplayEffects.h`): `UGSUpgradeEffect` base (infinite, stacks by target, no GE
+  stack limit) with one Multiply (Additive) modifier of 1 + bonus.
+  - GAS scales it by the stack count around the bias of 1, so N stacks give base × (1 + bonus × N). Bonuses add up
+    linearly and don't compound.
+  - Subclasses `UGSUpgradeEffect_ReloadSpeed` / `_Damage` (1.10) and `_MoveSpeed` (1.08).
+  - MoveSpeed reaches `MaxWalkSpeed` through the existing attribute delegate on `AGSCharacter`.
+- **Assets** (MCP):
+  - `Abilities/GE_Upgrade_ReloadSpeed`, `GE_Upgrade_Damage`, `GE_Upgrade_MoveSpeed`: Blueprint children of the
+    classes. Edit the modifier magnitude there to retune.
+  - `Data/Upgrades/DA_Upgrade_ReloadSpeed`, `DA_Upgrade_Damage`, `DA_Upgrade_MoveSpeed`: all Common, no cap.
+- **`Core/GSUpgradeComponent.*` (`UGSUpgradeComponent`, on `AGSPlayerState`, `GetUpgradeComponent()`)**:
+  - `GrantUpgrade(Upgrade, Source)` (authority) checks MaxStacks, applies one stack of the effect and counts it.
+  - Read access: `GetStacks(Upgrade)`, `GetUpgradeStacks()`, `GetTotalPicks()`, `OnUpgradeStacksChanged`.
+  - `ResetUpgrades()` removes every effect; `AGSGameMode::StartRun` calls it next to `ResetProgression`
+    (`gs.XP.SetLevel` doesn't).
+  - Not replicated (`TODO(co-op)`). Log prefix `[upgrade]`.
+- **Commands:** `gs.Upgrade.Grant <Name>` (`ReloadSpeed`, `Damage`, `MoveSpeed` or the full `DA_Upgrade_*` name)
+  and `gs.Upgrade.List` (rarity, stacks / cap, description and the three stats).
+- **Test** `Upgrades.StatUpgrades`.
+- **PIE check:**
+  - Base values: ReloadSpeed 1, Damage 1, MoveSpeed 900.
+  - After `gs.Upgrade.Grant` ReloadSpeed ×5, Damage ×3 and MoveSpeed ×2: 1.5, 1.3 and 1044; `gs.Upgrade.List`
+    agreed.
+  - A rifle reload took about 1.17 s (1.8 / 1.5 = 1.2 s expected; polled from MCP).
+  - A rifle shot hit the target dummy for 26.0 (20 × 1.3).
+- **Not built yet:** the upgrade pool with rarity weights, offers on level-up and the choice UI (Prompts 17–18).
+
 ---
 
 ## Console commands and CVars
@@ -444,7 +480,9 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.KillAll` | Kill every living enemy through GE_Damage, credited to the player (they drop cash). |
 | `gs.God [0\|1]` | Toggle/set damage immunity (one `State.Invulnerable` count). |
 | `gs.GiveWeapon <Weapon>` | Equip `Rifle` / `Pistol` / `BanditCarbine` with a full mag (replaces the equipped one if both slots are full). |
-| `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain). |
+| `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain, ReloadSpeed). |
+| `gs.Upgrade.Grant <Name>` | Add one stack of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed` or `DA_Upgrade_*`); refused at MaxStacks. |
+| `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / MoveSpeed. |
 | `gs.XP.Add <N>` | Grant N raw XP to the local player (XPGain not applied; may level up several times). |
 | `gs.XP.SetLevel <N>` | Reset to level 1, then add exactly the XP for level N (0 XP into it; clamped to max level). |
 | `gs.Profile.AddCash <N>` | Add N to the permanent cash balance (local profile; saved at the next save point). |
@@ -489,6 +527,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools` (PIE running):
 | FireRate | Refire multiplier (1.0). |
 | PickupRadius | Cash magnet radius in cm (player 300). |
 | XPGain | XP multiplier on kill XP (player 1.0; constructor default 1.0). |
+| ReloadSpeed | Reload time divisor for GA_Reload (constructor default 1.0, min 0.1). Not replicated yet. |
 | IncomingDamage | Meta attribute: GE_Damage writes it, the set converts it to Health loss and records the instigator. |
 
 **Gameplay tags** (native, `Abilities/GSGameplayTags.*`; none in config):
@@ -510,12 +549,15 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools` (PIE running):
 | `GE_EnemyRoundScaling` | `UGSEnemyRoundScalingEffect` | Infinite; MultiplyCompound MaxHealth / Damage from `Data.HealthMultiplier` / `Data.DamageMultiplier`. |
 | `GE_LevelUp_MaxHealth` | `UGSLevelUpMaxHealthEffect` | Infinite, stacking (no limit); +10 MaxHealth per stack, one stack per level-up (DA_LevelRewards). |
 | `GE_FullHeal` | `UGSFullHealEffect` | Instant; Health = target's current MaxHealth (attribute-based). Applied after level-up rewards. |
+| `GE_Upgrade_ReloadSpeed` | `UGSUpgradeEffect_ReloadSpeed` | Infinite, stacking; Multiply (Additive) 1.10 on ReloadSpeed → +10% of base per stack. |
+| `GE_Upgrade_Damage` | `UGSUpgradeEffect_Damage` | Infinite, stacking; Multiply (Additive) 1.10 on Damage → +10% of base per stack. |
+| `GE_Upgrade_MoveSpeed` | `UGSUpgradeEffect_MoveSpeed` | Infinite, stacking; Multiply (Additive) 1.08 on MoveSpeed → +8% of base per stack. |
 
 **Abilities:**
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (19, all passing)
+## Automation tests (20, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test starts PIE in L_Town_Graybox, waits for the player, removes enemies, runs
 and ends PIE. Stop PIE before running.
@@ -541,6 +583,7 @@ and ends PIE. Stop PIE before running.
 | `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear and the Market District; new run removes stacks and clamps Health; dead player gets the stack but no heal. |
 | `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → "+XPValue XP" popup at once; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); banner/pulse/glow end. |
 | `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; save when RoundClear ends (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + `?Restart` (new HUD shows it). |
+| `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
@@ -599,6 +642,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 
   - Reaching level 10 takes 2579 XP in total. Level 20 needs 5551 from level 19, and level 50 needs 4.48 M.
   - Kill XP: MeleeBandit 10, RangedBandit 15. DT_Waves rounds 1–5 give 40 / 65 / 90 / 115 / 150 XP.
+- **Upgrades** (per stack, additive on the base value): Reload Speed +10%, Damage +10%, Move Speed +8%; all Common,
+  no cap.
 - **Combo curves**: there is no combo system yet.
 
 ## Known issues, TODOs and deviations
@@ -607,7 +652,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - **Not yet built for the design change:**
   - Hub start and Start Run portal.
   - Run summary and return to the hub.
-  - Level-up upgrade choices.
+  - Level-up upgrade choices (upgrade data, stat upgrades and `gs.Upgrade.Grant` exist; no pool, offers or UI).
+- Upgrade icons are a placeholder engine texture.
 - **Still in the code until the hub map (Prompts 22–23):** the streamed `L_MarketDistrict_Graybox`,
   `TravelToMarketDistrict` / `ReturnToTown` and `gs.Market.Teleport` / `Return` (debug only).
 - No shop or casino logic yet; CashSpent is never used.
@@ -680,13 +726,10 @@ prompt asks for one. (Earlier attempts at run loop cleanup and a per-player prof
 Permanent cash was then built as a single local balance in a2dc3b7.)
 
 14. ~~**Run loop cleanup.**~~ Done (see Prompt 14).
-15. **Upgrade data + stat upgrades.**
-    - `UGSUpgradeData` (name, description, rarity, GE, cap) and an upgrade pool with rarity weights.
-    - Each upgrade is an infinite, stacking GE, removed on progression reset.
-    - New attribute ReloadSpeed (scales the GA_Reload time).
-    - Common upgrades: Reload Speed, Damage, Move Speed.
+15. ~~**Upgrade data + stat upgrades.**~~ Done (see Prompt 15). The upgrade pool with rarity weights moved to 17.
 16. **Extra Jump.** New attribute JumpCount, synced to `JumpMaxCount`. Rare upgrade, +1 jump per pick, no cap.
-17. **Upgrade offers.** On each level-up, roll 3 distinct choices (run stream, rarity-weighted), stored as pending
+17. **Upgrade offers.** An upgrade pool asset (the DA_Upgrade_* list plus rarity weights). On each level-up, roll 3
+    distinct choices (run stream, rarity-weighted), stored as pending
     offers on the PlayerState and queued across several level-ups. Picking goes through a gameplay function that
     takes the PlayerState.
 18. **Choice screen.** A choice panel next to the level-up banner. The game pauses while an offer is open; queued

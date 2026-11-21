@@ -78,6 +78,57 @@ public:
 	UGSLevelUpMaxHealthEffect(const FObjectInitializer& ObjectInitializer);
 };
 
+/**
+ * Base for level-up upgrade effects (GE_Upgrade_* derive from the subclasses below). Infinite, stacks by target with
+ * no limit on the effect itself (UGSUpgradeData::MaxStacks caps picks); UGSUpgradeComponent adds one stack per pick
+ * and removes them all when a new run starts.
+ * Each subclass has one Multiply (Additive) modifier, magnitude 1 + per-stack bonus (edit it on the asset). GAS scales
+ * it by the stack count around the bias of 1, so N stacks give base x (1 + bonus x N): +10% per stack stays +10% of
+ * the base value, not compounding.
+ */
+UCLASS(Abstract)
+class BANDITBALLER_API UGSUpgradeEffect : public UGameplayEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect(const FObjectInitializer& ObjectInitializer);
+
+protected:
+	/** Adds the effect's Multiply (Additive) modifier on Attribute with magnitude 1 + PerStackBonus. */
+	void AddMultiplierModifier(const FGameplayAttribute& Attribute, float PerStackBonus);
+};
+
+/** +10% ReloadSpeed per stack (GE_Upgrade_ReloadSpeed). */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_ReloadSpeed : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_ReloadSpeed(const FObjectInitializer& ObjectInitializer);
+};
+
+/** +10% Damage per stack (GE_Upgrade_Damage). */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_Damage : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_Damage(const FObjectInitializer& ObjectInitializer);
+};
+
+/** +8% MoveSpeed per stack (GE_Upgrade_MoveSpeed); AGSCharacter syncs MoveSpeed to MaxWalkSpeed. */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_MoveSpeed : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_MoveSpeed(const FObjectInitializer& ObjectInitializer);
+};
+
 /** Instant: overrides Health with the target's current MaxHealth (GE_FullHeal; used after level-up rewards). */
 UCLASS()
 class BANDITBALLER_API UGSFullHealEffect : public UGameplayEffect

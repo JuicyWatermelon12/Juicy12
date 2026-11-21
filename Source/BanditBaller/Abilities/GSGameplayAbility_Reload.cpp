@@ -2,6 +2,8 @@
 
 #include "GSGameplayAbility_Reload.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
+#include "AbilitySystemComponent.h"
+#include "GSAttributeSet.h"
 #include "GSGameplayTags.h"
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
@@ -46,9 +48,16 @@ void UGSGameplayAbility_Reload::ActivateAbility(const FGameplayAbilitySpecHandle
 
 	ReloadingIndex = Weapons->GetCurrentIndex();
 
-	UAbilityTask_WaitDelay* Wait = UAbilityTask_WaitDelay::WaitDelay(this, WeaponData->ReloadTime);
+	const UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
+	const float ReloadSpeed = ASC ? ASC->GetNumericAttribute(UGSAttributeSet::GetReloadSpeedAttribute()) : 1.f;
+	UAbilityTask_WaitDelay* Wait = UAbilityTask_WaitDelay::WaitDelay(this, GetReloadDuration(WeaponData->ReloadTime, ReloadSpeed));
 	Wait->OnFinish.AddDynamic(this, &UGSGameplayAbility_Reload::OnReloadFinished);
 	Wait->ReadyForActivation();
+}
+
+float UGSGameplayAbility_Reload::GetReloadDuration(float BaseReloadTime, float ReloadSpeed)
+{
+	return BaseReloadTime / FMath::Max(ReloadSpeed, UGSAttributeSet::MinReloadSpeed);
 }
 
 void UGSGameplayAbility_Reload::OnReloadFinished()

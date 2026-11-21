@@ -55,6 +55,9 @@
 #include "GSProfileSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #include "GSGameplayEffects.h"
+#include "GSGameplayAbility_Reload.h"
+#include "GSUpgradeComponent.h"
+#include "GSUpgradeData.h"
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
 #include "Misc/AutomationTest.h"
@@ -1955,6 +1958,173 @@ bool FGSProfileCashTest::RunTest(const FString& Parameters)
 			TestEqual(TEXT("New HUD shows the balance"), HUD->GetDisplayedCash(), 20);
 		}
 		Profile->ResetProfile(); // leave the test slot empty
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Upgrades: data, stacking stat effects, cap, reset
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	UGSUpgradeComponent* GetPlayerUpgrades()
+	{
+		const AGSPlayerController* PC = GetPC();
+		const AGSPlayerState* PS = PC ? PC->GetPlayerState<AGSPlayerState>() : nullptr;
+		return PS ? PS->GetUpgradeComponent() : nullptr;
+	}
+
+	float GetAttr(const FGameplayAttribute& Attribute)
+	{
+		const UGSAbilitySystemComponent* ASC = GetPlayerASC();
+		return ASC ? ASC->GetNumericAttribute(Attribute) : -1.f;
+	}
+
+	/** Stack count of Upgrade's active effect on the player (0 if not active). */
+	int32 GetActiveUpgradeEffectStacks(const UGSUpgradeData* Upgrade)
+	{
+		const UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		const UGSAbilitySystemComponent* ASC = GetPlayerASC();
+		if (!Upgrades || !ASC)
+		{
+			return 0;
+		}
+		for (const FGSUpgradeStack& Entry : Upgrades->GetUpgradeStacks())
+		{
+			if (Entry.Upgrade == Upgrade)
+			{
+				return ASC->GetActiveGameplayEffect(Entry.EffectHandle) ? ASC->GetCurrentStackCount(Entry.EffectHandle) : 0;
+			}
+		}
+		return 0;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSStatUpgradesTest, "BanditBaller.Upgrades.StatUpgrades", GSTests::TestFlags)
+bool FGSStatUpgradesTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	struct FState
+	{
+		float BaseMoveSpeed = 0.f;
+		float ExpectedReload = 0.f;
+		float BaseReload = 0.f;
+		int32 AmmoBefore = 0;
+		double ReloadStart = 0.0;
+	};
+	TSharedRef<FState> S = MakeShared<FState>();
+
+	// Data assets.
+	Step([this, S]()
+	{
+		struct FExpect { const TCHAR* Name; const TCHAR* Text; };
+		for (const FExpect& E : { FExpect{ TEXT("ReloadSpeed"), TEXT("+10%") }, FExpect{ TEXT("Damage"), TEXT("+10%") }, FExpect{ TEXT("MoveSpeed"), TEXT("+8%") } })
+		{
+			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(E.Name);
+			if (!TestNotNull(FString::Printf(TEXT("DA_Upgrade_%s exists"), E.Name), Upgrade))
+			{
+				continue;
+			}
+			TestTrue(FString::Printf(TEXT("%s is Common"), E.Name), Upgrade->Rarity == EGSUpgradeRarity::Common);
+			TestEqual(FString::Printf(TEXT("%s has no cap"), E.Name), Upgrade->MaxStacks, 0);
+			TestFalse(FString::Printf(TEXT("%s has a display name"), E.Name), Upgrade->DisplayName.IsEmpty());
+			TestTrue(FString::Printf(TEXT("%s effect is an upgrade effect"), E.Name), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect::StaticClass()));
+			const FString Description = Upgrade->GetFormattedDescription().ToString();
+			TestTrue(FString::Printf(TEXT("%s description '%s' shows %s"), E.Name, *Description, E.Text), Description.Contains(E.Text));
+		}
+
+		TestEqual(TEXT("ReloadSpeed starts at 1"), GetAttr(UGSAttributeSet::GetReloadSpeedAttribute()), 1.f, 0.001f);
+		TestEqual(TEXT("Damage starts at 1"), GetAttr(UGSAttributeSet::GetDamageAttribute()), 1.f, 0.001f);
+		S->BaseMoveSpeed = GetAttr(UGSAttributeSet::GetMoveSpeedAttribute());
+		TestTrue(TEXT("MoveSpeed initialized"), S->BaseMoveSpeed > 0.f);
+		TestEqual(TEXT("No picks at start"), GetPlayerUpgrades() ? GetPlayerUpgrades()->GetTotalPicks() : -1, 0);
+	});
+
+	// Reload Speed x5 (through gs.Upgrade.Grant) -> 1.5, and the real reload gets shorter.
+	Step([this, S]()
+	{
+		for (int32 i = 0; i < 5; ++i)
+		{
+			UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("ReloadSpeed") });
+		}
+		const UGSUpgradeData* Reload = UGSDebugLibrary::FindUpgradeData(TEXT("ReloadSpeed"));
+		TestEqual(TEXT("ReloadSpeed stacks tracked"), GetPlayerUpgrades()->GetStacks(Reload), 5);
+		TestEqual(TEXT("ReloadSpeed GE has 5 stacks"), GetActiveUpgradeEffectStacks(Reload), 5);
+		TestEqual(TEXT("ReloadSpeed = 1 + 5 x 10%"), GetAttr(UGSAttributeSet::GetReloadSpeedAttribute()), 1.5f, 0.001f);
+
+		UGSWeaponComponent* Weapons = GetPlayer()->GetWeaponComponent();
+		S->BaseReload = Weapons->GetCurrentWeaponData()->ReloadTime;
+		S->ExpectedReload = UGSGameplayAbility_Reload::GetReloadDuration(S->BaseReload, 1.5f);
+		TestEqual(TEXT("Reload duration = ReloadTime / ReloadSpeed"), S->ExpectedReload, S->BaseReload / 1.5f, 0.001f);
+
+		S->AmmoBefore = Weapons->GetCurrentAmmo();
+		GetPlayerASC()->AbilityInputTagPressed(GSGameplayTags::Ability_Fire);
+		GetPlayerASC()->AbilityInputTagReleased(GSGameplayTags::Ability_Fire);
+	});
+	WaitUntil(this, TEXT("a shot to spend ammo"), [S]() { return GetPlayer()->GetWeaponComponent()->GetCurrentAmmo() < S->AmmoBefore; });
+	WaitUntil(this, TEXT("State.Firing to clear"), []() { return !GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Firing); }, 5.0);
+	Step([this, S]()
+	{
+		S->ReloadStart = GetPIEWorld()->GetTimeSeconds();
+		GetPlayerASC()->AbilityInputTagPressed(GSGameplayTags::Ability_Reload);
+		GetPlayerASC()->AbilityInputTagReleased(GSGameplayTags::Ability_Reload);
+		TestTrue(TEXT("Reload started"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Reloading));
+	});
+	WaitUntil(this, TEXT("faster reload to refill"), []()
+	{
+		const UGSWeaponComponent* Weapons = GetPlayer()->GetWeaponComponent();
+		return Weapons->GetCurrentAmmo() == Weapons->GetCurrentWeaponData()->MagazineSize;
+	});
+	Step([this, S]()
+	{
+		const double Elapsed = GetPIEWorld()->GetTimeSeconds() - S->ReloadStart;
+		AddInfo(FString::Printf(TEXT("Reload with ReloadSpeed 1.5 took %.2f s (expected %.2f, base %.2f)"), Elapsed, S->ExpectedReload, S->BaseReload));
+		TestTrue(TEXT("Reload took at least the scaled time"), Elapsed >= S->ExpectedReload - 0.05);
+		TestTrue(TEXT("Reload was shorter than the base time"), Elapsed < S->BaseReload);
+
+		// Damage x3 -> 1.3 (GA_Fire multiplies weapon damage by it).
+		const UGSUpgradeData* Damage = UGSDebugLibrary::FindUpgradeData(TEXT("Damage"));
+		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		for (int32 i = 0; i < 3; ++i)
+		{
+			TestTrue(TEXT("Damage granted"), Upgrades->GrantUpgrade(Damage, TEXT("Test")));
+		}
+		TestEqual(TEXT("Damage = 1 + 3 x 10%"), GetAttr(UGSAttributeSet::GetDamageAttribute()), 1.3f, 0.001f);
+		TestEqual(TEXT("Damage GE has 3 stacks"), GetActiveUpgradeEffectStacks(Damage), 3);
+
+		// Move Speed x2 -> base x 1.16, and the movement component follows.
+		const UGSUpgradeData* Move = UGSDebugLibrary::FindUpgradeData(TEXT("MoveSpeed"));
+		Upgrades->GrantUpgrade(Move, TEXT("Test"));
+		Upgrades->GrantUpgrade(Move, TEXT("Test"));
+		const float ExpectedSpeed = S->BaseMoveSpeed * 1.16f;
+		TestEqual(TEXT("MoveSpeed = base x (1 + 2 x 8%)"), GetAttr(UGSAttributeSet::GetMoveSpeedAttribute()), ExpectedSpeed, 0.5f);
+		TestEqual(TEXT("MaxWalkSpeed follows MoveSpeed"), GetPlayer()->GetCharacterMovement()->MaxWalkSpeed, ExpectedSpeed, 0.5f);
+
+		TestEqual(TEXT("Total picks"), Upgrades->GetTotalPicks(), 10);
+		TestEqual(TEXT("Three upgrades tracked"), Upgrades->GetUpgradeStacks().Num(), 3);
+
+		// Cap: MaxStacks 1 allows one pick only.
+		UGSUpgradeData* Capped = NewObject<UGSUpgradeData>(GetTransientPackage(), TEXT("DA_Upgrade_TestCapped"), RF_Transient);
+		Capped->Effect = UGSUpgradeEffect_Damage::StaticClass();
+		Capped->MaxStacks = 1;
+		TestTrue(TEXT("Capped upgrade: first pick"), Upgrades->GrantUpgrade(Capped, TEXT("Test")));
+		TestFalse(TEXT("Capped upgrade: second pick refused"), Upgrades->GrantUpgrade(Capped, TEXT("Test")));
+		TestEqual(TEXT("Capped upgrade stays at 1"), Upgrades->GetStacks(Capped), 1);
+		TestEqual(TEXT("Damage +10% from the capped upgrade"), GetAttr(UGSAttributeSet::GetDamageAttribute()), 1.4f, 0.001f);
+
+		TestFalse(TEXT("Unknown upgrade name is refused"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("NoSuchUpgrade")));
+
+		// A new run removes every upgrade.
+		GetGameMode()->RestartRunWithSeed(4242);
+		TestEqual(TEXT("New run: no picks"), Upgrades->GetTotalPicks(), 0);
+		TestEqual(TEXT("New run: no stacks"), Upgrades->GetStacks(Damage), 0);
+		TestEqual(TEXT("New run: ReloadSpeed back to 1"), GetAttr(UGSAttributeSet::GetReloadSpeedAttribute()), 1.f, 0.001f);
+		TestEqual(TEXT("New run: Damage back to 1"), GetAttr(UGSAttributeSet::GetDamageAttribute()), 1.f, 0.001f);
+		TestEqual(TEXT("New run: MoveSpeed back to base"), GetAttr(UGSAttributeSet::GetMoveSpeedAttribute()), S->BaseMoveSpeed, 0.5f);
+		TestEqual(TEXT("New run: MaxWalkSpeed back to base"), GetPlayer()->GetCharacterMovement()->MaxWalkSpeed, S->BaseMoveSpeed, 0.5f);
 	});
 	EndPIE();
 	return true;

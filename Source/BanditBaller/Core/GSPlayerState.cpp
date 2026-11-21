@@ -4,6 +4,7 @@
 #include "GSAbilitySystemComponent.h"
 #include "GSAttributeSet.h"
 #include "GSProgressionComponent.h"
+#include "GSUpgradeComponent.h"
 
 AGSPlayerState::AGSPlayerState()
 {
@@ -15,6 +16,7 @@ AGSPlayerState::AGSPlayerState()
 	AttributeSet = CreateDefaultSubobject<UGSAttributeSet>(TEXT("AttributeSet"));
 
 	Progression = CreateDefaultSubobject<UGSProgressionComponent>(TEXT("Progression"));
+	Upgrades = CreateDefaultSubobject<UGSUpgradeComponent>(TEXT("Upgrades"));
 
 	// ASC on a PlayerState needs a higher update rate than the PlayerState default.
 	SetNetUpdateFrequency(100.f);

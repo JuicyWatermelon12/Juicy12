@@ -7,7 +7,7 @@
 #include "GSGameplayAbility_Reload.generated.h"
 
 /**
- * Reloads the equipped weapon after its ReloadTime (owns State.Reloading).
+ * Reloads the equipped weapon after ReloadTime / ReloadSpeed attribute (owns State.Reloading).
  * Blocked while firing or dead and when the magazine is full; cancelled by weapon swap.
  */
 UCLASS()
@@ -22,6 +22,9 @@ public:
 		const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const override;
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 		const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
+
+	/** Seconds a reload takes: BaseReloadTime / ReloadSpeed (ReloadSpeed clamped to UGSAttributeSet::MinReloadSpeed). */
+	static float GetReloadDuration(float BaseReloadTime, float ReloadSpeed);
 
 private:
 	UFUNCTION()
