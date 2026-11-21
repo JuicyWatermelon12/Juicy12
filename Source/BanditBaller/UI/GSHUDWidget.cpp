@@ -10,6 +10,7 @@
 #include "GameFramework/Pawn.h"
 #include "GSAttributeSet.h"
 #include "GSPlayerState.h"
+#include "GSProgressionComponent.h"
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
 #include "Rendering/DrawElements.h"
@@ -59,6 +60,7 @@ void UGSHUDWidget::NativeDestruct()
 {
 	UnbindAbilitySystem();
 	UnbindCash();
+	UnbindProgression();
 	Super::NativeDestruct();
 }
 
@@ -110,6 +112,79 @@ void UGSHUDWidget::RefreshCashDisplay()
 	if (CashText)
 	{
 		CashText->SetText(FText::Format(NSLOCTEXT("GSHUD", "CashFormat", "${0}"), FText::AsNumber(DisplayedCash)));
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Level + XP (UGSProgressionComponent)
+// ---------------------------------------------------------------------------
+
+bool UGSHUDWidget::TryBindProgression()
+{
+	const AGSPlayerState* PS = GetOwningPlayerState<AGSPlayerState>();
+	UGSProgressionComponent* Progression = PS ? PS->GetProgressionComponent() : nullptr;
+	if (Progression == BoundProgression.Get())
+	{
+		return Progression != nullptr;
+	}
+
+	UnbindProgression();
+	if (!Progression)
+	{
+		return false;
+	}
+	BoundProgression = Progression;
+	Progression->OnXPChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandleXPChanged);
+	Progression->OnLevelUp.AddUniqueDynamic(this, &UGSHUDWidget::HandleLevelUp);
+	RefreshProgressionDisplay();
+	return true;
+}
+
+void UGSHUDWidget::UnbindProgression()
+{
+	if (UGSProgressionComponent* Progression = BoundProgression.Get())
+	{
+		Progression->OnXPChanged.RemoveDynamic(this, &UGSHUDWidget::HandleXPChanged);
+		Progression->OnLevelUp.RemoveDynamic(this, &UGSHUDWidget::HandleLevelUp);
+	}
+	BoundProgression.Reset();
+}
+
+void UGSHUDWidget::HandleXPChanged(int32 CurrentXP, int32 XPForNextLevel, int32 Delta)
+{
+	RefreshProgressionDisplay();
+}
+
+void UGSHUDWidget::HandleLevelUp(int32 NewLevel)
+{
+	LevelPunchRemaining = LevelUpPunchDuration;
+	RefreshProgressionDisplay();
+}
+
+void UGSHUDWidget::RefreshProgressionDisplay()
+{
+	const UGSProgressionComponent* Progression = BoundProgression.Get();
+	if (!Progression)
+	{
+		return;
+	}
+	DisplayedLevel = Progression->GetLevel();
+	DisplayedXPPercent = Progression->GetLevelProgress();
+
+	if (LevelText)
+	{
+		LevelText->SetText(FText::Format(NSLOCTEXT("GSHUD", "LevelFormat", "LV {0}"), FText::AsNumber(DisplayedLevel)));
+	}
+	if (XPBar)
+	{
+		XPBar->SetPercent(DisplayedXPPercent);
+	}
+	if (XPText)
+	{
+		XPText->SetText(Progression->IsMaxLevel()
+			? NSLOCTEXT("GSHUD", "XPMax", "MAX")
+			: FText::Format(NSLOCTEXT("GSHUD", "XPFormat", "{0} / {1} XP"),
+				FText::AsNumber(Progression->GetCurrentXP()), FText::AsNumber(Progression->GetXPForNextLevel())));
 	}
 }
 
@@ -239,8 +314,18 @@ void UGSHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	// The PlayerState may replicate after the HUD is created; bind once it exists (then it's delegate-driven).
 	TryBindAbilitySystem();
 	TryBindCash();
+	TryBindProgression();
 
 	UpdateWeaponDisplay();
+
+	// Level label punch on level-up.
+	if (LevelText && (LevelPunchRemaining > 0.f || !LevelText->GetRenderTransform().Scale.Equals(FVector2D::UnitVector)))
+	{
+		LevelPunchRemaining = FMath::Max(LevelPunchRemaining - InDeltaTime, 0.f);
+		const float T = LevelUpPunchDuration > 0.f ? LevelPunchRemaining / LevelUpPunchDuration : 0.f;
+		const float Scale = FMath::Lerp(1.f, LevelUpPunchScale, FMath::Sin(T * PI));
+		LevelText->SetRenderScale(FVector2D(Scale, Scale));
+	}
 
 	HitMarkerRemaining = FMath::Max(HitMarkerRemaining - InDeltaTime, 0.f);
 	DamageFlashRemaining = FMath::Max(DamageFlashRemaining - InDeltaTime, 0.f);

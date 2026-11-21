@@ -1523,6 +1523,15 @@ bool FGSXPAndLevelsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("260 XP -> level 3"), Progression->GetLevel(), 3);
 		TestEqual(TEXT("Leftover carries over (260 - 100 - 125)"), Progression->GetCurrentXP(), 35);
 		TestEqual(TEXT("XP for level 4"), Progression->GetXPForNextLevel(), Curve->GetXPToReachLevel(4));
+		if (const UGSHUDWidget* HUD = PC->GetGSHUD())
+		{
+			TestEqual(TEXT("HUD level follows OnLevelUp"), HUD->GetDisplayedLevel(), 3);
+			TestEqual(TEXT("HUD XP bar fill"), HUD->GetDisplayedXPPercent(), 35.f / Curve->GetXPToReachLevel(4), 0.001f);
+		}
+		else
+		{
+			AddError(TEXT("No HUD widget on the player controller"));
+		}
 
 		// Kills grant XPValue x XPGain straight away.
 		const UGSEnemyData* MeleeData = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));

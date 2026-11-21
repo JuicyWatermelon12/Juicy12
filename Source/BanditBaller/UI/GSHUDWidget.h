@@ -11,6 +11,7 @@ class UAbilitySystemComponent;
 class UProgressBar;
 class UTextBlock;
 class UGSWeaponComponent;
+class UGSProgressionComponent;
 struct FOnAttributeChangeData;
 
 /**
@@ -18,6 +19,7 @@ struct FOnAttributeChangeData;
  * - Health bar/text bound to Health/MaxHealth attribute change delegates (no polling of values).
  * - Weapon name + ammo.
  * - Cash counter bound to AGSPlayerState::OnCashChanged.
+ * - Level label + XP bar/text bound to UGSProgressionComponent::OnXPChanged / OnLevelUp (punch on level-up).
  * - Painted overlays (no extra widgets): floating damage numbers and "+$N" cash popups, crosshair hit marker,
  *   red screen-edge flash when hit and pulse at low health.
  * Tuning values are editable on WBP_HUD's class defaults.
@@ -42,6 +44,10 @@ public:
 
 	/** Sum of the "+$N" popups currently on screen (tests). */
 	int32 GetActiveCashPopupTotal() const;
+
+	/** Level / XP fill currently shown (from UGSProgressionComponent events; tests). */
+	int32 GetDisplayedLevel() const { return DisplayedLevel; }
+	float GetDisplayedXPPercent() const { return DisplayedXPPercent; }
 
 protected:
 	virtual void NativeDestruct() override;
@@ -68,6 +74,18 @@ protected:
 	/** "$120" (bound to AGSPlayerState::OnCashChanged). */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> CashText;
+
+	/** "LV 3" (UGSProgressionComponent::OnLevelUp / OnXPChanged). */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> LevelText;
+
+	/** XP towards the next level (full at max level). */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> XPBar;
+
+	/** "135 / 156 XP", or "MAX" at max level. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> XPText;
 
 	// --- Tuning ---
 
@@ -150,6 +168,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|Cash", meta = (Units = "s"))
 	float CashPunchDuration = 0.2f;
 
+	/** LevelText briefly scales up by this much on a level-up. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Level", meta = (ClampMin = "1"))
+	float LevelUpPunchScale = 1.6f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Level", meta = (Units = "s"))
+	float LevelUpPunchDuration = 0.4f;
+
 private:
 	/** A floating damage number or "+$N" cash popup (shared pool). */
 	struct FDamageNumber
@@ -174,6 +199,17 @@ private:
 
 	UFUNCTION()
 	void HandleCashChanged(int32 NewCash, int32 Delta);
+
+	// Level + XP (UGSProgressionComponent on the PlayerState).
+	bool TryBindProgression();
+	void UnbindProgression();
+	void RefreshProgressionDisplay();
+
+	UFUNCTION()
+	void HandleXPChanged(int32 CurrentXP, int32 XPForNextLevel, int32 Delta);
+
+	UFUNCTION()
+	void HandleLevelUp(int32 NewLevel);
 
 	// Ability system binding (health).
 	bool TryBindAbilitySystem();
@@ -209,6 +245,11 @@ private:
 	float CashPunchRemaining = 0.f;
 	/** Pool index of the newest cash popup (merge target), or INDEX_NONE. */
 	int32 LastCashPopup = INDEX_NONE;
+
+	TWeakObjectPtr<UGSProgressionComponent> BoundProgression;
+	int32 DisplayedLevel = 0;
+	float DisplayedXPPercent = 0.f;
+	float LevelPunchRemaining = 0.f;
 
 	// Weapon text cache.
 	TWeakObjectPtr<const UObject> LastWeaponData;
