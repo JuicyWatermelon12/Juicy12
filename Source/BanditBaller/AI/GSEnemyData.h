@@ -8,6 +8,7 @@
 
 class UAnimInstance;
 class UGSAbilitySet;
+class UGSWeaponData;
 class UMaterialInterface;
 class USkeletalMesh;
 class UStateTree;
@@ -102,6 +103,55 @@ public:
 	/** How far in front of the enemy the sweep reaches. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Melee", meta = (ClampMin = "0", Units = "cm"))
 	float AttackSweepDistance = 130.f;
+
+	// --- Ranged attack (GA_EnemyFire) + ranged AI ---
+
+	/** Gun (same data type as player weapons): Damage, FireRateRPM (within a burst), HipSpread, Range, mesh, effects. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged")
+	TObjectPtr<UGSWeaponData> Weapon;
+
+	/** Closest distance the enemy likes to fight from. Reposition points are picked between Min and Max. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged", meta = (ClampMin = "0", Units = "cm"))
+	float PreferredRangeMin = 1500.f;
+
+	/** Starts shooting once within this distance and with line of sight. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged", meta = (ClampMin = "0", Units = "cm"))
+	float PreferredRangeMax = 2500.f;
+
+	/** Backs off when the target gets closer than this. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged", meta = (ClampMin = "0", Units = "cm"))
+	float RetreatRange = 800.f;
+
+	/** Max time spent backing off before shooting anyway. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged", meta = (ClampMin = "0", Units = "s"))
+	float RetreatMaxTime = 1.5f;
+
+	/** Aim telegraph (laser + body glow) before the burst. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged", meta = (ClampMin = "0", Units = "s"))
+	float AimTelegraphTime = 0.4f;
+
+	/** Shots per burst; spacing comes from Weapon->FireRateRPM. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged", meta = (ClampMin = "1"))
+	int32 BurstCount = 4;
+
+	/** Pause after a burst before the enemy repositions. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged", meta = (ClampMin = "0", Units = "s"))
+	float BurstRecovery = 0.5f;
+
+	/** Reposition: angle (around the target) moved per reposition, min..max. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged", meta = (ClampMin = "0", ClampMax = "180", Units = "Degrees"))
+	float RepositionAngleMin = 20.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged", meta = (ClampMin = "0", ClampMax = "180", Units = "Degrees"))
+	float RepositionAngleMax = 60.f;
+
+	/** Give up on a reposition move after this long. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged", meta = (ClampMin = "0", Units = "s"))
+	float RepositionMaxTime = 2.5f;
+
+	/** Material for the aim laser shown during the telegraph (unlit, emissive). Laser hidden if unset. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged")
+	TObjectPtr<UMaterialInterface> AimLaserMaterial;
 
 	// --- Reward / death ---
 

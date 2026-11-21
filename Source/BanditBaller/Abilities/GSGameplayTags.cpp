@@ -18,6 +18,7 @@ namespace GSGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Dash, "Ability.Dash", "Dash.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_SwapWeapon, "Ability.SwapWeapon", "Swap to the next weapon.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Attack_Melee, "Ability.Attack.Melee", "Enemy melee attack.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Attack_Ranged, "Ability.Attack.Ranged", "Enemy ranged attack (aimed burst).");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Cooldown_Slide, "Cooldown.Slide", "Slide is on cooldown.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Cooldown_Dash, "Cooldown.Dash", "Dash is on cooldown.");

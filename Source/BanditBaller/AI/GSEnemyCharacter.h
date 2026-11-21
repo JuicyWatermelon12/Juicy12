@@ -12,6 +12,7 @@ class UGSAttributeSet;
 class UGSEnemyData;
 class UGSHealthComponent;
 class UMaterialInstanceDynamic;
+class UStaticMeshComponent;
 class UWidgetComponent;
 struct FOnAttributeChangeData;
 
@@ -41,6 +42,18 @@ public:
 	/** Server: show/hide the attack wind-up telegraph (replicated to clients). */
 	void SetTelegraphing(bool bInTelegraphing);
 
+	/** What enemy shots collide with: world geometry and pawns (players ignore the Visibility channel). */
+	static FCollisionObjectQueryParams GetShotObjectQueryParams();
+
+	/** World-space muzzle of the ranged weapon (falls back to chest height in front of the enemy). */
+	FVector GetMuzzleLocation() const;
+
+	/** Server -> all: cosmetic shot (muzzle/impact effects, sound, debug line). */
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastShotFired(FVector_NetQuantize Start, FVector_NetQuantize End, bool bHit);
+
+	virtual void Tick(float DeltaSeconds) override;
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -61,7 +74,16 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Health")
 	TObjectPtr<UWidgetComponent> HealthBarComponent;
 
+	/** Ranged enemies: gun mesh from EnemyData->Weapon, attached to its AttachSocket. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ranged")
+	TObjectPtr<UStaticMeshComponent> WeaponMeshComponent;
+
+	/** Thin beam shown from the muzzle while aiming (telegraph). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ranged")
+	TObjectPtr<UStaticMeshComponent> AimLaserComponent;
+
 private:
+	void UpdateAimLaser();
 	void ApplyEnemyDataVisuals();
 	void InitializeStats();
 	void UpdateHealthBar();
@@ -83,4 +105,9 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UMaterialInstanceDynamic>> BodyMaterials;
+
+	/** Last shot's tracer segment, shown on the laser mesh until TracerHideTime. */
+	FVector TracerStart = FVector::ZeroVector;
+	FVector TracerEnd = FVector::ZeroVector;
+	double TracerHideTime = 0.0;
 };

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "StateTreeConditionBase.h"
 #include "StateTreeTaskBase.h"
 #include "GSEnemyStateTreeTasks.generated.h"
 
@@ -85,4 +86,101 @@ struct BANDITBALLER_API FGSStateTreeTask_MeleeAttack : public FStateTreeTaskComm
 
 	virtual EStateTreeRunStatus EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
 	virtual EStateTreeRunStatus Tick(FStateTreeExecutionContext& Context, const float DeltaTime) const override;
+};
+
+// ---------------------------------------------------------------------------
+// Ranged enemy
+//
+//   Idle  --succeeded--> Chase (Move To Firing Range) --succeeded--> Attack (Ranged Attack)
+//   Attack --completed--> Reposition --completed--> Chase
+//   Chase / Reposition --tick, Target Too Close--> Back Off --completed--> Attack
+// ---------------------------------------------------------------------------
+
+/**
+ * Moves toward the target until within PreferredRangeMax with line of sight (Succeeded).
+ * Without line of sight it keeps closing in. Fails if the target is lost.
+ */
+USTRUCT(meta = (DisplayName = "GS Move To Firing Range", Category = "BanditBaller|Enemy"))
+struct BANDITBALLER_API FGSStateTreeTask_MoveToFiringRange : public FStateTreeTaskCommonBase
+{
+	GENERATED_BODY()
+
+	using FInstanceDataType = FGSStateTreeChaseInstanceData;
+	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
+
+	virtual EStateTreeRunStatus EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
+	virtual EStateTreeRunStatus Tick(FStateTreeExecutionContext& Context, const float DeltaTime) const override;
+	virtual void ExitState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
+
+	UPROPERTY(EditAnywhere, Category = "Parameter")
+	float RepathInterval = 0.4f;
+};
+
+/** Activates the enemy's Ability.Attack.Ranged (GA_EnemyFire) and stays Running until it ends. */
+USTRUCT(meta = (DisplayName = "GS Ranged Attack", Category = "BanditBaller|Enemy"))
+struct BANDITBALLER_API FGSStateTreeTask_RangedAttack : public FStateTreeTaskCommonBase
+{
+	GENERATED_BODY()
+
+	using FInstanceDataType = FGSStateTreeAttackInstanceData;
+	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
+
+	virtual EStateTreeRunStatus EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
+	virtual EStateTreeRunStatus Tick(FStateTreeExecutionContext& Context, const float DeltaTime) const override;
+	virtual void ExitState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
+};
+
+USTRUCT()
+struct FGSStateTreeMoveTimerInstanceData
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	float Elapsed = 0.f;
+};
+
+/**
+ * Strafes to a random reachable point around the target (RepositionAngleMin..Max around it, at
+ * PreferredRangeMin..Max), facing the target. Succeeded on arrival or after RepositionMaxTime.
+ */
+USTRUCT(meta = (DisplayName = "GS Reposition Around Target", Category = "BanditBaller|Enemy"))
+struct BANDITBALLER_API FGSStateTreeTask_Reposition : public FStateTreeTaskCommonBase
+{
+	GENERATED_BODY()
+
+	using FInstanceDataType = FGSStateTreeMoveTimerInstanceData;
+	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
+
+	virtual EStateTreeRunStatus EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
+	virtual EStateTreeRunStatus Tick(FStateTreeExecutionContext& Context, const float DeltaTime) const override;
+	virtual void ExitState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
+};
+
+/**
+ * Backpedals away from the target (facing it) toward PreferredRangeMin.
+ * Succeeded once far enough, on arrival, or after RetreatMaxTime.
+ */
+USTRUCT(meta = (DisplayName = "GS Back Off From Target", Category = "BanditBaller|Enemy"))
+struct BANDITBALLER_API FGSStateTreeTask_BackOff : public FStateTreeTaskCommonBase
+{
+	GENERATED_BODY()
+
+	using FInstanceDataType = FGSStateTreeMoveTimerInstanceData;
+	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
+
+	virtual EStateTreeRunStatus EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
+	virtual EStateTreeRunStatus Tick(FStateTreeExecutionContext& Context, const float DeltaTime) const override;
+	virtual void ExitState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const override;
+};
+
+/** True when the target is closer than the enemy's RetreatRange. */
+USTRUCT(meta = (DisplayName = "GS Target Too Close", Category = "BanditBaller|Enemy"))
+struct BANDITBALLER_API FGSStateTreeCondition_TargetTooClose : public FStateTreeConditionCommonBase
+{
+	GENERATED_BODY()
+
+	using FInstanceDataType = FGSStateTreeEmptyInstanceData;
+	virtual const UStruct* GetInstanceDataType() const override { return FInstanceDataType::StaticStruct(); }
+
+	virtual bool TestCondition(FStateTreeExecutionContext& Context) const override;
 };

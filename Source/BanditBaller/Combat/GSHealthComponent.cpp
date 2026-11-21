@@ -8,10 +8,15 @@
 #include "GSAttributeSet.h"
 #include "GSGameMode.h"
 #include "GSGameplayTags.h"
+#include "HAL/IConsoleManager.h"
 #include "Net/UnrealNetwork.h"
 
 namespace
 {
+	TAutoConsoleVariable<bool> CVarDebugDamageLog(
+		TEXT("gs.Debug.DamageLog"), false,
+		TEXT("Log every health loss on the server: '[dmg] <victim> took <n> from <instigator> (health) at t=<game time>'."));
+
 	/** Who caused this attribute change (server only): the effect causer (pawn) if set, else the instigator. */
 	AActor* GetDamageInstigator(const FOnAttributeChangeData& Data)
 	{
@@ -105,6 +110,12 @@ void UGSHealthComponent::HandleHealthChanged(const FOnAttributeChangeData& Data)
 	}
 	OnHealthChanged.Broadcast(this, Data.OldValue, Data.NewValue, DamageInstigator);
 
+	if (CVarDebugDamageLog.GetValueOnGameThread() && GetOwner()->HasAuthority() && Data.NewValue < Data.OldValue)
+	{
+		UE_LOG(LogBanditBaller, Log, TEXT("[dmg] %s took %.1f from %s (health %.1f) at t=%.2fs"), *GetOwner()->GetActorNameOrLabel(),
+			Data.OldValue - Data.NewValue, *GetNameSafe(DamageInstigator), Data.NewValue, GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0);
+	}
+
 	if (GetOwner()->HasAuthority() && !bIsDead && Data.NewValue <= 0.f)
 	{
 		StartDeath(DamageInstigator);
@@ -122,7 +133,7 @@ void UGSHealthComponent::StartDeath(AActor* InKiller)
 		ASC->CancelAllAbilities();
 	}
 
-	UE_LOG(LogBanditBaller, Log, TEXT("%s died (killer: %s)"), *GetOwner()->GetActorNameOrLabel(), *GetNameSafe(InKiller));
+	UE_LOG(LogBanditBaller, Log, TEXT("%s died (killer: %s) at t=%.2fs"), *GetOwner()->GetActorNameOrLabel(), *GetNameSafe(InKiller), GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0);
 
 	if (AGSGameMode* GameMode = GetWorld()->GetAuthGameMode<AGSGameMode>())
 	{

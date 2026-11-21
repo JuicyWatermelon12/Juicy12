@@ -4,7 +4,8 @@
 // (the MCP StateTree tools can only inspect trees). The result is a normal StateTree asset that can
 // be opened and edited in the StateTree editor afterwards.
 //
-// Console:  gs.Editor.BuildEnemyStateTree [/Game/Path/ST_Name]   (default /Game/BanditBaller/Enemies/ST_MeleeBandit)
+// Console:  gs.Editor.BuildEnemyStateTree [melee|ranged|all] [/Game/Path/ST_Name]
+//           (default: all -> /Game/BanditBaller/Enemies/ST_MeleeBandit and ST_RangedBandit)
 
 #if WITH_EDITOR
 
@@ -47,9 +48,52 @@ namespace GSStateTreeBuilder
 		Attack.AddTransition(EStateTreeTransitionTrigger::OnStateCompleted, EStateTreeTransitionType::GotoState, &Chase);
 	}
 
-	static void BuildCommand(const TArray<FString>& Args)
+	static void BuildRangedEnemyTree(UStateTreeEditorData& EditorData)
 	{
-		const FString PackagePath = Args.Num() > 0 ? Args[0] : TEXT("/Game/BanditBaller/Enemies/ST_MeleeBandit");
+		UStateTreeState& Root = EditorData.AddRootState();
+
+		UStateTreeState& Idle = Root.AddChildState(TEXT("Idle"));
+		Idle.AddTask<FGSStateTreeTask_WaitForTarget>();
+
+		UStateTreeState& Chase = Root.AddChildState(TEXT("Chase"));
+		Chase.AddTask<FGSStateTreeTask_MoveToFiringRange>();
+
+		UStateTreeState& Attack = Root.AddChildState(TEXT("Attack"));
+		Attack.AddTask<FGSStateTreeTask_RangedAttack>();
+
+		UStateTreeState& Reposition = Root.AddChildState(TEXT("Reposition"));
+		Reposition.AddTask<FGSStateTreeTask_Reposition>();
+
+		UStateTreeState& BackOff = Root.AddChildState(TEXT("BackOff"));
+		BackOff.AddTask<FGSStateTreeTask_BackOff>();
+
+		Idle.AddTransition(EStateTreeTransitionTrigger::OnStateSucceeded, EStateTreeTransitionType::GotoState, &Chase);
+		Idle.AddTransition(EStateTreeTransitionTrigger::OnStateFailed, EStateTreeTransitionType::GotoState, &Idle);
+
+		// Too close while closing in or strafing -> back off (checked every tick, before completion).
+		for (UStateTreeState* State : { &Chase, &Reposition })
+		{
+			FStateTreeTransition& TooClose = State->AddTransition(EStateTreeTransitionTrigger::OnTick, EStateTreeTransitionType::GotoState, &BackOff);
+			TooClose.AddConditionWithOuter<FGSStateTreeCondition_TargetTooClose>(State);
+		}
+
+		Chase.AddTransition(EStateTreeTransitionTrigger::OnStateSucceeded, EStateTreeTransitionType::GotoState, &Attack);
+		Chase.AddTransition(EStateTreeTransitionTrigger::OnStateFailed, EStateTreeTransitionType::GotoState, &Idle);
+
+		Attack.AddTransition(EStateTreeTransitionTrigger::OnStateCompleted, EStateTreeTransitionType::GotoState, &Reposition);
+
+		Reposition.AddTransition(EStateTreeTransitionTrigger::OnStateSucceeded, EStateTreeTransitionType::GotoState, &Chase);
+		Reposition.AddTransition(EStateTreeTransitionTrigger::OnStateFailed, EStateTreeTransitionType::GotoState, &Idle);
+
+		// After backing off, shoot (even if the player is still close) so retreating never stalls the fight.
+		BackOff.AddTransition(EStateTreeTransitionTrigger::OnStateSucceeded, EStateTreeTransitionType::GotoState, &Attack);
+		BackOff.AddTransition(EStateTreeTransitionTrigger::OnStateFailed, EStateTreeTransitionType::GotoState, &Idle);
+	}
+
+	using FLayoutBuilder = void (*)(UStateTreeEditorData&);
+
+	static void BuildTree(const FString& PackagePath, FLayoutBuilder Layout)
+	{
 		if (!FPackageName::IsValidLongPackageName(PackagePath))
 		{
 			UE_LOG(LogBanditBaller, Error, TEXT("gs.Editor.BuildEnemyStateTree: invalid package path '%s'"), *PackagePath);
@@ -73,7 +117,7 @@ namespace GSStateTreeBuilder
 		EditorData->EditorSchema = NewObject<UStateTreeEditorSchema>(EditorData, NAME_None, RF_Transactional);
 		Tree->EditorData = EditorData;
 
-		BuildMeleeEnemyTree(*EditorData);
+		Layout(*EditorData);
 
 		UStateTreeEditingSubsystem::ValidateStateTree(Tree);
 
@@ -101,9 +145,31 @@ namespace GSStateTreeBuilder
 			bIsNew ? TEXT("created") : TEXT("rebuilt"), *PackagePath, bSaved ? TEXT("saved") : TEXT("SAVE FAILED"));
 	}
 
+	static void BuildCommand(const TArray<FString>& Args)
+	{
+		const FString Which = Args.Num() > 0 ? Args[0].ToLower() : TEXT("all");
+		const FString PathOverride = Args.Num() > 1 ? Args[1] : FString();
+		bool bKnown = false;
+
+		if (Which == TEXT("melee") || Which == TEXT("all"))
+		{
+			BuildTree(PathOverride.IsEmpty() || Which == TEXT("all") ? TEXT("/Game/BanditBaller/Enemies/ST_MeleeBandit") : PathOverride, &BuildMeleeEnemyTree);
+			bKnown = true;
+		}
+		if (Which == TEXT("ranged") || Which == TEXT("all"))
+		{
+			BuildTree(PathOverride.IsEmpty() || Which == TEXT("all") ? TEXT("/Game/BanditBaller/Enemies/ST_RangedBandit") : PathOverride, &BuildRangedEnemyTree);
+			bKnown = true;
+		}
+		if (!bKnown)
+		{
+			UE_LOG(LogBanditBaller, Error, TEXT("gs.Editor.BuildEnemyStateTree: unknown layout '%s' (melee|ranged|all)"), *Which);
+		}
+	}
+
 	static FAutoConsoleCommand BuildEnemyStateTreeCommand(
 		TEXT("gs.Editor.BuildEnemyStateTree"),
-		TEXT("Build/rebuild the melee enemy StateTree asset from code. Usage: gs.Editor.BuildEnemyStateTree [/Game/Path/ST_Name]"),
+		TEXT("Build/rebuild enemy StateTree assets from code. Usage: gs.Editor.BuildEnemyStateTree [melee|ranged|all] [/Game/Path/ST_Name]"),
 		FConsoleCommandWithArgsDelegate::CreateStatic(&BuildCommand));
 }
 
