@@ -103,7 +103,7 @@ namespace GSCheats
 
 	FAutoConsoleCommandWithWorldAndArgs RoundSkipCommand(
 		TEXT("gs.Round.Skip"),
-		TEXT("Advance the round loop to the next phase (PreRound -> Combat -> RoundClear -> MarketDecision -> next round)."),
+		TEXT("Advance the round loop to the next phase (PreRound -> Combat -> RoundClear -> next round)."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("RoundSkip"), Args, World); }),
 		ECVF_Cheat);
 

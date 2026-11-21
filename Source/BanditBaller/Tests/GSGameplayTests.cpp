@@ -428,7 +428,6 @@ bool FGSMapTownAndMarketTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestTrue(TEXT("Starts in the town"), GameState->GetCurrentArea() == EGSArea::Town);
-		TestFalse(TEXT("Market closed by default"), GameState->IsMarketOpenThisRound());
 
 		const AActor* TownReturn = AGSGameMode::FindTaggedActor(World, TEXT("TownReturn"));
 		TestNotNull(TEXT("Town has a TownReturn point"), TownReturn);
@@ -539,7 +538,8 @@ bool FGSRoundPhaseLoopTest::RunTest(const FString& Parameters)
 	WaitUntil(this, TEXT("PreRound timer to start Combat"), []() { return IsPhase(EGSRoundPhase::Combat); },
 		GetDefault<UGSRoundSettings>()->PreRoundDuration + 10.0);
 
-	// Skips walk the loop; MarketDecision resolves straight to the next round's PreRound (market closed).
+	// Combat -> RoundClear (skip), then the RoundClear timer starts the next round's PreRound on its own:
+	// no market phases in between.
 	Step([this]()
 	{
 		AGSGameMode* GameMode = GetGameMode();
@@ -550,11 +550,26 @@ bool FGSRoundPhaseLoopTest::RunTest(const FString& Parameters)
 		GameMode->AdvancePhase();
 		TestTrue(TEXT("Combat -> RoundClear"), IsPhase(EGSRoundPhase::RoundClear));
 		TestEqual(TEXT("Still round 1 in RoundClear"), GameState->GetRoundNumber(), 1);
+		TestTrue(TEXT("RoundClear has an end time"), GameState->GetPhaseEndTime() > 0.0);
+	});
+	WaitUntil(this, TEXT("RoundClear timer to start round 2's PreRound"), []()
+	{
+		const AGSGameState* GameState = GetGameState();
+		return GameState && GameState->GetRoundNumber() == 2 && IsPhase(EGSRoundPhase::PreRound);
+	}, GetDefault<UGSRoundSettings>()->RoundClearDuration + 10.0);
 
+	// Skips walk the same loop: PreRound -> Combat -> RoundClear -> PreRound (round + 1).
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		AGSGameState* GameState = GetGameState();
 		GameMode->AdvancePhase();
-		TestTrue(TEXT("RoundClear -> MarketDecision -> PreRound"), IsPhase(EGSRoundPhase::PreRound));
-		TestEqual(TEXT("Next round started"), GameState->GetRoundNumber(), 2);
-		TestFalse(TEXT("Market stays closed for now"), GameState->IsMarketOpenThisRound());
+		TestTrue(TEXT("PreRound -> Combat"), IsPhase(EGSRoundPhase::Combat));
+		GameMode->AdvancePhase();
+		TestTrue(TEXT("Combat -> RoundClear"), IsPhase(EGSRoundPhase::RoundClear));
+		GameMode->AdvancePhase();
+		TestTrue(TEXT("RoundClear -> PreRound"), IsPhase(EGSRoundPhase::PreRound));
+		TestEqual(TEXT("Next round started"), GameState->GetRoundNumber(), 3);
 
 		GameMode->SetRound(5);
 		TestEqual(TEXT("gs.Round.Set jumps to round 5"), GameState->GetRoundNumber(), 5);
