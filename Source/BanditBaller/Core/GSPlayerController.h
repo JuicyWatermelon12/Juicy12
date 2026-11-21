@@ -43,6 +43,10 @@ public:
 	UFUNCTION(Exec)
 	void GSFire();
 
+	/** Debug: press + release any ability input tag once, e.g. "GSPress Ability.Dash". */
+	UFUNCTION(Exec)
+	void GSPress(const FString& InputTagName);
+
 	/** Debug: point the camera at a world location. */
 	UFUNCTION(Exec)
 	void GSAimAt(float X, float Y, float Z);

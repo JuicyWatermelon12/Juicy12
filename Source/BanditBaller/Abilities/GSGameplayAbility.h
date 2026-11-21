@@ -28,7 +28,22 @@ public:
 	 */
 	virtual bool ShouldRetriggerWhileInputHeld(const FGameplayAbilityActorInfo* ActorInfo) const { return false; }
 
+	/**
+	 * Cooldown state for UI. Remaining/Duration describe the current cooldown (or the charge being
+	 * recharged); Charges/MaxCharges are 0/1 or 1/1 for single-charge abilities. Called on the CDO.
+	 */
+	virtual void GetCooldownDisplayInfo(const FGameplayAbilityActorInfo* ActorInfo, float& OutRemaining, float& OutDuration,
+		int32& OutCharges, int32& OutMaxCharges) const;
+
+	//~ UGameplayAbility
+	/** Applies CooldownGameplayEffectClass with SetByCaller Data.Cooldown = GetCooldownDuration(). */
+	virtual void ApplyCooldown(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
+		const FGameplayAbilityActivationInfo ActivationInfo) const override;
+
 protected:
+	/** Cooldown length in seconds (from the ability's settings asset). 0 = no cooldown. */
+	virtual float GetCooldownDuration(const FGameplayAbilityActorInfo* ActorInfo) const { return 0.f; }
+
 	/** Input tag that activates this ability. Added to the spec's dynamic source tags when granted. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	FGameplayTag ActivationInputTag;

@@ -11,6 +11,7 @@
 #include "GSAttributeSet.h"
 #include "GSGameplayTags.h"
 #include "GSInputConfig.h"
+#include "GSMovementAbilitySettings.h"
 #include "GSMovementSettings.h"
 #include "GSPlayerState.h"
 #include "Components/CapsuleComponent.h"
@@ -25,6 +26,9 @@ AGSCharacter::AGSCharacter()
 
 	WeaponComponent = CreateDefaultSubobject<UGSWeaponComponent>(TEXT("WeaponComponent"));
 	HealthComponent = CreateDefaultSubobject<UGSHealthComponent>(TEXT("HealthComponent"));
+
+	// Slides use crouch for the low capsule.
+	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;
 }
 
 UAbilitySystemComponent* AGSCharacter::GetAbilitySystemComponent() const
@@ -47,6 +51,9 @@ void AGSCharacter::BeginPlay()
 
 	ApplyMovementSettings();
 	ApplyFacingMode();
+
+	// Slide/dash override velocity in our Tick; make sure movement runs after it every frame.
+	GetCharacterMovement()->PrimaryComponentTick.AddPrerequisite(this, PrimaryActorTick);
 
 	HealthComponent->OnHealthChanged.AddDynamic(this, &AGSCharacter::OnHealthChanged);
 	HealthComponent->OnDeathStarted.AddDynamic(this, &AGSCharacter::OnDeathStarted);
@@ -382,6 +389,16 @@ void AGSCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
+	// Runs before CharacterMovement ticks this frame, so the velocity we set is what it moves with.
+	if (IsSliding())
+	{
+		TickSlide(DeltaSeconds);
+	}
+	if (IsDashing())
+	{
+		TickDash(DeltaSeconds);
+	}
+
 	if (IsLocallyControlled())
 	{
 		UpdateCamera(DeltaSeconds);
@@ -411,9 +428,258 @@ void AGSCharacter::UpdateCamera(float DeltaSeconds)
 	CurrentFOV = FMath::FInterpTo(CurrentFOV, TargetFOV, DeltaSeconds, S.AimInterpSpeed);
 	CurrentShoulderY = FMath::FInterpTo(CurrentShoulderY, TargetShoulderY, DeltaSeconds, S.ShoulderSwapInterpSpeed);
 
+	// Slide: the shrunk capsule drops the boom; raise it back so the net dip is the slide's CameraDip.
+	CurrentCameraHeightOffset = FMath::FInterpTo(CurrentCameraHeightOffset, bIsCrouched ? TargetCameraHeightOffset : 0.f, DeltaSeconds, 12.f);
+
 	USpringArmComponent* Boom = GetCameraBoom();
 	Boom->TargetArmLength = CurrentArmLength;
 	Boom->SocketOffset = FVector(S.ShoulderOffset.X, CurrentShoulderY, S.ShoulderOffset.Z);
+	Boom->TargetOffset = FVector(0.f, 0.f, CurrentCameraHeightOffset);
 
 	GetFollowCamera()->SetFieldOfView(CurrentFOV);
+}
+
+// ---------------------------------------------------------------------------
+// Slide / dash movement
+// ---------------------------------------------------------------------------
+
+FVector AGSCharacter::GetMovementInputDirection() const
+{
+	// Local input first; on the server for remote players, the replicated acceleration.
+	FVector Input = GetLastMovementInputVector();
+	if (Input.IsNearlyZero())
+	{
+		Input = GetCharacterMovement()->GetCurrentAcceleration();
+	}
+	Input.Z = 0.f;
+	return Input.GetSafeNormal();
+}
+
+void AGSCharacter::SaveAndClearFriction()
+{
+	UCharacterMovementComponent* CMC = GetCharacterMovement();
+	if (FrictionOverrideCount++ == 0)
+	{
+		SavedGroundFriction = CMC->GroundFriction;
+		SavedBrakingDecelerationWalking = CMC->BrakingDecelerationWalking;
+		SavedBrakingDecelerationFalling = CMC->BrakingDecelerationFalling;
+	}
+
+	// We drive the speed ourselves; stop CharacterMovement from braking it away.
+	CMC->GroundFriction = 0.f;
+	CMC->BrakingDecelerationWalking = 0.f;
+	CMC->BrakingDecelerationFalling = 0.f;
+}
+
+void AGSCharacter::RestoreFriction()
+{
+	if (FrictionOverrideCount > 0 && --FrictionOverrideCount == 0)
+	{
+		UCharacterMovementComponent* CMC = GetCharacterMovement();
+		CMC->GroundFriction = SavedGroundFriction;
+		CMC->BrakingDecelerationWalking = SavedBrakingDecelerationWalking;
+		CMC->BrakingDecelerationFalling = SavedBrakingDecelerationFalling;
+	}
+}
+
+bool AGSCharacter::CanStartSlide(float MinSpeed) const
+{
+	const UCharacterMovementComponent* CMC = GetCharacterMovement();
+	return !IsSliding() && CMC->IsMovingOnGround() && CMC->Velocity.Size2D() >= MinSpeed;
+}
+
+void AGSCharacter::StartSlide(const UGSSlideSettings& Settings)
+{
+	if (IsSliding())
+	{
+		return;
+	}
+
+	UCharacterMovementComponent* CMC = GetCharacterMovement();
+	const FVector FlatVelocity(CMC->Velocity.X, CMC->Velocity.Y, 0.f);
+	SlideDirection = FlatVelocity.IsNearlyZero() ? GetActorForwardVector() : FlatVelocity.GetSafeNormal();
+	SlideStartSpeed = FMath::Min(FlatVelocity.Size() + Settings.SpeedBoost, Settings.MaxSpeed);
+	SlideElapsed = 0.f;
+	ActiveSlide = &Settings;
+
+	SaveAndClearFriction();
+
+	// Low capsule via crouch; keep the camera dip to CameraDip.
+	const float StandingHalfHeight = GetClass()->GetDefaultObject<ACharacter>()->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight();
+	CMC->SetCrouchedHalfHeight(Settings.CapsuleHalfHeight);
+	TargetCameraHeightOffset = FMath::Max(StandingHalfHeight - Settings.CapsuleHalfHeight - Settings.CameraDip, 0.f);
+	Crouch();
+
+	CMC->Velocity = SlideDirection * SlideStartSpeed + FVector(0.f, 0.f, CMC->Velocity.Z);
+}
+
+void AGSCharacter::TickSlide(float DeltaSeconds)
+{
+	const UGSSlideSettings* Settings = ActiveSlide.Get();
+	UCharacterMovementComponent* CMC = GetCharacterMovement();
+	if (!Settings || !CMC->IsMovingOnGround())
+	{
+		// Left the ground (slid off a ledge or jumped): keep momentum, end the slide.
+		StopSlide();
+		return;
+	}
+
+	SlideElapsed += DeltaSeconds;
+	const float Alpha = FMath::Clamp(SlideElapsed / Settings->Duration, 0.f, 1.f);
+	const float Speed = Settings->EndSpeed + (SlideStartSpeed - Settings->EndSpeed) * FMath::Pow(1.f - Alpha, Settings->DecayExponent);
+
+	// Gentle steering toward the movement input.
+	const FVector Input = GetMovementInputDirection();
+	if (!Input.IsNearlyZero() && Settings->SteerRate > 0.f)
+	{
+		const float MaxRadians = FMath::DegreesToRadians(Settings->SteerRate * DeltaSeconds);
+		const float Angle = FMath::Acos(FMath::Clamp(FVector::DotProduct(SlideDirection, Input), -1.f, 1.f));
+		if (Angle > KINDA_SMALL_NUMBER)
+		{
+			const FVector Axis = FVector::CrossProduct(SlideDirection, Input).GetSafeNormal();
+			if (!Axis.IsNearlyZero())
+			{
+				SlideDirection = SlideDirection.RotateAngleAxisRad(FMath::Min(Angle, MaxRadians), Axis).GetSafeNormal2D();
+			}
+		}
+	}
+
+	CMC->Velocity = SlideDirection * Speed + FVector(0.f, 0.f, CMC->Velocity.Z);
+
+	if (Alpha >= 1.f)
+	{
+		StopSlide();
+	}
+}
+
+void AGSCharacter::StopSlide()
+{
+	if (!IsSliding())
+	{
+		return;
+	}
+
+	ActiveSlide.Reset();
+	UnCrouch();
+	RestoreFriction();
+	OnSlideFinished.Broadcast();
+}
+
+void AGSCharacter::Jump()
+{
+	if (const UGSSlideSettings* Settings = ActiveSlide.Get())
+	{
+		// Slide-hop: leave the slide and carry (optionally boosted) speed into the jump.
+		UCharacterMovementComponent* CMC = GetCharacterMovement();
+		CMC->Velocity.X *= Settings->SlideHopSpeedMultiplier;
+		CMC->Velocity.Y *= Settings->SlideHopSpeedMultiplier;
+		StopSlide();
+	}
+
+	Super::Jump();
+}
+
+bool AGSCharacter::CanJumpInternal_Implementation() const
+{
+	// Still crouched for a frame after leaving a slide (uncrouch is pending) - allow the jump anyway.
+	if (bIsCrouched && !GetCharacterMovement()->bWantsToCrouch)
+	{
+		return JumpIsAllowedInternal();
+	}
+	return Super::CanJumpInternal_Implementation();
+}
+
+FVector AGSCharacter::GetDashDirection() const
+{
+	const FVector Input = GetMovementInputDirection();
+	if (!Input.IsNearlyZero())
+	{
+		return Input;
+	}
+
+	const FRotator ControlYaw(0.f, GetControlRotation().Yaw, 0.f);
+	return ControlYaw.Vector();
+}
+
+void AGSCharacter::StartDash(const FVector& Direction, const UGSDashSettings& Settings)
+{
+	if (IsDashing())
+	{
+		StopDash();
+	}
+	if (IsSliding())
+	{
+		StopSlide();
+	}
+
+	DashDirection = Direction.GetSafeNormal2D();
+	if (DashDirection.IsNearlyZero())
+	{
+		DashDirection = GetActorForwardVector();
+	}
+	DashElapsed = 0.f;
+	DashStartLocation = GetActorLocation();
+	DashLastTraveled = 0.f;
+	DashLastRequested = 0.f;
+	ActiveDash = &Settings;
+
+	UCharacterMovementComponent* CMC = GetCharacterMovement();
+	SaveAndClearFriction();
+	SavedGravityScale = CMC->GravityScale;
+	CMC->GravityScale = 0.f;
+
+	// TickDash sets the (distance-capped) dash velocity before movement runs; hold still until then
+	// so a full-speed frame can't slip through.
+	CMC->Velocity = FVector::ZeroVector;
+}
+
+void AGSCharacter::TickDash(float DeltaSeconds)
+{
+	const UGSDashSettings* Settings = ActiveDash.Get();
+	if (!Settings)
+	{
+		StopDash();
+		return;
+	}
+
+	// Measure actual progress along the dash, so frame hitches and collisions can't skew the distance.
+	const float Traveled = FVector::DotProduct(GetActorLocation() - DashStartLocation, DashDirection);
+	const float Remaining = Settings->Distance - Traveled;
+
+	// Blocked: last frame asked for real movement but we barely moved (wall / obstacle).
+	const bool bBlocked = DashLastRequested > 5.f && (Traveled - DashLastTraveled) < DashLastRequested * 0.1f;
+
+	// Done (CharacterMovement then moves with the exit speed this frame). The time cap is only a fallback.
+	if (Remaining <= 1.f || bBlocked || DashElapsed >= Settings->Duration + 1.f)
+	{
+		StopDash();
+		return;
+	}
+
+	// Frame-rate independent: never move further this frame than the distance left.
+	const float Speed = Settings->GetDashSpeed();
+	const float FrameSpeed = DeltaSeconds > 0.f ? FMath::Min(Speed, Remaining / DeltaSeconds) : Speed;
+
+	GetCharacterMovement()->Velocity = DashDirection * FrameSpeed;
+	DashLastTraveled = Traveled;
+	DashLastRequested = FrameSpeed * DeltaSeconds;
+	DashElapsed += DeltaSeconds;
+}
+
+void AGSCharacter::StopDash()
+{
+	const UGSDashSettings* Settings = ActiveDash.Get();
+	if (!IsDashing())
+	{
+		return;
+	}
+
+	UCharacterMovementComponent* CMC = GetCharacterMovement();
+	const float ExitSpeed = Settings ? FMath::Min(Settings->ExitSpeed, Settings->GetDashSpeed()) : 0.f;
+	CMC->Velocity = DashDirection * ExitSpeed;
+	CMC->GravityScale = SavedGravityScale;
+
+	ActiveDash.Reset();
+	RestoreFriction();
+	OnDashFinished.Broadcast();
 }

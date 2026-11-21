@@ -13,7 +13,9 @@ class UGSAbilitySet;
 class UGSInputConfig;
 class UCameraShakeBase;
 class UGSHealthComponent;
+class UGSDashSettings;
 class UGSMovementSettings;
+class UGSSlideSettings;
 class UGSWeaponComponent;
 class UInputAction;
 struct FOnAttributeChangeData;
@@ -53,7 +55,29 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Movement")
 	bool IsFacingCamera() const { return bFacingCamera; }
 
+	// --- Movement abilities (driven by GA_Slide / GA_Dash; runs on owner and server) ---
+
+	bool CanStartSlide(float MinSpeed) const;
+	void StartSlide(const UGSSlideSettings& Settings);
+	void StopSlide();
+	bool IsSliding() const { return ActiveSlide.IsValid(); }
+
+	/** Movement input direction (flattened), else camera forward. */
+	FVector GetDashDirection() const;
+	void StartDash(const FVector& Direction, const UGSDashSettings& Settings);
+	void StopDash();
+	bool IsDashing() const { return ActiveDash.IsValid(); }
+
+	/** Fired when the slide/dash ends for any reason. */
+	FSimpleMulticastDelegate OnSlideFinished;
+	FSimpleMulticastDelegate OnDashFinished;
+
+	//~ ACharacter
+	/** Jumping during a slide ends it and keeps the momentum (slide-hop). */
+	virtual void Jump() override;
+
 protected:
+	virtual bool CanJumpInternal_Implementation() const override;
 	//~ AActor / APawn / ACharacter
 	virtual void BeginPlay() override;
 	virtual void PossessedBy(AController* NewController) override;
@@ -148,6 +172,38 @@ private:
 
 	/** World time when the pawn last left the ground without jumping (for coyote time). */
 	double LastGroundedTime = -1000.0;
+
+	// --- Slide / dash state ---
+	void TickSlide(float DeltaSeconds);
+	void TickDash(float DeltaSeconds);
+	void SaveAndClearFriction();
+	void RestoreFriction();
+	FVector GetMovementInputDirection() const;
+
+	TWeakObjectPtr<const UGSSlideSettings> ActiveSlide;
+	FVector SlideDirection = FVector::ForwardVector;
+	float SlideStartSpeed = 0.f;
+	float SlideElapsed = 0.f;
+
+	TWeakObjectPtr<const UGSDashSettings> ActiveDash;
+	FVector DashDirection = FVector::ForwardVector;
+	float DashElapsed = 0.f;
+	/** Where the dash started; distance is measured from here so hitches and walls can't skew it. */
+	FVector DashStartLocation = FVector::ZeroVector;
+	/** Distance moved along the dash direction as of the previous tick (to detect being blocked). */
+	float DashLastTraveled = 0.f;
+	/** Distance requested for the previous frame. */
+	float DashLastRequested = 0.f;
+	float SavedGravityScale = 1.f;
+
+	int32 FrictionOverrideCount = 0;
+	float SavedGroundFriction = 0.f;
+	float SavedBrakingDecelerationWalking = 0.f;
+	float SavedBrakingDecelerationFalling = 0.f;
+
+	/** Camera height compensation while the capsule is shrunk (local only). */
+	float CurrentCameraHeightOffset = 0.f;
+	float TargetCameraHeightOffset = 0.f;
 
 	TWeakObjectPtr<UAbilitySystemComponent> CachedAbilitySystem;
 	FDelegateHandle MoveSpeedChangedHandle;

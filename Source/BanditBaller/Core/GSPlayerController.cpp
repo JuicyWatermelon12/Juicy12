@@ -146,6 +146,23 @@ void AGSPlayerController::GSFire()
 #endif
 }
 
+void AGSPlayerController::GSPress(const FString& InputTagName)
+{
+#if !UE_BUILD_SHIPPING
+	const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(FName(*InputTagName), false);
+	const AGSPlayerState* PS = GetPlayerState<AGSPlayerState>();
+	UGSAbilitySystemComponent* ASC = PS ? PS->GetGSAbilitySystemComponent() : nullptr;
+	if (!Tag.IsValid() || !ASC)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("GSPress: unknown tag '%s' or no ASC"), *InputTagName);
+		return;
+	}
+
+	ASC->AbilityInputTagPressed(Tag);
+	ASC->AbilityInputTagReleased(Tag);
+#endif
+}
+
 void AGSPlayerController::GSAimAt(float X, float Y, float Z)
 {
 #if !UE_BUILD_SHIPPING
