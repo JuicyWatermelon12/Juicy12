@@ -501,9 +501,9 @@ Docs only; no code changed.
   - Ground dash + jump: the jump came out at the dash end with ~840 cm/s horizontal speed carried over.
   - The puff was visible at the feet.
 - **Movement issues noticed** (none fixed beyond the dash bug; suggestions only):
-  - **Height stacking:** every stack adds ~1.9 m of reachable height, with no cap. That is enough to reach roofs or
-    hover out of melee reach, and enemies can't follow (NavMesh only on the ground). A cap, diminishing height or
-    roof blockers may be needed.
+  - **Height stacking:** every stack adds ~1.9 m of reachable height, with no cap. **Decided (user): Extra Jump stays
+    uncapped**; it can be picked any number of times. The map will get a ceiling so the player can't climb forever.
+    The ceiling isn't built yet; until then the height is unlimited.
   - **Double-tap waste:** an air jump right after the ground jump gains little, because upward speed only goes from
     ~770 to 800. Mashing jump wastes it. This comes from "same speed every time". A short delay before the first
     air jump is possible.
@@ -775,8 +775,8 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
 
 14. ~~**Run loop cleanup.**~~ Done (see Prompt 14).
 15. ~~**Upgrade data + stat upgrades.**~~ Done (see Prompt 15). The upgrade pool with rarity weights moved to 17.
-16. ~~**Extra Jump.**~~ Done (see Prompt 16). Open: whether Extra Jump needs a cap or roof blockers (height
-    stacking).
+16. ~~**Extra Jump.**~~ Done (see Prompt 16). It stays uncapped (user decision). The height limit comes from a map
+    ceiling, which isn't scheduled yet (suggestion: add it with the town / hub map work).
 17. **Upgrade offers.** An upgrade pool asset (the DA_Upgrade_* list plus rarity weights). On each level-up, roll 3
     distinct choices (run stream, rarity-weighted), stored as pending
     offers on the PlayerState and queued across several level-ups. Picking goes through a gameplay function that
@@ -808,6 +808,7 @@ Decided (user):
 - **Single-player first;** co-op is M6.
 - **Upgrade choice:** the game pauses while an upgrade is being chosen.
 - **Hub map:** a separate hub map with its own GameMode; `OpenLevel` between hub and town.
+- **Extra Jump:** no cap (MaxStacks 0); it can be picked any number of times. A ceiling on the map limits the height.
 
 Still open from M2: round scaling for cash and XP drops, more DA_LevelRewards entries, shop and casino.
 
