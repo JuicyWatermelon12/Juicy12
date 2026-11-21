@@ -10,9 +10,9 @@ Third-person co-op roguelike shooter set in an off-grid bandit gambling town (UE
 rounds the party teleports to the safe **Market District** (shop + casino) → back to town for the next, harder
 round.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–7 are done.
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–8 are done.
 
-State at the time of writing: `main` @ `64e9ac2`, not pushed. The build is clean and all 15 automation tests pass.
+State at the time of writing: `main` @ `b3dda13`, not pushed. The build is clean and all 16 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -26,6 +26,7 @@ State at the time of writing: `main` @ `64e9ac2`, not pushed. The build is clean
 | M2 5 | Endless (budget) waves, alive cap, spawn telegraph | 515cf59 |
 | M2 6 | Enemy scaling per round | 263bd94, fabf651 |
 | M2 7 | Cash pickups and magnet | 64e9ac2 |
+| M2 8 | XP on kill and player levels | b3dda13 |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -93,7 +94,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–7 done)
+## M2 — The run loop (Prompts 1–8 done)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -171,6 +172,41 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - HUD: `CashText` counter at the top right (WBP_HUD) plus merged green "+$N" popups.
 - Assets `Materials/MI_CashCoin`, `MI_CashBill`. Cvar `gs.Cash.Lifetime`. Test `Economy.CashPickups`.
 
+### Prompt 8 — XP on kill and player levels (b3dda13)
+- `Core/GSProgressionComponent.*` (`UGSProgressionComponent`, created on `AGSPlayerState`, `GetProgressionComponent()`):
+  - Holds Level (starts at 1), CurrentXP, XPForNextLevel, TotalXP and MaxLevel. They replicate as one struct
+    (`FGSProgressionState`).
+  - `AddXP(N)` (authority only) is the only way XP goes up. A big gain levels up several times in a row and the
+    leftover carries over. At max level CurrentXP stays 0.
+  - `OnLevelUp(NewLevel)` fires once per level gained, then `OnXPChanged(CurrentXP, XPForNextLevel, Delta)`, on
+    the server and on clients.
+  - `ResetProgression()` runs on every new run (`AGSGameMode::StartRun`, so `gs.Run.Seed` too).
+- `Core/GSXPCurve.h` (`UGSXPCurve`) → `Data/DA_XPCurve`, set as `XPCurve` on BP_GSGameMode.
+  - `XPToReachLevel`: X = level, Y = XP needed from the previous level. MaxLevel is 50.
+  - New assets get keys 2–50 at 100 × 1.25^(L−2) from the constructor. DA_XPCurve still uses those defaults, so
+    the keys only save into the asset once you edit them.
+- `UGSEnemyData::XPValue`: MeleeBandit 10, RangedBandit 15.
+  - `AGSGameMode::HandleEnemyKilled` → `AwardXP(killer's PlayerState, XPValue)` grants it straight to the killer,
+    with no pickup.
+  - XP granted = round(XPValue × the new `XPGain` attribute).
+  - `AwardXP` also feeds run stats.
+- New attribute `XPGain` (1.0 from GE_InitPlayerStats; the set's constructor also defaults it to 1).
+- `UGSRunStats`: `XPEarned` (all XP granted, after XPGain) and `LevelReached` (highest player level). Both show in
+  `gs.Run.Stats`.
+- Commands `gs.XP.Add <N>` (raw XP, XPGain not applied) and `gs.XP.SetLevel <N>`.
+  - SetLevel resets the player, then AddXPs exactly the total for level N, so it lands on 0 XP into N.
+  - SetLevel's XP isn't counted in run-stats XPEarned.
+- `get_player_attributes` now includes Level, XP, XPForNextLevel and TotalXP.
+- Test `Progression.XPAndLevels`.
+- PIE check:
+  - 3 melee + 2 ranged kills = 60 XP.
+  - `gs.XP.Add 300` → level 3, 135/156 ("LEVEL UP x2").
+  - With XPGain 2 a melee kill gave +20.
+  - `gs.XP.SetLevel 10` → 0/745.
+  - +100M XP → level 50, 0/0.
+  - The run stats matched.
+- No UI and no level-up rewards yet (next prompt).
+
 ---
 
 ## Console commands and CVars
@@ -183,7 +219,9 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.KillAll` | Kill every living enemy through GE_Damage, credited to the player (they drop cash). |
 | `gs.God [0\|1]` | Toggle/set damage immunity (one `State.Invulnerable` count). |
 | `gs.GiveWeapon <Weapon>` | Equip `Rifle` / `Pistol` / `BanditCarbine` with a full mag (replaces the equipped one if both slots are full). |
-| `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius). |
+| `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain). |
+| `gs.XP.Add <N>` | Grant N raw XP to the local player (XPGain not applied; may level up several times). |
+| `gs.XP.SetLevel <N>` | Reset to level 1, then add exactly the XP for level N (0 XP into it; clamped to max level). |
 | `gs.Damage.Self <n>` | Damage the local player through GAS. |
 | `gs.Perf [Seconds=5]` | Log avg/p95/max frame time, game/render/GPU time and enemies alive. |
 | `gs.Round.Skip` | Advance to the next round phase. |
@@ -206,7 +244,8 @@ Launch arg: `-GSSeed=N` fixes the run seed.
 
 MCP toolset `banditballer_toolset.toolsets.BanditBallerTools` (PIE running):
 - `spawn_enemies(type, count)`
-- `get_player_attributes()`: attributes plus Ammo, Cash, God, Invulnerable, Dead.
+- `get_player_attributes()`: attributes plus Ammo, Cash, Level, XP, XPForNextLevel, TotalXP, God, Invulnerable,
+  Dead.
 - `list_enemies_alive()`
 
 ## GAS reference
@@ -220,6 +259,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools` (PIE running):
 | Damage | Outgoing damage multiplier (player 1.0). Enemies: scales melee AttackDamage / weapon Damage; round-scaled. |
 | FireRate | Refire multiplier (1.0). |
 | PickupRadius | Cash magnet radius in cm (player 300). |
+| XPGain | XP multiplier on kill XP (player 1.0; constructor default 1.0). |
 | IncomingDamage | Meta attribute: GE_Damage writes it, the set converts it to Health loss and records the instigator. |
 
 **Gameplay tags** (native, `Abilities/GSGameplayTags.*`; none in config):
@@ -234,7 +274,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools` (PIE running):
 
 | GE | Class | What it does |
 |---|---|---|
-| `GE_InitPlayerStats` | UGameplayEffect | Instant overrides: MaxHealth 100, Health 100, Damage 1, FireRate 1, PickupRadius 300. Granted through DA_PlayerAbilitySet. |
+| `GE_InitPlayerStats` | UGameplayEffect | Instant overrides: MaxHealth 100, Health 100, Damage 1, FireRate 1, PickupRadius 300, XPGain 1. Granted through DA_PlayerAbilitySet. |
 | `GE_Damage` | `UGSDamageEffect` | SetByCaller `Data.Damage` → IncomingDamage. Blocked by `State.Invulnerable` / `State.Dead`. All damage uses it. |
 | `GE_Cooldown_Slide` | `UGSCooldownEffect_Slide` | Duration from `Data.Cooldown`; grants `Cooldown.Slide`. |
 | `GE_Cooldown_Dash` | `UGSCooldownEffect_Dash` | One stack per spent charge; grants `Cooldown.Dash`. |
@@ -244,7 +284,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools` (PIE running):
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (15, all passing)
+## Automation tests (16, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test starts PIE in L_Town_Graybox, waits for the player, removes enemies, runs
 and ends PIE. Stop PIE before running.
@@ -266,6 +306,7 @@ and ends PIE. Stop PIE before running.
 | `Balance.TimeToKill` | Rifle/pistol shots-to-kill at rounds 1/5/10 vs both bandits via the real fire path (`[ttk]` log). |
 | `Run.SeedAndStats` | Same seed replays rolls; restart resets stats; kills per type; damage dealt/taken; rounds cleared. |
 | `Economy.CashPickups` | Exact split; out-of-reach drop stays; radius collects into Cash/CashEarned/HUD + popup; pool reuse; RoundClear vacuum; short lifetime blinks, expires unpaid. |
+| `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over; kill XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; cap at max level; new run resets. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
@@ -316,6 +357,14 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Scatter 40–140 cm, toss 0.35 s / 80 cm high, rest 25 cm above the floor.
   - Lifetime 20 s, blink for the last 4 s.
   - Magnet 400 → 3000 cm/s (accel 3000), collected within 80 cm. Pool prewarm 48.
+- **XP** (DA_XPCurve; XP needed from the previous level, +25% per level, max level 50):
+
+  | Level | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+  |---|---|---|---|---|---|---|---|---|---|
+  | XP | 100 | 125 | 156 | 195 | 244 | 305 | 381 | 477 | 596 |
+
+  - Reaching level 10 takes 2579 XP in total. Level 20 needs 5551 from level 19, and level 50 needs 4.48 M.
+  - Kill XP: MeleeBandit 10, RangedBandit 15. DT_Waves rounds 1–5 give 40 / 65 / 90 / 115 / 150 XP.
 - **Combo curves**: there is no combo system yet.
 
 ## Known issues, TODOs and deviations
@@ -325,7 +374,9 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   There is no shop or casino logic yet, and CashSpent is never used.
 - Crits are stubbed (`TODO(crits)` in `GSAttributeSet.cpp`; damage numbers support them, nothing sets them).
 - The `GameOver` phase exists but is unused. Player death reloads the whole map (`?Restart`).
-- Cash drops don't scale with the round.
+- Cash drops don't scale with the round. Neither does enemy XP.
+- Levels do nothing yet: there are no rewards and no XP bar or level-up UI. Player death (`?Restart`) reloads the
+  map, which also resets levels.
 
 **Co-op**
 - Never tested with 2+ players.
@@ -333,6 +384,7 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Market travel doesn't wait for clients to stream the district (`TODO(co-op)` in `GSGameMode.cpp`).
   - Restart on death should become "all players dead" / revive.
   - Cash goes to whoever collects it, not the killer.
+  - XP goes only to the killing player (not shared with the party). Kills by non-players give no XP.
 
 **Not visually verified** (covered by tests or logs only)
 - Spawn telegraph disc, "+$N" popup, pickup blink.
@@ -374,10 +426,13 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 - With the editor in the background PIE runs at about 3 FPS. Set
   `EditorPerformanceSettings.bThrottleCPUWhenNotForeground` false in memory for timing work.
 - Round 1 Combat starts 3 s into PIE. Send `gs.God 1` / `gs.Round.Pause 1` right after starting PIE, or the wave
-  can kill the player first.
+  can kill the player first. Starting PIE and typing the commands in the same `ProgrammaticToolset` script avoids
+  that race. Slow Slate lookups in between can let the wave kill the player.
+- `ObjectTools.set_properties` refuses an array whose size and elements both change ("insertion points are
+  ambiguous"). To append a GE modifier, read the array, append a deep copy and set it back in one script.
 
 ---
 
 ## Next up
 
-**M2 Prompt 8 — XP on kill and player levels.**
+**M2 Prompt 9 — level-up rewards** (hook `UGSProgressionComponent::OnLevelUp`; an XP bar / level-up UI is still open).
