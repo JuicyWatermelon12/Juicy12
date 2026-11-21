@@ -38,7 +38,7 @@ State at the time of writing: `main` @ `72534d1`, not pushed. The build is clean
 | M2 8 | XP on kill and player levels, HUD level + XP bar | b3dda13, 4ba1b32 |
 | M2 9 | Level-up rewards (MaxHealth stack + full heal) | 371cb6e |
 | M2 10 | Progression feedback (XP popups, level-up banner, pulses, glow, sound) | 72534d1 |
-| Design change | Permanent cash (profile), Market District as hub between runs, level-up upgrades (docs only) | HASHDC |
+| Design change | Permanent cash (profile), Market District as hub between runs, level-up upgrades (docs only) | 0b2b6f5 |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -298,7 +298,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
   - "+200 XP" appeared above the player and "+10 XP" above a kill's damage number.
   - The player mesh brightened during the glow.
 
-## Design change — permanent cash, hub market, level-up upgrades (HASHDC)
+## Design change — permanent cash, hub market, level-up upgrades (0b2b6f5)
 
 Docs only; no code changed yet.
 
