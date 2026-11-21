@@ -35,7 +35,7 @@ Systems, commands, GAS reference, tuning and known issues live in `docs/PROGRESS
 Source/BanditBaller/
   Core/       GameMode (round loop, run seed, area travel), GameState, PlayerState, PlayerController,
               character, settings data classes, run random/stats, progression (XP/levels/rewards),
-              debug library + cheat commands; profile subsystem (planned)
+              debug library + cheat commands, profile subsystem + save (permanent cash)
   Abilities/  GAS: ASC, AttributeSet, tags, abilities, effects, ability sets
   Combat/     weapons, health/death component, target dummy, hit camera shake
   AI/         enemies, AI controller, StateTree tasks/builder, spawn finder, wave director, spawn telegraph
@@ -58,10 +58,15 @@ docs/PROGRESS.md  progress log and reference
   from clients). Clients only predict or do cosmetics.
 - **Run state lives in GameState / PlayerState** and resets when the run ends: round, timers, run stats, team state,
   XP, level, level-up upgrades. It never lives in GameMode (server-only) or in widgets.
-- **Permanent state lives in the profile subsystem** (`UGSProfileSubsystem`, planned: a GameInstance subsystem saved
-  to disk) and survives runs and deaths. Today that is cash; later, unlocks.
-  - **All cash changes go through it**: earning in a run, spending in the shop, gambling.
-  - PlayerState only mirrors the value for replication and the HUD. Nothing writes cash on PlayerState directly.
+- **Permanent state lives in the profile subsystem** (`UGSProfileSubsystem`, a GameInstance subsystem saved to
+  `Saved/SaveGames/GSProfile.sav`) and survives runs, deaths and map travel. Today that is cash; later, unlocks.
+  - **All cash changes go through it** (`AddCash` / `TrySpendCash` with a reason): earning in a run, spending in the
+    shop, gambling.
+  - PlayerState only mirrors the value for replication and the HUD (`SetCashFromProfile` is private to the
+    subsystem). Nothing writes cash on PlayerState directly.
+  - In co-op the host's save holds every player's cash, keyed by each machine's player ID (sent by
+    `AGSPlayerController::ServerSetProfileId`).
+  - Automation tests use the `GSProfile_AutomationTest` slot, never the real profile.
 - **All in-run randomness uses the run stream** via `UGSRunRandom` (waves, spawn positions, drops, upgrade choices,
   AI choices), never `FMath::Rand*` / `FRandRange` / `VRandCone`. Only exceptions: local cosmetics and the player's
   own predicted weapon spread/recoil. Hub randomness (casino) will get its own seeded stream, not the run stream.
@@ -99,7 +104,7 @@ docs/PROGRESS.md  progress log and reference
 - Debug commands: `gs.` prefix, cheat-only, implemented in `UGSDebugLibrary` and registered in
   `GSCheatCommands.cpp`. Clients forward them through `ServerExecDebugCommand`. Debug toggles are `gs.Debug.*`
   cvars.
-- Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`).
+- Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`, `[xp]`, `[profile]`).
 - Tests: PIE-based latent tests in `Tests/GSGameplayTests.cpp`, built from the `GSTests` helpers (`BeginPIE`,
   `WaitUntil`, `Step`, `EndPIE`, …). When appending, keep the closing `#endif` last.
 - Commit messages: short imperative title, then a body listing what changed.
