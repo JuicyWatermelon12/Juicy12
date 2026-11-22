@@ -44,6 +44,8 @@
 #include "GSComboSettings.h"
 #include "GSRoundClearSettings.h"
 #include "GSRoundSummaryWidget.h"
+#include "GSRunSummaryWidget.h"
+#include "Components/Button.h"
 #include "GSHubGameMode.h"
 #include "GSTargetDummy.h"
 #include "AbilitySystemGlobals.h"
@@ -665,7 +667,7 @@ bool FGSRoundPhaseLoopTest::RunTest(const FString& Parameters)
 }
 
 // ---------------------------------------------------------------------------
-// Death -> restart gives back control
+// Death -> run summary -> R -> the hub gives back control
 // ---------------------------------------------------------------------------
 
 namespace GSTests
@@ -676,10 +678,15 @@ namespace GSTests
 		UGameViewportClient* Viewport = World ? World->GetGameViewport() : nullptr;
 		return Viewport && Viewport->IgnoreInput();
 	}
+
+	UGSRunSummaryWidget* GetRunSummary()
+	{
+		return GetPC() ? GetPC()->GetRunSummaryWidget() : nullptr;
+	}
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRestartRestoresInputTest, "BanditBaller.Player.RestartRestoresInput", GSTests::TestFlags)
-bool FGSRestartRestoresInputTest::RunTest(const FString& Parameters)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSReturnToHubRestoresInputTest, "BanditBaller.Player.ReturnToHubRestoresInput", GSTests::TestFlags)
+bool FGSReturnToHubRestoresInputTest::RunTest(const FString& Parameters)
 {
 	BeginPIE(this);
 
@@ -687,26 +694,38 @@ bool FGSRestartRestoresInputTest::RunTest(const FString& Parameters)
 	Step([this, OldWorld]()
 	{
 		TestFalse(TEXT("Game input active at start"), IsViewportIgnoringInput());
+		TestFalse(TEXT("No cursor at start"), GetPC()->ShouldShowMouseCursor());
 
-		// Die for real: the server shows the death screen (UI-only input).
+		// Die for real: the server shows the run summary (UI-only input with the cursor).
 		*OldWorld = GetPIEWorld();
 		ApplyDamage(GetPlayerASC(), 100000.f);
 	});
-	WaitUntil(this, TEXT("death screen to take input"), []() { return IsViewportIgnoringInput(); }, 5.0);
-	Step([]()
+	WaitUntil(this, TEXT("run summary to take input"), []() { return IsViewportIgnoringInput(); }, 5.0);
+	Step([this]()
 	{
-		// Same request the death screen sends on R.
-		GetPC()->ServerRequestRestart();
+		TestNotNull(TEXT("Run summary shown"), GetRunSummary());
+		TestTrue(TEXT("Cursor shown for the button"), GetPC()->ShouldShowMouseCursor());
+	});
+	// R on the summary once its input lock is over (the key path the widget's NativeOnKeyDown takes).
+	WaitUntil(this, TEXT("run summary input lock to end"), []() { return GetRunSummary() && !GetRunSummary()->IsInputLocked(); }, 5.0);
+	Step([this]()
+	{
+		UGSRunSummaryWidget* Summary = GetRunSummary();
+		TestTrue(TEXT("R is a return key"), Summary && Summary->HandleReturnKey(EKeys::R));
+		TestTrue(TEXT("R asks to return to the hub"), Summary && Summary->IsReturnRequested());
+		TestTrue(TEXT("The GameMode is returning to the hub"), GetGameMode() && GetGameMode()->IsReturningToHub());
 	});
 	WaitForMapTravel(this, OldWorld, HubMap);
 	Step([this]()
 	{
-		TestNotNull(TEXT("R on the death screen goes back to the hub (the market)"), GetHubGameMode());
+		TestNotNull(TEXT("Return to Market goes back to the hub (the market)"), GetHubGameMode());
 		TestNull(TEXT("No run running in the hub"), GetGameMode());
-		TestFalse(TEXT("Viewport accepts game input after restart"), IsViewportIgnoringInput());
+		TestFalse(TEXT("Viewport accepts game input in the hub"), IsViewportIgnoringInput());
+		TestFalse(TEXT("No cursor in the hub"), GetPC()->ShouldShowMouseCursor());
+		TestNull(TEXT("No run summary in the hub"), GetRunSummary());
 		const APawn* Player = GetPlayer();
-		TestTrue(TEXT("Respawned pawn takes input"), Player && Player->InputEnabled());
-		TestFalse(TEXT("Respawned player is not dead"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
+		TestTrue(TEXT("The hub's pawn takes input"), Player && Player->InputEnabled());
+		TestFalse(TEXT("The hub's player is not dead"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
 	});
 	EndPIE();
 	return true;
@@ -2204,7 +2223,7 @@ bool FGSProfileCashTest::RunTest(const FString& Parameters)
 	});
 
 	// Going back to the hub after death keeps the balance (the profile lives on the GameInstance).
-	Step([]() { GetPC()->ServerRequestRestart(); });
+	Step([]() { GetPC()->ServerRequestReturnToHub(); });
 	WaitForMapTravel(this, OldWorld, HubMap);
 	Step([this, Bonus]()
 	{
@@ -4328,6 +4347,307 @@ bool FGSTownLayoutTest::RunTest(const FString& Parameters)
 	{
 		GetGameMode()->SetRoundTimerPaused(false);
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Game over: death ends the run (GameOver, wave stopped), the run summary, Return to Market -> the hub
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	int32 CountLivingEnemiesInWorld()
+	{
+		int32 Count = 0;
+		for (TActorIterator<AGSEnemyCharacter> It(GetPIEWorld()); It; ++It)
+		{
+			const UGSHealthComponent* Health = It->GetHealthComponent();
+			Count += (!Health || !Health->IsDead()) ? 1 : 0;
+		}
+		return Count;
+	}
+
+	/** "$1,234" as the summary formats cash. */
+	FString FormatSummaryCash(int32 Amount)
+	{
+		return FString::Printf(TEXT("$%s"), *FText::AsNumber(Amount).ToString());
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRunGameOverTest, "BanditBaller.Run.GameOver", GSTests::TestFlags)
+bool FGSRunGameOverTest::RunTest(const FString& Parameters)
+{
+	struct FGameOverState
+	{
+		int32 Cash = 0;
+		float RunTime = 0.f;
+		int32 LivingEnemies = 0;
+		bool bOldThrottle = true;
+		bool bSawFadeOut = false;
+	};
+	TSharedRef<FGameOverState> S = MakeShared<FGameOverState>();
+	TSharedRef<TWeakObjectPtr<UWorld>> OldWorld = MakeShared<TWeakObjectPtr<UWorld>>();
+
+	BeginPIE(this);
+	Step([this, S]()
+	{
+		// Real frame rate in the background, so the fade-out is seen before the hub opens.
+		UEditorPerformanceSettings* Perf = GetMutableDefault<UEditorPerformanceSettings>();
+		S->bOldThrottle = Perf->bThrottleCPUWhenNotForeground;
+		Perf->bThrottleCPUWhenNotForeground = false;
+
+		AGSGameMode* GameMode = GetGameMode();
+		AGSGameState* GameState = GetGameState();
+		UGSRunStats* Stats = GameState ? GameState->GetRunStats() : nullptr;
+		UGSProfileSubsystem* Profile = GetProfile();
+		AGSPlayerController* PC = GetPC();
+		AGSPlayerState* PS = PC ? PC->GetPlayerState<AGSPlayerState>() : nullptr;
+		if (!TestNotNull(TEXT("AGSGameMode"), GameMode) || !TestNotNull(TEXT("Run stats"), Stats) || !TestNotNull(TEXT("Profile"), Profile)
+			|| !TestNotNull(TEXT("PlayerState"), PS))
+		{
+			return;
+		}
+		GameMode->SetRoundTimerPaused(true);
+		Profile->ResetProfile();
+
+		// Alive: there is nothing to return from.
+		TestFalse(TEXT("Return refused while alive"), GameMode->RequestReturnToHub(PC));
+		TestFalse(TEXT("Not returning while alive"), GameMode->IsReturningToHub());
+		TestNull(TEXT("No run summary while alive"), PC->GetRunSummaryWidget());
+
+		// Run time formatting.
+		TestEqual(TEXT("Run time 0"), UGSRunSummaryWidget::FormatRunTime(0.f).ToString(), FString(TEXT("0:00")));
+		TestEqual(TEXT("Run time 65 s"), UGSRunSummaryWidget::FormatRunTime(65.4f).ToString(), FString(TEXT("1:05")));
+		TestEqual(TEXT("Run time over an hour"), UGSRunSummaryWidget::FormatRunTime(3725.f).ToString(), FString(TEXT("1:02:05")));
+
+		// Something to summarize: a level-up (its offer picked) and three upgrade stacks by hand, in PreRound.
+		GameMode->SetRound(1);
+		UGSProgressionComponent* Progression = PS->GetProgressionComponent();
+		GameMode->AwardXP(PS, static_cast<float>(Progression->GetXPForNextLevel()), false);
+		TestEqual(TEXT("Level 2"), Progression->GetLevel(), 2);
+		TestEqual(TEXT("Its offer picked"), PickAllUpgradeOffers(), 1);
+		UGSDebugLibrary::ExecuteDebugCommand(PC, TEXT("UpgradeGrant"), { TEXT("Damage"), TEXT("2") });
+		UGSDebugLibrary::ExecuteDebugCommand(PC, TEXT("UpgradeGrant"), { TEXT("ExtraJump") });
+		TestEqual(TEXT("4 upgrade picks"), PS->GetUpgradeComponent()->GetTotalPicks(), 4);
+
+		// Round 1: two kills (combo 2) and a pickup, then cleared with its bonus.
+		GameMode->AdvancePhase(); // -> Combat
+		KillTestEnemyAsPlayer(this);
+		KillTestEnemyAsPlayer(this);
+		GameMode->AwardCash(PC, 25, PC->GetPawn()->GetActorLocation());
+		GameMode->AdvancePhase(); // -> RoundClear: round 1 cleared, bonus paid
+		TestEqual(TEXT("Round 1 bonus paid"), Stats->GetLastRoundClearPayout().Round, 1);
+		GameMode->AdvancePhase(); // -> round 2 PreRound
+		GameMode->AdvancePhase(); // -> round 2 Combat: its wave starts
+		TestTrue(TEXT("Round 2 wave running"), GameMode->GetWaveDirector()->IsWaveActive());
+	});
+	// Let some of round 2's wave spawn (the rest is still to come).
+	WaitUntil(this, TEXT("round 2's first enemies"), []() { return GetGameMode() && GetGameMode()->GetWaveDirector()->GetAlive() > 0; }, 10.0);
+
+	// Die: the run is over.
+	Step([this, S, OldWorld]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		AGSGameState* GameState = GetGameState();
+		UGSRunStats* Stats = GameState ? GameState->GetRunStats() : nullptr;
+		UGSProfileSubsystem* Profile = GetProfile();
+		UGSWaveDirector* Director = GameMode ? GameMode->GetWaveDirector() : nullptr;
+		if (!TestNotNull(TEXT("Wave director"), Director) || !Stats || !Profile)
+		{
+			return;
+		}
+		TestTrue(TEXT("Enemies still to spawn before the death"), Director->GetRemaining() > Director->GetAlive());
+
+		// An upgrade offer open at the moment of death (it pauses the game) is closed by the game over.
+		AGSPlayerState* PS = GetPC()->GetPlayerState<AGSPlayerState>();
+		UGSUpgradeComponent* Upgrades = PS->GetUpgradeComponent();
+		GameMode->QueueUpgradeOfferForDebug(PS);
+		TestTrue(TEXT("Offer open before the death"), Upgrades->HasOpenOffer());
+		TestTrue(TEXT("Paused for that offer"), GameMode->IsPausedForUpgradeChoice());
+
+		S->LivingEnemies = CountLivingEnemiesInWorld();
+		*OldWorld = GetPIEWorld();
+		ApplyDamage(GetPlayerASC(), 100000.f);
+		TestTrue(TEXT("Player died"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
+		TestFalse(TEXT("Death closes the open offer"), Upgrades->HasOpenOffer());
+		TestFalse(TEXT("Death lifts the offer's pause"), GameMode->IsPausedForUpgradeChoice() || GetPIEWorld()->IsPaused());
+
+		// A level-up after the death (debug XP) still applies its reward but offers nothing.
+		UGSProgressionComponent* Progression = PS->GetProgressionComponent();
+		GameMode->AwardXP(PS, static_cast<float>(Progression->GetXPForNextLevel()), false);
+		TestEqual(TEXT("Level 3 after the death"), Progression->GetLevel(), 3);
+		TestFalse(TEXT("No offer after the death"), Upgrades->HasOpenOffer() || Upgrades->GetQueuedOffers() > 0);
+		TestFalse(TEXT("No pause after the death"), GetPIEWorld()->IsPaused());
+
+		// GameOver: the wave stops (nothing telegraphing or left to spawn), the living enemies stay, no phase timer.
+		TestTrue(TEXT("Death -> GameOver"), GameState->GetRoundPhase() == EGSRoundPhase::GameOver);
+		TestEqual(TEXT("Still round 2"), GameState->GetRoundNumber(), 2);
+		TestFalse(TEXT("Wave stopped"), Director->IsWaveActive());
+		TestEqual(TEXT("Telegraphs cancelled"), Director->GetPending(), 0);
+		TestEqual(TEXT("Nothing left to spawn"), Director->GetRemaining(), 0);
+		TestEqual(TEXT("Living enemies stay"), CountLivingEnemiesInWorld(), S->LivingEnemies);
+		TestTrue(TEXT("GameOver is untimed"), GameState->GetPhaseEndTime() <= 0.0);
+		GameMode->AdvancePhase();
+		TestTrue(TEXT("GameOver is final (a skip does nothing)"), GameState->GetRoundPhase() == EGSRoundPhase::GameOver);
+
+		// Run stats end and the profile is saved at death.
+		S->RunTime = Stats->GetRunTime();
+		S->Cash = Profile->GetCash();
+		TestTrue(TEXT("Run time recorded"), S->RunTime > 0.f);
+		TestEqual(TEXT("Profile saved at death"), GetSavedCash(*Profile), S->Cash);
+		TestEqual(TEXT("1 round cleared"), Stats->GetRoundsCleared(), 1);
+		TestEqual(TEXT("Best combo 2"), Stats->GetBestCombo(), 2);
+		TestEqual(TEXT("2 kills"), Stats->GetTotalKills(), 2);
+
+		// The run summary replaces the death screen: UI input, cursor, locked at first (R is also reload).
+		UGSRunSummaryWidget* Summary = GetRunSummary();
+		if (!TestNotNull(TEXT("Run summary shown at death"), Summary))
+		{
+			return;
+		}
+		TestTrue(TEXT("Run summary in the viewport"), Summary->IsInViewport());
+		TestTrue(TEXT("UI-only input"), IsViewportIgnoringInput());
+		TestTrue(TEXT("Cursor shown"), GetPC()->ShouldShowMouseCursor());
+		TestTrue(TEXT("Input locked at first"), Summary->IsInputLocked());
+		TestTrue(TEXT("R consumed while locked"), Summary->HandleReturnKey(EKeys::R));
+		TestFalse(TEXT("R while locked does nothing"), Summary->IsReturnRequested());
+		TestFalse(TEXT("Button path refused while locked"), Summary->TryReturnToHub());
+		TestFalse(TEXT("Not returning yet"), GameMode->IsReturningToHub());
+	});
+
+	// Nothing more happens after the death: no spawns, no RoundClear or bonus, frozen run time, same cash.
+	WaitWorldSeconds(this, 3.0);
+	Step([this, S]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		AGSGameState* GameState = GetGameState();
+		UGSRunStats* Stats = GameState ? GameState->GetRunStats() : nullptr;
+		UGSProfileSubsystem* Profile = GetProfile();
+		if (!GameMode || !Stats || !Profile)
+		{
+			AddError(TEXT("Lost the run after the death"));
+			return;
+		}
+		UGSWaveDirector* Director = GameMode->GetWaveDirector();
+		TestTrue(TEXT("Still GameOver"), GameState->GetRoundPhase() == EGSRoundPhase::GameOver);
+		TestEqual(TEXT("No spawns after death"), Director->GetSpawned(), 0);
+		TestEqual(TEXT("No telegraphs after death"), Director->GetPending(), 0);
+		TestEqual(TEXT("No new enemies"), CountLivingEnemiesInWorld(), S->LivingEnemies);
+		TestEqual(TEXT("No RoundClear after death"), Stats->GetLastRoundClearPayout().Round, 1);
+		TestEqual(TEXT("Rounds cleared unchanged"), Stats->GetRoundsCleared(), 1);
+		TestEqual(TEXT("Run time frozen"), Stats->GetRunTime(), S->RunTime, 0.001f);
+		TestEqual(TEXT("No cash after death"), Profile->GetCash(), S->Cash);
+
+		// Killing what's left doesn't clear the round either.
+		for (TActorIterator<AGSEnemyCharacter> It(GetPIEWorld()); It; ++It)
+		{
+			UAbilitySystemComponent* EnemyASC = It->GetAbilitySystemComponent();
+			if (EnemyASC && !It->GetHealthComponent()->IsDead())
+			{
+				ApplyDamage(EnemyASC, GetMaxHealth(EnemyASC) + 100.f);
+			}
+		}
+		TestEqual(TEXT("All enemies dead"), CountLivingEnemiesInWorld(), 0);
+		TestTrue(TEXT("Killing the leftovers: still GameOver"), GameState->GetRoundPhase() == EGSRoundPhase::GameOver);
+		TestEqual(TEXT("Killing the leftovers: no bonus"), Stats->GetLastRoundClearPayout().Round, 1);
+		TestEqual(TEXT("Killing the leftovers: no cash"), Profile->GetCash(), S->Cash);
+
+		// The summary's lines.
+		UGSRunSummaryWidget* Summary = GetRunSummary();
+		if (!TestNotNull(TEXT("Run summary still shown"), Summary))
+		{
+			return;
+		}
+		TestEqual(TEXT("Rounds cleared line"), Summary->GetRoundsClearedText().ToString(), FString(TEXT("1")));
+		TestEqual(TEXT("Level reached (3, with the level-up after the death)"), Stats->GetLevelReached(), 3);
+		TestEqual(TEXT("Level reached line follows the stats"), Summary->GetLevelReachedText().ToString(), FString(TEXT("3")));
+		TestEqual(TEXT("Kills line"), Summary->GetKillsText().ToString(), FString::FromInt(Stats->GetTotalKills()));
+		TestEqual(TEXT("Best combo line"), Summary->GetBestComboText().ToString(), FString(TEXT("2")));
+		TestTrue(TEXT("Cash earned has the pickup and the round bonus"), Stats->GetCashEarned() >= 25 + Stats->GetLastRoundClearPayout().GetTotal());
+		TestEqual(TEXT("Cash earned line"), Summary->GetCashEarnedText().ToString(), FormatSummaryCash(Stats->GetCashEarned()));
+		TestEqual(TEXT("Total cash line"), Summary->GetTotalCashText().ToString(), FormatSummaryCash(Profile->GetCash()));
+		TestEqual(TEXT("Run time line"), Summary->GetRunTimeText().ToString(), UGSRunSummaryWidget::FormatRunTime(S->RunTime).ToString());
+		TestTrue(TEXT("A run seed"), GameState->GetRunSeed() > 0);
+		TestEqual(TEXT("Seed line (no digit grouping)"), Summary->GetSeedText().ToString(), FString::FromInt(GameState->GetRunSeed()));
+
+		// Upgrades: one icon per upgrade in pick order with its stacks, and the same as text.
+		const UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		const TArray<FGSUpgradeStack>& Stacks = Upgrades->GetUpgradeStacks();
+		TArray<FString> Expected;
+		for (const FGSUpgradeStack& Stack : Stacks)
+		{
+			Expected.Add(FString::Printf(TEXT("%s x%d"), *Stack.Upgrade->DisplayName.ToString(), Stack.Stacks));
+		}
+		TestEqual(TEXT("Upgrades line"), Summary->GetUpgradesText().ToString(), FString::Join(Expected, TEXT(", ")));
+		TestTrue(TEXT("Upgrades line has Damage"), Summary->GetUpgradesText().ToString().Contains(TEXT("Damage x")));
+		TestTrue(TEXT("Upgrades line has Extra Jump"), Summary->GetUpgradesText().ToString().Contains(TEXT("Extra Jump x")));
+		if (TestEqual(TEXT("One icon per upgrade"), Summary->GetUpgradeIconCount(), Stacks.Num()))
+		{
+			for (int32 Index = 0; Index < Stacks.Num(); ++Index)
+			{
+				const UGSUpgradeIconWidget* Icon = Summary->GetUpgradeIcon(Index);
+				TestTrue(FString::Printf(TEXT("Icon %d: upgrade and stacks"), Index),
+					Icon && Icon->GetUpgrade() == Stacks[Index].Upgrade && Icon->GetStacks() == Stacks[Index].Stacks);
+			}
+		}
+
+		// Input: unlocked now; a held key's repeats and other keys don't return.
+		TestFalse(TEXT("Input unlocked"), Summary->IsInputLocked());
+		TestTrue(TEXT("Held R (repeat) consumed"), Summary->HandleReturnKey(EKeys::R, /*bIsRepeat*/ true));
+		TestFalse(TEXT("Held R (repeat) does nothing"), Summary->IsReturnRequested());
+		TestFalse(TEXT("Space isn't a return key"), Summary->HandleReturnKey(EKeys::SpaceBar));
+
+		// The "Return to Market" button: fade out, then the hub.
+		UButton* Button = Cast<UButton>(Summary->GetWidgetFromName(TEXT("ReturnButton")));
+		if (!TestNotNull(TEXT("Return to Market button"), Button))
+		{
+			return;
+		}
+		Button->OnClicked.Broadcast();
+		TestTrue(TEXT("Button asks to return"), Summary->IsReturnRequested());
+		TestTrue(TEXT("The GameMode is returning to the hub"), GameMode->IsReturningToHub());
+		TestFalse(TEXT("A second press does nothing"), Summary->TryReturnToHub());
+		TestFalse(TEXT("A second request is refused"), GameMode->RequestReturnToHub(GetPC()));
+		const APlayerCameraManager* Camera = GetPC()->PlayerCameraManager;
+		TestTrue(TEXT("The camera fades to black"), Camera && Camera->bEnableFading && Camera->FadeColor == FLinearColor::Black && Camera->FadeAlpha.Y == 1.f);
+	});
+	WaitUntil(this, TEXT("run summary to fade out (or the hub to open)"), [S, OldWorld]()
+	{
+		if (GetPIEWorld() != OldWorld->Get())
+		{
+			return true;
+		}
+		const UGSRunSummaryWidget* Summary = GetRunSummary();
+		S->bSawFadeOut = Summary && Summary->GetScreenOpacity() < 0.99f;
+		return S->bSawFadeOut;
+	}, 5.0);
+	Step([this, S]() { TestTrue(TEXT("The summary fades out before the hub opens"), S->bSawFadeOut); });
+	WaitForMapTravel(this, OldWorld, HubMap);
+
+	// The hub: run state is gone (a new world), the cash is kept, game input is back.
+	Step([this, S]()
+	{
+		GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = S->bOldThrottle;
+		UGSProfileSubsystem* Profile = GetProfile();
+		TestNotNull(TEXT("Return to Market opens the hub"), GetHubGameMode());
+		TestNull(TEXT("No run in the hub"), GetGameMode());
+		if (Profile)
+		{
+			TestEqual(TEXT("Cash kept in the hub"), Profile->GetCash(), S->Cash);
+		}
+		TestNull(TEXT("No run summary in the hub"), GetRunSummary());
+		TestFalse(TEXT("Game input in the hub"), IsViewportIgnoringInput());
+		TestFalse(TEXT("No cursor in the hub"), GetPC()->ShouldShowMouseCursor());
+		const APlayerCameraManager* Camera = GetPC()->PlayerCameraManager;
+		TestTrue(TEXT("The hub isn't faded"), Camera && Camera->FadeAmount < 0.01f);
+		const UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		TestEqual(TEXT("No upgrades in the hub (run state rebuilt)"), Upgrades ? Upgrades->GetTotalPicks() : -1, 0);
+		if (Profile)
+		{
+			Profile->ResetProfile(); // leave the test slot empty
+		}
 	});
 	EndPIE();
 	return true;

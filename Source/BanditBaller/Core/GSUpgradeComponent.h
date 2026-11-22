@@ -89,8 +89,17 @@ public:
 
 	// --- Offers ---
 
-	/** Queue one offer (a level-up). Opens it at once if no offer is open. Source is logged. */
+	/**
+	 * Queue one offer (a level-up). Opens it at once if no offer is open. Source is logged. Refused once the run is
+	 * over (GameOver): a dead player has nothing to pick for, and an offer would pause the game under the run summary.
+	 */
 	void QueueOffer(const TCHAR* Source);
+
+	/**
+	 * Close the open offer and forget the queued ones (the run ended). Upgrades and rerolls are kept (the run summary
+	 * shows them). Authority only.
+	 */
+	void DropOffers(const TCHAR* Reason);
 
 	/** Take choice Index of the open offer (grants it), then open the next queued offer. False if refused. */
 	bool ChooseUpgrade(int32 Index);

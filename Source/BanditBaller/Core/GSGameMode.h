@@ -21,7 +21,7 @@ class UGSUpgradePool;
 class AGSPlayerState;
 class UGameplayEffect;
 class AGSEnemyCharacter;
-class UUserWidget;
+class UGSRunSummaryWidget;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnEnemyKilledSignature, AActor*, Enemy, AActor*, Killer);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnPlayerDiedSignature, APawn*, Player, AActor*, Killer);
@@ -33,7 +33,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnPlayerDiedSignature, APawn*, P
  * Replicated round state lives in AGSGameState.
  * Receives deaths from UGSHealthComponent: an enemy kill counts towards the killer's combo (UGSComboComponent), the
  * enemy drops cash (x the combo's multiplier) and an XP orb (UGSCashPickupSubsystem) and OnEnemyKilled is broadcast;
- * players get the death screen + restart flow.
+ * a player's death ends the run (GameOver, run summary, then back to the hub).
  */
 UCLASS()
 class BANDITBALLER_API AGSGameMode : public AGameModeBase
@@ -46,14 +46,23 @@ public:
 	/** Called by UGSHealthComponent when a non-player actor dies. */
 	void HandleEnemyKilled(AActor* Enemy, AActor* Killer);
 
-	/** Called by UGSHealthComponent when a player-controlled pawn dies. */
+	/**
+	 * Called by UGSHealthComponent when a player-controlled pawn dies: the run is over. Enters GameOver (stops the wave:
+	 * nothing more spawns and no round-clear bonus is paid), freezes the run timer, saves the profile and shows that
+	 * player the run summary (RunSummaryWidgetClass). TODO(co-op): end the run when the whole party is dead (M6).
+	 */
 	void HandlePlayerDeath(APawn* Player, AActor* Killer);
 
 	/**
-	 * A dead player asked to restart (death screen, R): the run is over, so they go back to the hub map (OpenHubMap),
-	 * where the next run starts from the portal. The profile was already saved at death.
+	 * A dead player chose "Return to Market" on the run summary (button, R, gamepad): fade everyone out over
+	 * ReturnToHubFadeTime, then open the hub map (OpenHubMap), where the next run starts from the portal. Nothing from the
+	 * run carries over; the cash is in the profile, saved at death. Falls back to ?Restart only if HubMap is unset.
+	 * Refused while the requester is alive or a return is already under way. Returns true if it started.
 	 */
-	void RequestRestart(AController* Requester);
+	bool RequestReturnToHub(AController* Requester);
+
+	/** A return to the hub is fading out (RequestReturnToHub). */
+	bool IsReturningToHub() const { return bReturningToHub; }
 
 	/** Server-only: an enemy (anything with a health component that isn't a player) died. */
 	UPROPERTY(BlueprintAssignable, Category = "Events")
@@ -65,9 +74,11 @@ public:
 	// --- Round loop (server) ---
 	//
 	//   PreRound -> Combat -> RoundClear -> PreRound (round + 1) ...
+	//   any phase -> GameOver (the player died; final)
 	//
 	// Timed phases advance on their own (durations from UGSRoundSettings). Combat also ends when its wave is cleared.
-	// Combat -> RoundClear pays the round-clear bonus (UGSRoundClearSettings) into the profile.
+	// Combat -> RoundClear pays the round-clear bonus (UGSRoundClearSettings) into the profile. GameOver is untimed and
+	// stops the wave (living enemies stay, nothing more spawns).
 
 	virtual void StartPlay() override;
 
@@ -197,8 +208,8 @@ public:
 	// --- Map travel ---
 
 	/**
-	 * Leave the run for the hub map (HubMap). Single-player: OpenLevel. Used by gs.Market.Teleport for now; the death
-	 * flow will use it too. TODO(co-op): ServerTravel so the whole party goes (M6).
+	 * Leave the run for the hub map (HubMap) now. Single-player: OpenLevel. Used by the run summary's return (after its
+	 * fade) and by gs.Market.Teleport. TODO(co-op): ServerTravel so the whole party goes (M6).
 	 */
 	bool OpenHubMap();
 
@@ -206,9 +217,13 @@ public:
 	static const TCHAR* RunSeedOption;
 
 protected:
-	/** Shown to a player when they die (WBP_DeathScreen). */
+	/** Shown to a player when they die: the run summary with "Return to Market" (WBP_RunSummary). */
 	UPROPERTY(EditDefaultsOnly, Category = "UI")
-	TSubclassOf<UUserWidget> DeathScreenWidgetClass;
+	TSubclassOf<UGSRunSummaryWidget> RunSummaryWidgetClass;
+
+	/** Seconds the screen fades to black between "Return to Market" and opening the hub map. */
+	UPROPERTY(EditDefaultsOnly, Category = "Travel", meta = (ClampMin = "0", Units = "s"))
+	float ReturnToHubFadeTime = 0.5f;
 
 	/** Round timing (DA_RoundSettings). Falls back to UGSRoundSettings defaults if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Round")
@@ -292,6 +307,12 @@ private:
 
 	/** Combat -> RoundClear: work out this round's bonus, pay it into the profile and record it in run stats. */
 	void PayRoundClearBonus();
+
+	/** The return-to-hub fade finished: open the hub (or ?Restart without a HubMap). */
+	void FinishReturnToHub();
+
+	FTimerHandle ReturnToHubTimer;
+	bool bReturningToHub = false;
 
 	FRandomStream RunStream;
 	int32 RunSeed = 0;

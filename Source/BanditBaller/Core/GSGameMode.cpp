@@ -11,6 +11,7 @@
 #include "GSEnemyCharacter.h"
 #include "GSEnemyData.h"
 #include "GSRunStats.h"
+#include "GSRunSummaryWidget.h"
 #include "GSWaveDirector.h"
 #include "GameFramework/PlayerState.h"
 #include "Misc/CommandLine.h"
@@ -431,31 +432,84 @@ void AGSGameMode::HandlePlayerDeath(APawn* Player, AActor* Killer)
 	UE_LOG(LogBanditBaller, Log, TEXT("Player %s died (killer: %s)"), *GetNameSafe(Player), *GetNameSafe(Killer));
 	OnPlayerDied.Broadcast(Player, Killer);
 
+	// The run is over. TODO(co-op): only once the whole party is dead (M6, with revives).
+	AGSGameState* GS = GetGameState<AGSGameState>();
+	if (GS && GS->GetRoundPhase() != EGSRoundPhase::GameOver)
+	{
+		// Stops the wave and the phase timer: nothing more spawns and no RoundClear (or its bonus) can follow.
+		SetPhase(EGSRoundPhase::GameOver);
+	}
+	// No upgrade picks after the run: close open offers (which lifts their pause; the return to the hub runs on a world
+	// timer) before the summary takes input. GameOver also refuses new offers (UGSUpgradeComponent::QueueOffer).
+	if (GS)
+	{
+		for (APlayerState* PS : GS->PlayerArray)
+		{
+			const AGSPlayerState* GSPS = Cast<AGSPlayerState>(PS);
+			if (UGSUpgradeComponent* Upgrades = GSPS ? GSPS->GetUpgradeComponent() : nullptr)
+			{
+				Upgrades->DropOffers(TEXT("run over"));
+			}
+		}
+	}
+	UGSRunStats* Stats = GetRunStats();
+	if (Stats && GS)
+	{
+		Stats->EndRun(GS->GetServerWorldTimeSeconds()); // freezes the run time for the summary
+	}
+
 	// Run end: keep the cash earned this run.
 	if (UGSProfileSubsystem* Profile = UGSProfileSubsystem::Get(this))
 	{
 		Profile->Save(TEXT("RunEnd"));
 	}
+	if (Stats && GS)
+	{
+		UE_LOG(LogBanditBaller, Log, TEXT("Run over in round %d (seed %d): %d rounds cleared, level %d, %d kills, best combo %d, $%d earned, %.1f s."),
+			GS->GetRoundNumber(), GS->GetRunSeed(), Stats->GetRoundsCleared(), Stats->GetLevelReached(), Stats->GetTotalKills(), Stats->GetBestCombo(),
+			Stats->GetCashEarned(), Stats->GetRunTime());
+	}
 
 	if (AGSPlayerController* PC = Player ? Cast<AGSPlayerController>(Player->GetController()) : nullptr)
 	{
-		PC->ClientShowDeathScreen(DeathScreenWidgetClass);
+		PC->ClientShowRunSummary(RunSummaryWidgetClass);
 	}
 }
 
-void AGSGameMode::RequestRestart(AController* Requester)
+bool AGSGameMode::RequestReturnToHub(AController* Requester)
 {
-	// Only a dead player may restart. (Co-op will need "all players dead" instead.)
+	// Only a dead player may leave the run. TODO(co-op): "all players dead" instead (M6).
 	const APawn* Pawn = Requester ? Requester->GetPawn() : nullptr;
 	const UGSHealthComponent* Health = UGSHealthComponent::FindHealthComponent(Pawn);
-	if (!Health || !Health->IsDead())
+	if (bReturningToHub || !Health || !Health->IsDead())
 	{
-		return;
+		return false;
 	}
+	bReturningToHub = true;
 
 	// The run is over: back to the hub (the market), where the next run starts from the portal. Nothing from the run
-	// carries over; the cash is in the profile, saved at death. (Prompt 27 puts a run summary in between.)
-	UE_LOG(LogBanditBaller, Log, TEXT("Run over: %s returns to the hub."), *GetNameSafe(Requester));
+	// carries over (the next run rebuilds the town); the cash is in the profile, saved at death.
+	UE_LOG(LogBanditBaller, Log, TEXT("Run over: %s returns to the hub (fade %.2f s)."), *GetNameSafe(Requester), ReturnToHubFadeTime);
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		if (APlayerController* PC = It->Get())
+		{
+			PC->ClientSetCameraFade(true, FColor::Black, FVector2D(0.f, 1.f), ReturnToHubFadeTime, /*bFadeAudio*/ true, /*bHoldWhenFinished*/ true);
+		}
+	}
+	if (ReturnToHubFadeTime > 0.f)
+	{
+		GetWorldTimerManager().SetTimer(ReturnToHubTimer, this, &AGSGameMode::FinishReturnToHub, ReturnToHubFadeTime, false);
+	}
+	else
+	{
+		FinishReturnToHub();
+	}
+	return true;
+}
+
+void AGSGameMode::FinishReturnToHub()
+{
 	if (!OpenHubMap())
 	{
 		GetWorld()->ServerTravel(TEXT("?Restart")); // no HubMap set: at least start over in this map
@@ -620,7 +674,12 @@ void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
 	}
 
 	// Waves: Combat runs the round's wave; leaving Combat early (skip, safety timer) stops it and removes leftovers.
-	if (OldPhase == EGSRoundPhase::Combat && NewPhase != EGSRoundPhase::Combat)
+	// GameOver (the player died) stops spawning and cancels telegraphs but leaves the living enemies where they are.
+	if (NewPhase == EGSRoundPhase::GameOver)
+	{
+		WaveDirector->StopWave(/*bDespawnLeftovers*/ false);
+	}
+	else if (OldPhase == EGSRoundPhase::Combat && NewPhase != EGSRoundPhase::Combat)
 	{
 		WaveDirector->StopWave(/*bDespawnLeftovers*/ true);
 	}

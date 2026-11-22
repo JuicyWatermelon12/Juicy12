@@ -144,6 +144,13 @@ void UGSUpgradeComponent::QueueOffer(const TCHAR* Source)
 	{
 		return;
 	}
+	const UWorld* World = GetWorld();
+	const AGSGameState* GS = World ? World->GetGameState<AGSGameState>() : nullptr;
+	if (GS && GS->GetRoundPhase() == EGSRoundPhase::GameOver)
+	{
+		UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: no offer (%s): the run is over."), *GetNameSafe(GetOwner()), Source);
+		return;
+	}
 	++QueuedOffers;
 	UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: offer queued (%s)."), *GetNameSafe(GetOwner()), Source);
 	if (!HasOpenOffer())
@@ -299,12 +306,26 @@ void UGSUpgradeComponent::ResetUpgrades()
 	}
 
 	// Offers and rerolls are per run too.
+	DropOffers(TEXT("new run"));
+	const UGSUpgradePool* Pool = GetPool();
+	SetRerollsLeft(Pool ? Pool->RerollsPerRun : 0);
+}
+
+void UGSUpgradeComponent::DropOffers(const TCHAR* Reason)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+	const bool bHadOffers = HasOpenOffer() || QueuedOffers > 0;
 	QueuedOffers = 0;
 	if (HasOpenOffer())
 	{
 		CurrentChoices.Reset();
-		BroadcastOfferChanged(EGSUpgradeOfferChange::Closed);
+		BroadcastOfferChanged(EGSUpgradeOfferChange::Closed); // the GameMode unpauses, the choice screen hides
 	}
-	const UGSUpgradePool* Pool = GetPool();
-	SetRerollsLeft(Pool ? Pool->RerollsPerRun : 0);
+	if (bHadOffers)
+	{
+		UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: offers dropped (%s)."), *GetNameSafe(GetOwner()), Reason);
+	}
 }

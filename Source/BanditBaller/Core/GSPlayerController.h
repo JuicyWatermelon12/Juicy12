@@ -11,11 +11,12 @@ class UGameplayEffect;
 class UGSHUDWidget;
 class UGSUpgradeChoiceWidget;
 class UGSRoundSummaryWidget;
+class UGSRunSummaryWidget;
 class UUserWidget;
 
 /**
  * Game player controller. Inherits input-mapping setup from the template controller,
- * owns the HUD and death screen for the local player, and relays hit feedback.
+ * owns the HUD, the summaries and the choice screen for the local player, and relays hit feedback.
  */
 UCLASS()
 class BANDITBALLER_API AGSPlayerController : public ABanditBallerPlayerController
@@ -23,13 +24,13 @@ class BANDITBALLER_API AGSPlayerController : public ABanditBallerPlayerControlle
 	GENERATED_BODY()
 
 public:
-	/** Server -> owning client: show the death screen and switch to UI input. */
+	/** Server -> owning client: the player died; show the run summary (WBP_RunSummary) with UI input and the cursor. */
 	UFUNCTION(Client, Reliable)
-	void ClientShowDeathScreen(TSubclassOf<UUserWidget> WidgetClass);
+	void ClientShowRunSummary(TSubclassOf<UGSRunSummaryWidget> WidgetClass);
 
-	/** Death screen -> server: leave the run for the hub (only honored while dead; AGSGameMode::RequestRestart). */
+	/** Run summary -> server: leave the run for the hub (only honored while dead; AGSGameMode::RequestReturnToHub). */
 	UFUNCTION(Server, Reliable)
-	void ServerRequestRestart();
+	void ServerRequestReturnToHub();
 
 	/** Server -> attacker's client: damage number + hit marker for damage this player dealt. */
 	UFUNCTION(Client, Unreliable)
@@ -53,6 +54,9 @@ public:
 
 	/** The RoundClear summary (local player; created at BeginPlay, shows itself during RoundClear). */
 	UGSRoundSummaryWidget* GetRoundSummaryWidget() const { return RoundSummaryWidget; }
+
+	/** The run summary after death (local player; null until ClientShowRunSummary). */
+	UGSRunSummaryWidget* GetRunSummaryWidget() const { return RunSummaryWidget; }
 
 	/** Debug: press + release the Fire input once (goes through the ASC like the real button). */
 	UFUNCTION(Exec)
@@ -91,7 +95,7 @@ protected:
 	TObjectPtr<UUserWidget> HUDWidget;
 
 	UPROPERTY(Transient)
-	TObjectPtr<UUserWidget> DeathScreenWidget;
+	TObjectPtr<UGSRunSummaryWidget> RunSummaryWidget;
 
 	/** Level-up upgrade choice screen (WBP_UpgradeChoice), above the HUD. */
 	UPROPERTY(EditDefaultsOnly, Category = "UI")

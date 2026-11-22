@@ -35,13 +35,13 @@ see **Design update — market, prestige and economy**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–26 and 26b are
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–27 and 26b are
 done (11–13 and 17 were design / scope updates and permanent cash).
 
-State at the time of writing: `main` after Prompt 26b, not pushed. The build is clean and all 31 automation tests pass.
+State at the time of writing: `main` after Prompt 27, not pushed. The build is clean and all 32 automation tests pass.
 The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to play a run in
-`L_Town_Graybox` (300 × 300 m since Prompt 26b). After death, R on the death screen goes back to the hub. The run
-summary in between is Prompt 27.
+`L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
+"Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
 | Step | What | Commit |
 |---|---|---|
@@ -76,7 +76,8 @@ summary in between is Prompt 27.
 | M2 25 | Hub map L_Hub_Graybox + AGSHubGameMode (safe zone, no round loop); startup map | 815b5db |
 | M2 26 | Start Run portal (hub → town, run starts on load, seed hand-off); town cleanup (district sublevel, market travel removed) | 142a81e |
 | Fix | Death screen R returns to the hub instead of restarting the town | 7b10eb2 |
-| M2 26b | Bigger town: 300 × 300 m, streets, outskirts cover, a landmark per side, NavMesh without islands | see git log |
+| M2 26b | Bigger town: 300 × 300 m, streets, outskirts cover, a landmark per side, NavMesh without islands | 97d2045 |
+| M2 27 | Run end: GameOver on death (wave stopped), run summary, Return to Market → hub | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -110,8 +111,9 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
    (`UGSGameplayAbility_Fire/Reload/SwapWeapon`): hitscan on Visibility, hip/ADS spread, recoil, auto-reload.
    `UI/WBP_HUD` (`UGSHUDWidget`). `AGSTargetDummy` / `Enemies/BP_TargetDummy` (3 in the plaza).
 4. **Health, hit feedback, death** (239eeb6): `Combat/GSHealthComponent` (shared death flow for players, dummies,
-   enemies; reports kills to the GameMode). `UI/WBP_DeathScreen` (`UGSDeathScreenWidget`; R restarts via
-   `?Restart`). HUD health bar, damage numbers, hit marker, red edge flash + low-health pulse;
+   enemies; reports kills to the GameMode). `UI/WBP_DeathScreen` (`UGSDeathScreenWidget`; R restarted via
+   `?Restart`; replaced by the run summary in Prompt 27). HUD health bar, damage numbers, hit marker, red edge flash +
+   low-health pulse;
    `Characters/CS_PlayerHit` (`UGSHitCameraShake`).
 5. **Slide and dash** (fe0de61, 1f57eb1): `GA_Slide` / `GA_Dash` (`UGSGameplayAbility_Slide/Dash`), cooldowns
    `GE_Cooldown_Slide` / `GE_Cooldown_Dash` (`UGSCooldownEffect*`), dash i-frames (`State.Invulnerable`), 2 dash
@@ -144,7 +146,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–26b done)
+## M2 — The run loop (Prompts 1–27 done)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -163,7 +165,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
   (total and per type), cash earned/spent, damage dealt/taken and run time. `gs.Run.Stats` prints them.
   Test `Run.SeedAndStats`.
 - Fix 4227abc: after dying and pressing R the player couldn't move. `PC::BeginPlay` now sets game-only input.
-  Test `Player.RestartRestoresInput`.
+  Test `Player.RestartRestoresInput` (`Player.ReturnToHubRestoresInput` since Prompt 27).
 
 ### Prompt 3 — Spawn ring around the player (c571f74)
 - `AI/GSSpawnLocationFinder.*` (`UGSSpawnLocationFinder::FindSpawnLocations`), settings `AI/GSSpawnSettings.h` →
@@ -392,8 +394,8 @@ Prompt 11. Docs only; no code changed yet.
   in "Permanent cash" below: PlayerState has no cash at all.)
   - `AGSGameMode::AwardCash` will write through the profile subsystem.
   - Run-stats `CashEarned` stays per run.
-- **Player death:** currently `?Restart` reloads the map. It will become the `GameOver` phase → run summary →
-  return to the hub. Run state resets and cash is kept.
+- **Player death:** `?Restart` reloaded the map at the time. It became the `GameOver` phase → run summary → return
+  to the hub (done in Prompt 27). Run state resets and cash is kept.
 - **Progression reset:** `ResetProgression` / reward removal on "new run" is already in place. Upgrades will be
   removed the same way.
 
@@ -1053,8 +1055,8 @@ Everything below is in WBP_HUD (`UGSHUDWidget`), built with MCP and driven by de
   - Removed from `AGSGameMode`: `TravelToMarketDistrict`, `ReturnToTown`, `IsAreaTravelInProgress`,
     `GetMarketDistrictStreamingLevel`, `FindTaggedActor`, `TownReturnTag` / `MarketArrivalTag`, the fade / move /
     tick helpers, and the Market District properties. `SetRound` no longer returns the party to town first.
-  - Added `HubMap` (BP_GSGameMode → L_Hub_Graybox) and `OpenHubMap()` (OpenLevel; the death flow in Prompt 27 can
-    use it).
+  - Added `HubMap` (BP_GSGameMode → L_Hub_Graybox) and `OpenHubMap()` (OpenLevel; the death flow uses it since the
+    fix below and Prompt 27).
 - **`gs.Market.*` repointed:**
   - `gs.Market.Teleport` (in a run) opens the hub map.
   - `gs.Market.Return` (in the hub) starts a run as the portal does.
@@ -1079,8 +1081,9 @@ User report: dying and pressing R started a new run in the town; it should go ba
     hub map.
   - Log: `Run over: <PC> returns to the hub.`
 - `WBP_DeathScreen` text: "YOU DIED — Press R to return to the market" (MCP).
-- The GameOver phase and the run summary are still Prompt 27. This only moves the R press from "restart the town" to
-  "go to the hub".
+- This only moved the R press from "restart the town" to "go to the hub". The GameOver phase and the run summary came
+  in Prompt 27, which also renamed `RequestRestart` / `ServerRequestRestart` to `RequestReturnToHub` /
+  `ServerRequestReturnToHub` and replaced `WBP_DeathScreen` with `WBP_RunSummary`.
 - Tests: `Player.RestartRestoresInput` and `Profile.PermanentCash` now expect the hub after R (AGSHubGameMode, game
   input back, balance kept).
 - PIE check:
@@ -1151,6 +1154,64 @@ Map work only, done with MCP. The only C++ change is the new test.
     the mesa do.
   - The NavMesh bounds height and the silo fix came after this PIE run. The full suite passed after them.
 
+### Prompt 27 — End of a run: GameOver, run summary, Return to Market
+- **Death ends the run** (`AGSGameMode::HandlePlayerDeath`; `TODO(co-op)`: when the whole party is dead):
+  1. `SetPhase(GameOver)` from whatever phase it was. GameOver is untimed and final: `gs.Round.Skip` does nothing in
+     it, so no RoundClear can follow and no round-clear bonus is paid after death.
+  2. The wave stops: `UGSWaveDirector::StopWave(false)` cancels the telegraphs and the spawn queue. The living enemies
+     stay where they are (they can't hurt a dead player), and killing them afterwards clears nothing.
+  3. Open upgrade offers are closed and queued ones dropped (`UGSUpgradeComponent::DropOffers`). That lifts their
+     pause, which would otherwise stop the return timer. GameOver also refuses new offers (`QueueOffer`), e.g. from
+     debug XP after death. The upgrades themselves stay for the summary.
+  4. Run stats freeze the run time (`UGSRunStats::EndRun`, which existed but was never called).
+  5. The profile saves ("RunEnd", as before).
+  6. Log: `Run over in round N (seed S): R rounds cleared, level L, K kills, best combo C, $X earned, T s.`
+  7. `AGSPlayerController::ClientShowRunSummary` (renamed from `ClientShowDeathScreen`) shows the summary, flushes
+     held keys and switches to UI-only input with the mouse cursor.
+- **`UI/GSRunSummaryWidget.*` (`UGSRunSummaryWidget`) → `UI/WBP_RunSummary`** (built with MCP; `RunSummaryWidgetClass`
+  on BP_GSGameMode, Z order 100). It replaces `WBP_DeathScreen` and `UGSDeathScreenWidget`, which were deleted.
+  - Layout: a full-screen dim with a centered dark panel.
+    - "YOU DIED" (red 56) over "RUN SUMMARY".
+    - Rows: rounds cleared, level reached (gold), kills, best combo (orange), run time ("4:07", "1:02:05" from an
+      hour), seed (no digit grouping, so it can be typed back into `gs.Run.Seed`).
+    - "Upgrades picked": one `WBP_UpgradeIcon` per upgrade in pick order with its stacks, in a WrapBox. "None" when
+      nothing was picked.
+    - Cash earned this run (green, pickups + round-clear bonuses) and total cash (gold, the profile).
+    - A green "Return to Market" button and an "R / Start / Y" hint.
+  - Sources: `UGSRunStats` (`OnStatsChanged`), the owning player's `UGSUpgradeComponent`, `UGSProfileSubsystem`
+    (`OnCashChanged`) and the GameState's run seed. It only reads them. `TODO(co-op)`: the upgrades and best combo
+    aren't replicated.
+  - **Input:** the button, or `ReturnKeys` R, gamepad Start and Y (the old death screen's keys). Ignored for
+    `InputLockDuration` 1 s after the screen appears and on key repeats, so a held reload key can't skip it. The
+    button is non-focusable; keys are handled by the widget.
+  - It fades in over 0.4 s. After Return to Market it fades out over 0.5 s (`FadeOutTime`) and the button greys out.
+  - Test hooks: `TryReturnToHub`, `HandleReturnKey`, `IsInputLocked`, `IsReturnRequested`, `GetScreenOpacity`, the
+    `Get…Text()` getters, `GetUpgradeIconCount` / `GetUpgradeIcon`, static `FormatRunTime`.
+- **Return to the hub:** `ServerRequestReturnToHub` (renamed from `ServerRequestRestart`) →
+  `AGSGameMode::RequestReturnToHub` (renamed from `RequestRestart`).
+  - Only honored while the requester is dead and no return is under way (`IsReturningToHub`).
+  - It fades every camera to black over `ReturnToHubFadeTime` 0.5 s (BP_GSGameMode, held, audio too), then
+    `OpenHubMap()`. The `?Restart` fallback is only for a missing `HubMap`.
+  - Loading the map resets the audio fade. The next run rebuilds the town, so run state resets by construction; cash
+    stays in the profile.
+  - Log: `Run over: <PC> returns to the hub (fade 0.50 s).`
+- **Tests:**
+  - New `Run.GameOver`.
+  - `Player.RestartRestoresInput` became `Player.ReturnToHubRestoresInput` (summary, cursor, R after the lock).
+  - `Profile.PermanentCash` calls `ServerRequestReturnToHub`.
+- **PIE check** (editor started in the hub; `gs.Run.Seed 777`, `gs.Market.Return`):
+  - God mode, Damage x2, Extra Jump x1 plus a level-up pick of Extra Jump; round 1 cleared with `gs.KillAll` ($50
+    bonus).
+  - Death in round 2 Combat (`gs.God 0`, `gs.Damage.Self 1000`): "Combat -> GameOver", the wave stopped, "Saved slot
+    GSProfile (RunEnd)".
+  - The summary showed 1 round cleared, level 2, 4 kills, best combo 4, 0:32, seed 777, Damage x2 and Extra Jump x2,
+    $96 earned, $2,429 total. Round 2's bandits stood around the body.
+  - A real R key press 20 s later: "returns to the hub", and the hub opened 0.5 s later. It was unfaded, with game
+    input, $2,429, level 1 and no upgrades.
+  - An earlier attempt, with god mode typed too late, died for real in round 1. `gs.XP.Add` after that death opened
+    an upgrade offer and paused the game under the summary. That is fixed above (offers dropped and refused in
+    GameOver) and covered by `Run.GameOver`.
+
 ---
 
 ## Console commands and CVars
@@ -1166,7 +1227,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain, ReloadSpeed). |
 | `gs.Upgrade.Grant <Name> [Count=1]` | Add stacks of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed`, `ExtraJump` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`. |
 | `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / MoveSpeed. |
-| `gs.Upgrade.Offer` | Queue a level-up offer without the level (opens at once if none is open) and print the open offer. |
+| `gs.Upgrade.Offer` | Queue a level-up offer without the level (opens at once if none is open) and print the open offer. Refused in GameOver. |
 | `gs.Upgrade.Choose <0-2>` | Take a choice of the open offer; the next queued offer opens. |
 | `gs.Upgrade.Reroll` | Reroll the open offer for one of this run's rerolls (refused with none left or no offer). |
 | `gs.XP.Add <N>` | Grant N raw XP to the local player (XPGain not applied; may level up several times). |
@@ -1177,7 +1238,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.Profile.Print` | Print slot, save version, cash and owned items to the log and screen. |
 | `gs.Damage.Self <n>` | Damage the local player through GAS. |
 | `gs.Perf [Seconds=5]` | Log avg/p95/max frame time, game/render/GPU time and enemies alive. |
-| `gs.Round.Skip` | Advance to the next round phase. |
+| `gs.Round.Skip` | Advance to the next round phase (nothing in GameOver, after death). |
 | `gs.Round.Set <N>` | Jump to round N and restart it from PreRound. |
 | `gs.Round.Pause [0\|1]` | Freeze / resume the phase timer. |
 | `gs.Run.Seed [N]` | Town: print the run seed, or restart the run (stream + stats, round 1) with seed N. Hub: print / set the next run's seed (0 = random); the portal passes it on. |
@@ -1249,7 +1310,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (31, all passing)
+## Automation tests (32, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running.
@@ -1267,7 +1328,8 @@ starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE b
 | `Map.StartRunPortal` | PIE in the hub: a portal at MarketExitPortalSpot ("START RUN"), RunMap = L_Town_Graybox; gs.Run.Seed 4242 in the hub sets the next seed; walking into the trigger starts the run (fade to black, a second start refused); the town loads with seed 4242 (GameMode + GameState), round 1, fresh run stats, area Town, same cash, no safe zone; round 1's first spawns: no fallback points, closest ≥ ring min, farthest ≤ ring max, every enemy on the NavMesh and inside the boundary. |
 | `Map.Boundary` | AGSMapBoundary in the town (ceiling 7500), player inside, cvar exists; 5 boxes: MapBoundary object type, block Pawn, ignore Visibility/Camera/WorldStatic/WorldDynamic/PhysicsBody, no NavMesh effect; player and enemy capsules block MapBoundary; Visibility / Camera / enemy-shot / pickup traces pass through a wall and the ceiling, a pawn sweep doesn't; spawn points near a corner are inside; player and a frozen enemy launched at a wall stay inside; dash and slide into the wall stop inside; a launch up stops at the ceiling (no damage, same XY); gs.Upgrade.Grant ExtraJump 3; an air jump under the ceiling works and is stopped by it. |
 | `Round.PhaseLoop` | PreRound on start, timer → Combat; no market phases in the enum; RoundClear timer → round 2 PreRound; skips round 2 → round 3 PreRound; gs.Round.Set. |
-| `Player.RestartRestoresInput` | Die → death screen UI input → restart (R) → the hub map (AGSHubGameMode, no run) → game input back, pawn not dead. |
+| `Player.ReturnToHubRestoresInput` | Die → run summary with UI input and the cursor → R once the input lock is over (the widget's key path) → returning → the hub map (AGSHubGameMode, no run) → game input back, no cursor, no summary, pawn not dead. |
+| `Run.GameOver` | Return refused while alive; run time format; a level-up pick + 3 upgrade stacks, round 1 with 2 kills, a pickup and its clear bonus; round 2 wave running with enemies to come; an offer open at death (paused) → death: GameOver, still round 2, wave stopped (no telegraphs, nothing left to spawn), living enemies stay, untimed, a skip does nothing, offer closed and unpaused; debug XP after death levels up with no offer or pause; run time recorded, profile saved; summary shown with UI input + cursor, locked (R and the button do nothing); 3 s later: no spawns or new enemies, no RoundClear / bonus, run time frozen, same cash; killing the leftovers clears nothing; summary lines (rounds, level, kills, combo, cash earned, total cash, run time, seed, upgrades text + one icon per upgrade with stacks); held R (repeat) and Space do nothing; the "Return to Market" button → returning, second press / request refused, camera fades to black, the summary fades out before the hub opens; the hub: cash kept, no summary, game input, no cursor, unfaded, no upgrades. |
 | `Spawn.LocationFinder` | 12 points: on NavMesh, reachable, in ring, spaced; same seed → same points. (No spawns in the Market District: `Map.Hub`.) |
 | `Round.WaveDirector` | Round 1 size matches DT_Waves; killing the wave ends Combat; skipping removes leftovers. |
 | `Round.WaveBudget` | Seeded purchase within budget, MinRound respected, alive cap with telegraphs, spawns resume. |
@@ -1308,7 +1370,9 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 
   Corpses stay 5 s.
 - **Rounds** (DA_RoundSettings): PreRound 3 s, Combat safety fallback 180 s, RoundClear 4 s, then straight into the
-  next PreRound.
+  next PreRound. GameOver (death) is untimed.
+- **Run end:** run summary input lock 1 s, fade-in 0.4 s and fade-out 0.5 s (WBP_RunSummary class defaults); camera
+  fade before the hub opens 0.5 s (`ReturnToHubFadeTime`, BP_GSGameMode).
 - **Spawn ring** (DA_SpawnSettings): 12–25 m, 2 m spacing, 20 attempts, prefer off-screen. The user chose to keep
   12 m.
 - **Town map** (L_Town_Graybox, Prompt 26b): 300 × 300 m, boundary 30000 × 30000 cm with a 75 m ceiling, NavMesh
@@ -1372,7 +1436,6 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 ## Known issues, TODOs and deviations
 
 **Not built yet / stubs**
-- **Not yet built for the design change:** the run summary and the return to the hub after death (Prompt 27).
 - No upgrade is Epic or Legendary yet; those tiers are empty and never offered.
 - **Not yet built for the decisions before M3:**
   - Owned items in `OwnedItems`, item types (usable items, gear) and the gear loadout (M3/M4).
@@ -1397,8 +1460,14 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
     center. Walking reachability comes from the NavMesh path checks.
 - No shop or casino logic yet (M3/M4); CashSpent is never used.
 - Crits are stubbed (`TODO(crits)` in `GSAttributeSet.cpp`; damage numbers support them, nothing sets them).
-- The `GameOver` phase exists but is unused. Player death shows the death screen, and R goes straight back to the hub
-  (no run summary yet, Prompt 27). The cash balance survives it (profile, saved on death).
+- Run end (Prompt 27):
+  - The run summary is placeholder UMG: no sound, no count-up and no animation beyond the code fades. The upgrade
+    icons are the small HUD icons (placeholder texture).
+  - Enemies left alive at death keep running their AI around the body. Nothing despawns them; the summary covers the
+    scene.
+  - `gs.Round.Set` and `gs.Run.Seed` still work in GameOver (debug). They restart rounds with a dead player, whose
+    run summary stays up.
+  - GameOver logs the wave's "stopped early" line as a warning, like any early stop.
 - Profile: there are no upgrade steps yet (version 1 is the only layout). A crash between save points loses the cash
   earned since the last RoundClear.
 - Cash drops and enemy XP don't scale with the round. This is by design (flat economy, user decision). The kill
@@ -1415,8 +1484,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - The round banners have no sound.
   - The upgrade icons use the placeholder engine texture (hence the name under each icon).
   - "ROUND N" is white and reads poorly against the light graybox walls while it fades.
-- The only level-up reward so far is +10 MaxHealth and a full heal. Player death (`?Restart`) reloads the map,
-  which also resets levels and their MaxHealth stacks.
+- The only level-up reward so far is +10 MaxHealth and a full heal. Player death ends the run; the next run loads a
+  fresh town, which resets levels and their MaxHealth stacks.
 - Level-up feedback is placeholder: an editor chime for the sound and a plain overlay glow, with no VFX or
   animation assets.
 
@@ -1517,14 +1586,10 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
 26. ~~**Start Run portal + town cleanup.**~~ Done (see Prompt 26).
 26b. ~~**Bigger town.**~~ Done (see Prompt 26b): 300 × 300 m with streets, outskirts cover, a landmark on each side,
     the boundary and spawn points moved out, and a NavMesh without islands.
-27. **Death → summary → hub.**
-    - On player death, enter the GameOver phase.
-    - Run summary widget (run stats: rounds, kills, cash earned, level), then Continue → `OpenLevel` back to the hub
-      (`AGSGameMode::OpenHubMap` already exists; `HubMap` is set on BP_GSGameMode).
-    - Nothing from the run carries over except what is chosen explicitly, so progression, upgrades, health, weapons
-      and run stats reset by construction. Cash is kept in the profile. (Death → R → hub already works without the
-      summary, see the fix after Prompt 26.)
-28. **Tests + M2 checkpoint.** Fill test gaps for the new rules, run the full suite, update this file and close M2.
+27. ~~**Death → summary → hub.**~~ Done (see Prompt 27): GameOver on death (wave stopped, offers dropped), the run
+    summary, and "Return to Market" (button, R, Start / Y) with a fade back to the hub.
+28. **Tests + M2 checkpoint.** Next. Fill test gaps for the new rules, run the full suite, update this file and close
+    M2.
 
 Decided (user):
 - **Single-player first;** co-op is M6.
@@ -1587,3 +1652,6 @@ Not built now; listed so single-player work stays co-op-ready. Co-op has never b
   party-wide.
 - `AGSGameState::OnWaveCountsChanged` fires on the server only (the wave counts have no RepNotify), so a remote
   client's "enemies left" doesn't update. Its upgrade icons need the upgrade stacks replicated.
+- One player's death ends the run (GameOver) for everyone (`TODO(co-op)` in `HandlePlayerDeath`). The run summary
+  reads the owning player's upgrades and the best combo, which aren't replicated, and this machine's profile.
+  `RequestReturnToHub` only checks that the requester is dead.

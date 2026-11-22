@@ -58,7 +58,7 @@ Source/BanditBaller/
   Combat/     weapons, health/death component, target dummy, hit camera shake
   AI/         enemies, AI controller, StateTree tasks/builder, spawn finder, wave director, spawn telegraph
   Economy/    enemy-drop pickups: cash pieces and XP orbs (actor, pool subsystem, settings)
-  UI/         UMG C++ bases (HUD, death screen, ability icon, enemy health bar, upgrade choice screen + card,
+  UI/         UMG C++ bases (HUD, run summary, ability icon, enemy health bar, upgrade choice screen + card,
               upgrade icon, RoundClear summary)
   Tests/      GSGameplayTests.cpp (editor-only, PIE-based)
   Market/     hub actors (Start Run portal; shop later)

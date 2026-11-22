@@ -15,6 +15,7 @@
 #include "GSHUDWidget.h"
 #include "GSUpgradeChoiceWidget.h"
 #include "GSRoundSummaryWidget.h"
+#include "GSRunSummaryWidget.h"
 #include "GSPlayerState.h"
 #include "HAL/IConsoleManager.h"
 
@@ -64,8 +65,8 @@ void AGSPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// The death screen switches to UI-only input, which makes the game viewport ignore input. The viewport
-	// survives the restart travel, so without this the respawned player can't move.
+	// The run summary switches to UI-only input with the cursor, which makes the game viewport ignore input. The
+	// viewport survives the map travel to the hub, so without this the player there can't move.
 	if (IsLocalPlayerController())
 	{
 		SetInputMode(FInputModeGameOnly());
@@ -86,7 +87,7 @@ void AGSPlayerController::BeginPlay()
 		UpgradeChoiceWidget = CreateWidget<UGSUpgradeChoiceWidget>(this, UpgradeChoiceWidgetClass);
 		if (UpgradeChoiceWidget)
 		{
-			UpgradeChoiceWidget->AddToPlayerScreen(10); // above the HUD, below the death screen
+			UpgradeChoiceWidget->AddToPlayerScreen(10); // above the HUD, below the run summary
 		}
 	}
 
@@ -105,33 +106,35 @@ UGSHUDWidget* AGSPlayerController::GetGSHUD() const
 	return Cast<UGSHUDWidget>(HUDWidget);
 }
 
-void AGSPlayerController::ClientShowDeathScreen_Implementation(TSubclassOf<UUserWidget> WidgetClass)
+void AGSPlayerController::ClientShowRunSummary_Implementation(TSubclassOf<UGSRunSummaryWidget> WidgetClass)
 {
-	if (!WidgetClass || DeathScreenWidget)
+	if (!WidgetClass || RunSummaryWidget)
 	{
 		return;
 	}
 
-	DeathScreenWidget = CreateWidget<UUserWidget>(this, WidgetClass);
-	if (!DeathScreenWidget)
+	RunSummaryWidget = CreateWidget<UGSRunSummaryWidget>(this, WidgetClass);
+	if (!RunSummaryWidget)
 	{
 		return;
 	}
 
-	DeathScreenWidget->AddToPlayerScreen(100);
+	RunSummaryWidget->AddToPlayerScreen(100); // above everything else
 
-	// UI-only input so the death screen receives the restart key.
+	// Release held buttons (fire, aim), then UI-only input with the cursor so the summary gets its button and keys.
+	FlushPressedKeys();
 	FInputModeUIOnly InputMode;
-	InputMode.SetWidgetToFocus(DeathScreenWidget->TakeWidget());
+	InputMode.SetWidgetToFocus(RunSummaryWidget->TakeWidget());
 	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::LockAlways);
 	SetInputMode(InputMode);
+	SetShowMouseCursor(true);
 }
 
-void AGSPlayerController::ServerRequestRestart_Implementation()
+void AGSPlayerController::ServerRequestReturnToHub_Implementation()
 {
 	if (AGSGameMode* GameMode = GetWorld()->GetAuthGameMode<AGSGameMode>())
 	{
-		GameMode->RequestRestart(this);
+		GameMode->RequestReturnToHub(this);
 	}
 }
 
