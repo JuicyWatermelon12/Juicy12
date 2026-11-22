@@ -1942,7 +1942,7 @@ Changes Prompt 35. Stacks no longer grow the blast; they raise the chance that a
   - `ResetSecondWind()` from `AGSGameMode::StartRun` clears the uses and any invulnerability left.
   - Log: `[secondwind] <PS>: Second Wind! A killing blow from X at 100 Health -> Health 30, invulnerable 2.0 s, 0
     left`, plus the `[upgrade] … used up (Second Wind), N left` line.
-- **Decided here** (the prompt didn't say): the saving hit still counts as damage taken, up to the Health it removed
+- **Decided here and confirmed by the user** (the prompt didn't say): the saving hit still counts as damage taken, up to the Health it removed
   (e.g. 100), so it ends the kill combo and costs the no-damage round bonus. The player was hit; only the death is
   prevented.
 - **Tuning** in DA_CombatSettings (new "Second Wind" section, class defaults): `SecondWindHealthFraction` 0.3,
@@ -2550,7 +2550,8 @@ Decided (user):
 - **Second Wind** (Prompt 37): a killing blow uses one instead: back at 30% of MaxHealth, invulnerable for 2 s, and
   one stack of the upgrade is removed (the card's "Owned" and `gs.Upgrade.List` show what's left; picking it again adds
   one). Order: shields first, then Health, then Second Wind only if the hit would kill. Feedback: a strong screen
-  flash, a sound and a "SECOND WIND" banner.
+  flash, a sound and a "SECOND WIND" banner. The saving hit counts as damage taken (the Health it removed): it ends
+  the kill combo and costs that round's no-damage bonus.
 - **Floating Shield** (Prompt 36): a hit a shield blocks is not damage taken (the kill combo goes on, the no-damage
   round bonus is kept, run-stats damage taken doesn't change). The shield recharge pauses with the game.
 - **Upgrade rarities and rerolls:** four tiers (Common, Rare, Epic, Legendary). The 3 choices can be rerolled a
