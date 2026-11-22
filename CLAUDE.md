@@ -31,8 +31,8 @@ listen-server co-op is planned for **M6**, after single-player is finished or ne
     - **Stat Boosts:** Damage, Fire Rate, Reload Speed, Move Speed, Magnet, Bigger Mags, Loaded Dice.
     - **Abilities:** Extra Jump, Dash Charge, Floating Shield, Piercing Rounds, Leech, Powder Keg. **Legendary
       abilities** are a sub-group: Second Wind today, more later.
-    - **Weapons:** automatic attacks. Floating Gun today, then Razor Cards, Barbed Wire, Dynamite, Lucky Coin, Molotov
-      and Tomahawk. A run holds at most 3 weapons; the rifle and pistol aren't part of this.
+    - **Weapons:** automatic attacks. Floating Gun and Razor Cards today, then Barbed Wire, Dynamite, Lucky Coin,
+      Molotov and Tomahawk. A run holds at most 3 weapons; the rifle and pistol aren't part of this.
   - Each card rolls its own rarity (Common, Rare, Epic, Legendary), and a higher rarity gives a bigger pick. Nothing
     has a pick cap.
   - The 15 upgrades were built in **M2b** (after M2, before the market, M3). **M2c** reworks them before the M2b
@@ -66,8 +66,9 @@ Source/BanditBaller/
               debug library + cheat commands, profile subsystem + save (permanent cash),
               map boundary (AGSMapBoundary) + collision channels
   Abilities/  GAS: ASC, AttributeSet, tags, abilities, effects, ability sets
-  Combat/     weapons, health/death component, target dummy, hit camera shake, critical hits, projectile + pool,
-              floating gun (gun actor + character component + settings)
+  Combat/     weapons, health/death component, target dummy, hit camera shake, critical hits, projectile + pool
+              (optional homing), floating gun (gun actor + character component + settings), razor cards
+              (character component + settings)
   AI/         enemies, AI controller, StateTree tasks/builder, spawn finder, wave director, spawn telegraph
   Economy/    enemy-drop pickups: cash pieces, XP orbs and health orbs (actor, pool subsystem, settings)
   UI/         UMG C++ bases (HUD, run summary, ability icon, enemy health bar, upgrade choice screen + card,
@@ -184,7 +185,7 @@ docs/PROGRESS.md  progress log and reference
 - Debug commands: `gs.` prefix, cheat-only, implemented in `UGSDebugLibrary` and registered in
   `GSCheatCommands.cpp`. Clients forward them through `ServerExecDebugCommand`. Debug toggles are `gs.Debug.*`
   cvars.
-- Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`, `[xp]`, `[profile]`, `[upgrade]`, `[combo]`, `[blast]`, `[heal]`, `[shield]`, `[secondwind]`, `[gun]`, `[round]` one line per finished round).
+- Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`, `[xp]`, `[profile]`, `[upgrade]`, `[combo]`, `[blast]`, `[heal]`, `[shield]`, `[secondwind]`, `[gun]`, `[cards]`, `[round]` one line per finished round).
 - Tests: PIE-based latent tests in `Tests/GSGameplayTests.cpp`, built from the `GSTests` helpers (`BeginPIE`,
   `WaitUntil`, `Step`, `EndPIE`, …). `BeginPIE` opens `L_Town_Graybox` first (pass `HubMap` for the hub), since the
   editor starts in the hub. `EndPIE` only requests the end: before a second `BeginPIE` in the same test, wait for
@@ -219,7 +220,7 @@ docs/PROGRESS.md  progress log and reference
 - `CaptureViewport` shows the editor world, not PIE; use `CaptureEditorImage` (base64 PNG; decode with PowerShell).
 - Tests: stop PIE, then `AutomationTestToolset` → `DiscoverTests`. Area tests: `RunTests(["BanditBaller.Round.PhaseLoop",
   ...])` or `RunTestsByFilter("StartsWith:BanditBaller.Round")`. Full suite (once per prompt, before the commit):
-  `RunTestsByFilter("StartsWith:BanditBaller")`, about 2 minutes (123 s for 52 tests in Prompt 45). The editor console also works:
+  `RunTestsByFilter("StartsWith:BanditBaller")`, about 2 minutes (127 s for 53 tests in Prompt 46). The editor console also works:
   `Automation RunTests BanditBaller`. Each result has a `duration` for speed checks.
 - Playing in PIE through MCP: a console command takes 1–3 s to arrive, too slow to fight. Read live round state with
   `ObjectTools.get_properties` on `...UEDPIE_0_L_Town_Graybox...:PersistentLevel.BP_GSGameState_C_0` (`RoundPhase`,

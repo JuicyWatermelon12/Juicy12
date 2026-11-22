@@ -174,6 +174,25 @@ public:
 	FGameplayAttributeData FloatingGunPower;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, FloatingGunPower)
 
+	/**
+	 * Razor Cards picks: 1 or more = the player throws homing cards at the nearest enemy (UGSRazorCardsComponent on the
+	 * character, DA_RazorCardsSettings). Default 0, clamped to >= 0, rounded when read.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData RazorCardsLevel;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, RazorCardsLevel)
+
+	/**
+	 * Razor Cards weapon power: each point adds DA_RazorCardsSettings' damage and fire rate bonus (added up; fractions
+	 * count). The total value of the Razor Cards picks (the first pick adds the rarity multiplier - 1, later picks the
+	 * multiplier). Default 0, clamped to >= 0.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData RazorCardsPower;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, RazorCardsPower)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;

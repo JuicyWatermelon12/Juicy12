@@ -207,6 +207,13 @@ UGSUpgradeEffect_FloatingGun::UGSUpgradeEffect_FloatingGun(const FObjectInitiali
 	AddAdditiveModifier(UGSAttributeSet::GetFloatingGunPowerAttribute()); // +damage / fire rate steps
 }
 
+UGSUpgradeEffect_RazorCards::UGSUpgradeEffect_RazorCards(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddPicksModifier(UGSAttributeSet::GetRazorCardsLevelAttribute()); // owned
+	AddAdditiveModifier(UGSAttributeSet::GetRazorCardsPowerAttribute()); // +damage / fire rate steps
+}
+
 UGSUpgradeEffect_SecondWind::UGSUpgradeEffect_SecondWind(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

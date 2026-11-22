@@ -15,6 +15,7 @@ class UCameraShakeBase;
 class UGSHealthComponent;
 class UGSFloatingShieldsComponent;
 class UGSFloatingGunComponent;
+class UGSRazorCardsComponent;
 class UGSDashSettings;
 class UGSMovementSettings;
 class UGSSlideSettings;
@@ -63,6 +64,9 @@ public:
 
 	/** The Floating Guns (spawned from the FloatingGunLevel attribute). */
 	UGSFloatingGunComponent* GetFloatingGuns() const { return FloatingGuns; }
+
+	/** Razor Cards (throws while the RazorCardsLevel attribute is 1 or more). */
+	UGSRazorCardsComponent* GetRazorCards() const { return RazorCards; }
 
 	// --- Camera debug / tests (local player): the same as the aim and shoulder-swap inputs ---
 	void SetAimingForDebug(bool bAim) { bAim ? OnAimStarted() : OnAimCompleted(); }
@@ -174,6 +178,10 @@ protected:
 	/** Floating Gun: spawns the guns for the player's FloatingGunLevel (tuning in DA_FloatingGunSettings). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
 	TObjectPtr<UGSFloatingGunComponent> FloatingGuns;
+
+	/** Razor Cards: throws homing cards for the player's RazorCardsLevel (tuning in DA_RazorCardsSettings). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
+	TObjectPtr<UGSRazorCardsComponent> RazorCards;
 
 	/** Played on the local player's camera when they take damage (CS_PlayerHit). */
 	UPROPERTY(EditDefaultsOnly, Category = "Health")

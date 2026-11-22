@@ -233,6 +233,19 @@ public:
 	UGSUpgradeEffect_FloatingGun(const FObjectInitializer& ObjectInitializer);
 };
 
+/**
+ * GE_Upgrade_RazorCards: RazorCardsLevel = the number of picks (1+ = the weapon) and RazorCardsPower = the total value
+ * (the cards' +damage / +fire rate steps).
+ */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_RazorCards : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_RazorCards(const FObjectInitializer& ObjectInitializer);
+};
+
 /** +1 SecondWinds per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_SecondWind): survive one more killing blow. Using one removes one pick. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_SecondWind : public UGSUpgradeEffect

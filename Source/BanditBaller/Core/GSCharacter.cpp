@@ -18,6 +18,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "GSFloatingGunComponent.h"
 #include "GSFloatingShieldsComponent.h"
+#include "GSRazorCardsComponent.h"
 #include "GSHealthComponent.h"
 #include "GSWeaponComponent.h"
 #include "GSProgressionComponent.h"
@@ -35,6 +36,7 @@ AGSCharacter::AGSCharacter()
 	FloatingShields = CreateDefaultSubobject<UGSFloatingShieldsComponent>(TEXT("FloatingShields"));
 	FloatingShields->SetupAttachment(GetRootComponent());
 	FloatingGuns = CreateDefaultSubobject<UGSFloatingGunComponent>(TEXT("FloatingGuns"));
+	RazorCards = CreateDefaultSubobject<UGSRazorCardsComponent>(TEXT("RazorCards"));
 
 	// Slides use crouch for the low capsule.
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;

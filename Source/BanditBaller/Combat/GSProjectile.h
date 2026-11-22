@@ -33,6 +33,16 @@ struct FGSProjectileLaunch
 	FVector Scale = FVector(0.12f);
 	TObjectPtr<UNiagaraSystem> ImpactEffect;
 	FVector ImpactEffectScale = FVector(0.25f);
+
+	/**
+	 * Homing (optional): the projectile turns toward this actor's center by at most HomingTurnRate degrees a second,
+	 * keeping its speed. If the target dies or goes away first, it flies on straight. No target = straight from the start.
+	 */
+	TWeakObjectPtr<AActor> HomingTarget;
+	float HomingTurnRate = 0.f;
+
+	/** Cosmetic spin around the projectile's own up axis (degrees a second; a thrown card). */
+	float SpinRate = 0.f;
 };
 
 /** Why a projectile went back to the pool. */
@@ -45,9 +55,10 @@ enum class EGSProjectileEnd : uint8
 };
 
 /**
- * A pooled projectile (the Floating Gun's; the game's first). Owned by UGSProjectileSubsystem; never placed.
+ * A pooled projectile (the Floating Gun's bullets, Razor Cards' cards). Owned by UGSProjectileSubsystem; never placed.
  *
- * Flies straight at a fixed speed, sweeping a small sphere each tick against world geometry (WorldStatic /
+ * Flies straight at a fixed speed (or homes in on a target, turning at a limited rate, then straight once the target is
+ * dead), sweeping a small sphere each tick against world geometry (WorldStatic /
  * WorldDynamic) and pawns. It passes through player pawns, dead targets, pickups (no collision) and the map boundary
  * (its own object type isn't queried). The first living target with an ability system takes the damage (GE_Damage from
  * the shooter's ASC, with its own critical-hit roll), then the projectile goes back to the pool; world geometry also
@@ -78,6 +89,11 @@ public:
 	/** Where the last flight ended (tests). */
 	FVector GetEndLocation() const { return EndLocation; }
 
+	/** The actor it is homing in on (null when it flies straight: no homing, or the target died). */
+	AActor* GetHomingTarget() const { return Params.HomingTarget.Get(); }
+	/** The actor the current / last flight hit (null if it hit nothing living). */
+	AActor* GetLastHitActor() const { return LastHitActor.Get(); }
+
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "Projectile")
 	TObjectPtr<UStaticMeshComponent> Mesh;
@@ -86,6 +102,10 @@ private:
 	/** A hit worth stopping on: a living, non-player target with an ability system, or world geometry. */
 	bool HandleHit(const FHitResult& Hit);
 	void Finish(EGSProjectileEnd Reason, const FVector& Where);
+	/** Turn the velocity toward the homing target (or drop the target if it is dead / gone). */
+	void UpdateHoming(float DeltaSeconds);
+
+	TWeakObjectPtr<AActor> LastHitActor;
 
 	FGSProjectileLaunch Params;
 	FVector Velocity = FVector::ZeroVector;

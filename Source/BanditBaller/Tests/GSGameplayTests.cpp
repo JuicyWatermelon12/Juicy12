@@ -87,6 +87,8 @@
 #include "GSFloatingGun.h"
 #include "GSFloatingGunComponent.h"
 #include "GSFloatingGunSettings.h"
+#include "GSRazorCardsComponent.h"
+#include "GSRazorCardsSettings.h"
 #include "GSFloatingShieldsComponent.h"
 #include "GSProjectileSubsystem.h"
 #include "GSSecondWindComponent.h"
@@ -4746,7 +4748,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
-		TestEqual(TEXT("Pool has the 15 upgrades"), Pool->Upgrades.Num(), 15);
+		TestEqual(TEXT("Pool has the 16 upgrades"), Pool->Upgrades.Num(), 16);
 		const float StatWeights[] = { 100.f, 20.f, 6.f, 1.f };
 		const float AbilityWeights[] = { 100.f, 10.f, 3.f, 0.5f };
 		for (const EGSUpgradeRarity Rarity : UGSUpgradePool::GetAllRarities())
@@ -4810,12 +4812,12 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		const double LegendaryShare = static_cast<double>(LegendaryCards) / Cards;
 		AddInfo(FString::Printf(TEXT("Legendary ability cards: %d of %d (%.3f%%, chance 0.8%% per card)"), LegendaryCards, Cards, 100.0 * LegendaryShare));
 		TestTrue(TEXT("Legendary ability cards at about 0.8% of cards"), FMath::Abs(LegendaryShare - 0.008) < 0.0015);
-		bool bEven = PerUpgrade.Num() == 14;
+		bool bEven = PerUpgrade.Num() == 15;
 		for (const TPair<const UGSUpgradeData*, int32>& Entry : PerUpgrade)
 		{
-			bEven &= FMath::Abs(static_cast<double>(Entry.Value) / NormalCards - 1.0 / 14.0) < 0.01;
+			bEven &= FMath::Abs(static_cast<double>(Entry.Value) / NormalCards - 1.0 / 15.0) < 0.01;
 		}
-		TestTrue(TEXT("The 14 other upgrades come up evenly (AppearanceWeight 1 each)"), bEven);
+		TestTrue(TEXT("The 15 other upgrades come up evenly (AppearanceWeight 1 each)"), bEven);
 		auto Share = [&Split](int32 Kind, EGSUpgradeRarity Rarity)
 		{
 			const int32 Total = Split[Kind][0] + Split[Kind][1] + Split[Kind][2] + Split[Kind][3];
@@ -8649,6 +8651,7 @@ namespace GSTests
 			{ TEXT("PowderKeg"), Ability, false, false, 1.f, false, A::GetPowderKegAttribute() },
 			{ TEXT("SecondWind"), Ability, true, false, 1.f, false, A::GetSecondWindsAttribute() },
 			{ TEXT("FloatingGun"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetFloatingGunPowerAttribute() },
+			{ TEXT("RazorCards"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetRazorCardsPowerAttribute() },
 		};
 	}
 
@@ -8703,7 +8706,7 @@ bool FGSUpgradePickValuesTest::RunTest(const FString& Parameters)
 			TestEqual(FString::Printf(TEXT("%s: percent upgrade"), E.Name), Upgrade->IsPercentUpgrade(), E.bPercent);
 			TestTrue(FString::Printf(TEXT("%s: in DA_UpgradePool"), E.Name), Pool->Upgrades.Contains(Upgrade));
 		}
-		TestEqual(TEXT("All 15 upgrades checked"), Seen.Num(), 15);
+		TestEqual(TEXT("All 16 upgrades checked"), Seen.Num(), 16);
 		TestEqual(TEXT("Every pool upgrade checked"), Pool->Upgrades.Num(), Seen.Num());
 		const UGSUpgradeData* Gun = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
 		TestEqual(TEXT("Floating Gun: its first two picks give the guns"), Gun ? Gun->WeaponGivingPicks : 0, 2);
@@ -8730,7 +8733,8 @@ bool FGSUpgradePickValuesTest::RunTest(const FString& Parameters)
 			FText2{ TEXT("Leech"), TEXT("+1 health per kill"), TEXT("+3 health per kill") },
 			FText2{ TEXT("PowderKeg"), TEXT("+3% chance that a kill explodes"), TEXT("+9% chance that a kill explodes") },
 			FText2{ TEXT("SecondWind"), TEXT("+1 Second Wind"), TEXT("+1 Second Wind") },
-			FText2{ TEXT("FloatingGun"), TEXT("+10% floating gun damage and fire rate"), TEXT("+30% floating gun damage and fire rate") } })
+			FText2{ TEXT("FloatingGun"), TEXT("+10% floating gun damage and fire rate"), TEXT("+30% floating gun damage and fire rate") },
+			FText2{ TEXT("RazorCards"), TEXT("+10% Razor Cards damage and fire rate"), TEXT("+30% Razor Cards damage and fire rate") } })
 		{
 			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(E.Name);
 			if (!Upgrade)
@@ -8993,7 +8997,7 @@ bool FGSWeaponSlotsTest::RunTest(const FString& Parameters)
 		GameMode->RestartRunWithSeed(4301);
 		TestTrue(TEXT("A new run: the first offer is pending"), Upgrades->IsFirstOfferPending());
 		GameMode->AwardXP(PS, 100.f, false);
-		TestTrue(TEXT("First offer has a weapon card (the Floating Gun)"), OfferContains(Upgrades->GetCurrentOffer(), UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"))));
+		TestTrue(TEXT("First offer has a weapon card (Floating Gun or Razor Cards)"), OfferHasWeapon(Upgrades->GetCurrentOffer()));
 		bool bRerollsKeepIt = true;
 		for (int32 i = 0; i < 3; ++i)
 		{
@@ -9026,6 +9030,8 @@ bool FGSWeaponSlotsTest::RunTest(const FString& Parameters)
 		S->TestPool.Reset(DuplicateObject<UGSUpgradePool>(GameMode->GetUpgradePool(), GetTransientPackage()));
 		S->TestWeapon.Reset(MakeTestUpgrade(TEXT("TestWeapon_Real"), EGSUpgradeCategory::Weapon));
 		S->TestWeapon->DisplayName = FText::FromString(TEXT("Test Weapon"));
+		// Exactly two weapons here (the Floating Gun and the test weapon): Razor Cards stays out of this copy.
+		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("RazorCards")));
 		S->TestPool->Upgrades.Add(S->TestWeapon.Get());
 		S->TestPool->MaxWeapons = 1;
 		GameMode->SetUpgradePoolOverride(S->TestPool.Get());
@@ -9788,6 +9794,390 @@ bool FGSEndlessLevelsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: HUD label"), HUD->GetLevelLabelText(), FString(TEXT("LV 1")));
 		TestEqual(TEXT("New run: HUD XP text"), HUD->GetXPLabelText(), FString(TEXT("0 / 100 XP")));
 		TestEqual(TEXT("New run: base MaxHealth"), GetAttr(UGSAttributeSet::GetMaxHealthAttribute()), BaseMaxHealth, 0.01f);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Razor Cards (Prompt 46): homing cards thrown at the nearest enemy
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	UGSRazorCardsComponent* GetRazorCards()
+	{
+		const AGSCharacter* Player = GetPlayer();
+		return Player ? Player->GetRazorCards() : nullptr;
+	}
+
+	struct FRazorState
+	{
+		FVector Lane = FVector::ZeroVector; // lane start
+		FVector Dir = FVector::ForwardVector;
+		FVector Side = FVector::RightVector;
+		FVector PlayerSpot = FVector::ZeroVector;
+		/** PlayerSpot on the ground (Z 0): where bandits are spawned from (SpawnEnemy adds the capsule half-height). */
+		FVector Ground = FVector::ZeroVector;
+		TWeakObjectPtr<AGSEnemyCharacter> Bandit;
+		TWeakObjectPtr<AStaticMeshActor> Wall;
+		TWeakObjectPtr<AGSProjectile> Card;
+		FVector CardDir = FVector::ZeroVector;
+		int32 ThrownBefore = 0;
+		int32 HitsBefore = 0;
+		int32 WorldBefore = 0;
+		int32 ExpiredBefore = 0;
+		float HealthBefore = 0.f;
+		double WindowStart = 0.0;
+		bool bScheduleOk = true;
+		int32 ScheduleFrames = 0;
+		FVector BanditStart = FVector::ZeroVector;
+		float PlayerHealthBefore = 0.f;
+		int32 KillsBefore = 0;
+		int32 XPOrbsBefore = 0;
+		int32 HealthOrbsBefore = 0;
+	};
+
+	/** Every card thrown in the current burst is on its exact schedule (1 + floor(elapsed / interval) cards by now). */
+	bool RazorCardsOnSchedule()
+	{
+		const UGSRazorCardsComponent* Cards = GetRazorCards();
+		if (!Cards || Cards->GetBurstShots() == 0)
+		{
+			return true;
+		}
+		const double Elapsed = GetPIEWorld()->GetTimeSeconds() - Cards->GetBurstStartTime();
+		const int32 Expected = 1 + FMath::FloorToInt(Elapsed / Cards->GetBurstInterval() + 1e-6);
+		return FMath::Abs(Cards->GetBurstShots() - Expected) <= (Cards->GetBurstShots() == 1 ? 1 : 0);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRazorCardsTest, "BanditBaller.Upgrades.RazorCards", GSTests::TestFlags)
+bool FGSRazorCardsTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	TSharedRef<FRazorState> S = MakeShared<FRazorState>();
+
+	// Data, a clear lane, the player at its side. Game time x4.
+	Step([this, S]()
+	{
+		SpeedUpWorld(4.f);
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->SetHealthOrbDropChanceOverride(0.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		const UGSRazorCardsSettings* Settings = GameMode->GetRazorCardsSettings();
+		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("RazorCards"));
+		if (!TestNotNull(TEXT("DA_RazorCardsSettings on BP_GSGameMode"), Settings) || !TestNotNull(TEXT("DA_Upgrade_RazorCards"), Upgrade)
+			|| !TestNotNull(TEXT("Razor Cards component on the character"), GetRazorCards()))
+		{
+			return;
+		}
+		TestEqual(TEXT("6 damage per card"), Settings->Damage, 6.f);
+		TestEqual(TEXT("2 cards a second"), Settings->CardsPerSecond, 2.f);
+		TestEqual(TEXT("25 m range"), Settings->Range, 2500.f);
+		TestEqual(TEXT("30 m/s"), Settings->CardSpeed, 3000.f);
+		TestTrue(TEXT("Homing turns"), Settings->HomingTurnRate >= 360.f);
+		TestEqual(TEXT("+10% damage per power"), Settings->DamageBonusPerPower, 0.1f);
+		TestEqual(TEXT("+10% fire rate per power"), Settings->FireRateBonusPerPower, 0.1f);
+		TestNotNull(TEXT("Damage effect (GE_Damage)"), Settings->DamageEffect.Get());
+		TestTrue(TEXT("A card mesh and material"), Settings->CardMesh && Settings->CardMaterial);
+		TestTrue(TEXT("A thin card"), Settings->CardScale.Z < Settings->CardScale.X * 0.1f);
+		TestTrue(TEXT("Category Weapon"), Upgrade->Category == EGSUpgradeCategory::Weapon);
+		TestEqual(TEXT("The first pick gives the weapon"), Upgrade->WeaponGivingPicks, 1);
+		TestTrue(TEXT("Effect GE_Upgrade_RazorCards"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_RazorCards::StaticClass()));
+		TestTrue(TEXT("In DA_UpgradePool"), GameMode->GetUpgradePool() && GameMode->GetUpgradePool()->Upgrades.Contains(Upgrade));
+		TestEqual(TEXT("Card text, none owned"), Upgrade->GetFormattedDescription(0).ToString(), FString(TEXT("New weapon: throws homing cards at the nearest enemy.")));
+		TestEqual(TEXT("Card line of a later Common pick"), Upgrade->FormatValueText(GameMode->GetUpgradePool()->GetPickValue(Upgrade, EGSUpgradeRarity::Common, 1)).ToString(),
+			FString(TEXT("+10% Razor Cards damage and fire rate")));
+		TestEqual(TEXT("The card's +10% matches the settings"), Upgrade->GetDisplayScale() / 100.f, Settings->DamageBonusPerPower, 0.0001f);
+
+		if (!TestTrue(TEXT("A clear lane in the town"), FindClearLane(2600.f, S->Lane, S->Dir)))
+		{
+			return;
+		}
+		S->Side = FVector(-S->Dir.Y, S->Dir.X, 0.f);
+		S->PlayerSpot = S->Lane + S->Dir * 1300.f + S->Side * 400.f;
+		S->Ground = FVector(S->PlayerSpot.X, S->PlayerSpot.Y, 0.f);
+		GetPlayer()->TeleportTo(S->PlayerSpot, (-S->Side).Rotation());
+	});
+	WaitFrames(this, 3);
+
+	// The projectile's homing: a card thrown at a bandit whose target dies flies on straight.
+	Step([this, S]()
+	{
+		S->Bandit = SpawnFrozenBandit(S->Ground + S->Dir * 1000.f);
+		const UGSRazorCardsSettings* Settings = GetGameMode()->GetRazorCardsSettings();
+		if (!TestTrue(TEXT("Bandit for the homing check"), S->Bandit.IsValid()) || !Settings)
+		{
+			return;
+		}
+		FGSProjectileLaunch Launch;
+		Launch.Start = S->PlayerSpot + FVector(0.f, 0.f, 40.f);
+		Launch.Direction = (S->Dir + S->Side * 0.6f).GetSafeNormal(); // off to the side: homing has to turn it
+		Launch.Speed = Settings->CardSpeed;
+		Launch.Lifetime = Settings->CardLifetime;
+		Launch.Radius = Settings->CardRadius;
+		Launch.HomingTarget = S->Bandit.Get();
+		Launch.HomingTurnRate = Settings->HomingTurnRate;
+		S->CardDir = Launch.Direction;
+		S->Card = GetProjectiles()->FireProjectile(Launch);
+		TestTrue(TEXT("Manual card launched"), S->Card.IsValid());
+	});
+	WaitFrames(this, 2);
+	Step([this, S]()
+	{
+		if (!S->Card.IsValid() || !S->Bandit.IsValid())
+		{
+			return;
+		}
+		TestTrue(TEXT("Homing on the bandit"), S->Card->GetHomingTarget() == S->Bandit.Get());
+		const FVector Now = S->Card->GetVelocity().GetSafeNormal();
+		const FVector ToBandit = (S->Bandit->GetActorLocation() - S->Card->GetActorLocation()).GetSafeNormal();
+		TestTrue(TEXT("It turned toward the bandit"), FVector::DotProduct(Now, ToBandit) > FVector::DotProduct(S->CardDir, ToBandit));
+		ApplyDamage(S->Bandit->GetAbilitySystemComponent(), 100000.f, GetPlayerASC());
+	});
+	WaitFrames(this, 2);
+	Step([this, S]()
+	{
+		if (S->Card.IsValid() && S->Card->IsActiveProjectile())
+		{
+			TestNull(TEXT("Target dead: no homing target"), S->Card->GetHomingTarget());
+			S->CardDir = S->Card->GetVelocity().GetSafeNormal();
+		}
+	});
+	WaitFrames(this, 2);
+	Step([this, S]()
+	{
+		if (S->Card.IsValid() && S->Card->IsActiveProjectile())
+		{
+			TestTrue(TEXT("Target dead: it flies on straight"), FVector::DotProduct(S->Card->GetVelocity().GetSafeNormal(), S->CardDir) > 0.99999f);
+		}
+		RemoveAllEnemies(GetPIEWorld());
+	});
+	WaitUntil(this, TEXT("the manual card to end"), []() { return GetProjectiles()->GetNumActive() == 0; }, 10.0);
+
+	// The weapon: no target, no cards (nothing in range, out of range, behind a wall).
+	Step([this, S]()
+	{
+		GetPlayer()->TeleportTo(S->PlayerSpot, (-S->Side).Rotation());
+		TestEqual(TEXT("gs.Upgrade.Grant RazorCards"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("RazorCards"), 1), 1);
+		const UGSRazorCardsComponent* Cards = GetRazorCards();
+		TestEqual(TEXT("Owned: level 1"), Cards->GetLevel(), 1);
+		TestEqual(TEXT("A Common first pick: power 0"), Cards->GetPower(), 0.f);
+		TestEqual(TEXT("2 cards a second"), Cards->GetThrowInterval(), 0.5, 1e-6);
+		TestEqual(TEXT("x1 damage"), Cards->GetDamageMultiplier(), 1.f);
+		S->ThrownBefore = Cards->GetCardsThrown();
+	});
+	WaitWorldSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("No enemy: no cards"), GetRazorCards()->GetCardsThrown(), S->ThrownBefore);
+		TestNull(TEXT("No enemy: no target"), GetRazorCards()->GetTarget());
+		S->Bandit = SpawnToughBandit(S->Ground + FVector(0.f, 0.f, 2700.f)); // 27 m up (frozen, it floats): out of range
+	});
+	WaitWorldSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Out of range: no cards"), GetRazorCards()->GetCardsThrown(), S->ThrownBefore);
+		RemoveAllEnemies(GetPIEWorld());
+		// A wall across the line (thin along the side axis), and a bandit straight across the lane behind it.
+		S->Wall = SpawnTestWall(S->PlayerSpot - S->Side * 300.f, FMath::Abs(S->Side.X) > 0.5f ? FVector(0.5f, 4.f, 4.f) : FVector(4.f, 0.5f, 4.f));
+		S->Bandit = SpawnToughBandit(S->Ground - S->Side * 600.f);
+	});
+	WaitWorldSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Behind a wall: no cards"), GetRazorCards()->GetCardsThrown(), S->ThrownBefore);
+		TestNull(TEXT("Behind a wall: no target"), GetRazorCards()->GetTarget());
+		RemoveAllEnemies(GetPIEWorld());
+		if (S->Wall.IsValid())
+		{
+			S->Wall->Destroy();
+		}
+
+		// A target in range: cards on the exact schedule, every one a hit for 6.
+		S->Bandit = SpawnToughBandit(S->Ground - S->Side * 800.f);
+		S->ThrownBefore = GetRazorCards()->GetCardsThrown();
+		S->HitsBefore = GetProjectiles()->GetNumHitTargets();
+		S->HealthBefore = S->Bandit.IsValid() ? GetHealth(S->Bandit->GetAbilitySystemComponent()) : 0.f;
+		S->bScheduleOk = true;
+		S->ScheduleFrames = 0;
+		S->WindowStart = GetPIEWorld()->GetTimeSeconds();
+	});
+	WaitUntil(this, TEXT("2 s of cards at power 0"), [S]()
+	{
+		S->bScheduleOk &= RazorCardsOnSchedule();
+		++S->ScheduleFrames;
+		return GetPIEWorld()->GetTimeSeconds() - S->WindowStart >= 2.0;
+	}, 10.0);
+	WaitUntil(this, TEXT("cards in flight to land"), []() { return GetProjectiles()->GetNumActive() == 0; }, 10.0);
+	Step([this, S]()
+	{
+		const int32 Thrown = GetRazorCards()->GetCardsThrown() - S->ThrownBefore;
+		const int32 Hits = GetProjectiles()->GetNumHitTargets() - S->HitsBefore;
+		const float Lost = S->HealthBefore - GetHealth(S->Bandit->GetAbilitySystemComponent());
+		AddInfo(FString::Printf(TEXT("Power 0: %d cards in 2 s, %d hits, %.1f damage (%d frames on schedule: %s)"), Thrown, Hits, Lost, S->ScheduleFrames, S->bScheduleOk ? TEXT("yes") : TEXT("no")));
+		TestTrue(TEXT("It throws when it has a target"), GetRazorCards()->GetTarget() == S->Bandit.Get());
+		TestTrue(TEXT("About 4 cards in 2 s (2 a second)"), Thrown >= 4 && Thrown <= 5);
+		TestTrue(TEXT("Every frame on the exact schedule"), S->bScheduleOk);
+		TestEqual(TEXT("Every card hit"), Hits, Thrown);
+		TestEqual(TEXT("6 damage per card"), Hits > 0 ? Lost / Hits : 0.f, 6.f, 0.01f);
+
+		// Power 1 (a Common pick after the first): +10% damage and fire rate.
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("RazorCards"), 1);
+		TestEqual(TEXT("Power 1"), GetRazorCards()->GetPower(), 1.f);
+		TestEqual(TEXT("Power 1: x1.1 damage"), GetRazorCards()->GetDamageMultiplier(), 1.1f, 0.0001f);
+		TestEqual(TEXT("Power 1: 2.2 cards a second"), GetRazorCards()->GetThrowInterval(), 1.0 / 2.2, 1e-6);
+		S->ThrownBefore = GetRazorCards()->GetCardsThrown();
+		S->HitsBefore = GetProjectiles()->GetNumHitTargets();
+		S->HealthBefore = GetHealth(S->Bandit->GetAbilitySystemComponent());
+		S->bScheduleOk = true;
+		S->WindowStart = GetPIEWorld()->GetTimeSeconds();
+	});
+	WaitUntil(this, TEXT("2 s of cards at power 1"), [S]()
+	{
+		S->bScheduleOk &= RazorCardsOnSchedule();
+		return GetPIEWorld()->GetTimeSeconds() - S->WindowStart >= 2.0;
+	}, 10.0);
+	WaitUntil(this, TEXT("cards in flight to land"), []() { return GetProjectiles()->GetNumActive() == 0; }, 10.0);
+	Step([this, S]()
+	{
+		const int32 Hits = GetProjectiles()->GetNumHitTargets() - S->HitsBefore;
+		const float Lost = S->HealthBefore - GetHealth(S->Bandit->GetAbilitySystemComponent());
+		TestTrue(TEXT("Power 1: on schedule, at the new interval"), S->bScheduleOk && FMath::IsNearlyEqual(GetRazorCards()->GetBurstInterval(), 1.0 / 2.2, 1e-6));
+		TestEqual(TEXT("Power 1: 6.6 per card"), Hits > 0 ? Lost / Hits : 0.f, 6.6f, 0.01f);
+
+		// An Epic pick (+2 power): power 3, x1.3 damage and fire rate.
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("RazorCards"), 1, EGSUpgradeRarity::Epic);
+		TestEqual(TEXT("Power 3"), GetRazorCards()->GetPower(), 3.f);
+		TestEqual(TEXT("Power 3: 2.6 cards a second"), GetRazorCards()->GetThrowInterval(), 1.0 / 2.6, 1e-6);
+		S->ThrownBefore = GetRazorCards()->GetCardsThrown();
+		S->HitsBefore = GetProjectiles()->GetNumHitTargets();
+		S->HealthBefore = GetHealth(S->Bandit->GetAbilitySystemComponent());
+		S->WindowStart = GetPIEWorld()->GetTimeSeconds();
+	});
+	WaitWorldSeconds(this, 2.0);
+	WaitUntil(this, TEXT("cards in flight to land"), []() { return GetProjectiles()->GetNumActive() == 0; }, 10.0);
+	Step([this, S]()
+	{
+		const int32 Thrown = GetRazorCards()->GetCardsThrown() - S->ThrownBefore;
+		const int32 Hits = GetProjectiles()->GetNumHitTargets() - S->HitsBefore;
+		const float Lost = S->HealthBefore - GetHealth(S->Bandit->GetAbilitySystemComponent());
+		AddInfo(FString::Printf(TEXT("Power 3: %d cards in 2 s, %.1f per card, %.1f damage a second"), Thrown, Hits > 0 ? Lost / Hits : 0.f, Lost / 2.f));
+		TestEqual(TEXT("Power 3: 7.8 per card"), Hits > 0 ? Lost / Hits : 0.f, 7.8f, 0.01f);
+		TestTrue(TEXT("Power 3: about 5 cards in 2 s"), Thrown >= 5 && Thrown <= 6);
+
+		// A moving target: a bandit running down the lane past the player (4 m to the side).
+		RemoveAllEnemies(GetPIEWorld());
+		S->BanditStart = FVector(S->Lane.X, S->Lane.Y, 0.f) + S->Dir * 600.f;
+		S->Bandit = SpawnFrozenBandit(S->BanditStart, S->BanditStart + S->Dir * 1000.f); // AI off, movement on
+		if (S->Bandit.IsValid())
+		{
+			S->Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetMaxHealthAttribute(), 100000.f);
+			S->Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 100000.f);
+		}
+		S->ThrownBefore = GetRazorCards()->GetCardsThrown();
+		S->HitsBefore = GetProjectiles()->GetNumHitTargets();
+		S->WorldBefore = GetProjectiles()->GetNumHitWorld();
+		S->ExpiredBefore = GetProjectiles()->GetNumExpired();
+		S->WindowStart = GetPIEWorld()->GetTimeSeconds();
+	});
+	WaitUntil(this, TEXT("3 s of cards at a running bandit"), [S]()
+	{
+		if (S->Bandit.IsValid())
+		{
+			S->Bandit->AddMovementInput(S->Dir, 1.f);
+		}
+		return GetPIEWorld()->GetTimeSeconds() - S->WindowStart >= 3.0;
+	}, 15.0);
+	WaitUntil(this, TEXT("cards in flight to land"), [S]()
+	{
+		if (S->Bandit.IsValid())
+		{
+			S->Bandit->AddMovementInput(S->Dir, 1.f);
+		}
+		return GetProjectiles()->GetNumActive() == 0;
+	}, 10.0);
+	Step([this, S]()
+	{
+		const int32 Thrown = GetRazorCards()->GetCardsThrown() - S->ThrownBefore;
+		const int32 Hits = GetProjectiles()->GetNumHitTargets() - S->HitsBefore;
+		const float Moved = S->Bandit.IsValid() ? FVector::Dist2D(S->Bandit->GetActorLocation(), S->BanditStart) : 0.f;
+		const float Speed = S->Bandit.IsValid() ? S->Bandit->GetVelocity().Size2D() : 0.f;
+		AddInfo(FString::Printf(TEXT("Moving target: ran %.0f cm (%.0f cm/s); %d cards, %d hits, %d hit the world, %d expired"), Moved, Speed, Thrown, Hits,
+			GetProjectiles()->GetNumHitWorld() - S->WorldBefore, GetProjectiles()->GetNumExpired() - S->ExpiredBefore));
+		TestTrue(TEXT("The bandit ran (over 10 m)"), Moved > 1000.f);
+		TestTrue(TEXT("Cards were thrown at it"), Thrown >= 6);
+		TestEqual(TEXT("Every card hit the running bandit"), Hits, Thrown);
+		TestEqual(TEXT("No card hit the world"), GetProjectiles()->GetNumHitWorld() - S->WorldBefore, 0);
+		TestEqual(TEXT("No card expired"), GetProjectiles()->GetNumExpired() - S->ExpiredBefore, 0);
+
+		// Its kill is the player's: a weak bandit, Leech, a sure health orb.
+		RemoveAllEnemies(GetPIEWorld());
+		GetPlayer()->TeleportTo(S->PlayerSpot, (-S->Side).Rotation());
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Leech"), 1);
+		GetGameMode()->SetHealthOrbDropChanceOverride(1.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		ApplyDamage(GetPlayerASC(), 10.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		S->PlayerHealthBefore = GetHealth(GetPlayerASC());
+		GetPlayerCombo()->EndCombo(EGSComboEndReason::Reset);
+		S->KillsBefore = GetGameState()->GetRunStats()->GetTotalKills();
+		S->XPOrbsBefore = GetCashSubsystem()->GetNumXPOrbsDropped();
+		S->HealthOrbsBefore = GetCashSubsystem()->GetNumHealthOrbsDropped();
+		S->Bandit = SpawnFrozenBandit(S->Ground - S->Side * 800.f);
+		if (S->Bandit.IsValid())
+		{
+			S->Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 5.f);
+		}
+	});
+	WaitUntil(this, TEXT("a card to kill the bandit"), [S]() { return !S->Bandit.IsValid() || S->Bandit->GetHealthComponent()->IsDead(); }, 10.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Card kill: counted in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), S->KillsBefore + 1);
+		TestEqual(TEXT("Card kill: counts for the combo"), GetPlayerCombo()->GetComboCount(), 1);
+		TestEqual(TEXT("Card kill: an XP orb"), GetCashSubsystem()->GetNumXPOrbsDropped(), S->XPOrbsBefore + 1);
+		TestEqual(TEXT("Card kill: the health orb chance (1: one orb)"), GetCashSubsystem()->GetNumHealthOrbsDropped(), S->HealthOrbsBefore + 1);
+		TestTrue(TEXT("Card kill: a cash drop"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash) > 0);
+		TestEqual(TEXT("Card kill: Leech heals"), GetHealth(GetPlayerASC()), S->PlayerHealthBefore + 1.f, 0.01f);
+		GetGameMode()->SetHealthOrbDropChanceOverride(0.f);
+
+		// Paused: no cards.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandit = SpawnToughBandit(S->Ground - S->Side * 800.f);
+	});
+	WaitUntil(this, TEXT("throwing at the next bandit"), [S]() { return GetRazorCards()->GetTarget() == S->Bandit.Get(); }, 10.0);
+	Step([S]()
+	{
+		S->ThrownBefore = GetRazorCards()->GetCardsThrown();
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), true);
+	});
+	WaitRealSeconds(this, 0.5);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Paused: no cards"), GetRazorCards()->GetCardsThrown(), S->ThrownBefore);
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), false);
+
+		// A new run removes it.
+		GetGameMode()->RestartRunWithSeed(4601);
+		GetGameMode()->SetRoundTimerPaused(true);
+		TestEqual(TEXT("New run: level 0"), GetRazorCards()->GetLevel(), 0);
+		TestEqual(TEXT("New run: power 0"), GetRazorCards()->GetPower(), 0.f);
+		TestEqual(TEXT("New run: no cards in flight"), GetProjectiles()->GetNumActive(), 0);
+		GetPlayer()->TeleportTo(S->PlayerSpot, (-S->Side).Rotation());
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandit = SpawnToughBandit(S->Ground - S->Side * 800.f);
+		S->ThrownBefore = GetRazorCards()->GetCardsThrown();
+	});
+	WaitWorldSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("New run: no cards at a bandit in range"), GetRazorCards()->GetCardsThrown(), S->ThrownBefore);
+		TestNull(TEXT("New run: no target"), GetRazorCards()->GetTarget());
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		RestoreWorldSpeed();
 	});
 	EndPIE();
 	return true;

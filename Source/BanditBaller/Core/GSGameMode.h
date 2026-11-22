@@ -14,6 +14,7 @@ class UGSWaveDirector;
 class UGSDifficultyCurve;
 class UGSCashSettings;
 class UGSFloatingGunSettings;
+class UGSRazorCardsSettings;
 class UGSComboSettings;
 class UGSCombatSettings;
 class UGSRoundClearSettings;
@@ -180,6 +181,9 @@ public:
 	/** Floating Gun tuning (DA_FloatingGunSettings); no guns if unset. */
 	const UGSFloatingGunSettings* GetFloatingGunSettings() const { return FloatingGunSettings; }
 
+	/** Razor Cards tuning (DA_RazorCardsSettings); nothing is thrown if unset. */
+	const UGSRazorCardsSettings* GetRazorCardsSettings() const { return RazorCardsSettings; }
+
 	// --- Powder Keg (server) ---
 
 	/**
@@ -322,6 +326,10 @@ protected:
 	/** Floating Gun: damage, fire rate, range, projectile, placement, crosshair clearance, look (DA_FloatingGunSettings). */
 	UPROPERTY(EditDefaultsOnly, Category = "Combat")
 	TObjectPtr<UGSFloatingGunSettings> FloatingGunSettings;
+
+	/** Razor Cards: damage, fire rate, range, the homing card, look (DA_RazorCardsSettings). */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat")
+	TObjectPtr<UGSRazorCardsSettings> RazorCardsSettings;
 
 	/** Round-clear bonus: base, no damage, fast clear (DA_RoundClearSettings). No bonus if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")

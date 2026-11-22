@@ -38,6 +38,7 @@ void AGSProjectile::Launch(const FGSProjectileLaunch& InLaunch)
 	Age = 0.f;
 	bActive = true;
 	EndLocation = InLaunch.Start;
+	LastHitActor.Reset();
 
 	if (InLaunch.Mesh)
 	{
@@ -72,6 +73,7 @@ void AGSProjectile::Tick(float DeltaSeconds)
 	// Don't fly past the end of the lifetime this frame.
 	const float Step = FMath::Min(DeltaSeconds, FMath::Max(Params.Lifetime - Age, 0.f));
 	Age += DeltaSeconds;
+	UpdateHoming(Step);
 	const FVector From = GetActorLocation();
 	const FVector To = From + Velocity * Step;
 
@@ -93,7 +95,13 @@ void AGSProjectile::Tick(float DeltaSeconds)
 		}
 	}
 
-	SetActorLocation(To);
+	// Face the direction of travel (homing turns it), plus the cosmetic spin around its own up axis.
+	FQuat Facing = Velocity.Rotation().Quaternion();
+	if (Params.SpinRate != 0.f)
+	{
+		Facing = Facing * FRotator(0.f, FMath::Fmod(Age * Params.SpinRate, 360.f), 0.f).Quaternion();
+	}
+	SetActorLocationAndRotation(To, Facing);
 	if (GSWeaponDebug::IsEnabled())
 	{
 		DrawDebugLine(GetWorld(), From, To, FColor::Yellow, false, GSWeaponDebug::DrawDuration);
@@ -102,6 +110,42 @@ void AGSProjectile::Tick(float DeltaSeconds)
 	{
 		Finish(EGSProjectileEnd::Expired, To);
 	}
+}
+
+void AGSProjectile::UpdateHoming(float DeltaSeconds)
+{
+	AActor* HomingTarget = Params.HomingTarget.Get();
+	if (!HomingTarget)
+	{
+		return;
+	}
+	const UGSHealthComponent* Health = UGSHealthComponent::FindHealthComponent(HomingTarget);
+	if (!IsValid(HomingTarget) || (Health && Health->IsDead()))
+	{
+		Params.HomingTarget.Reset(); // the target died first: fly on straight
+		return;
+	}
+	const FVector ToTarget = HomingTarget->GetActorLocation() - GetActorLocation();
+	const FVector Current = Velocity.GetSafeNormal();
+	if (ToTarget.IsNearlyZero() || Current.IsNearlyZero() || Params.HomingTurnRate <= 0.f || DeltaSeconds <= 0.f)
+	{
+		return;
+	}
+	// Turn toward the target by at most HomingTurnRate this frame; the speed stays the same.
+	const FVector Desired = ToTarget.GetSafeNormal();
+	const float Angle = FMath::Acos(FMath::Clamp(FVector::DotProduct(Current, Desired), -1.f, 1.f));
+	const float MaxAngle = FMath::DegreesToRadians(Params.HomingTurnRate * DeltaSeconds);
+	FVector NewDirection = Desired;
+	if (Angle > MaxAngle)
+	{
+		FVector Axis = FVector::CrossProduct(Current, Desired).GetSafeNormal();
+		if (Axis.IsNearlyZero())
+		{
+			Axis = FVector::UpVector; // exactly away from it: turn sideways
+		}
+		NewDirection = Current.RotateAngleAxisRad(MaxAngle, Axis).GetSafeNormal();
+	}
+	Velocity = NewDirection * Params.Speed;
 }
 
 bool AGSProjectile::HandleHit(const FHitResult& Hit)
@@ -133,6 +177,7 @@ bool AGSProjectile::HandleHit(const FHitResult& Hit)
 	}
 
 	// A living target: its own critical roll (Loaded Dice), GE_Damage from the shooter (kills are the player's).
+	LastHitActor = Actor;
 	UAbilitySystemComponent* SourceASC = Params.SourceASC.Get();
 	if (SourceASC && Params.DamageEffect && Params.Damage > 0.f)
 	{
