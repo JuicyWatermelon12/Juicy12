@@ -221,10 +221,12 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 	}
 	if (ASC)
 	{
-		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, MoveSpeed %.0f, ExtraJumps %.0f"),
+		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, FireRate %.2f, MoveSpeed %.0f, PickupRadius %.0f, ExtraJumps %.0f"),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetReloadSpeedAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetFireRateAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetMoveSpeedAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetPickupRadiusAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetExtraJumpsAttribute()));
 		if (const UGSGameplayAbility_Dash* Dash = UGSGameplayAbility_Dash::FindGrantedDash(ASC))
 		{

@@ -152,6 +152,26 @@ public:
 	UGSUpgradeEffect_MoveSpeed(const FObjectInitializer& ObjectInitializer);
 };
 
+/** +8% FireRate per stack (GE_Upgrade_FireRate); GA_Fire's refire interval divides by FireRate. */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_FireRate : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_FireRate(const FObjectInitializer& ObjectInitializer);
+};
+
+/** +15% PickupRadius per stack (GE_Upgrade_Magnet); cash pieces and XP orbs share the magnet radius. */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_Magnet : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_Magnet(const FObjectInitializer& ObjectInitializer);
+};
+
 /** Instant: overrides Health with the target's current MaxHealth (GE_FullHeal; used after level-up rewards). */
 UCLASS()
 class BANDITBALLER_API UGSFullHealEffect : public UGameplayEffect

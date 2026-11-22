@@ -2569,6 +2569,183 @@ bool FGSStatUpgradesTest::RunTest(const FString& Parameters)
 }
 
 // ---------------------------------------------------------------------------
+// Fire Rate and Magnet: Common upgrades on existing attributes (real refire interval, real pickup reach)
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	/** Enqueue: hold the fire input until Shots shots have spent ammo (game time of each, seen once a frame), release. */
+	void HoldFireForShots(FAutomationTestBase* Test, int32 Shots, TSharedRef<TArray<double>> ShotTimes)
+	{
+		TSharedRef<int32> LastAmmo = MakeShared<int32>(-1);
+		Step([ShotTimes, LastAmmo]()
+		{
+			ShotTimes->Reset();
+			*LastAmmo = GetPlayer()->GetWeaponComponent()->GetCurrentAmmo();
+			GetPlayerASC()->AbilityInputTagPressed(GSGameplayTags::Ability_Fire); // held: full auto re-fires each refire
+		});
+		WaitUntil(Test, FString::Printf(TEXT("%d shots with fire held"), Shots), [ShotTimes, LastAmmo, Shots]()
+		{
+			const int32 Ammo = GetPlayer()->GetWeaponComponent()->GetCurrentAmmo();
+			for (int32 Spent = *LastAmmo - Ammo; Spent > 0; --Spent)
+			{
+				ShotTimes->Add(GetPIEWorld()->GetTimeSeconds());
+			}
+			*LastAmmo = Ammo;
+			return ShotTimes->Num() >= Shots;
+		}, 10.0);
+		Step([]() { GetPlayerASC()->AbilityInputTagReleased(GSGameplayTags::Ability_Fire); });
+		WaitUntil(Test, TEXT("State.Firing to clear"), []() { return !GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Firing); }, 5.0);
+	}
+
+	double GetAverageInterval(const TArray<double>& Times)
+	{
+		return Times.Num() > 1 ? (Times.Last() - Times[0]) / (Times.Num() - 1) : 0.0;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSFireRateAndMagnetTest, "BanditBaller.Upgrades.FireRateAndMagnet", GSTests::TestFlags)
+bool FGSFireRateAndMagnetTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	struct FState
+	{
+		double BaseInterval = 0.0;
+		float BaseRadius = 0.f;
+		int32 CashBefore = 0;
+		int32 XPBefore = 0;
+		int32 CashValue = 0;
+		int32 XPValue = 0;
+		FVector DropOrigin = FVector::ZeroVector;
+	};
+	TSharedRef<FState> S = MakeShared<FState>();
+	TSharedRef<TArray<double>> BaseShots = MakeShared<TArray<double>>();
+	TSharedRef<TArray<double>> FastShots = MakeShared<TArray<double>>();
+
+	// Data, and the base values. Shots run at normal game speed (the measured interval is the rule), without editor
+	// throttling so frames stay short.
+	Step([this, S]()
+	{
+		SpeedUpWorld(1.f);
+		GetGameMode()->SetRoundTimerPaused(true); // stay in PreRound: no enemies
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		const UGSUpgradePool* Pool = GetGameMode()->GetUpgradePool();
+		struct FExpect { const TCHAR* Name; const TCHAR* Text; UClass* EffectClass; };
+		for (const FExpect& E : { FExpect{ TEXT("FireRate"), TEXT("+8%"), UGSUpgradeEffect_FireRate::StaticClass() },
+			FExpect{ TEXT("Magnet"), TEXT("+15%"), UGSUpgradeEffect_Magnet::StaticClass() } })
+		{
+			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(E.Name);
+			if (!TestNotNull(FString::Printf(TEXT("DA_Upgrade_%s exists"), E.Name), Upgrade))
+			{
+				continue;
+			}
+			TestTrue(FString::Printf(TEXT("%s is Common"), E.Name), Upgrade->Rarity == EGSUpgradeRarity::Common);
+			TestEqual(FString::Printf(TEXT("%s has no cap"), E.Name), Upgrade->MaxStacks, 0);
+			TestFalse(FString::Printf(TEXT("%s has a display name"), E.Name), Upgrade->DisplayName.IsEmpty());
+			TestTrue(FString::Printf(TEXT("%s effect is GE_Upgrade_%s"), E.Name, E.Name), Upgrade->Effect && Upgrade->Effect->IsChildOf(E.EffectClass));
+			const FString Description = Upgrade->GetFormattedDescription().ToString();
+			TestTrue(FString::Printf(TEXT("%s description '%s' shows %s"), E.Name, *Description, E.Text), Description.Contains(E.Text));
+			TestTrue(FString::Printf(TEXT("%s is in DA_UpgradePool"), E.Name), Pool && Pool->Upgrades.Contains(Upgrade));
+		}
+
+		TestEqual(TEXT("FireRate starts at 1"), GetAttr(UGSAttributeSet::GetFireRateAttribute()), 1.f, 0.001f);
+		S->BaseRadius = GetAttr(UGSAttributeSet::GetPickupRadiusAttribute());
+		TestEqual(TEXT("PickupRadius starts at 300 (GE_InitPlayerStats)"), S->BaseRadius, 300.f, 0.5f);
+
+		const UGSWeaponData* Rifle = GetPlayer()->GetWeaponComponent()->GetCurrentWeaponData();
+		if (TestNotNull(TEXT("A weapon is equipped"), Rifle))
+		{
+			TestTrue(TEXT("The equipped weapon is full auto (rifle)"), Rifle->FireMode == EGSFireMode::FullAuto);
+			TestTrue(TEXT("Magazine holds both bursts (8 + 12 shots)"), GetPlayer()->GetWeaponComponent()->GetCurrentAmmo() >= 20);
+			S->BaseInterval = Rifle->GetRefireInterval(1.f);
+		}
+	});
+
+	// Fire Rate: hold fire for 8 shots, then again with 10 stacks (x1.8) for 12 shots.
+	HoldFireForShots(this, 8, BaseShots);
+	Step([this]()
+	{
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FireRate"), TEXT("10") });
+		TestEqual(TEXT("Fire Rate: 10 stacks tracked"), GetPlayerUpgrades()->GetStacks(UGSDebugLibrary::FindUpgradeData(TEXT("FireRate"))), 10);
+		TestEqual(TEXT("FireRate = 1 + 10 x 8%"), GetAttr(UGSAttributeSet::GetFireRateAttribute()), 1.8f, 0.001f);
+	});
+	HoldFireForShots(this, 12, FastShots);
+	Step([this, S, BaseShots, FastShots]()
+	{
+		const double Expected = GetPlayer()->GetWeaponComponent()->GetCurrentWeaponData()->GetRefireInterval(1.8f);
+		TestEqual(TEXT("Refire interval = base / 1.8"), Expected, S->BaseInterval / 1.8, 0.0005);
+
+		const double Base = GetAverageInterval(*BaseShots);
+		const double Fast = GetAverageInterval(*FastShots);
+		AddInfo(FString::Printf(TEXT("Held fire: %.4f s between shots at FireRate 1 (refire %.4f), %.4f s at 1.8 (refire %.4f)"),
+			Base, S->BaseInterval, Fast, Expected));
+		// A re-fire waits for the refire interval, then for the next frame: never shorter, at most a frame or two longer.
+		TestTrue(TEXT("FireRate 1: shots one refire interval apart"), Base >= S->BaseInterval - 0.005 && Base <= S->BaseInterval + 0.04);
+		TestTrue(TEXT("FireRate 1.8: shots one (shorter) refire interval apart"), Fast >= Expected - 0.005 && Fast <= Expected + 0.04);
+		TestTrue(TEXT("Fire Rate upgrade fires clearly faster"), Fast < Base * 0.75);
+	});
+
+	// Magnet: a drop beyond the base radius stays put; with 10 stacks (x2.5) its cash and its XP orb both fly in.
+	Step([this, S]()
+	{
+		SpeedUpWorld(4.f); // the toss, the waits and the magnet flight run in game time
+		GetPlayer()->TeleportTo(FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator);
+		S->CashBefore = GetPlayerCash();
+		S->XPBefore = GetPlayerTotalXP();
+		const UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		S->XPValue = Data ? Data->XPValue : 0;
+		KillEnemyForCash(this, FVector(1000.f, 0.f, 0.f), S->DropOrigin, S->CashValue);
+	});
+	WaitWorldSeconds(this, 1.0);
+	Step([S]() { GetPlayer()->TeleportTo(S->DropOrigin - FVector(520.f, 0.f, 0.f), FRotator::ZeroRotator); });
+	WaitWorldSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		UGSCashPickupSubsystem* Cash = GetCashSubsystem();
+		TestTrue(TEXT("The drop has cash pieces"), Cash->GetNumActiveOfKind(EGSPickupKind::Cash) > 0);
+		TestEqual(TEXT("The drop has one XP orb"), Cash->GetNumActiveOfKind(EGSPickupKind::XP), 1);
+		float Nearest = TNumericLimits<float>::Max(), Farthest = 0.f;
+		for (const AGSCashPickup* Pickup : Cash->GetActivePickups())
+		{
+			const float Distance = FVector::Dist(Pickup->GetActorLocation(), GetPlayer()->GetActorLocation());
+			Nearest = FMath::Min(Nearest, Distance);
+			Farthest = FMath::Max(Farthest, Distance);
+			TestFalse(TEXT("Base radius: nothing flies to the player"), Pickup->IsMagnetized());
+		}
+		AddInfo(FString::Printf(TEXT("Pickups %.0f-%.0f cm from the player (base radius %.0f, with Magnet x10 %.0f)"), Nearest, Farthest, S->BaseRadius, S->BaseRadius * 2.5f));
+		TestTrue(TEXT("Setup: every pickup lies beyond the base radius"), Nearest > S->BaseRadius + 20.f);
+		TestTrue(TEXT("Setup: every pickup lies inside the Magnet x10 radius"), Farthest < S->BaseRadius * 2.5f - 20.f);
+		TestEqual(TEXT("Base radius: no cash yet"), GetPlayerCash(), S->CashBefore);
+		TestEqual(TEXT("Base radius: no XP yet"), GetPlayerTotalXP(), S->XPBefore);
+
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Magnet"), TEXT("10") });
+		TestEqual(TEXT("Magnet: 10 stacks tracked"), GetPlayerUpgrades()->GetStacks(UGSDebugLibrary::FindUpgradeData(TEXT("Magnet"))), 10);
+		TestEqual(TEXT("PickupRadius = base x (1 + 10 x 15%)"), GetAttr(UGSAttributeSet::GetPickupRadiusAttribute()), S->BaseRadius * 2.5f, 0.5f);
+	});
+	WaitUntil(this, TEXT("the cash and the XP orb to fly in"), []()
+	{
+		const UGSCashPickupSubsystem* Cash = GetCashSubsystem();
+		return Cash->GetNumActiveOfKind(EGSPickupKind::Cash) == 0 && Cash->GetNumActiveOfKind(EGSPickupKind::XP) == 0;
+	}, 10.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Magnet: the drop's cash was collected"), GetPlayerCash(), S->CashBefore + S->CashValue);
+		TestEqual(TEXT("Magnet: the XP orb was collected"), GetPlayerTotalXP(), S->XPBefore + S->XPValue);
+
+		// A new run removes both upgrades.
+		GetGameMode()->RestartRunWithSeed(31);
+		TestEqual(TEXT("New run: FireRate back to 1"), GetAttr(UGSAttributeSet::GetFireRateAttribute()), 1.f, 0.001f);
+		TestEqual(TEXT("New run: PickupRadius back to base"), GetAttr(UGSAttributeSet::GetPickupRadiusAttribute()), S->BaseRadius, 0.5f);
+		TestEqual(TEXT("New run: no picks"), GetPlayerUpgrades()->GetTotalPicks(), 0);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
 // Extra Jump: JumpMaxCount sync, consistent air jumps, coyote / slide-hop / dash, landing reset
 // ---------------------------------------------------------------------------
 
@@ -3128,7 +3305,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
-		TestEqual(TEXT("Pool has the 5 upgrades"), Pool->Upgrades.Num(), 5);
+		TestEqual(TEXT("Pool has the 7 upgrades"), Pool->Upgrades.Num(), 7);
 		TestEqual(TEXT("Common weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Common), 100.f);
 		TestEqual(TEXT("Rare weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Rare), 20.f);
 		TestEqual(TEXT("Epic weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Epic), 6.f);
@@ -3147,7 +3324,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		auto NoStacks = [](const UGSUpgradeData*) { return 0; };
 
 		// Real pool: always 3 different upgrades (empty Epic / Legendary tiers never waste a pick), and the Rare tier
-		// (Extra Jump, Dash Charge) shows up in about 1 - (100/120)^3 = 42% of offers: with 3 Commons and 2 Rares neither
+		// (Extra Jump, Dash Charge) shows up in about 1 - (100/120)^3 = 42% of offers: with 5 Commons and 2 Rares neither
 		// tier runs out within one offer, so each choice is Rare with 20/120.
 		FRandomStream Stream(7);
 		int32 WithRare = 0;

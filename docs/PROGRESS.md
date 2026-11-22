@@ -40,10 +40,11 @@ the hub map replaces them.
 
 **M2 — the run loop is complete** (rounds, waves, scaling, economy, progression; Prompts 1–28 and 26b; 11–13 and 17
 were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **Next: M2b**, eleven more
-level-up upgrades (Prompts 29–40; 29 is the docs-only plan, 30 is Dash Charge; both done). **Then M3** (shop, owned items, gear loadout,
+level-up upgrades (Prompts 29–40; 29 is the docs-only plan, then Dash Charge (30) and Fire Rate + Magnet (31); all
+three done). **Then M3** (shop, owned items, gear loadout,
 two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Dash Charge upgrade" (Prompt 30), not pushed. The build is clean and all 36 automation tests pass in about 82 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Fire Rate and Magnet upgrades" (Prompt 31), not pushed. The build is clean and all 37 automation tests pass in about 85 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -85,7 +86,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2 28 | Tests for the M2 rules, two PIE loops, M2 checkpoint ("M2 complete") | b3dbae2 |
 | Workflow | Faster test runs: area tests while working, full suite once per prompt, short PIE checks; five slowest tests sped up (suite 118 → 80 s) | 84bc97f |
 | M2b 29 | Design update: the M2b upgrade list (11 upgrades, pool 4 → 15) and its rules; Prompts 30–40 planned (docs only) | 691d54e |
-| M2b 30 | Dash Charge upgrade (ExtraDashCharges → GA_Dash max charges, live); the player starts with 1 dash charge | see git log |
+| M2b 30 | Dash Charge upgrade (ExtraDashCharges → GA_Dash max charges, live); the player starts with 1 dash charge | 252bd0b |
+| M2b 31 | Fire Rate (+8% FireRate) and Magnet (+15% PickupRadius) upgrades, both Common | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -1489,6 +1491,39 @@ Prompt 29 is the design update above.
   - `GSPress Ability.Dash` → the icon showed "3/4  3.0s".
 - **Full suite:** 36 tests, all passing, in 82.5 s.
 
+### Prompt 31 — Fire Rate + Magnet
+Two Common upgrades on attributes that already existed, so no new attribute and no gameplay code beyond the effects.
+- **Effects** (`Abilities/GSGameplayEffects.h`, the `UGSUpgradeEffect` pattern: Multiply (Additive) 1 + bonus, so N
+  stacks give base × (1 + bonus × N)):
+  - `UGSUpgradeEffect_FireRate` → `Abilities/GE_Upgrade_FireRate`: ×1.08 on `FireRate`. GA_Fire already divides the
+    refire interval by FireRate (`UGSWeaponData::GetRefireInterval`), for every player weapon.
+  - `UGSUpgradeEffect_Magnet` → `Abilities/GE_Upgrade_Magnet`: ×1.15 on `PickupRadius`. Cash pieces and XP orbs
+    share the magnet (`AGSCashPickup::FindPlayerInRange`), so both reach further.
+- **Assets** (Common, MaxStacks 0 = no cap, placeholder icon):
+  - `Data/Upgrades/DA_Upgrade_FireRate`: "+{PerStack}% fire rate per stack."
+  - `Data/Upgrades/DA_Upgrade_Magnet`: "+{PerStack}% pickup radius per stack (cash and XP orbs)."
+  - Both added to DA_UpgradePool (7 upgrades).
+- **`gs.Upgrade.List`:** the Stats line now prints ReloadSpeed, Damage, FireRate, MoveSpeed, PickupRadius and
+  ExtraJumps. Short names `gs.Upgrade.Grant FireRate` / `gs.Upgrade.Grant Magnet`.
+- **Offer odds** (simulator, 10,000 offers, seed 1): each Common is in ~50% of offers, down from ~84%. That includes
+  Damage, which now competes with four other Commons. The Rare tier is unchanged at 41.7% (Dash Charge 24.6%, Extra
+  Jump 24.5%).
+- **Tests:**
+  - New `Upgrades.FireRateAndMagnet`.
+  - `Upgrades.Offers` expects 7 upgrades; its Rare check still holds (5 Commons and 2 Rares: neither tier runs out
+    within one offer).
+- **Measured in the test** (held rifle fire, normal game speed, editor throttling off): 0.111 s between shots at
+  FireRate 1 (refire 0.100 s) and 0.067 s at FireRate 1.8 (refire 0.056 s). Every re-fire comes about one frame
+  (~11 ms) after its refire interval. See Known issues.
+- **PIE check** (town, god mode, round paused):
+  - `gs.Upgrade.Grant FireRate 5` → FireRate 1.40. `gs.Upgrade.Grant Magnet 4` → PickupRadius 480
+    (`get_player_attributes` before: 1 and 300).
+  - `gs.Upgrade.List`: "DA_Upgrade_FireRate [Common] x5/inf: +8% fire rate per stack.", "DA_Upgrade_Magnet [Common]
+    x4/inf: +15% pickup radius per stack (cash and XP orbs).", "Stats: ReloadSpeed 1.00, Damage 1.00, FireRate 1.40,
+    MoveSpeed 900, PickupRadius 480, ExtraJumps 0".
+  - The HUD showed the "x5 Fire Rate" and "x4 Magnet" icons under the XP bar.
+- **Full suite:** 37 tests, all passing, in 84.9 s.
+
 ---
 
 ## Console commands and CVars
@@ -1502,8 +1537,8 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.God [0\|1]` | Toggle/set damage immunity (one `State.Invulnerable` count). |
 | `gs.GiveWeapon <Weapon>` | Equip `Rifle` / `Pistol` / `BanditCarbine` with a full mag (replaces the equipped one if both slots are full). |
 | `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain, ReloadSpeed). |
-| `gs.Upgrade.Grant <Name> [Count=1]` | Add stacks of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed`, `ExtraJump`, `DashCharge` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`. |
-| `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / MoveSpeed / ExtraJumps and the dash charges (max = base + ExtraDashCharges, ready now). |
+| `gs.Upgrade.Grant <Name> [Count=1]` | Add stacks of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed`, `FireRate`, `Magnet`, `ExtraJump`, `DashCharge` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`. |
+| `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps and the dash charges (max = base + ExtraDashCharges, ready now). |
 | `gs.Upgrade.Offer` | Queue a level-up offer without the level (opens at once if none is open) and print the open offer. Refused in GameOver. |
 | `gs.Upgrade.Choose <0-2>` | Take a choice of the open offer; the next queued offer opens. |
 | `gs.Upgrade.Reroll` | Reroll the open offer for one of this run's rerolls (refused with none left or no offer). |
@@ -1551,8 +1586,8 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | Health / MaxHealth | Clamped 0..MaxHealth; 0 → `State.Dead` via `UGSHealthComponent`. |
 | MoveSpeed | Drives MaxWalkSpeed. Player value comes from DA_PlayerMovementSettings (900); enemies from UGSEnemyData ± variance. |
 | Damage | Outgoing damage multiplier (player 1.0). Enemies: scales melee AttackDamage / weapon Damage; round-scaled. |
-| FireRate | Refire multiplier (1.0). |
-| PickupRadius | Cash magnet radius in cm (player 300). |
+| FireRate | Refire multiplier (1.0): GA_Fire's refire interval divides by it. Raised by the Fire Rate upgrade. |
+| PickupRadius | Magnet radius in cm for cash pieces and XP orbs (player 300). Raised by the Magnet upgrade. |
 | XPGain | XP multiplier on kill XP (player 1.0; constructor default 1.0). |
 | ReloadSpeed | Reload time divisor for GA_Reload (constructor default 1.0, min 0.1). Not replicated yet. |
 | ExtraJumps | Air jumps; AGSCharacter keeps JumpMaxCount = 1 + ExtraJumps (constructor default 0, min 0). Not replicated yet. |
@@ -1584,18 +1619,21 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | `GE_Upgrade_MoveSpeed` | `UGSUpgradeEffect_MoveSpeed` | Infinite, stacking; Multiply (Additive) 1.08 on MoveSpeed → +8% of base per stack. |
 | `GE_Upgrade_ExtraJump` | `UGSUpgradeEffect_ExtraJump` | Infinite, stacking; Additive +1 ExtraJumps per stack. |
 | `GE_Upgrade_DashCharge` | `UGSUpgradeEffect_DashCharge` | Infinite, stacking; Additive +1 ExtraDashCharges per stack. |
+| `GE_Upgrade_FireRate` | `UGSUpgradeEffect_FireRate` | Infinite, stacking; Multiply (Additive) 1.08 on FireRate → +8% of base per stack. |
+| `GE_Upgrade_Magnet` | `UGSUpgradeEffect_Magnet` | Infinite, stacking; Multiply (Additive) 1.15 on PickupRadius → +15% of base per stack. |
 
 **Abilities:**
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (36, all passing, about 82 s)
+## Automation tests (37, all passing, about 85 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
 the area's tests; run the full suite once per prompt before the commit (see **Workflow update — faster test runs**).
 `UI.RoundHUD`, `Round.PhaseLoop`, `Round.ClearBonus`, `Map.TownLayout` and `Upgrades.DashCharge` run game time ×4 and
-`Upgrades.ExtraJump` ×3 (`SpeedUpWorld`). `UI.RoundHUD` also shortens its HUD's banners.
+`Upgrades.ExtraJump` ×3 (`SpeedUpWorld`). `Upgrades.FireRateAndMagnet` measures its shots at ×1 (throttling off) and
+runs its magnet part at ×4. `UI.RoundHUD` also shortens its HUD's banners.
 
 | Test | Checks |
 |---|---|
@@ -1632,9 +1670,10 @@ the area's tests; run the full suite once per prompt before the commit (see **Wo
 | `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; Combat → RoundClear pays the round-clear bonus into the profile; save when RoundClear ends includes it (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + return to the hub (the hub's HUD shows it); quitting saves it and the next PIE session (new GameInstance) loads it (HUD too); `gs.Profile.Reset` through the console → 0 and no save file. |
 | `Round.ClearBonus` | DA_RoundClearSettings on the GameMode ($20 / $15 / $15, 8 s + 1.5 s per enemy) and the summary widget on the controller; PreRound starts the round's stats (no payout, no summary); Combat records its start and wave size; round 1 killed fast with no damage → base + no damage + fast clear, kills = wave size, profile += bonus + cash collected; summary shows round, title and each line; after the vacuum cash collected ≥ kills × CashValue, XP = kills × XPValue, profile and CashEarned += cash collected + bonus, summary lines follow; round 2 PreRound hides the summary and starts from zero; damage taken + an impossible time limit (override) → base only, "missed" lines, total = base; RoundClear from PreRound pays nothing and shows nothing; round 10 (skip) pays the same as round 1; gs.Run.Stats shows the last bonus; a new run clears payout and round stats. |
 | `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
+| `Upgrades.FireRateAndMagnet` | DA_Upgrade_FireRate (+8%) and DA_Upgrade_Magnet (+15%): Common, no cap, their GE classes, in DA_UpgradePool; FireRate 1 and PickupRadius 300 at start; rifle held for 8 shots: one refire interval (0.1 s) apart, at most a frame or two more; `gs.Upgrade.Grant FireRate 10` → FireRate 1.8, refire interval / 1.8, 12 held shots that far apart and clearly faster; a bandit's drop (cash + XP orb) lands 380–660 cm away: nothing flies in at radius 300; `gs.Upgrade.Grant Magnet 10` → PickupRadius 750, the cash and the orb fly in (cash += CashValue, XP += XPValue); a new run resets both. |
 | `Upgrades.DashCharge` | DA_DashSettings MaxCharges 1; DA_Upgrade_DashCharge (Rare, no cap, "+1", GE_Upgrade_DashCharge, in DA_UpgradePool); ExtraDashCharges 0, 1 max charge, icon READY; a dash uses it, a second press inside the recharge is refused, icon shows the countdown with no count; a pick (console) during the recharge: ExtraDashCharges 1, max 2 and one charge ready at once, icon "1/2" a frame later, the second dash works; charges come back one recharge (3 s) after the first dash and one more recharge later; `gs.Upgrade.Grant DashCharge 2` → 3 stacks, 4 charges all ready, icon "4/4", four dashes in a row, the 5th refused, icon "0/4"; a new run → ExtraDashCharges 0, 1 max charge, no stacks. Game time ×4. |
 | `Upgrades.ExtraJump` | DA_Upgrade_ExtraJump (Rare, no cap, "+1"); no air jump without it; ×3 → ExtraJumps 3, JumpMaxCount 4; three air jumps (rising, falling, falling fast) each set AirJumpZVelocity, 4th refused, one puff/sound each; landing resets; coyote jump is the ground jump; late jump after walking off uses an air jump; slide-hop then air jump; jump during an air dash is queued and becomes an air jump at the dash end; jump during a ground dash becomes the ground jump; 25 more stacks (no cap) → ExtraJumps = stacks, JumpMaxCount = 1 + stacks; new run → 0 / 1. |
-| `Upgrades.Offers` | DA_UpgradePool on the GameMode (5 upgrades, 100/20/6/1, 3 choices, 3 rerolls), 4 rarities; roll rules: 3000 offers all 3 different, Rare in ~42%, same seed same offers, 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer; simulator deterministic, no short offers, no Epic / Legendary, run stream untouched. |
+| `Upgrades.Offers` | DA_UpgradePool on the GameMode (7 upgrades, 100/20/6/1, 3 choices, 3 rerolls), 4 rarities; roll rules: 3000 offers all 3 different, Rare in ~42%, same seed same offers, 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer; simulator deterministic, no short offers, no Epic / Legendary, run stream untouched. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
@@ -1709,14 +1748,15 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
     ~52 s.
   - Round 1 pays $40 of drops (more with the combo), so a perfect clear more than doubles it there. The bonus
     matters less as waves grow.
-- **Upgrades** (per stack, additive on the base value): Reload Speed +10%, Damage +10%, Move Speed +8% (Common);
-  Extra Jump +1 air jump and Dash Charge +1 dash charge (Rare). None has a cap.
-- **Upgrade offers** (DA_UpgradePool, 5 upgrades; placeholders): rarity weights Common 100 / Rare 20 / Epic 6 /
+- **Upgrades** (per stack, additive on the base value): Reload Speed +10%, Damage +10%, Move Speed +8%, Fire Rate
+  +8%, Magnet +15% pickup radius (Common); Extra Jump +1 air jump and Dash Charge +1 dash charge (Rare). None has a
+  cap.
+- **Upgrade offers** (DA_UpgradePool, 7 upgrades; placeholders): rarity weights Common 100 / Rare 20 / Epic 6 /
   Legendary 1, 3 choices, 3 rerolls per run.
-  - `simulate_upgrade_offers(10000, 1)`, fresh run with no picks (Prompt 30): Damage in 83.6% of offers, Move Speed
-    83.6%, Reload Speed 83.6%, Dash Charge 24.6%, Extra Jump 24.5%.
-  - The Rare tier is in 41.7% of offers (1 − (5/6)³ = 42.1%), now shared by two upgrades. Before Prompt 30 the lone
-    Extra Jump was in 41.7% and each Common in ~86%.
+  - `simulate_upgrade_offers(10000, 1)`, fresh run with no picks (Prompt 31): Fire Rate in 50.6% of offers, Move
+    Speed 50.5%, Damage 50.2%, Reload Speed 50.0%, Magnet 49.7%, Dash Charge 24.6%, Extra Jump 24.5%.
+  - The Rare tier is in 41.7% of offers (1 − (5/6)³ = 42.1%), shared by two upgrades. Each Common was in ~86% of
+    offers with 3 Commons (M2), ~84% after Prompt 30 and ~50% now with 5.
   - By choices: Common 83.6%, Rare 16.4%, Epic and Legendary 0 (empty tiers). No short offers.
 - **Combo curves**: there is no combo system yet.
 
@@ -1728,6 +1768,14 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - Dash Charge (Prompt 30): charges spent before a run restart in the same map (`gs.Run.Seed`, debug) keep
   recharging after the Dash Charge stacks are removed. Until enough of them come back the player can have 0 of 1
   charges for a few seconds. A real run loads a fresh town, so this only happens with the debug restart.
+- Full-auto fire (seen in Prompt 31; not changed):
+  - GA_Fire ends after its refire interval, and the held input re-fires it on the character's next tick. So every
+    held shot comes about one frame late: 0.111 s instead of 0.100 s for the rifle at ~90 fps, an effective ~540
+    instead of 600 RPM.
+  - The lost frame is a fixed cost, so the Fire Rate upgrade gains less than its number as FireRate grows: ×1.8 gave
+    ×1.66 in the test.
+  - Suggestion: keep firing inside the ability on a timer (carrying the leftover time) instead of re-activating it
+    each shot.
 - **Not yet built for the decisions before M3:**
   - Owned items in `OwnedItems`, item types (usable items, gear) and the gear loadout (M3/M4).
 - Prestige and the two-layer profile (playthrough data + prestige data) are a later milestone; the save layout
@@ -1894,7 +1942,8 @@ smaller pool.
 29. ~~**M2b docs.**~~ Done (see **Design update — M2b upgrades**; docs only).
 30. ~~**Dash Charge** (Rare): +1 dash charge per pick; the player starts with 1 charge instead of 2.~~ Done (see
     Prompt 30).
-31. **Fire Rate + Magnet** (Common): +8% FireRate and +15% PickupRadius per pick, on the existing attributes.
+31. ~~**Fire Rate + Magnet** (Common): +8% FireRate and +15% PickupRadius per pick, on the existing attributes.~~
+    Done (see Prompt 31).
 32. **Bigger Mags + Leech** (Common, Rare): +15% magazine size per pick (rounding decided here); heal 1 health per kill
     per pick.
 33. **Loaded Dice** (Rare, MaxStacks 20): +5% chance per pick for a shot to deal double damage, rolled on the run

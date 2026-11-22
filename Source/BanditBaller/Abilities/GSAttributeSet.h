@@ -46,7 +46,10 @@ public:
 	FGameplayAttributeData FireRate;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, FireRate)
 
-	/** Cash pickups inside this radius (cm) fly to the player. Starting value from GE_InitPlayerStats. */
+	/**
+	 * Cash pieces and XP orbs inside this radius (cm) fly to the player. Starting value from GE_InitPlayerStats; raised
+	 * by the Magnet upgrade.
+	 */
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_PickupRadius, Category = "Attributes|Economy")
 	FGameplayAttributeData PickupRadius;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, PickupRadius)

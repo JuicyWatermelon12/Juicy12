@@ -137,6 +137,18 @@ UGSUpgradeEffect_MoveSpeed::UGSUpgradeEffect_MoveSpeed(const FObjectInitializer&
 	AddMultiplierModifier(UGSAttributeSet::GetMoveSpeedAttribute(), 0.08f);
 }
 
+UGSUpgradeEffect_FireRate::UGSUpgradeEffect_FireRate(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddMultiplierModifier(UGSAttributeSet::GetFireRateAttribute(), 0.08f);
+}
+
+UGSUpgradeEffect_Magnet::UGSUpgradeEffect_Magnet(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddMultiplierModifier(UGSAttributeSet::GetPickupRadiusAttribute(), 0.15f);
+}
+
 UGSFullHealEffect::UGSFullHealEffect(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
