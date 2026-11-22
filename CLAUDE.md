@@ -59,7 +59,7 @@ Source/BanditBaller/
   AI/         enemies, AI controller, StateTree tasks/builder, spawn finder, wave director, spawn telegraph
   Economy/    enemy-drop pickups: cash pieces and XP orbs (actor, pool subsystem, settings)
   UI/         UMG C++ bases (HUD, death screen, ability icon, enemy health bar, upgrade choice screen + card,
-              RoundClear summary)
+              upgrade icon, RoundClear summary)
   Tests/      GSGameplayTests.cpp (editor-only, PIE-based)
   Market/, Casino/   planned (not created yet)
   Variant_*/  template sample code, reference only

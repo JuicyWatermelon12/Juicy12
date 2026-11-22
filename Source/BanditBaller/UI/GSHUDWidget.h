@@ -4,18 +4,25 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Engine/TimerHandle.h"
+#include "GSGameState.h"
 #include "GSHUDWidget.generated.h"
 
 class AGSPlayerState;
 class UGSProfileSubsystem;
 class UAbilitySystemComponent;
+class UPanelWidget;
 class UProgressBar;
 class UTextBlock;
 class UGSWeaponComponent;
 class UGSProgressionComponent;
 class UGSComboComponent;
+class UGSUpgradeComponent;
+class UGSUpgradeData;
+class UGSUpgradeIconWidget;
 class USoundBase;
 struct FOnAttributeChangeData;
+enum class EGSUpgradeOfferChange : uint8;
 
 /**
  * In-game HUD base (WBP_HUD derives from this).
@@ -31,6 +38,15 @@ struct FOnAttributeChangeData;
  *   two arrive within XPPopupPairWindow of each other (either order), otherwise above the player (gs.XP.Add).
  * - Kill combo (ComboPanel): count + cash multiplier from UGSComboComponent::OnComboChanged, shown from
  *   ComboMinCountToShow kills; the timer bar drains from the combo's remaining window each tick (frozen while paused).
+ * - Round info (RoundInfoPanel, AGSGameState::OnPhaseChanged / OnRoundChanged / OnWaveCountsChanged): "ROUND 4", the
+ *   phase, the PreRound countdown "Round 4 in 3..." (re-armed once per second by a world timer, so it stops while the
+ *   game is paused) and "12 enemies left" in Combat.
+ * - Owned upgrades (UpgradeIconsBox): one UpgradeIconWidgetClass per upgrade with its stack count, from
+ *   UGSUpgradeComponent::OnUpgradeStacksChanged.
+ * - Round banners (RoundBanner): big "ROUND N" (PreRound) and "ROUND CLEAR" (Combat -> RoundClear), queued and shown one
+ *   at a time. They wait while the "LEVEL UP!" banner shows or an upgrade offer is open (the choice cards), and a
+ *   level-up (or an offer opening) puts a showing round banner back at the front of the queue. A queued banner that no
+ *   longer fits the round / phase is dropped.
  * Tuning values are editable on WBP_HUD's class defaults.
  */
 UCLASS(Abstract)
@@ -86,6 +102,24 @@ public:
 	float GetDisplayedComboTimerPercent() const { return DisplayedComboTimerPercent; }
 	FText GetComboCountText() const;
 	FText GetComboMultiplierText() const;
+
+	// --- Round info, banners and upgrade icons (tests) ---
+	FText GetRoundText() const;
+	FText GetPhaseText() const;
+	/** "Round 4 in 3..." (empty outside PreRound). */
+	FText GetCountdownText() const;
+	/** "12 enemies left" (empty outside Combat). */
+	FText GetEnemiesText() const;
+	bool IsCountdownShowing() const;
+	bool IsEnemiesShowing() const;
+	bool IsRoundBannerShowing() const { return RoundBannerRemaining > 0.f; }
+	/** "ROUND 4" / "ROUND CLEAR" for the showing round banner (empty when none shows). */
+	FText GetRoundBannerTitle() const;
+	int32 GetQueuedRoundBannerCount() const { return RoundBannerQueue.Num(); }
+	/** Round banners shown so far (each show counts, a replay after a level-up too). */
+	int32 GetRoundBannersShown() const { return RoundBannersShown; }
+	int32 GetUpgradeIconCount() const { return UpgradeIcons.Num(); }
+	const UGSUpgradeIconWidget* FindUpgradeIcon(const UGSUpgradeData* Upgrade) const;
 
 protected:
 	virtual void NativeConstruct() override;
@@ -153,6 +187,42 @@ protected:
 	/** Time left in the combo window (drains; frozen while the game is paused). */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UProgressBar> ComboTimerBar;
+
+	/** Round info container (top center); collapsed before the first round. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> RoundInfoPanel;
+
+	/** "ROUND 4" */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> RoundText;
+
+	/** "PRE-ROUND" / "COMBAT" / "ROUND CLEAR" */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> PhaseText;
+
+	/** "Round 4 in 3..." (PreRound only). */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> CountdownText;
+
+	/** "12 enemies left" (Combat only). */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> EnemiesText;
+
+	/** Big round banner container (same spot as the level-up banner); collapsed until one shows. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> RoundBanner;
+
+	/** "ROUND 4" / "ROUND CLEAR" */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> RoundBannerTitle;
+
+	/** "GET READY" / "Round 4" */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> RoundBannerSubtitle;
+
+	/** Owned upgrade icons are created into this panel (a HorizontalBox). */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UPanelWidget> UpgradeIconsBox;
 
 	// --- Tuning ---
 
@@ -313,6 +383,35 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|Combo")
 	FLinearColor ComboBonusMultiplierColor = FLinearColor(1.f, 0.8f, 0.15f);
 
+	/** How long a round banner stays (including fades). */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Round", meta = (Units = "s"))
+	float RoundBannerDuration = 1.8f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Round", meta = (Units = "s"))
+	float RoundBannerFadeIn = 0.15f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Round", meta = (Units = "s"))
+	float RoundBannerFadeOut = 0.4f;
+
+	/** The banner starts at this scale and settles to 1 over the fade-in. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Round", meta = (ClampMin = "1"))
+	float RoundBannerPopScale = 1.3f;
+
+	/** Title color of "ROUND N" and of "ROUND CLEAR". */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Round")
+	FLinearColor RoundBannerColor = FLinearColor(1.f, 1.f, 1.f);
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Round")
+	FLinearColor RoundClearBannerColor = FLinearColor(0.45f, 1.f, 0.35f);
+
+	/** One per owned upgrade in UpgradeIconsBox (WBP_UpgradeIcon). */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Upgrades")
+	TSubclassOf<UGSUpgradeIconWidget> UpgradeIconWidgetClass;
+
+	/** Gap between upgrade icons (px). */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Upgrades")
+	float UpgradeIconSpacing = 6.f;
+
 private:
 	/** A floating damage number or "+$N" cash popup (shared pool). */
 	struct FDamageNumber
@@ -360,6 +459,47 @@ private:
 	UFUNCTION()
 	void HandleComboChanged(int32 ComboCount, float CashMultiplier);
 
+	// Round info (AGSGameState).
+	bool TryBindGameState();
+	void UnbindGameState();
+	void RefreshRoundInfo();
+	/** Show the PreRound countdown and arm a world timer for the moment the shown second changes. */
+	void UpdateCountdown();
+
+	UFUNCTION()
+	void HandlePhaseChanged(EGSRoundPhase OldPhase, EGSRoundPhase NewPhase);
+
+	UFUNCTION()
+	void HandleRoundChanged(int32 NewRound);
+
+	UFUNCTION()
+	void HandleWaveCountsChanged(int32 Total, int32 Remaining, int32 Alive);
+
+	// Owned upgrade icons + open offers (UGSUpgradeComponent on the PlayerState).
+	bool TryBindUpgrades();
+	void UnbindUpgrades();
+	void RebuildUpgradeIcons();
+	void SetUpgradeIcon(const UGSUpgradeData* Upgrade, int32 Stacks);
+	void HandleUpgradeOfferChanged(EGSUpgradeOfferChange Change);
+
+	UFUNCTION()
+	void HandleUpgradeStacksChanged(const UGSUpgradeData* Upgrade, int32 NewStacks);
+
+	// Round banners.
+	struct FRoundBannerRequest
+	{
+		bool bRoundClear = false;
+		int32 Round = 0;
+		bool operator==(const FRoundBannerRequest& Other) const { return bRoundClear == Other.bRoundClear && Round == Other.Round; }
+	};
+	void QueueRoundBanner(bool bRoundClear, int32 Round);
+	bool CanShowRoundBanner() const;
+	bool IsRoundBannerValid(const FRoundBannerRequest& Request) const;
+	void TryShowNextRoundBanner();
+	/** A level-up or an offer takes the banner spot: hide the showing round banner and queue it again first. */
+	void InterruptRoundBanner();
+	void TickRoundBanner(float DeltaTime);
+
 	// Ability system binding (health).
 	bool TryBindAbilitySystem();
 	void UnbindAbilitySystem();
@@ -406,6 +546,22 @@ private:
 	float DisplayedComboTimerPercent = 0.f;
 	float ComboPunchRemaining = 0.f;
 	float ComboStepPunchRemaining = 0.f;
+
+	TWeakObjectPtr<AGSGameState> BoundGameState;
+	FTimerHandle CountdownTimer;
+	/** Whole seconds shown by the countdown; < 0 outside PreRound. */
+	int32 DisplayedCountdown = -1;
+
+	TWeakObjectPtr<UGSUpgradeComponent> BoundUpgrades;
+	FDelegateHandle OfferChangedHandle;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UGSUpgradeIconWidget>> UpgradeIcons;
+
+	TArray<FRoundBannerRequest> RoundBannerQueue;
+	FRoundBannerRequest ActiveRoundBanner;
+	float RoundBannerRemaining = 0.f;
+	int32 RoundBannersShown = 0;
 
 	// Level-up feedback.
 	void ShowLevelUpBanner(int32 NewLevel);

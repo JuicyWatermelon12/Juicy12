@@ -74,6 +74,7 @@
 #include "Components/CapsuleComponent.h"
 #include "GSUpgradeCardWidget.h"
 #include "GSUpgradeChoiceWidget.h"
+#include "GSUpgradeIconWidget.h"
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
 #include "Misc/AutomationTest.h"
@@ -3757,6 +3758,207 @@ bool FGSRoundClearBonusTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("New run: no summary"), Summary->IsSummaryShowing());
 
 		GameMode->SetRoundTimerPaused(false);
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Round HUD: round info, upgrade icons, round banners
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	UGSHUDWidget* GetHUD()
+	{
+		return GetPC() ? GetPC()->GetGSHUD() : nullptr;
+	}
+
+	/** A round banner on screen together with "LEVEL UP!" or an open upgrade offer (the choice cards). */
+	bool IsRoundBannerOverlapping()
+	{
+		const UGSHUDWidget* HUD = GetHUD();
+		const UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		return HUD && HUD->IsRoundBannerShowing() && (HUD->IsLevelUpBannerShowing() || (Upgrades && Upgrades->HasOpenOffer()));
+	}
+
+	/** Enqueue: wait until Predicate, counting every frame a round banner overlaps the level-up flow. */
+	void WaitWatchingBanners(FAutomationTestBase* Test, const FString& What, TSharedRef<int32> Overlaps, TFunction<bool()> Predicate, double Timeout = DefaultTimeout)
+	{
+		WaitUntil(Test, What, [Overlaps, Predicate]()
+		{
+			*Overlaps += IsRoundBannerOverlapping() ? 1 : 0;
+			return Predicate();
+		}, Timeout);
+	}
+
+	FString Ellipsis(const FString& Text)
+	{
+		return Text + TEXT("…");
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRoundHUDTest, "BanditBaller.UI.RoundHUD", GSTests::TestFlags)
+bool FGSRoundHUDTest::RunTest(const FString& Parameters)
+{
+	struct FHUDState
+	{
+		int32 ShownBefore = 0;
+		double RealEnd = 0.0;
+		TObjectPtr<const UGSUpgradeData> Picked;
+	};
+	TSharedRef<FHUDState> S = MakeShared<FHUDState>();
+	TSharedRef<int32> Overlaps = MakeShared<int32>(0);
+
+	BeginPIE(this);
+
+	// Round info in PreRound: round, phase, countdown.
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		const UGSHUDWidget* HUD = GetHUD();
+		if (!TestNotNull(TEXT("HUD"), HUD))
+		{
+			return;
+		}
+		GameMode->SetRoundTimerPaused(true); // the countdown follows the phase end time and keeps counting
+		GameMode->RestartRunWithSeed(2401);
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		TestEqual(TEXT("Round text"), HUD->GetRoundText().ToString(), FString(TEXT("ROUND 1")));
+		TestEqual(TEXT("Phase text"), HUD->GetPhaseText().ToString(), FString(TEXT("PRE-ROUND")));
+		TestTrue(TEXT("Countdown shows in PreRound"), HUD->IsCountdownShowing());
+		TestEqual(TEXT("Countdown at PreRound start"), HUD->GetCountdownText().ToString(), Ellipsis(TEXT("Round 1 in 3")));
+		TestFalse(TEXT("No enemy count in PreRound"), HUD->IsEnemiesShowing());
+		TestTrue(TEXT("ROUND 1 banner showing"), HUD->IsRoundBannerShowing() && HUD->GetRoundBannerTitle().ToString() == TEXT("ROUND 1"));
+		TestEqual(TEXT("New run: no upgrade icons"), HUD->GetUpgradeIconCount(), 0);
+	});
+	WaitWorldSeconds(this, 1.1);
+	Step([this]()
+	{
+		TestEqual(TEXT("Countdown ticks down once a second"), GetHUD()->GetCountdownText().ToString(), Ellipsis(TEXT("Round 1 in 2")));
+
+		// Round 2's banner, then a level-up while it shows.
+		GetGameMode()->SetRound(2);
+		TestEqual(TEXT("Round text follows"), GetHUD()->GetRoundText().ToString(), FString(TEXT("ROUND 2")));
+		TestEqual(TEXT("Countdown restarts"), GetHUD()->GetCountdownText().ToString(), Ellipsis(TEXT("Round 2 in 3")));
+	});
+	WaitWatchingBanners(this, TEXT("ROUND 2 banner"), Overlaps, []()
+	{
+		return GetHUD()->IsRoundBannerShowing() && GetHUD()->GetRoundBannerTitle().ToString() == TEXT("ROUND 2");
+	});
+	Step([this, S]()
+	{
+		UGSHUDWidget* HUD = GetHUD();
+		S->ShownBefore = HUD->GetRoundBannersShown();
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("XPAdd"), { TEXT("100") });
+		TestTrue(TEXT("LEVEL UP! shows"), HUD->IsLevelUpBannerShowing());
+		TestTrue(TEXT("Upgrade offer open (game paused)"), GetPlayerUpgrades()->HasOpenOffer() && GetPIEWorld()->IsPaused());
+		TestFalse(TEXT("The level-up hides the round banner"), HUD->IsRoundBannerShowing());
+		TestEqual(TEXT("... and queues it again"), HUD->GetQueuedRoundBannerCount(), 1);
+		S->RealEnd = FPlatformTime::Seconds() + 3.5;
+	});
+	// LEVEL UP! ends (2.5 s) while the cards are up: the round banner keeps waiting.
+	WaitWatchingBanners(this, TEXT("3.5 s with the upgrade cards up"), Overlaps, [S]() { return FPlatformTime::Seconds() >= S->RealEnd; });
+	Step([this, S]()
+	{
+		UGSHUDWidget* HUD = GetHUD();
+		TestFalse(TEXT("LEVEL UP! is over"), HUD->IsLevelUpBannerShowing());
+		TestFalse(TEXT("Round banner still waits for the cards"), HUD->IsRoundBannerShowing());
+		TestEqual(TEXT("Still queued"), HUD->GetQueuedRoundBannerCount(), 1);
+		S->Picked = GetPlayerUpgrades()->GetCurrentChoices()[0];
+		TestEqual(TEXT("Upgrade picked"), PickAllUpgradeOffers(), 1);
+		TestTrue(TEXT("Closing the offer replays ROUND 2"), HUD->IsRoundBannerShowing() && HUD->GetRoundBannerTitle().ToString() == TEXT("ROUND 2"));
+		TestEqual(TEXT("One more banner shown"), HUD->GetRoundBannersShown(), S->ShownBefore + 1);
+
+		// Owned upgrades: one icon per upgrade with its stack count.
+		TestEqual(TEXT("One upgrade icon"), HUD->GetUpgradeIconCount(), 1);
+		const UGSUpgradeIconWidget* Icon = HUD->FindUpgradeIcon(S->Picked);
+		if (TestNotNull(TEXT("Icon for the picked upgrade"), Icon))
+		{
+			TestEqual(TEXT("Picked once: x1"), Icon->GetStackText().ToString(), FString(TEXT("x1")));
+		}
+		GetPlayerUpgrades()->GrantUpgrade(S->Picked, TEXT("Test"));
+		TestEqual(TEXT("Same upgrade again: still one icon"), HUD->GetUpgradeIconCount(), 1);
+		TestEqual(TEXT("Same upgrade again: x2"), Icon ? Icon->GetStackText().ToString() : FString(), FString(TEXT("x2")));
+		for (const UGSUpgradeData* Upgrade : GetGameMode()->GetUpgradePool()->Upgrades)
+		{
+			if (Upgrade && Upgrade != S->Picked)
+			{
+				GetPlayerUpgrades()->GrantUpgrade(Upgrade, TEXT("Test"));
+				TestEqual(TEXT("Another upgrade: a second icon"), HUD->GetUpgradeIconCount(), 2);
+				TestTrue(TEXT("Second icon x1"), HUD->FindUpgradeIcon(Upgrade) && HUD->FindUpgradeIcon(Upgrade)->GetStackText().ToString() == TEXT("x1"));
+				break;
+			}
+		}
+
+		// Combat: enemies left.
+		GetGameMode()->AdvancePhase();
+		TestEqual(TEXT("Phase text in Combat"), HUD->GetPhaseText().ToString(), FString(TEXT("COMBAT")));
+		TestFalse(TEXT("No countdown in Combat"), HUD->IsCountdownShowing());
+		TestTrue(TEXT("Enemy count in Combat"), HUD->IsEnemiesShowing());
+		TestEqual(TEXT("Enemies left = the wave"), HUD->GetEnemiesText().ToString(),
+			FString::Printf(TEXT("%d enemies left"), GetGameMode()->GetWaveDirector()->GetTotal()));
+	});
+	WaitWatchingBanners(this, TEXT("a wave enemy to spawn"), Overlaps, []() { return CountLivingEnemies() > 0; });
+	Step([this]()
+	{
+		for (TActorIterator<AGSEnemyCharacter> It(GetPIEWorld()); It; ++It)
+		{
+			if (!It->GetHealthComponent()->IsDead())
+			{
+				ApplyDamage(It->GetAbilitySystemComponent(), 100000.f, GetPlayerASC());
+				break;
+			}
+		}
+		const int32 Remaining = GetGameState()->GetWaveEnemiesRemaining();
+		TestEqual(TEXT("A kill updates the count"), Remaining, GetGameMode()->GetWaveDirector()->GetTotal() - 1);
+		TestEqual(TEXT("Enemies left text follows"), GetHUD()->GetEnemiesText().ToString(), FString::Printf(TEXT("%d enemies left"), Remaining));
+	});
+	ClearWaveAsPlayer(this);
+	Step([this]()
+	{
+		UGSHUDWidget* HUD = GetHUD();
+		TestEqual(TEXT("Phase text in RoundClear"), HUD->GetPhaseText().ToString(), FString(TEXT("ROUND CLEAR")));
+		TestFalse(TEXT("No enemy count in RoundClear"), HUD->IsEnemiesShowing());
+	});
+	WaitWatchingBanners(this, TEXT("ROUND CLEAR banner"), Overlaps, []()
+	{
+		return GetHUD()->IsRoundBannerShowing() && GetHUD()->GetRoundBannerTitle().ToString() == TEXT("ROUND CLEAR");
+	});
+
+	// A level-up during ROUND CLEAR, then the next round starts while the cards are up: the stale ROUND CLEAR is
+	// dropped and round 3's banner shows instead.
+	Step([this]()
+	{
+		UGSHUDWidget* HUD = GetHUD();
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("XPAdd"), { TEXT("200") });
+		TestFalse(TEXT("Level-up hides ROUND CLEAR"), HUD->IsRoundBannerShowing());
+		GetGameMode()->AdvancePhase(); // RoundClear -> round 3 PreRound (a direct call works while paused)
+		TestEqual(TEXT("Queued: ROUND CLEAR and ROUND 3"), HUD->GetQueuedRoundBannerCount(), 2);
+		TestFalse(TEXT("Nothing shows while the offer is open"), HUD->IsRoundBannerShowing());
+		TestTrue(TEXT("Picked"), PickAllUpgradeOffers() > 0);
+		TestFalse(TEXT("Still waiting for LEVEL UP! to end"), HUD->IsLevelUpBannerShowing() && HUD->IsRoundBannerShowing());
+	});
+	WaitWatchingBanners(this, TEXT("ROUND 3 banner after LEVEL UP!"), Overlaps, []()
+	{
+		return GetHUD()->IsRoundBannerShowing() && GetHUD()->GetRoundBannerTitle().ToString() == TEXT("ROUND 3");
+	});
+	Step([this]()
+	{
+		TestEqual(TEXT("Stale ROUND CLEAR dropped"), GetHUD()->GetQueuedRoundBannerCount(), 0);
+	});
+	WaitWatchingBanners(this, TEXT("ROUND 3 banner to finish"), Overlaps, []() { return !GetHUD()->IsRoundBannerShowing(); });
+	Step([this, Overlaps]()
+	{
+		TestEqual(TEXT("A round banner never overlapped LEVEL UP! or the upgrade cards (frames)"), *Overlaps, 0);
+
+		// A new run clears the upgrade icons.
+		GetGameMode()->RestartRunWithSeed(2402);
+		TestEqual(TEXT("New run: no upgrade icons"), GetHUD()->GetUpgradeIconCount(), 0);
+		GetGameMode()->SetRoundTimerPaused(false);
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
 	});
 	EndPIE();

@@ -11,6 +11,11 @@
 #include "GSAttributeSet.h"
 #include "GSComboComponent.h"
 #include "GSGameState.h"
+#include "GSUpgradeComponent.h"
+#include "GSUpgradeIconWidget.h"
+#include "Components/HorizontalBoxSlot.h"
+#include "Components/PanelWidget.h"
+#include "TimerManager.h"
 #include "GSLevelRewards.h"
 #include "GSPlayerState.h"
 #include "GSProfileSubsystem.h"
@@ -77,6 +82,13 @@ void UGSHUDWidget::NativeConstruct()
 	{
 		ComboPanel->SetVisibility(ESlateVisibility::Collapsed);
 	}
+	for (UWidget* Widget : TArray<UWidget*>{ RoundBanner.Get(), CountdownText.Get(), EnemiesText.Get(), RoundInfoPanel.Get() })
+	{
+		if (Widget)
+		{
+			Widget->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
 }
 
 void UGSHUDWidget::NativeDestruct()
@@ -85,7 +97,433 @@ void UGSHUDWidget::NativeDestruct()
 	UnbindCash();
 	UnbindProgression();
 	UnbindCombo();
+	UnbindGameState();
+	UnbindUpgrades();
 	Super::NativeDestruct();
+}
+
+// ---------------------------------------------------------------------------
+// Round info (AGSGameState)
+// ---------------------------------------------------------------------------
+
+bool UGSHUDWidget::TryBindGameState()
+{
+	const UWorld* World = GetWorld();
+	AGSGameState* GS = World ? World->GetGameState<AGSGameState>() : nullptr;
+	if (GS == BoundGameState.Get())
+	{
+		return GS != nullptr;
+	}
+
+	UnbindGameState();
+	if (!GS)
+	{
+		return false;
+	}
+	BoundGameState = GS;
+	GS->OnPhaseChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandlePhaseChanged);
+	GS->OnRoundChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandleRoundChanged);
+	GS->OnWaveCountsChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandleWaveCountsChanged);
+	RefreshRoundInfo();
+	UpdateCountdown();
+	// The first PreRound starts before the HUD has bound.
+	if (GS->GetRoundPhase() == EGSRoundPhase::PreRound)
+	{
+		QueueRoundBanner(false, GS->GetRoundNumber());
+	}
+	return true;
+}
+
+void UGSHUDWidget::UnbindGameState()
+{
+	if (AGSGameState* GS = BoundGameState.Get())
+	{
+		GS->OnPhaseChanged.RemoveDynamic(this, &UGSHUDWidget::HandlePhaseChanged);
+		GS->OnRoundChanged.RemoveDynamic(this, &UGSHUDWidget::HandleRoundChanged);
+		GS->OnWaveCountsChanged.RemoveDynamic(this, &UGSHUDWidget::HandleWaveCountsChanged);
+	}
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(CountdownTimer);
+	}
+	BoundGameState.Reset();
+}
+
+void UGSHUDWidget::HandlePhaseChanged(EGSRoundPhase OldPhase, EGSRoundPhase NewPhase)
+{
+	RefreshRoundInfo();
+	UpdateCountdown();
+	const AGSGameState* GS = BoundGameState.Get();
+	if (!GS)
+	{
+		return;
+	}
+	if (NewPhase == EGSRoundPhase::PreRound)
+	{
+		QueueRoundBanner(false, GS->GetRoundNumber());
+	}
+	else if (NewPhase == EGSRoundPhase::RoundClear && OldPhase == EGSRoundPhase::Combat)
+	{
+		QueueRoundBanner(true, GS->GetRoundNumber());
+	}
+}
+
+void UGSHUDWidget::HandleRoundChanged(int32 NewRound)
+{
+	RefreshRoundInfo();
+}
+
+void UGSHUDWidget::HandleWaveCountsChanged(int32 Total, int32 Remaining, int32 Alive)
+{
+	RefreshRoundInfo();
+}
+
+FText UGSHUDWidget::GetRoundText() const
+{
+	const AGSGameState* GS = BoundGameState.Get();
+	return FText::Format(NSLOCTEXT("GSHUD", "RoundFormat", "ROUND {0}"), FText::AsNumber(GS ? GS->GetRoundNumber() : 0));
+}
+
+FText UGSHUDWidget::GetPhaseText() const
+{
+	const AGSGameState* GS = BoundGameState.Get();
+	switch (GS ? GS->GetRoundPhase() : EGSRoundPhase::WaitingToStart)
+	{
+	case EGSRoundPhase::PreRound:   return NSLOCTEXT("GSHUD", "PhasePreRound", "PRE-ROUND");
+	case EGSRoundPhase::Combat:     return NSLOCTEXT("GSHUD", "PhaseCombat", "COMBAT");
+	case EGSRoundPhase::RoundClear: return NSLOCTEXT("GSHUD", "PhaseRoundClear", "ROUND CLEAR");
+	case EGSRoundPhase::GameOver:   return NSLOCTEXT("GSHUD", "PhaseGameOver", "GAME OVER");
+	default:                        return FText::GetEmpty();
+	}
+}
+
+bool UGSHUDWidget::IsCountdownShowing() const
+{
+	return DisplayedCountdown >= 0;
+}
+
+FText UGSHUDWidget::GetCountdownText() const
+{
+	const AGSGameState* GS = BoundGameState.Get();
+	return (GS && IsCountdownShowing())
+		? FText::Format(NSLOCTEXT("GSHUD", "Countdown", "Round {0} in {1}…"), FText::AsNumber(GS->GetRoundNumber()), FText::AsNumber(DisplayedCountdown))
+		: FText::GetEmpty();
+}
+
+bool UGSHUDWidget::IsEnemiesShowing() const
+{
+	const AGSGameState* GS = BoundGameState.Get();
+	return GS && GS->GetRoundPhase() == EGSRoundPhase::Combat;
+}
+
+FText UGSHUDWidget::GetEnemiesText() const
+{
+	const AGSGameState* GS = BoundGameState.Get();
+	return IsEnemiesShowing()
+		? FText::Format(NSLOCTEXT("GSHUD", "EnemiesLeft", "{0} {0}|plural(one=enemy,other=enemies) left"), GS->GetWaveEnemiesRemaining())
+		: FText::GetEmpty();
+}
+
+void UGSHUDWidget::RefreshRoundInfo()
+{
+	const AGSGameState* GS = BoundGameState.Get();
+	if (!GS)
+	{
+		return;
+	}
+	if (RoundInfoPanel)
+	{
+		RoundInfoPanel->SetVisibility(GS->GetRoundNumber() > 0 ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+	if (RoundText)
+	{
+		RoundText->SetText(GetRoundText());
+	}
+	if (PhaseText)
+	{
+		PhaseText->SetText(GetPhaseText());
+	}
+	if (EnemiesText)
+	{
+		EnemiesText->SetText(GetEnemiesText());
+		EnemiesText->SetVisibility(IsEnemiesShowing() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+}
+
+void UGSHUDWidget::UpdateCountdown()
+{
+	UWorld* World = GetWorld();
+	if (World)
+	{
+		World->GetTimerManager().ClearTimer(CountdownTimer);
+	}
+	const AGSGameState* GS = BoundGameState.Get();
+	DisplayedCountdown = -1;
+	if (GS && GS->GetRoundPhase() == EGSRoundPhase::PreRound && GS->GetPhaseEndTime() > 0.0)
+	{
+		const float Remaining = GS->GetPhaseTimeRemaining();
+		DisplayedCountdown = FMath::Max(FMath::CeilToInt(Remaining - KINDA_SMALL_NUMBER), 0);
+		// Next update when the shown number drops by one. A world timer, like the phase timer: both stop while paused.
+		if (World && DisplayedCountdown > 0)
+		{
+			const float UntilNext = Remaining - static_cast<float>(DisplayedCountdown - 1);
+			World->GetTimerManager().SetTimer(CountdownTimer, this, &UGSHUDWidget::UpdateCountdown, FMath::Max(UntilNext, 0.05f), false);
+		}
+	}
+	if (CountdownText)
+	{
+		CountdownText->SetText(GetCountdownText());
+		CountdownText->SetVisibility(IsCountdownShowing() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Owned upgrade icons (UGSUpgradeComponent)
+// ---------------------------------------------------------------------------
+
+bool UGSHUDWidget::TryBindUpgrades()
+{
+	const AGSPlayerState* PS = GetOwningPlayerState<AGSPlayerState>();
+	UGSUpgradeComponent* Upgrades = PS ? PS->GetUpgradeComponent() : nullptr;
+	if (Upgrades == BoundUpgrades.Get())
+	{
+		return Upgrades != nullptr;
+	}
+
+	UnbindUpgrades();
+	if (!Upgrades)
+	{
+		return false;
+	}
+	BoundUpgrades = Upgrades;
+	Upgrades->OnUpgradeStacksChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandleUpgradeStacksChanged);
+	OfferChangedHandle = Upgrades->OnUpgradeOfferChangedNative.AddUObject(this, &UGSHUDWidget::HandleUpgradeOfferChanged);
+	RebuildUpgradeIcons();
+	return true;
+}
+
+void UGSHUDWidget::UnbindUpgrades()
+{
+	if (UGSUpgradeComponent* Upgrades = BoundUpgrades.Get())
+	{
+		Upgrades->OnUpgradeStacksChanged.RemoveDynamic(this, &UGSHUDWidget::HandleUpgradeStacksChanged);
+		Upgrades->OnUpgradeOfferChangedNative.Remove(OfferChangedHandle);
+	}
+	OfferChangedHandle.Reset();
+	BoundUpgrades.Reset();
+}
+
+void UGSHUDWidget::RebuildUpgradeIcons()
+{
+	for (UGSUpgradeIconWidget* Icon : UpgradeIcons)
+	{
+		if (Icon)
+		{
+			Icon->RemoveFromParent();
+		}
+	}
+	UpgradeIcons.Reset();
+	if (const UGSUpgradeComponent* Upgrades = BoundUpgrades.Get())
+	{
+		for (const FGSUpgradeStack& Entry : Upgrades->GetUpgradeStacks())
+		{
+			SetUpgradeIcon(Entry.Upgrade, Entry.Stacks);
+		}
+	}
+}
+
+void UGSHUDWidget::HandleUpgradeStacksChanged(const UGSUpgradeData* Upgrade, int32 NewStacks)
+{
+	SetUpgradeIcon(Upgrade, NewStacks);
+}
+
+void UGSHUDWidget::SetUpgradeIcon(const UGSUpgradeData* Upgrade, int32 Stacks)
+{
+	if (!Upgrade)
+	{
+		return;
+	}
+	const int32 Index = UpgradeIcons.IndexOfByPredicate([Upgrade](const UGSUpgradeIconWidget* Icon) { return Icon && Icon->GetUpgrade() == Upgrade; });
+	if (Stacks <= 0)
+	{
+		if (Index != INDEX_NONE)
+		{
+			UpgradeIcons[Index]->RemoveFromParent();
+			UpgradeIcons.RemoveAt(Index);
+		}
+		return;
+	}
+	if (Index != INDEX_NONE)
+	{
+		UpgradeIcons[Index]->SetUpgrade(Upgrade, Stacks);
+		return;
+	}
+	if (!UpgradeIconsBox || !UpgradeIconWidgetClass)
+	{
+		return;
+	}
+	UGSUpgradeIconWidget* Icon = CreateWidget<UGSUpgradeIconWidget>(GetOwningPlayer(), UpgradeIconWidgetClass);
+	if (!Icon)
+	{
+		return;
+	}
+	Icon->SetUpgrade(Upgrade, Stacks);
+	if (UHorizontalBoxSlot* IconSlot = Cast<UHorizontalBoxSlot>(UpgradeIconsBox->AddChild(Icon)))
+	{
+		IconSlot->SetPadding(FMargin(0.f, 0.f, UpgradeIconSpacing, 0.f));
+	}
+	UpgradeIcons.Add(Icon);
+}
+
+const UGSUpgradeIconWidget* UGSHUDWidget::FindUpgradeIcon(const UGSUpgradeData* Upgrade) const
+{
+	const TObjectPtr<UGSUpgradeIconWidget>* Found = UpgradeIcons.FindByPredicate([Upgrade](const UGSUpgradeIconWidget* Icon) { return Icon && Icon->GetUpgrade() == Upgrade; });
+	return Found ? Found->Get() : nullptr;
+}
+
+void UGSHUDWidget::HandleUpgradeOfferChanged(EGSUpgradeOfferChange Change)
+{
+	// The choice cards take over the screen while an offer is open; round banners wait for them.
+	if (Change == EGSUpgradeOfferChange::Closed)
+	{
+		TryShowNextRoundBanner();
+	}
+	else
+	{
+		InterruptRoundBanner();
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Round banners ("ROUND N", "ROUND CLEAR")
+// ---------------------------------------------------------------------------
+
+void UGSHUDWidget::QueueRoundBanner(bool bRoundClear, int32 Round)
+{
+	if (Round <= 0)
+	{
+		return;
+	}
+	const FRoundBannerRequest Request{ bRoundClear, Round };
+	if ((IsRoundBannerShowing() && ActiveRoundBanner == Request) || RoundBannerQueue.Contains(Request))
+	{
+		return;
+	}
+	RoundBannerQueue.Add(Request);
+	TryShowNextRoundBanner();
+}
+
+bool UGSHUDWidget::CanShowRoundBanner() const
+{
+	const UGSUpgradeComponent* Upgrades = BoundUpgrades.Get();
+	return LevelUpBannerRemaining <= 0.f && !(Upgrades && Upgrades->HasOpenOffer());
+}
+
+bool UGSHUDWidget::IsRoundBannerValid(const FRoundBannerRequest& Request) const
+{
+	const AGSGameState* GS = BoundGameState.Get();
+	if (!GS || GS->GetRoundNumber() != Request.Round)
+	{
+		return false;
+	}
+	const EGSRoundPhase Phase = GS->GetRoundPhase();
+	return Request.bRoundClear ? Phase == EGSRoundPhase::RoundClear : (Phase == EGSRoundPhase::PreRound || Phase == EGSRoundPhase::Combat);
+}
+
+void UGSHUDWidget::TryShowNextRoundBanner()
+{
+	if (IsRoundBannerShowing())
+	{
+		return;
+	}
+	while (RoundBannerQueue.Num() > 0 && CanShowRoundBanner())
+	{
+		const FRoundBannerRequest Next = RoundBannerQueue[0];
+		RoundBannerQueue.RemoveAt(0);
+		if (!IsRoundBannerValid(Next))
+		{
+			continue; // its round or phase is over
+		}
+		ActiveRoundBanner = Next;
+		RoundBannerRemaining = RoundBannerDuration;
+		++RoundBannersShown;
+		if (RoundBannerTitle)
+		{
+			RoundBannerTitle->SetText(GetRoundBannerTitle());
+			RoundBannerTitle->SetColorAndOpacity(FSlateColor(Next.bRoundClear ? RoundClearBannerColor : RoundBannerColor));
+		}
+		if (RoundBannerSubtitle)
+		{
+			RoundBannerSubtitle->SetText(Next.bRoundClear
+				? FText::Format(NSLOCTEXT("GSHUD", "RoundBannerClearSub", "Round {0}"), FText::AsNumber(Next.Round))
+				: NSLOCTEXT("GSHUD", "RoundBannerSub", "GET READY"));
+		}
+		if (RoundBanner)
+		{
+			RoundBanner->SetRenderOpacity(RoundBannerFadeIn > 0.f ? 0.f : 1.f);
+			RoundBanner->SetVisibility(ESlateVisibility::HitTestInvisible);
+		}
+		return;
+	}
+}
+
+FText UGSHUDWidget::GetRoundBannerTitle() const
+{
+	if (!IsRoundBannerShowing())
+	{
+		return FText::GetEmpty();
+	}
+	return ActiveRoundBanner.bRoundClear ? NSLOCTEXT("GSHUD", "RoundBannerClear", "ROUND CLEAR")
+		: FText::Format(NSLOCTEXT("GSHUD", "RoundBanner", "ROUND {0}"), FText::AsNumber(ActiveRoundBanner.Round));
+}
+
+void UGSHUDWidget::InterruptRoundBanner()
+{
+	if (!IsRoundBannerShowing())
+	{
+		return;
+	}
+	RoundBannerQueue.Insert(ActiveRoundBanner, 0);
+	RoundBannerRemaining = 0.f;
+	if (RoundBanner)
+	{
+		RoundBanner->SetVisibility(ESlateVisibility::Collapsed);
+	}
+}
+
+void UGSHUDWidget::TickRoundBanner(float DeltaTime)
+{
+	if (!IsRoundBannerShowing())
+	{
+		return;
+	}
+	RoundBannerRemaining = FMath::Max(RoundBannerRemaining - DeltaTime, 0.f);
+	if (RoundBanner)
+	{
+		const float Elapsed = RoundBannerDuration - RoundBannerRemaining;
+		float Alpha = 1.f;
+		float Scale = 1.f;
+		if (RoundBannerFadeIn > 0.f && Elapsed < RoundBannerFadeIn)
+		{
+			const float T = Elapsed / RoundBannerFadeIn;
+			Alpha = T;
+			Scale = FMath::Lerp(RoundBannerPopScale, 1.f, T);
+		}
+		else if (RoundBannerFadeOut > 0.f && RoundBannerRemaining < RoundBannerFadeOut)
+		{
+			Alpha = RoundBannerRemaining / RoundBannerFadeOut;
+		}
+		RoundBanner->SetRenderOpacity(Alpha);
+		RoundBanner->SetRenderScale(FVector2D(Scale, Scale));
+	}
+	if (RoundBannerRemaining <= 0.f)
+	{
+		if (RoundBanner)
+		{
+			RoundBanner->SetVisibility(ESlateVisibility::Collapsed);
+		}
+		TryShowNextRoundBanner();
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -332,6 +770,9 @@ void UGSHUDWidget::HandleLevelUp(int32 NewLevel)
 
 void UGSHUDWidget::ShowLevelUpBanner(int32 NewLevel)
 {
+	// "LEVEL UP!" takes the banner spot at once (the choice cards follow it); a round banner waits behind it.
+	InterruptRoundBanner();
+
 	// Level-ups while the banner is up merge into it ("Level 4", "+20 Max Health").
 	if (LevelUpBannerRemaining <= 0.f)
 	{
@@ -387,6 +828,7 @@ void UGSHUDWidget::TickLevelUpFeedback(float DeltaTime)
 		if (LevelUpBannerRemaining <= 0.f)
 		{
 			LevelUpBanner->SetVisibility(ESlateVisibility::Collapsed);
+			TryShowNextRoundBanner(); // waits on: no open offer either
 		}
 	}
 
@@ -625,11 +1067,14 @@ void UGSHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	TryBindCash();
 	TryBindProgression();
 	TryBindCombo();
+	TryBindUpgrades();
+	TryBindGameState();
 
 	UpdateWeaponDisplay();
 	TickLevelUpFeedback(InDeltaTime);
 	TickXPPopupPairing(InDeltaTime);
 	TickCombo(InDeltaTime);
+	TickRoundBanner(InDeltaTime);
 
 	// Level label punch on level-up.
 	if (LevelText && (LevelPunchRemaining > 0.f || !LevelText->GetRenderTransform().Scale.Equals(FVector2D::UnitVector)))

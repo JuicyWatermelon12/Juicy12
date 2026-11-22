@@ -39,6 +39,7 @@ enum class EGSArea : uint8
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnAreaChangedSignature, EGSArea, OldArea, EGSArea, NewArea);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnPhaseChangedSignature, EGSRoundPhase, OldPhase, EGSRoundPhase, NewPhase);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FGSOnRoundChangedSignature, int32, NewRound);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FGSOnWaveCountsChangedSignature, int32, Total, int32, Remaining, int32, Alive);
 
 /**
  * Shared, replicated round state: round number, phase, phase end time and current area.
@@ -108,8 +109,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Wave")
 	int32 GetWaveEnemiesAlive() const { return WaveEnemiesAlive; }
 
-	/** Server only. */
+	/** Server only. Broadcasts OnWaveCountsChanged when any count changed. */
 	void SetWaveCounts(int32 InTotal, int32 InRemaining, int32 InAlive);
+
+	/**
+	 * The wave counts changed (server). TODO(co-op): the counts replicate without a RepNotify, so clients don't get
+	 * this event yet (single-player first).
+	 */
+	UPROPERTY(BlueprintAssignable, Category = "Wave")
+	FGSOnWaveCountsChangedSignature OnWaveCountsChanged;
 
 	// --- Enemy difficulty (from UGSDifficultyCurve for the current round) ---
 

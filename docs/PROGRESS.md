@@ -35,10 +35,10 @@ see **Design update — market, prestige and economy**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–23 are done
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–24 are done
 (11–13 and 17 were design / scope updates and permanent cash).
 
-State at the time of writing: `main` after Prompt 23, not pushed. The build is clean and all 27 automation tests pass.
+State at the time of writing: `main` after Prompt 24, not pushed. The build is clean and all 28 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -68,7 +68,8 @@ State at the time of writing: `main` after Prompt 23, not pushed. The build is c
 | M2 20 | XP orbs: XP dropped as a pickup and granted at collection | 864d029 |
 | M2 21 | Map boundary: invisible walls + 75 m ceiling around the town (pawns only) | 92a7bf0 |
 | M2 22 | Kill combo: window, cash multiplier steps, ends on damage, pauses with the game, HUD, best combo | cfcf0fc |
-| M2 23 | Round-clear bonus (base + no damage + fast clear, flat) and the RoundClear summary | see git log |
+| M2 23 | Round-clear bonus (base + no damage + fast clear, flat) and the RoundClear summary | b04209d |
+| M2 24 | Round HUD: round / phase / countdown / enemies left, upgrade icons, queued round banners | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -136,7 +137,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–23 done)
+## M2 — The run loop (Prompts 1–24 done)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -920,6 +921,54 @@ Docs only; no code changed. Not a numbered step: **Next up** keeps its 18–28 n
     +$15, "Fast clear (3 s / 14 s)" +$15 and "Round bonus +$50".
   - The balance went $880 → $976 = $46 + $50 (real profile slot).
 
+### Prompt 24 — Round HUD
+Everything below is in WBP_HUD (`UGSHUDWidget`), built with MCP and driven by delegates. The total cash counter
+(profile), the level label and the XP bar are unchanged.
+- **Round info** (top center, VerticalBox `RoundInfoPanel`):
+  - `RoundText` "ROUND 4" (gold 30). `PhaseText` "PRE-ROUND" / "COMBAT" / "ROUND CLEAR" / "GAME OVER" (grey 15,
+    letter-spaced).
+  - `CountdownText` "Round 4 in 3…" (PreRound only).
+    - It is computed from the GameState's phase end time.
+    - A world timer re-arms it for the moment the shown second changes, so it stops while the game is paused, like
+      the phase timer. There is no per-tick polling.
+  - `EnemiesText` "6 enemies left" (Combat only; plural-aware). It shows the wave's remaining enemies: alive plus
+    still to spawn.
+  - Sources: `AGSGameState::OnPhaseChanged` / `OnRoundChanged` and the new `OnWaveCountsChanged(Total, Remaining,
+    Alive)`. `SetWaveCounts` now broadcasts it when a count changes. It is server only: the counts replicate without
+    a RepNotify (`TODO(co-op)`).
+- **Owned upgrades** (HorizontalBox `UpgradeIconsBox` at (40, 128), under the XP text):
+  - One `UpgradeIconWidgetClass` = `UI/WBP_UpgradeIcon` (`UI/GSUpgradeIconWidget.*`, new) per upgrade, in pick order.
+  - Each icon: a 44 px icon in a rarity-colored frame (same colors as the cards), "x3" in the corner and the name
+    under it (the placeholder icons all look alike).
+  - Driven by `UGSUpgradeComponent::OnUpgradeStacksChanged`: a new stack updates or adds an icon; 0 stacks (new run)
+    removes it.
+- **Round banners** (VerticalBox `RoundBanner`, the level-up banner's spot at 22% height):
+  - "ROUND N" / "GET READY" (white 64) when a PreRound starts (also the first one, which starts before the HUD
+    binds).
+  - "ROUND CLEAR" / "Round N" (green) when Combat ends in RoundClear.
+  - Animation: pop + fade like the level-up banner, 1.8 s in total (`RoundBanner*` tuning on the class defaults,
+    HUD|Round).
+  - **Queue:** one banner at a time.
+    - A round banner waits while "LEVEL UP!" shows or an upgrade offer is open (the choice cards; the game is paused
+      then).
+    - A level-up (or an offer opening) takes the spot at once. The showing round banner is hidden and put back first
+      in the queue, then replays when the level-up banner is gone and the offer is closed.
+    - A queued banner whose round or phase is over is dropped (e.g. a ROUND CLEAR still waiting when the next
+      PreRound starts).
+    - The same banner is never queued twice.
+  - Test hooks: `GetRoundText/PhaseText/CountdownText/EnemiesText()`, `IsCountdownShowing()`, `IsEnemiesShowing()`,
+    `IsRoundBannerShowing()`, `GetRoundBannerTitle()`, `GetQueuedRoundBannerCount()`, `GetRoundBannersShown()`,
+    `GetUpgradeIconCount()`, `FindUpgradeIcon()`.
+- **Test** `UI.RoundHUD`.
+- **PIE check** (rounds 1–3 played with god mode and `gs.KillAll`, plus `gs.Round.Set 4`):
+  - Round 1 Combat: "ROUND 1 / COMBAT / 4 enemies left" at the top center.
+  - Round 1 RoundClear: the green "ROUND CLEAR / Round 1" banner above the round summary, no overlap.
+  - Round 2's vacuum XP leveled up to 2. "LEVEL UP!" and the cards showed with no round banner; after
+    `gs.Upgrade.Choose 0` the ROUND CLEAR banner replayed and the "x1 Reload Speed" icon appeared under the XP bar.
+  - Round 3 played through to RoundClear.
+  - `gs.Round.Set 4`: "ROUND 4 / PRE-ROUND / Round 4 in 2…" and the "ROUND 4 / GET READY" banner.
+  - The 3 s PreRounds of rounds 1–3 passed between MCP scripts, so that is why PreRound was captured in round 4.
+
 ---
 
 ## Console commands and CVars
@@ -1017,7 +1066,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (27, all passing)
+## Automation tests (28, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test starts PIE in L_Town_Graybox, waits for the player, removes enemies, runs
 and ends PIE. Stop PIE before running.
@@ -1046,6 +1095,7 @@ and ends PIE. Stop PIE before running.
 | `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear and the Market District; new run removes stacks and clamps Health; dead player gets the stack but no heal. Takes each upgrade offer (choice 0) so the game unpauses. |
 | `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → no popup, collected orb → "+XPValue XP" at the collection point; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); 3 upgrade offers taken; banner/pulse/glow end. |
 | `UI.UpgradeChoice` | Choice widget from the PlayerController; level-up pauses (GameMode owns the pause) and the cards wait for the banner; cards match the offer (order, rarity color, "Owned: N"); "Reroll (3 left)", cursor shown; key / click ignored during the 0.3 s lock; R, gamepad Y and the button reroll (label 2/1/0, new cards, lock again), greyed out at 0 and R does nothing; key 2 picks the 2nd card, last pick hides, unpauses, cursor off; 1000 XP → 1 open + 3 queued; D-pad selects, A picks; next offer swaps in at once (no banner wait), locked, still paused; click / numpad 1 / key 3 pick the rest; hidden and unpaused after the queue. |
+| `UI.RoundHUD` | PreRound: "ROUND 1", "PRE-ROUND", countdown "Round 1 in 3…" → "… 2…" a second later, no enemy count, ROUND 1 banner, no icons; gs.Round.Set 2 restarts text + countdown and shows ROUND 2; a level-up hides it and queues it again (LEVEL UP!, offer open, paused); 3.5 s with the cards up: still waiting; the pick replays ROUND 2; icons: picked upgrade x1 → same again x2 (one icon) → another upgrade (two icons); Combat: "COMBAT", no countdown, "N enemies left" = wave, a kill updates it; RoundClear: phase text, no enemy count, ROUND CLEAR banner; a level-up during ROUND CLEAR then round 3 starting with the cards up → queued ROUND CLEAR + ROUND 3 → after LEVEL UP! only ROUND 3 shows (stale one dropped); no frame with a round banner over LEVEL UP! or an open offer; a new run clears the icons. |
 | `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; Combat → RoundClear pays the round-clear bonus into the profile; save when RoundClear ends includes it (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + `?Restart` (new HUD shows it). |
 | `Round.ClearBonus` | DA_RoundClearSettings on the GameMode ($20 / $15 / $15, 8 s + 1.5 s per enemy) and the summary widget on the controller; PreRound starts the round's stats (no payout, no summary); Combat records its start and wave size; round 1 killed fast with no damage → base + no damage + fast clear, kills = wave size, profile += bonus + cash collected; summary shows round, title and each line; after the vacuum cash collected ≥ kills × CashValue, XP = kills × XPValue, profile and CashEarned += cash collected + bonus, summary lines follow; round 2 PreRound hides the summary and starts from zero; damage taken + an impossible time limit (override) → base only, "missed" lines, total = base; RoundClear from PreRound pays nothing and shows nothing; round 10 (skip) pays the same as round 1; gs.Run.Stats shows the last bonus; a new run clears payout and round stats. |
 | `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
@@ -1163,6 +1213,12 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   Combat starts earns the fast-clear and no-damage bonuses) and the 180 s Combat safety timer (enemies left alive,
   never fast). The bonus amounts and the time limit are first-pass numbers. The summary has no sound or count-up
   animation.
+- Round HUD:
+  - With `gs.Round.Pause 1` in PreRound the countdown still counts down to "in 0…", because it follows the phase end
+    time and the debug pause only freezes the phase timer.
+  - The round banners have no sound.
+  - The upgrade icons use the placeholder engine texture (hence the name under each icon).
+  - "ROUND N" is white and reads poorly against the light graybox walls while it fades.
 - The only level-up reward so far is +10 MaxHealth and a full heal. Player death (`?Restart`) reloads the map,
   which also resets levels and their MaxHealth stacks.
 - Level-up feedback is placeholder: an editor chime for the sound and a plain overlay glow, with no VFX or
@@ -1249,7 +1305,7 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
 22. ~~**Kill combo.**~~ Done (see Prompt 22).
 23. ~~**Round clear bonus.**~~ Done (see Prompt 23): flat base + no-damage + fast-clear bonuses and the RoundClear
     summary.
-24. **Round HUD.**
+24. ~~**Round HUD.**~~ Done (see Prompt 24).
 25. **Hub map + hub GameMode.**
     - **Hub map** `Maps/L_Hub_Graybox`: the district content moves out of the sublevel, gets its own lighting, sky,
       boundary (walls + ceiling) and a PlayerStart at `MarketArrival`. It becomes `GameDefaultMap` /
@@ -1328,3 +1384,5 @@ Not built now; listed so single-player work stays co-op-ready. Co-op has never b
 - The round stats (`FGSRoundStats`) and the round-clear payout aren't replicated, so a remote client's RoundClear
   summary stays hidden. The bonus is one party-wide payout into this machine's profile, and "no damage" is
   party-wide.
+- `AGSGameState::OnWaveCountsChanged` fires on the server only (the wave counts have no RepNotify), so a remote
+  client's "enemies left" doesn't update. Its upgrade icons need the upgrade stacks replicated.

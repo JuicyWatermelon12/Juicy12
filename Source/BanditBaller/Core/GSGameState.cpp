@@ -49,11 +49,12 @@ void AGSGameState::SetEnemyRoundMultipliers(float InHealth, float InDamage)
 
 void AGSGameState::SetWaveCounts(int32 InTotal, int32 InRemaining, int32 InAlive)
 {
-	if (HasAuthority())
+	if (HasAuthority() && (InTotal != WaveEnemiesTotal || InRemaining != WaveEnemiesRemaining || InAlive != WaveEnemiesAlive))
 	{
 		WaveEnemiesTotal = InTotal;
 		WaveEnemiesRemaining = InRemaining;
 		WaveEnemiesAlive = InAlive;
+		OnWaveCountsChanged.Broadcast(WaveEnemiesTotal, WaveEnemiesRemaining, WaveEnemiesAlive);
 	}
 }
 
