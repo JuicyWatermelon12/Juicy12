@@ -14,6 +14,7 @@ class UGSWaveDirector;
 class UGSDifficultyCurve;
 class UGSCashSettings;
 class UGSComboSettings;
+class UGSRoundClearSettings;
 class UGSXPCurve;
 class UGSLevelRewards;
 class UGSUpgradePool;
@@ -63,6 +64,7 @@ public:
 	//   PreRound -> Combat -> RoundClear -> PreRound (round + 1) ...
 	//
 	// Timed phases advance on their own (durations from UGSRoundSettings). Combat also ends when its wave is cleared.
+	// Combat -> RoundClear pays the round-clear bonus (UGSRoundClearSettings) into the profile.
 
 	virtual void StartPlay() override;
 
@@ -141,6 +143,14 @@ public:
 
 	/** Tests / debug: use Settings instead of DA_ComboSettings until cleared (nullptr). Lives as long as this world. */
 	void SetComboSettingsOverride(const UGSComboSettings* Settings) { ComboSettingsOverride = Settings; }
+
+	// --- Round-clear bonus (server) ---
+
+	/** Base / no-damage / fast-clear bonus amounts and the fast-clear time (DA_RoundClearSettings, or the override). */
+	const UGSRoundClearSettings* GetRoundClearSettings() const;
+
+	/** Tests / debug: use Settings instead of DA_RoundClearSettings until cleared (nullptr). */
+	void SetRoundClearSettingsOverride(const UGSRoundClearSettings* Settings) { RoundClearSettingsOverride = Settings; }
 
 	// --- XP / levels (server) ---
 
@@ -228,6 +238,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")
 	TObjectPtr<UGSComboSettings> ComboSettings;
 
+	/** Round-clear bonus: base, no damage, fast clear (DA_RoundClearSettings). No bonus if unset. */
+	UPROPERTY(EditDefaultsOnly, Category = "Economy")
+	TObjectPtr<UGSRoundClearSettings> RoundClearSettings;
+
 	/** XP needed per player level + max level (DA_XPCurve). */
 	UPROPERTY(EditDefaultsOnly, Category = "Progression")
 	TObjectPtr<UGSXPCurve> XPCurve;
@@ -291,6 +305,13 @@ private:
 	/** SetComboSettingsOverride (tests). */
 	UPROPERTY(Transient)
 	TObjectPtr<const UGSComboSettings> ComboSettingsOverride;
+
+	/** SetRoundClearSettingsOverride (tests). */
+	UPROPERTY(Transient)
+	TObjectPtr<const UGSRoundClearSettings> RoundClearSettingsOverride;
+
+	/** Combat -> RoundClear: work out this round's bonus, pay it into the profile and record it in run stats. */
+	void PayRoundClearBonus();
 
 	FRandomStream RunStream;
 	int32 RunSeed = 0;

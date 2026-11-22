@@ -57,6 +57,8 @@ void UGSRunStats::ResetStats(double InRunStartTime)
 	XPEarned = 0;
 	LevelReached = 1;
 	BestCombo = 0;
+	CurrentRound = FGSRoundStats();
+	LastRoundClearPayout = FGSRoundClearPayout();
 	RunStartTime = InRunStartTime;
 	RunEndTime = 0.0;
 	Changed();
@@ -78,6 +80,7 @@ void UGSRunStats::RecordKill(FName EnemyType)
 		return;
 	}
 	++TotalKills;
+	++CurrentRound.Kills;
 	FGSEnemyKillCount* Entry = KillsByType.FindByPredicate([EnemyType](const FGSEnemyKillCount& Kill) { return Kill.EnemyType == EnemyType; });
 	if (!Entry)
 	{
@@ -93,6 +96,7 @@ void UGSRunStats::AddCashEarned(int32 Amount)
 	if (CanWrite() && Amount > 0)
 	{
 		CashEarned += Amount;
+		CurrentRound.CashCollected += Amount;
 		Changed();
 	}
 }
@@ -120,6 +124,7 @@ void UGSRunStats::AddDamageTaken(float Amount)
 	if (CanWrite() && Amount > 0.f)
 	{
 		DamageTaken += Amount;
+		CurrentRound.DamageTaken += Amount;
 		Changed();
 	}
 }
@@ -129,6 +134,37 @@ void UGSRunStats::AddXPEarned(int32 Amount)
 	if (CanWrite() && Amount > 0)
 	{
 		XPEarned = static_cast<int32>(FMath::Min<int64>(static_cast<int64>(XPEarned) + Amount, MAX_int32));
+		CurrentRound.XPEarned = static_cast<int32>(FMath::Min<int64>(static_cast<int64>(CurrentRound.XPEarned) + Amount, MAX_int32));
+		Changed();
+	}
+}
+
+void UGSRunStats::BeginRound(int32 Round)
+{
+	if (CanWrite())
+	{
+		CurrentRound = FGSRoundStats();
+		CurrentRound.Round = Round;
+		Changed();
+	}
+}
+
+void UGSRunStats::RecordCombatStarted(double Time, int32 WaveEnemies)
+{
+	if (CanWrite())
+	{
+		CurrentRound.CombatStartTime = Time;
+		CurrentRound.WaveEnemies = WaveEnemies;
+		Changed();
+	}
+}
+
+void UGSRunStats::RecordRoundClearPayout(const FGSRoundClearPayout& Payout)
+{
+	if (CanWrite())
+	{
+		LastRoundClearPayout = Payout;
+		CashEarned += Payout.GetTotal();
 		Changed();
 	}
 }
@@ -185,6 +221,15 @@ FString UGSRunStats::ToDebugString() const
 	{
 		Kills += FString::Printf(TEXT("%s%s %d"), Kills.IsEmpty() ? TEXT("") : TEXT(", "), *Kill.EnemyType.ToString(), Kill.Count);
 	}
+	const FGSRoundClearPayout& Payout = LastRoundClearPayout;
+	const FString RoundLines = FString::Printf(
+		TEXT("\nThis round:     round %d, %d kills, $%d collected, %d XP, %.0f damage taken\n")
+		TEXT("Last clear bonus: %s"),
+		CurrentRound.Round, CurrentRound.Kills, CurrentRound.CashCollected, CurrentRound.XPEarned, CurrentRound.DamageTaken,
+		Payout.Round > 0
+			? *FString::Printf(TEXT("round %d, $%d (base %d, no damage %d, fast clear %d; %.1f s of %.1f s)"), Payout.Round, Payout.GetTotal(),
+				Payout.BaseBonus, Payout.NoDamageBonus, Payout.FastClearBonus, Payout.ClearTime, Payout.FastClearTime)
+			: TEXT("none yet"));
 	return FString::Printf(
 		TEXT("Run time:       %d:%02d (%.1f s)%s\n")
 		TEXT("Rounds cleared: %d\n")
@@ -195,8 +240,8 @@ FString UGSRunStats::ToDebugString() const
 		TEXT("Damage taken:   %.0f\n")
 		TEXT("XP earned:      %d\n")
 		TEXT("Level reached:  %d\n")
-		TEXT("Best combo:     %d"),
+		TEXT("Best combo:     %d%s"),
 		FMath::FloorToInt(Seconds / 60.f), FMath::FloorToInt(FMath::Fmod(Seconds, 60.f)), Seconds, RunEndTime > 0.0 ? TEXT(" [ended]") : TEXT(""),
 		RoundsCleared, TotalKills, Kills.IsEmpty() ? TEXT("none") : *Kills, CashEarned, CashSpent, DamageDealt, DamageTaken, XPEarned, LevelReached,
-		BestCombo);
+		BestCombo, *RoundLines);
 }

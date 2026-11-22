@@ -33,6 +33,7 @@
 #include "GSUpgradeComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "GSProfileSubsystem.h"
+#include "GSRoundClearSettings.h"
 #include "GSXPCurve.h"
 #include "GSLevelRewards.h"
 
@@ -321,6 +322,53 @@ void AGSGameMode::HandleDamageApplied(AActor* Victim, AActor* DamageInstigator, 
 const UGSComboSettings* AGSGameMode::GetComboSettings() const
 {
 	return ComboSettingsOverride ? ComboSettingsOverride.Get() : ComboSettings.Get();
+}
+
+const UGSRoundClearSettings* AGSGameMode::GetRoundClearSettings() const
+{
+	return RoundClearSettingsOverride ? RoundClearSettingsOverride.Get() : RoundClearSettings.Get();
+}
+
+void AGSGameMode::PayRoundClearBonus()
+{
+	const AGSGameState* GS = GetGameState<AGSGameState>();
+	UGSRunStats* Stats = GetRunStats();
+	const UGSRoundClearSettings* Settings = GetRoundClearSettings();
+	if (!GS || !Stats)
+	{
+		return;
+	}
+	if (!Settings)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("[cash] %s has no RoundClearSettings; no round-clear bonus."), *GetName());
+		return;
+	}
+
+	// The same amounts every round (flat economy): nothing here depends on the round number. Only the fast-clear time
+	// limit follows the wave size.
+	const FGSRoundStats& Round = Stats->GetCurrentRound();
+	FGSRoundClearPayout Payout;
+	Payout.Round = GS->GetRoundNumber();
+	Payout.ClearTime = Round.CombatStartTime >= 0.0 ? static_cast<float>(GS->GetServerWorldTimeSeconds() - Round.CombatStartTime) : 0.f;
+	Payout.FastClearTime = Settings->GetFastClearTime(Round.WaveEnemies);
+	Payout.bNoDamage = Round.DamageTaken <= 0.f;
+	Payout.bFastClear = Payout.ClearTime <= Payout.FastClearTime;
+	Payout.BaseBonus = Settings->BaseBonus;
+	Payout.NoDamageBonus = Payout.bNoDamage ? Settings->NoDamageBonus : 0;
+	Payout.FastClearBonus = Payout.bFastClear ? Settings->FastClearBonus : 0;
+
+	// TODO(co-op): one party-wide bonus into this machine's profile (single player / host); M6 pays every player.
+	const int32 Total = Payout.GetTotal();
+	if (Total > 0)
+	{
+		if (UGSProfileSubsystem* Profile = UGSProfileSubsystem::Get(this))
+		{
+			Profile->AddCash(Total, TEXT("RoundClear"));
+		}
+	}
+	Stats->RecordRoundClearPayout(Payout);
+	UE_LOG(LogBanditBaller, Log, TEXT("[cash] Round %d clear bonus: $%d (base %d, no damage %d, fast clear %d; cleared in %.1f s of %.1f s, %.0f damage taken)"),
+		Payout.Round, Total, Payout.BaseBonus, Payout.NoDamageBonus, Payout.FastClearBonus, Payout.ClearTime, Payout.FastClearTime, Round.DamageTaken);
 }
 
 UGSRunStats* AGSGameMode::GetRunStats() const
@@ -706,13 +754,23 @@ void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
 	// Publish this round's enemy multipliers (the round number may have changed).
 	GS->SetEnemyRoundMultipliers(GetEnemyHealthMultiplier(GS->GetRoundNumber()), GetEnemyDamageMultiplier(GS->GetRoundNumber()));
 
-	// Combat finished (timer, skip or, later, all enemies dead): the round counts as cleared.
+	// A round's stats run from its PreRound to the next one (RoundClear's vacuum still counts for the round it ends).
+	if (NewPhase == EGSRoundPhase::PreRound)
+	{
+		if (UGSRunStats* Stats = GetRunStats())
+		{
+			Stats->BeginRound(GS->GetRoundNumber());
+		}
+	}
+
+	// Combat finished (wave cleared, safety timer or skip): the round counts as cleared and pays its bonus.
 	if (OldPhase == EGSRoundPhase::Combat && NewPhase == EGSRoundPhase::RoundClear)
 	{
 		if (UGSRunStats* Stats = GetRunStats())
 		{
 			Stats->RecordRoundCleared();
 		}
+		PayRoundClearBonus();
 	}
 	if (Duration > 0.f)
 	{
@@ -731,6 +789,10 @@ void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
 	if (NewPhase == EGSRoundPhase::Combat)
 	{
 		WaveDirector->StartWave(GS->GetRoundNumber());
+		if (UGSRunStats* Stats = GetRunStats())
+		{
+			Stats->RecordCombatStarted(GS->GetServerWorldTimeSeconds(), WaveDirector->GetTotal()); // fast-clear clock
+		}
 	}
 
 	// Round won: every cash piece still on the ground flies to the party.

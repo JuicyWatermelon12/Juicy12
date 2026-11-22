@@ -35,10 +35,10 @@ see **Design update — market, prestige and economy**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–22 are done
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–23 are done
 (11–13 and 17 were design / scope updates and permanent cash).
 
-State at the time of writing: `main` after Prompt 22, not pushed. The build is clean and all 26 automation tests pass.
+State at the time of writing: `main` after Prompt 23, not pushed. The build is clean and all 27 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -67,7 +67,8 @@ State at the time of writing: `main` after Prompt 22, not pushed. The build is c
 | M2 19 | Level-up choice screen: pause, cards, input lock, keys / gamepad / mouse, reroll button | 9bd1d3b |
 | M2 20 | XP orbs: XP dropped as a pickup and granted at collection | 864d029 |
 | M2 21 | Map boundary: invisible walls + 75 m ceiling around the town (pawns only) | 92a7bf0 |
-| M2 22 | Kill combo: window, cash multiplier steps, ends on damage, pauses with the game, HUD, best combo | see git log |
+| M2 22 | Kill combo: window, cash multiplier steps, ends on damage, pauses with the game, HUD, best combo | cfcf0fc |
+| M2 23 | Round-clear bonus (base + no damage + fast clear, flat) and the RoundClear summary | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -135,7 +136,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–22 done)
+## M2 — The run loop (Prompts 1–23 done)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -871,6 +872,54 @@ Docs only; no code changed. Not a numbered step: **Next up** keeps its 18–28 n
 - **PIE check** (god mode, round paused): `gs.Spawn MeleeBandit 5` + `gs.KillAll` → Combo 5, x1.25, 2.02 s left
   0.4 s later. The HUD showed "5 COMBO / x1.25 CASH" with the bar draining under "$880". The combo had ended 3 s later.
 
+### Prompt 23 — Round-clear bonus and RoundClear summary
+- **`Core/GSRoundClearSettings.h` (`UGSRoundClearSettings`) → `Data/DA_RoundClearSettings`**, set as
+  `RoundClearSettings` on BP_GSGameMode. The asset still uses the class defaults:
+  - `BaseBonus` $20, `NoDamageBonus` $15, `FastClearBonus` $15. The same every round: nothing grows with the round
+    number.
+  - Fast clear: Combat lasted at most `FastClearBaseTime` 8 s + `FastClearTimePerEnemy` 1.5 s × the round's wave
+    size (`GetFastClearTime`; round 1's 4 bandits → 14 s). The time limit follows the wave size so the bonus stays
+    reachable in big rounds; set the per-enemy time to 0 for a fixed limit.
+- **Round stats** (`UGSRunStats`, on the GameState; run state):
+  - `FGSRoundStats GetCurrentRound()`: Round, Kills, CashCollected (pickups only), XPEarned, DamageTaken,
+    WaveEnemies, CombatStartTime.
+  - The record starts over in each PreRound (`BeginRound`). RoundClear still belongs to the round it ends, so the
+    vacuum's cash and XP count.
+  - `RecordCombatStarted` (time + wave size) when Combat starts. `RecordKill`, `AddCashEarned` (pickups),
+    `AddXPEarned` and `AddDamageTaken` also feed the round.
+  - `FGSRoundClearPayout GetLastRoundClearPayout()`: round, the three bonuses (0 when missed), `bNoDamage`,
+    `bFastClear`, ClearTime, FastClearTime, `GetTotal()`.
+  - Neither is replicated (`TODO(co-op)`). `gs.Run.Stats` prints "This round" and "Last clear bonus" lines.
+- **Payout** (`AGSGameMode::PayRoundClearBonus`, on every Combat → RoundClear: wave cleared, skip or safety timer):
+  - Base, plus no-damage if nobody lost health this round (PreRound included; blocked hits don't count), plus
+    fast-clear if ClearTime ≤ FastClearTime.
+  - The total goes into the profile (`UGSProfileSubsystem::AddCash(Total, "RoundClear")`) and into run stats
+    `CashEarned`. The RoundClear save at the end of the phase includes it.
+  - RoundClear entered from another phase (debug `SetPhase`) pays nothing.
+  - Log: `[cash] Round N clear bonus: $T (base …, no damage …, fast clear …; cleared in X s of Y s, Z damage taken)`.
+  - `TODO(co-op)`: one party-wide bonus into this machine's profile.
+  - `SetRoundClearSettingsOverride` lets tests swap the settings.
+- **`UI/GSRoundSummaryWidget.*` → `UI/WBP_RoundSummary`** (built with MCP), created by `AGSPlayerController::BeginPlay`
+  (`RoundSummaryWidgetClass` on BP_GSPlayerController, Z order 5: above the HUD, below the upgrade choice screen;
+  `GetRoundSummaryWidget()`).
+  - Shown while the phase is RoundClear and the last payout is for the current round. It is hidden in the next
+    PreRound.
+  - Driven by `AGSGameState::OnPhaseChanged` and `UGSRunStats::OnStatsChanged`, so cash collected and XP keep counting
+    while the vacuum pays out. It fades in over 0.25 s.
+  - Layout: a dark panel at 36% screen height, centered.
+    - "ROUND N CLEAR" (gold 34).
+    - Kills, Cash collected (green), XP earned (blue).
+    - A divider, then Round clear, No damage taken and "Fast clear (X s / Y s)". A missed bonus reads "missed" and
+      its row is dimmed to 0.4.
+    - A divider, then "Round bonus +$N" (gold 26).
+  - Test hooks: `IsSummaryShowing()`, `GetShownRound()`, and the `Get…Text()` getters for each line.
+- **Tests:** new `Round.ClearBonus`. `Profile.PermanentCash` now expects the round-clear bonus in the balance and in
+  the RoundClear save.
+- **PIE check** (god mode, round 1 played out, wave killed with `gs.KillAll`, then the RoundClear timer paused):
+  - The summary showed "ROUND 1 CLEAR": 4 kills, $46 collected (combo x1.25 on kills 3–4), 40 XP, then +$20,
+    +$15, "Fast clear (3 s / 14 s)" +$15 and "Round bonus +$50".
+  - The balance went $880 → $976 = $46 + $50 (real profile slot).
+
 ---
 
 ## Console commands and CVars
@@ -901,7 +950,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.Round.Set <N>` | Jump to round N and restart it from PreRound. |
 | `gs.Round.Pause [0\|1]` | Freeze / resume the phase timer. |
 | `gs.Run.Seed [N]` | Print the run seed, or restart the run (stream + stats, round 1) with seed N. |
-| `gs.Run.Stats` | Print run stats to log and screen (works on clients). |
+| `gs.Run.Stats` | Print run stats to log and screen (works on clients), plus this round's stats and the last round-clear bonus. |
 | `gs.Market.Teleport` / `gs.Market.Return` | Debug only: move the party to the Market District and back (not part of the run loop since the design change). |
 | `gs.Editor.MarketDistrictLevel create\|edit\|persistent` | Editor only: create the district sublevel / make it or the persistent level current. |
 | `gs.Editor.BuildEnemyStateTree [melee\|ranged\|all]` | Editor only: regenerate ST_MeleeBandit / ST_RangedBandit from code. |
@@ -968,7 +1017,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (26, all passing)
+## Automation tests (27, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test starts PIE in L_Town_Graybox, waits for the player, removes enemies, runs
 and ends PIE. Stop PIE before running.
@@ -997,7 +1046,8 @@ and ends PIE. Stop PIE before running.
 | `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear and the Market District; new run removes stacks and clamps Health; dead player gets the stack but no heal. Takes each upgrade offer (choice 0) so the game unpauses. |
 | `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → no popup, collected orb → "+XPValue XP" at the collection point; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); 3 upgrade offers taken; banner/pulse/glow end. |
 | `UI.UpgradeChoice` | Choice widget from the PlayerController; level-up pauses (GameMode owns the pause) and the cards wait for the banner; cards match the offer (order, rarity color, "Owned: N"); "Reroll (3 left)", cursor shown; key / click ignored during the 0.3 s lock; R, gamepad Y and the button reroll (label 2/1/0, new cards, lock again), greyed out at 0 and R does nothing; key 2 picks the 2nd card, last pick hides, unpauses, cursor off; 1000 XP → 1 open + 3 queued; D-pad selects, A picks; next offer swaps in at once (no banner wait), locked, still paused; click / numpad 1 / key 3 pick the rest; hidden and unpaused after the queue. |
-| `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; save when RoundClear ends (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + `?Restart` (new HUD shows it). |
+| `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; Combat → RoundClear pays the round-clear bonus into the profile; save when RoundClear ends includes it (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + `?Restart` (new HUD shows it). |
+| `Round.ClearBonus` | DA_RoundClearSettings on the GameMode ($20 / $15 / $15, 8 s + 1.5 s per enemy) and the summary widget on the controller; PreRound starts the round's stats (no payout, no summary); Combat records its start and wave size; round 1 killed fast with no damage → base + no damage + fast clear, kills = wave size, profile += bonus + cash collected; summary shows round, title and each line; after the vacuum cash collected ≥ kills × CashValue, XP = kills × XPValue, profile and CashEarned += cash collected + bonus, summary lines follow; round 2 PreRound hides the summary and starts from zero; damage taken + an impossible time limit (override) → base only, "missed" lines, total = base; RoundClear from PreRound pays nothing and shows nothing; round 10 (skip) pays the same as round 1; gs.Run.Stats shows the last bonus; a new run clears payout and round stats. |
 | `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
 | `Upgrades.ExtraJump` | DA_Upgrade_ExtraJump (Rare, no cap, "+1"); no air jump without it; ×3 → ExtraJumps 3, JumpMaxCount 4; three air jumps (rising, falling, falling fast) each set AirJumpZVelocity, 4th refused, one puff/sound each; landing resets; coyote jump is the ground jump; late jump after walking off uses an air jump; slide-hop then air jump; jump during an air dash is queued and becomes an air jump at the dash end; jump during a ground dash becomes the ground jump; new run → 0 / 1. |
 | `Upgrades.Offers` | DA_UpgradePool on the GameMode (4 upgrades, 100/20/6/1, 3 choices, 3 rerolls), 4 rarities; roll rules: 3000 offers all 3 different, Rare in ~42%, same seed same offers, 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer; simulator deterministic, no short offers, no Epic / Legendary, run stream untouched. |
@@ -1065,6 +1115,12 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   x1.5 from 6 and x2 from 10. Damage ends it; XP isn't multiplied.
   - Melee bandit drops: $10 / $13 / $15 / $20.
   - Ranged bandit drops: $15 / $19 / $23 / $30.
+- **Round-clear bonus** (DA_RoundClearSettings, the same every round): base $20, + $15 for no damage taken, + $15
+  for a fast clear, so up to $50 a round.
+  - The fast-clear limit is 8 s + 1.5 s per wave enemy: round 1 (4) 14 s, round 5 (13) 27.5 s, round 15 (~29)
+    ~52 s.
+  - Round 1 pays $40 of drops (more with the combo), so a perfect clear more than doubles it there. The bonus
+    matters less as waves grow.
 - **Upgrades** (per stack, additive on the base value): Reload Speed +10%, Damage +10%, Move Speed +8% (Common);
   Extra Jump +1 air jump (Rare). None has a cap.
 - **Upgrade offers** (DA_UpgradePool, placeholders): rarity weights Common 100 / Rare 20 / Epic 6 / Legendary 1,
@@ -1103,6 +1159,10 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   combo multiplies the cash of a kill; it depends on kill speed, not the round.
 - Kill combo: no sound or VFX yet (only the HUD panel and its punches). The combo steps are first-pass numbers,
   not balanced against real fights.
+- Round-clear bonus: every Combat → RoundClear pays it. That includes `gs.Round.Skip` (debug; a skip right after
+  Combat starts earns the fast-clear and no-damage bonuses) and the 180 s Combat safety timer (enemies left alive,
+  never fast). The bonus amounts and the time limit are first-pass numbers. The summary has no sound or count-up
+  animation.
 - The only level-up reward so far is +10 MaxHealth and a full heal. Player death (`?Restart`) reloads the map,
   which also resets levels and their MaxHealth stacks.
 - Level-up feedback is placeholder: an editor chime for the sound and a plain overlay glow, with no VFX or
@@ -1187,7 +1247,8 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
 20. ~~**XP pickups.**~~ Done (see Prompt 20).
 21. ~~**Map boundary.**~~ Done for the town (see Prompt 21). The hub map gets its own `AGSMapBoundary` in Prompt 25.
 22. ~~**Kill combo.**~~ Done (see Prompt 22).
-23. **Round clear bonus.** The same amount every round (no round scaling; user decision).
+23. ~~**Round clear bonus.**~~ Done (see Prompt 23): flat base + no-damage + fast-clear bonuses and the RoundClear
+    summary.
 24. **Round HUD.**
 25. **Hub map + hub GameMode.**
     - **Hub map** `Maps/L_Hub_Graybox`: the district content moves out of the sublevel, gets its own lighting, sky,
@@ -1264,3 +1325,6 @@ Not built now; listed so single-player work stays co-op-ready. Co-op has never b
   popup falls back to above its pawn.
 - The kill combo (`UGSComboComponent`: count, multiplier, window) and run stats `BestCombo` aren't replicated, so a
   remote client's HUD shows no combo.
+- The round stats (`FGSRoundStats`) and the round-clear payout aren't replicated, so a remote client's RoundClear
+  summary stays hidden. The bonus is one party-wide payout into this machine's profile, and "no damage" is
+  party-wide.

@@ -40,6 +40,8 @@
 #include "GSCashSettings.h"
 #include "GSComboComponent.h"
 #include "GSComboSettings.h"
+#include "GSRoundClearSettings.h"
+#include "GSRoundSummaryWidget.h"
 #include "GSTargetDummy.h"
 #include "AbilitySystemGlobals.h"
 #include "GSHUDWidget.h"
@@ -2134,9 +2136,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSProfileCashTest, "BanditBaller.Profile.Perma
 bool FGSProfileCashTest::RunTest(const FString& Parameters)
 {
 	TSharedRef<TWeakObjectPtr<UWorld>> OldWorld = MakeShared<TWeakObjectPtr<UWorld>>();
+	TSharedRef<int32> Bonus = MakeShared<int32>(0); // the round-clear bonus paid on the way
 
 	BeginPIE(this);
-	Step([this, OldWorld]()
+	Step([this, OldWorld, Bonus]()
 	{
 		UGSProfileSubsystem* Profile = GetProfile();
 		AGSGameMode* GameMode = GetGameMode();
@@ -2172,12 +2175,15 @@ bool FGSProfileCashTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Overspend changes nothing"), Profile->GetCash(), 15);
 		TestEqual(TEXT("Not saved on change"), GetSavedCash(*Profile), -1);
 
-		// RoundClear saves (when it ends, after its vacuum paid out).
+		// RoundClear pays its bonus into the profile and saves (when it ends, after its vacuum paid out).
 		GameMode->AdvancePhase(); // PreRound -> Combat
 		GameMode->AdvancePhase(); // Combat -> RoundClear
+		*Bonus = Stats->GetLastRoundClearPayout().GetTotal();
+		TestTrue(TEXT("RoundClear paid a bonus"), *Bonus > 0);
+		TestEqual(TEXT("Round-clear bonus -> profile"), Profile->GetCash(), 15 + *Bonus);
 		TestEqual(TEXT("Not saved yet during RoundClear"), GetSavedCash(*Profile), -1);
 		GameMode->AdvancePhase(); // RoundClear -> next round
-		TestEqual(TEXT("Saved at the end of RoundClear"), GetSavedCash(*Profile), 15);
+		TestEqual(TEXT("Saved at the end of RoundClear (bonus included)"), GetSavedCash(*Profile), 15 + *Bonus);
 		if (const UGSProfileSaveGame* Saved = Cast<UGSProfileSaveGame>(UGameplayStatics::LoadGameFromSlot(Profile->GetSlotName(), 0)))
 		{
 			TestEqual(TEXT("Save has the current version"), Saved->SaveVersion, UGSProfileSaveGame::CurrentVersion);
@@ -2187,15 +2193,15 @@ bool FGSProfileCashTest::RunTest(const FString& Parameters)
 		// A new run resets the run's CashEarned but keeps the permanent balance.
 		GameMode->RestartRunWithSeed(906);
 		TestEqual(TEXT("New run: CashEarned back to 0"), Stats->GetCashEarned(), 0);
-		TestEqual(TEXT("New run: balance kept"), Profile->GetCash(), 15);
+		TestEqual(TEXT("New run: balance kept"), Profile->GetCash(), 15 + *Bonus);
 
 		// Run end (death) saves.
 		Profile->AddCash(5, TEXT("Test"));
-		TestEqual(TEXT("Unsaved change"), GetSavedCash(*Profile), 15);
+		TestEqual(TEXT("Unsaved change"), GetSavedCash(*Profile), 15 + *Bonus);
 		*OldWorld = GetPIEWorld();
 		ApplyDamage(GetPlayerASC(), 100000.f);
 		TestTrue(TEXT("Player died"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
-		TestEqual(TEXT("Saved at run end (death)"), GetSavedCash(*Profile), 20);
+		TestEqual(TEXT("Saved at run end (death)"), GetSavedCash(*Profile), 20 + *Bonus);
 	});
 
 	// Restarting the map after death keeps the balance (the profile lives on the GameInstance).
@@ -2204,17 +2210,17 @@ bool FGSProfileCashTest::RunTest(const FString& Parameters)
 	{
 		return GetPIEWorld() && GetPIEWorld() != OldWorld->Get() && IsPlayerReady();
 	}, 30.0);
-	Step([this]()
+	Step([this, Bonus]()
 	{
 		UGSProfileSubsystem* Profile = GetProfile();
 		if (!TestNotNull(TEXT("Profile after restart"), Profile))
 		{
 			return;
 		}
-		TestEqual(TEXT("Balance survives death + restart"), Profile->GetCash(), 20);
+		TestEqual(TEXT("Balance survives death + restart"), Profile->GetCash(), 20 + *Bonus);
 		if (const UGSHUDWidget* HUD = GetPC() ? GetPC()->GetGSHUD() : nullptr)
 		{
-			TestEqual(TEXT("New HUD shows the balance"), HUD->GetDisplayedCash(), 20);
+			TestEqual(TEXT("New HUD shows the balance"), HUD->GetDisplayedCash(), 20 + *Bonus);
 		}
 		Profile->ResetProfile(); // leave the test slot empty
 	});
@@ -3555,6 +3561,201 @@ bool FGSKillComboTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("gs.Run.Stats shows the best combo"), GetGameState()->GetRunStats()->ToDebugString().Contains(TEXT("Best combo")));
 
 		Combo->OnComboEndedNative.Remove(S->EndedHandle);
+		GameMode->SetRoundTimerPaused(false);
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Round-clear bonus + RoundClear summary
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	UGSRoundSummaryWidget* GetRoundSummary()
+	{
+		return GetPC() ? GetPC()->GetRoundSummaryWidget() : nullptr;
+	}
+
+	const FGSRoundStats& GetRoundStats()
+	{
+		return GetGameState()->GetRunStats()->GetCurrentRound();
+	}
+
+	const FGSRoundClearPayout& GetLastPayout()
+	{
+		return GetGameState()->GetRunStats()->GetLastRoundClearPayout();
+	}
+
+	/** Enqueue: kill the wave as it spawns until Combat ends in RoundClear. */
+	void ClearWaveAsPlayer(FAutomationTestBase* Test)
+	{
+		WaitUntil(Test, TEXT("wave killed -> RoundClear"), []()
+		{
+			KillAllEnemiesAsPlayer();
+			return IsPhase(EGSRoundPhase::RoundClear);
+		}, 30.0);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRoundClearBonusTest, "BanditBaller.Round.ClearBonus", GSTests::TestFlags)
+bool FGSRoundClearBonusTest::RunTest(const FString& Parameters)
+{
+	struct FBonusState
+	{
+		int32 CashBefore = 0;
+		int32 EarnedBefore = 0;
+		int32 FirstTotal = 0;
+		int32 CashValue = 0;
+		int32 XPValue = 0;
+	};
+	TSharedRef<FBonusState> S = MakeShared<FBonusState>();
+
+	BeginPIE(this);
+
+	// Settings, then round 1: no damage, cleared fast.
+	Step([this, S]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		const UGSRoundClearSettings* Settings = GameMode ? GameMode->GetRoundClearSettings() : nullptr;
+		const UGSRoundSummaryWidget* Summary = GetRoundSummary();
+		if (!TestNotNull(TEXT("BP_GSGameMode has RoundClearSettings (DA_RoundClearSettings)"), Settings)
+			|| !TestNotNull(TEXT("Round summary widget (RoundSummaryWidgetClass on BP_GSPlayerController)"), Summary))
+		{
+			return;
+		}
+		TestEqual(TEXT("Base bonus $20"), Settings->BaseBonus, 20);
+		TestEqual(TEXT("No-damage bonus $15"), Settings->NoDamageBonus, 15);
+		TestEqual(TEXT("Fast-clear bonus $15"), Settings->FastClearBonus, 15);
+		TestEqual(TEXT("Fast-clear time: 8 s + 1.5 s per enemy (4 enemies -> 14 s)"), Settings->GetFastClearTime(4), 14.f);
+
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->RestartRunWithSeed(2301);
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		GetPlayer()->TeleportTo(FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator);
+		const UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		S->CashValue = Data ? Data->CashValue : 0;
+		S->XPValue = Data ? Data->XPValue : 0;
+
+		TestEqual(TEXT("PreRound starts round 1's stats"), GetRoundStats().Round, 1);
+		TestTrue(TEXT("Combat hasn't started"), GetRoundStats().CombatStartTime < 0.0);
+		TestEqual(TEXT("New run: no payout yet"), GetLastPayout().Round, 0);
+		TestFalse(TEXT("No summary in PreRound"), Summary->IsSummaryShowing());
+
+		S->CashBefore = GetPlayerCash();
+		S->EarnedBefore = GetCashEarnedStat();
+		GameMode->AdvancePhase(); // -> Combat
+		TestTrue(TEXT("Combat start recorded"), GetRoundStats().CombatStartTime >= 0.0);
+		TestEqual(TEXT("Wave size recorded"), GetRoundStats().WaveEnemies, GameMode->GetWaveDirector()->GetTotal());
+	});
+	ClearWaveAsPlayer(this);
+	Step([this, S]()
+	{
+		const UGSRoundClearSettings* Settings = GetGameMode()->GetRoundClearSettings();
+		const FGSRoundClearPayout& Payout = GetLastPayout();
+		const FGSRoundStats& Round = GetRoundStats();
+		TestEqual(TEXT("Payout for round 1"), Payout.Round, 1);
+		TestEqual(TEXT("Base bonus"), Payout.BaseBonus, Settings->BaseBonus);
+		TestTrue(TEXT("No damage taken"), Payout.bNoDamage && Payout.NoDamageBonus == Settings->NoDamageBonus);
+		TestEqual(TEXT("Fast-clear limit from the wave size"), Payout.FastClearTime, Settings->GetFastClearTime(Round.WaveEnemies));
+		TestTrue(FString::Printf(TEXT("Cleared fast (%.1f s of %.1f s)"), Payout.ClearTime, Payout.FastClearTime),
+			Payout.ClearTime > 0.f && Payout.bFastClear && Payout.FastClearBonus == Settings->FastClearBonus);
+		TestEqual(TEXT("Total = base + no damage + fast clear"), Payout.GetTotal(), Settings->BaseBonus + Settings->NoDamageBonus + Settings->FastClearBonus);
+		TestEqual(TEXT("Every wave enemy counted as a kill this round"), Round.Kills, Round.WaveEnemies);
+		// The bonus is in the profile at once; pickups keep arriving from the vacuum.
+		TestEqual(TEXT("Profile += bonus + cash collected so far"), GetPlayerCash() - S->CashBefore, Payout.GetTotal() + Round.CashCollected);
+		S->FirstTotal = Payout.GetTotal();
+
+		const UGSRoundSummaryWidget* Summary = GetRoundSummary();
+		TestTrue(TEXT("Summary shows in RoundClear"), Summary->IsSummaryShowing());
+		TestEqual(TEXT("Summary round"), Summary->GetShownRound(), 1);
+		TestEqual(TEXT("Summary title"), Summary->GetTitleText().ToString(), FString(TEXT("ROUND 1 CLEAR")));
+		TestEqual(TEXT("Summary base line"), Summary->GetBaseBonusText().ToString(), FString::Printf(TEXT("+$%d"), Settings->BaseBonus));
+		TestEqual(TEXT("Summary no-damage line"), Summary->GetNoDamageBonusText().ToString(), FString::Printf(TEXT("+$%d"), Settings->NoDamageBonus));
+		TestEqual(TEXT("Summary fast-clear line"), Summary->GetFastClearBonusText().ToString(), FString::Printf(TEXT("+$%d"), Settings->FastClearBonus));
+		TestEqual(TEXT("Summary total"), Summary->GetTotalText().ToString(), FString::Printf(TEXT("+$%d"), Payout.GetTotal()));
+	});
+	WaitUntil(this, TEXT("RoundClear vacuum to finish"), []() { return GetCashSubsystem()->GetNumActive() == 0; }, 15.0);
+	Step([this, S]()
+	{
+		const FGSRoundClearPayout& Payout = GetLastPayout();
+		const FGSRoundStats& Round = GetRoundStats();
+		TestTrue(TEXT("Cash collected this round: every drop, at least CashValue each"), Round.CashCollected >= Round.Kills * S->CashValue && Round.CashCollected > 0);
+		TestEqual(TEXT("XP earned this round: one orb per kill"), Round.XPEarned, Round.Kills * S->XPValue);
+		TestEqual(TEXT("Profile += cash collected + bonus"), GetPlayerCash() - S->CashBefore, Round.CashCollected + Payout.GetTotal());
+		TestEqual(TEXT("Run stats CashEarned += cash collected + bonus"), GetCashEarnedStat() - S->EarnedBefore, Round.CashCollected + Payout.GetTotal());
+
+		const UGSRoundSummaryWidget* Summary = GetRoundSummary();
+		TestTrue(TEXT("Summary still up"), Summary->IsSummaryShowing());
+		TestEqual(TEXT("Summary kills"), Summary->GetKillsText().ToString(), FString::FromInt(Round.Kills));
+		TestEqual(TEXT("Summary cash follows the vacuum"), Summary->GetCashCollectedText().ToString(), FString::Printf(TEXT("$%d"), Round.CashCollected));
+		TestEqual(TEXT("Summary XP"), Summary->GetXPEarnedText().ToString(), FString::Printf(TEXT("%d XP"), Round.XPEarned));
+
+		// Round 2: damage taken and an impossible time limit -> base bonus only.
+		AGSGameMode* GameMode = GetGameMode();
+		UGSRoundClearSettings* Slow = DuplicateObject<UGSRoundClearSettings>(GameMode->GetRoundClearSettings(), GetTransientPackage());
+		Slow->FastClearBaseTime = 0.f;
+		Slow->FastClearTimePerEnemy = 0.f;
+		GameMode->SetRoundClearSettingsOverride(Slow);
+		GameMode->AdvancePhase(); // RoundClear -> round 2 PreRound
+		TestFalse(TEXT("Summary hidden in the next PreRound"), Summary->IsSummaryShowing());
+		TestTrue(TEXT("Round 2 stats start over"), GetRoundStats().Round == 2 && GetRoundStats().Kills == 0 && GetRoundStats().CashCollected == 0
+			&& GetRoundStats().XPEarned == 0 && GetRoundStats().DamageTaken == 0.f);
+
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		ApplyDamage(GetPlayerASC(), 5.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		TestEqual(TEXT("Damage taken this round"), GetRoundStats().DamageTaken, 5.f, 0.01f);
+		S->CashBefore = GetPlayerCash();
+		GameMode->AdvancePhase(); // -> Combat
+	});
+	ClearWaveAsPlayer(this);
+	Step([this, S]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		const UGSRoundClearSettings* Settings = GameMode->GetRoundClearSettings();
+		const FGSRoundClearPayout& Payout = GetLastPayout();
+		TestEqual(TEXT("Payout for round 2"), Payout.Round, 2);
+		TestEqual(TEXT("Same base bonus in round 2"), Payout.BaseBonus, Settings->BaseBonus);
+		TestTrue(TEXT("Damage taken: no no-damage bonus"), !Payout.bNoDamage && Payout.NoDamageBonus == 0);
+		TestTrue(TEXT("Over the time limit: no fast-clear bonus"), !Payout.bFastClear && Payout.FastClearBonus == 0);
+		TestEqual(TEXT("Total = base only"), Payout.GetTotal(), Settings->BaseBonus);
+		TestEqual(TEXT("Profile += base bonus + cash collected so far"), GetPlayerCash() - S->CashBefore, Payout.GetTotal() + GetRoundStats().CashCollected);
+
+		const UGSRoundSummaryWidget* Summary = GetRoundSummary();
+		TestEqual(TEXT("Summary title"), Summary->GetTitleText().ToString(), FString(TEXT("ROUND 2 CLEAR")));
+		TestEqual(TEXT("Missed no-damage line"), Summary->GetNoDamageBonusText().ToString(), FString(TEXT("missed")));
+		TestEqual(TEXT("Missed fast-clear line"), Summary->GetFastClearBonusText().ToString(), FString(TEXT("missed")));
+		TestEqual(TEXT("Summary total"), Summary->GetTotalText().ToString(), FString::Printf(TEXT("+$%d"), Settings->BaseBonus));
+		GameMode->SetRoundClearSettingsOverride(nullptr);
+
+		// RoundClear without Combat (debug jumps) pays nothing and shows nothing.
+		GameMode->SetRound(10);
+		const int32 CashAtRound10 = GetPlayerCash();
+		GameMode->SetPhase(EGSRoundPhase::RoundClear);
+		TestEqual(TEXT("RoundClear from PreRound: no payout"), GetLastPayout().Round, 2);
+		TestEqual(TEXT("RoundClear from PreRound: no cash"), GetPlayerCash(), CashAtRound10);
+		TestFalse(TEXT("RoundClear from PreRound: no summary"), Summary->IsSummaryShowing());
+
+		// No growth by round: round 10 pays what round 1 paid for the same result (no damage, fast).
+		GameMode->SetRound(10);
+		RemoveAllEnemies(GetPIEWorld());
+		GameMode->AdvancePhase(); // -> Combat
+		GameMode->AdvancePhase(); // skip -> RoundClear
+		TestEqual(TEXT("Payout for round 10"), GetLastPayout().Round, 10);
+		TestEqual(TEXT("Round 10 pays the same as round 1"), GetLastPayout().GetTotal(), S->FirstTotal);
+		TestEqual(TEXT("Summary shows round 10"), Summary->GetShownRound(), 10);
+
+		// A new run starts with no payout and no round stats.
+		TestTrue(TEXT("gs.Run.Stats shows the last clear bonus"), GetGameState()->GetRunStats()->ToDebugString().Contains(TEXT("Last clear bonus: round 10")));
+		GameMode->RestartRunWithSeed(2302);
+		TestEqual(TEXT("New run: payout cleared"), GetLastPayout().Round, 0);
+		TestTrue(TEXT("New run: round 1 stats from zero"), GetRoundStats().Round == 1 && GetRoundStats().Kills == 0 && GetRoundStats().CashCollected == 0);
+		TestFalse(TEXT("New run: no summary"), Summary->IsSummaryShowing());
+
 		GameMode->SetRoundTimerPaused(false);
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
 	});
