@@ -802,7 +802,7 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 		{
 			if (Value < 1)
 			{
-				UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.XP.SetLevel <N> (1..max level)"));
+				UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.XP.SetLevel <N> (N >= 1; levels are endless)"));
 				return;
 			}
 			GameMode->SetPlayerLevelForDebug(PS, Value);

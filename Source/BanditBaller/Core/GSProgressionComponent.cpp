@@ -53,20 +53,9 @@ const UGSXPCurve* UGSProgressionComponent::GetXPCurve() const
 
 void UGSProgressionComponent::RefreshFromCurve(const UGSXPCurve* Curve)
 {
-	State.MaxLevel = Curve ? Curve->GetMaxLevel() : FMath::Max(1, State.Level);
-	State.Level = FMath::Clamp(State.Level, 1, State.MaxLevel);
-	if (State.Level >= State.MaxLevel || !Curve)
-	{
-		State.XPForNextLevel = 0;
-		if (Curve)
-		{
-			State.CurrentXP = 0;
-		}
-	}
-	else
-	{
-		State.XPForNextLevel = Curve->GetXPToReachLevel(State.Level + 1);
-	}
+	// No level cap: there is always a next level when there is a curve.
+	State.Level = FMath::Max(State.Level, 1);
+	State.XPForNextLevel = Curve ? Curve->GetXPToReachLevel(State.Level + 1) : 0;
 }
 
 int32 UGSProgressionComponent::AddXP(int32 Amount)
@@ -84,8 +73,8 @@ int32 UGSProgressionComponent::AddXP(int32 Amount)
 	int64 XP = static_cast<int64>(State.CurrentXP) + Amount;
 	if (Curve)
 	{
-		// Several level-ups in a row; the remainder carries over.
-		while (State.Level < State.MaxLevel)
+		// Several level-ups in a row; the remainder carries over. Endless: each level needs more XP, so this ends.
+		while (State.Level < MAX_int32)
 		{
 			const int32 Needed = Curve->GetXPToReachLevel(State.Level + 1);
 			if (Needed <= 0 || XP < Needed)
@@ -185,9 +174,9 @@ void UGSProgressionComponent::ApplyLevelUpRewards(int32 FirstLevel, int32 LastLe
 
 float UGSProgressionComponent::GetLevelProgress() const
 {
-	if (IsMaxLevel() || State.XPForNextLevel <= 0)
+	if (State.XPForNextLevel <= 0)
 	{
-		return 1.f;
+		return 0.f;
 	}
 	return FMath::Clamp(static_cast<float>(State.CurrentXP) / static_cast<float>(State.XPForNextLevel), 0.f, 1.f);
 }

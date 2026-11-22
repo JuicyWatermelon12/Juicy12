@@ -101,6 +101,9 @@ public:
 	/** Level / XP fill currently shown (from UGSProgressionComponent events; tests). */
 	int32 GetDisplayedLevel() const { return DisplayedLevel; }
 	float GetDisplayedXPPercent() const { return DisplayedXPPercent; }
+	/** The level label ("LV 100") and XP text ("1,535 / 3,070 XP") as shown (tests). */
+	FString GetLevelLabelText() const;
+	FString GetXPLabelText() const;
 
 	/** XP is about to be (or was just) gained from something at WorldLocation, e.g. a collected XP orb. */
 	void NotifyXPSource(const FVector& WorldLocation);
@@ -202,11 +205,11 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> LevelText;
 
-	/** XP towards the next level (full at max level). */
+	/** XP towards the next level (levels are endless). */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UProgressBar> XPBar;
 
-	/** "135 / 156 XP", or "MAX" at max level. */
+	/** "135 / 156 XP". */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> XPText;
 

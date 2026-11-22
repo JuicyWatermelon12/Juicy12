@@ -2386,16 +2386,30 @@ bool FGSXPAndLevelsTest::RunTest(const FString& Parameters)
 			return;
 		}
 
-		// Curve: level 2 = 100 XP, then ~+25% per level.
+		// Curve (DA_XPCurve): level 2 = 100 XP, then +30 more for each level after that. No cap.
+		TestEqual(TEXT("DA_XPCurve BaseXP"), Curve->BaseXP, 100);
+		TestEqual(TEXT("DA_XPCurve XPIncreasePerLevel"), Curve->XPIncreasePerLevel, 30);
+		TestEqual(TEXT("XP to reach level 1"), Curve->GetXPToReachLevel(1), 0);
 		TestEqual(TEXT("XP to reach level 2"), Curve->GetXPToReachLevel(2), 100);
-		TestEqual(TEXT("XP to reach level 3 (+25%)"), Curve->GetXPToReachLevel(3), 125);
-		TestEqual(TEXT("Max level"), Curve->GetMaxLevel(), 50);
-		FString Table;
-		for (int32 Level = 2; Level <= 10; ++Level)
+		TestEqual(TEXT("XP to reach level 3 (+30)"), Curve->GetXPToReachLevel(3), 130);
+		TestEqual(TEXT("XP to reach level 10"), Curve->GetXPToReachLevel(10), 340);
+		TestEqual(TEXT("XP to reach level 51 (past the old cap)"), Curve->GetXPToReachLevel(51), 1570);
+		TestEqual(TEXT("XP to reach level 1000"), Curve->GetXPToReachLevel(1000), 30040);
+		bool bStepsEqual = true;
+		int64 Sum = 0;
+		for (int32 Level = 2; Level <= 300; ++Level)
 		{
-			Table += FString::Printf(TEXT(" L%d=%d"), Level, Curve->GetXPToReachLevel(Level));
+			bStepsEqual &= Level == 2 || Curve->GetXPToReachLevel(Level) - Curve->GetXPToReachLevel(Level - 1) == 30;
+			Sum += Curve->GetXPToReachLevel(Level);
+			bStepsEqual &= Curve->GetTotalXPToReachLevel(Level) == Sum;
 		}
-		AddInfo(FString::Printf(TEXT("[xp] XP needed:%s (total to L10 %lld)"), *Table, Curve->GetTotalXPToReachLevel(10)));
+		TestTrue(TEXT("Each level needs exactly 30 more, and the totals match the per-level sum (to level 300)"), bStepsEqual);
+		FString Table;
+		for (const int32 Level : { 2, 3, 4, 5, 6, 7, 8, 9, 10, 25, 50, 100 })
+		{
+			Table += FString::Printf(TEXT(" L%d=%d (total %lld)"), Level, Curve->GetXPToReachLevel(Level), Curve->GetTotalXPToReachLevel(Level));
+		}
+		AddInfo(FString::Printf(TEXT("[xp] XP needed:%s"), *Table));
 
 		// Fresh run: level 1, nothing earned; XPGain starts at 1 (GE_InitPlayerStats).
 		GameMode->SetRoundTimerPaused(true);
@@ -2411,12 +2425,14 @@ bool FGSXPAndLevelsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("60 XP into level 1"), Progression->GetCurrentXP(), 60);
 		GameMode->AwardXP(PS, 200.f, false);
 		TestEqual(TEXT("260 XP -> level 3"), Progression->GetLevel(), 3);
-		TestEqual(TEXT("Leftover carries over (260 - 100 - 125)"), Progression->GetCurrentXP(), 35);
+		TestEqual(TEXT("Leftover carries over (260 - 100 - 130)"), Progression->GetCurrentXP(), 30);
 		TestEqual(TEXT("XP for level 4"), Progression->GetXPForNextLevel(), Curve->GetXPToReachLevel(4));
 		if (const UGSHUDWidget* HUD = PC->GetGSHUD())
 		{
 			TestEqual(TEXT("HUD level follows OnLevelUp"), HUD->GetDisplayedLevel(), 3);
-			TestEqual(TEXT("HUD XP bar fill"), HUD->GetDisplayedXPPercent(), 35.f / Curve->GetXPToReachLevel(4), 0.001f);
+			TestEqual(TEXT("HUD XP bar fill"), HUD->GetDisplayedXPPercent(), 30.f / Curve->GetXPToReachLevel(4), 0.001f);
+			TestEqual(TEXT("HUD level label"), HUD->GetLevelLabelText(), FString(TEXT("LV 3")));
+			TestEqual(TEXT("HUD XP text"), HUD->GetXPLabelText(), FString(TEXT("30 / 160 XP")));
 		}
 		else
 		{
@@ -2475,18 +2491,18 @@ bool FGSXPAndLevelsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("XP for level 11"), Progression->GetXPForNextLevel(), Curve->GetXPToReachLevel(11));
 		TestEqual(TEXT("Level reached follows SetLevel"), Stats->GetLevelReached(), 10);
 
-		// A huge gain: every level up to the cap at once, one offer per level gained (one open, the rest queued).
+		// A big gain past the old cap of 50: from level 10 to level 60 and 7 XP into it, one offer per level gained.
 		PickAllUpgradeOffers(); // SetLevel 10 queued 9 offers
 		const UGSUpgradeComponent* Upgrades = PS->GetUpgradeComponent();
-		TestFalse(TEXT("No offer before the huge gain"), Upgrades->HasOpenOffer());
-		GameMode->AwardXP(PS, 100000000.f, false);
-		const int32 LevelsGained = Curve->GetMaxLevel() - 10;
-		TestTrue(TEXT("Huge gain: an offer open"), Upgrades->HasOpenOffer());
-		TestEqual(TEXT("Huge gain: one offer per level gained"), Upgrades->GetQueuedOffers() + 1, LevelsGained);
-		TestEqual(TEXT("Capped at max level"), Progression->GetLevel(), Curve->GetMaxLevel());
-		TestTrue(TEXT("IsMaxLevel"), Progression->IsMaxLevel());
-		TestEqual(TEXT("No XP into max level"), Progression->GetCurrentXP(), 0);
-		TestEqual(TEXT("No next level at max"), Progression->GetXPForNextLevel(), 0);
+		TestFalse(TEXT("No offer before the big gain"), Upgrades->HasOpenOffer());
+		const int64 Gain = Curve->GetTotalXPToReachLevel(60) - Curve->GetTotalXPToReachLevel(10) + 7;
+		GameMode->AwardXP(PS, static_cast<float>(Gain), false);
+		TestTrue(TEXT("Big gain: an offer open"), Upgrades->HasOpenOffer());
+		TestEqual(TEXT("Big gain: one offer per level gained (50)"), Upgrades->GetQueuedOffers() + 1, 50);
+		TestEqual(TEXT("No cap: level 60"), Progression->GetLevel(), 60);
+		TestEqual(TEXT("Leftover carries over past 50"), Progression->GetCurrentXP(), 7);
+		TestEqual(TEXT("A next level is always there"), Progression->GetXPForNextLevel(), Curve->GetXPToReachLevel(61));
+		PickAllUpgradeOffers();
 
 		// A new run resets levels and XP stats.
 		GameMode->RestartRunWithSeed(778);
@@ -4928,7 +4944,9 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Offer opened after the heal"), S->HealthAtOpen, S->MaxHealthAtOpen, 0.01f);
 
 		// Two more level-ups at once queue two offers behind the open one.
-		GetGameMode()->AwardXP(GetPC()->GetPlayerState<AGSPlayerState>(), 125.f + 156.f, false);
+		const UGSXPCurve* Curve = GetGameMode()->GetXPCurve();
+		GetGameMode()->AwardXP(GetPC()->GetPlayerState<AGSPlayerState>(),
+			static_cast<float>(Curve->GetXPToReachLevel(3) + Curve->GetXPToReachLevel(4)), false);
 		TestEqual(TEXT("Two offers queued"), Upgrades->GetQueuedOffers(), 2);
 		TestEqual(TEXT("The open offer didn't change"), S->Changes.Num(), 1);
 
@@ -5171,10 +5189,12 @@ bool FGSUpgradeChoiceUITest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("Game unpaused"), IsWorldPaused());
 		TestFalse(TEXT("Mouse cursor hidden"), GetPC()->ShouldShowMouseCursor());
 
-		// Several level-ups at once (gs.XP.Add 1000 from level 2: levels 3-6) queue several offers.
+		// Several level-ups at once (the XP from level 2 to level 6: levels 3-6) queue several offers.
 		S->PicksBefore = GetPlayerUpgrades()->GetTotalPicks();
-		GetGameMode()->AwardXP(GetPC()->GetPlayerState<AGSPlayerState>(), 1000.f, false);
-		TestEqual(TEXT("1000 XP: one open + 3 queued"), GetPlayerUpgrades()->GetQueuedOffers(), 3);
+		const UGSXPCurve* Curve = GetGameMode()->GetXPCurve();
+		GetGameMode()->AwardXP(GetPC()->GetPlayerState<AGSPlayerState>(),
+			static_cast<float>(Curve->GetTotalXPToReachLevel(6) - Curve->GetTotalXPToReachLevel(2)), false);
+		TestEqual(TEXT("Four level-ups: one open + 3 queued"), GetPlayerUpgrades()->GetQueuedOffers(), 3);
 		TestTrue(TEXT("Paused again"), IsWorldPaused());
 	});
 	WaitChoiceReady(this, TEXT("first queued offer"));
@@ -6975,7 +6995,7 @@ bool FGSRunNewRunResetsTest::RunTest(const FString& Parameters)
 
 		// A run with progress: two level-ups (a reroll, both offers picked), more upgrade stacks, a kill and cash.
 		UGSUpgradeComponent* Upgrades = PS->GetUpgradeComponent();
-		GameMode->AwardXP(PS, 225.f, false);
+		GameMode->AwardXP(PS, static_cast<float>(GameMode->GetXPCurve()->GetTotalXPToReachLevel(3)), false);
 		TestEqual(TEXT("Level 3"), PS->GetProgressionComponent()->GetLevel(), 3);
 		TestTrue(TEXT("A reroll used"), GameMode->RerollUpgradeOffer(PS));
 		// Pick a card that can't stop the killing blow below (a Floating Shield or Second Wind would, as designed).
@@ -9650,6 +9670,124 @@ bool FGSMoveSpeedCoverTest::RunTest(const FString& Parameters)
 	{
 		SetMoveSpeedBase(S->BaseWalk);
 		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Endless levels (Prompt 45): level 100 through gs.XP.Add, rewards, offers and the HUD at 3-digit levels
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSEndlessLevelsTest, "BanditBaller.Progression.EndlessLevels", GSTests::TestFlags)
+bool FGSEndlessLevelsTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		AGSPlayerState* PS = GetPC() ? GetPC()->GetPlayerState<AGSPlayerState>() : nullptr;
+		UGSProgressionComponent* Progression = PS ? PS->GetProgressionComponent() : nullptr;
+		UGSUpgradeComponent* Upgrades = PS ? PS->GetUpgradeComponent() : nullptr;
+		const UGSXPCurve* Curve = GameMode ? GameMode->GetXPCurve() : nullptr;
+		UGSHUDWidget* HUD = GetHUD();
+		UGSRunStats* Stats = GetGameState() ? GetGameState()->GetRunStats() : nullptr;
+		if (!TestNotNull(TEXT("Progression"), Progression) || !TestNotNull(TEXT("Upgrades"), Upgrades) || !TestNotNull(TEXT("XP curve"), Curve)
+			|| !TestNotNull(TEXT("HUD"), HUD) || !TestNotNull(TEXT("Run stats"), Stats))
+		{
+			return;
+		}
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->RestartRunWithSeed(4501);
+		GameMode->SetRoundTimerPaused(true);
+		const float BaseMaxHealth = GetAttr(UGSAttributeSet::GetMaxHealthAttribute());
+
+		// Level 100 needs 99 level-ups: 99 x 100 + 30 x (0 + 1 + ... + 98) = 155,430 XP in total.
+		const int64 Total100 = Curve->GetTotalXPToReachLevel(100);
+		TestEqual(TEXT("Total XP to level 100"), Total100, static_cast<int64>(155430));
+
+		// One level first, to measure the MaxHealth reward per level.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("XPAdd"), { FString::FromInt(Curve->GetXPToReachLevel(2)) });
+		TestEqual(TEXT("gs.XP.Add 100: level 2"), Progression->GetLevel(), 2);
+		const float PerLevel = GetAttr(UGSAttributeSet::GetMaxHealthAttribute()) - BaseMaxHealth;
+		TestTrue(FString::Printf(TEXT("A level-up adds MaxHealth (%.0f)"), PerLevel), PerLevel > 0.f);
+
+		// The rest in one gs.XP.Add: 98 more levels at once.
+		ApplyDamage(GetPlayerASC(), 50.f);
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("XPAdd"), { FString::Printf(TEXT("%lld"), Total100 - Curve->GetXPToReachLevel(2)) });
+		TestEqual(TEXT("Level 100"), Progression->GetLevel(), 100);
+		TestEqual(TEXT("0 XP into level 100"), Progression->GetCurrentXP(), 0);
+		TestEqual(TEXT("Level 101 needs 100 + 30 x 99 = 3,070"), Progression->GetXPForNextLevel(), 3070);
+		TestEqual(TEXT("Total XP"), static_cast<int64>(Progression->GetTotalXP()), Total100);
+		TestEqual(TEXT("Run stats: level reached 100"), Stats->GetLevelReached(), 100);
+
+		// Rewards at every level: +MaxHealth per level gained, and a full heal.
+		TestEqual(TEXT("MaxHealth = base + 99 rewards"), GetAttr(UGSAttributeSet::GetMaxHealthAttribute()), BaseMaxHealth + 99.f * PerLevel, 0.01f);
+		TestEqual(TEXT("Full heal at the new MaxHealth"), GetAttr(UGSAttributeSet::GetHealthAttribute()), GetAttr(UGSAttributeSet::GetMaxHealthAttribute()), 0.01f);
+
+		// HUD with a 3-digit level.
+		TestEqual(TEXT("HUD level 100"), HUD->GetDisplayedLevel(), 100);
+		TestEqual(TEXT("HUD level label"), HUD->GetLevelLabelText(), FString(TEXT("LV 100")));
+		TestEqual(TEXT("HUD XP text"), HUD->GetXPLabelText(), FString(TEXT("0 / 3,070 XP")));
+		TestEqual(TEXT("HUD XP bar empty"), HUD->GetDisplayedXPPercent(), 0.f, 0.0001f);
+		TestEqual(TEXT("HUD health follows MaxHealth"), HUD->GetDisplayedMaxHealth(), BaseMaxHealth + 99.f * PerLevel, 0.01f);
+
+		// Offers: one per level gained (99): one open, 98 queued, the game paused. Taken one at a time, each opens the
+		// next with 3 different cards; the first one of the run has a weapon card; no reroll is used.
+		TestTrue(TEXT("An offer is open"), Upgrades->HasOpenOffer());
+		TestEqual(TEXT("98 offers queued behind it"), Upgrades->GetQueuedOffers(), 98);
+		TestTrue(TEXT("Paused for the choice"), IsWorldPaused());
+		const TArray<FGSUpgradeChoice> First = Upgrades->GetCurrentOffer();
+		TestTrue(TEXT("The run's first offer has a weapon card"),
+			First.ContainsByPredicate([](const FGSUpgradeChoice& C) { return C.Upgrade && C.Upgrade->Category == EGSUpgradeCategory::Weapon; }));
+		const int32 PicksBefore = Upgrades->GetTotalPicks();
+		const int32 Rerolls = Upgrades->GetRerollsLeft();
+		bool bQueueOk = true;
+		int32 Taken = 0;
+		while (Upgrades->HasOpenOffer() && Taken < 200)
+		{
+			const TArray<UGSUpgradeData*> Choices = Upgrades->GetCurrentChoices();
+			bQueueOk &= Choices.Num() == 3 && Choices[0] != Choices[1] && Choices[0] != Choices[2] && Choices[1] != Choices[2];
+			bQueueOk &= Upgrades->GetQueuedOffers() == 98 - Taken;
+			bQueueOk &= GameMode->ChooseUpgrade(PS, Taken % 3);
+			++Taken;
+		}
+		TestEqual(TEXT("99 offers taken"), Taken, 99);
+		TestTrue(TEXT("Each offer had 3 different cards and the queue went down by one per pick"), bQueueOk);
+		TestEqual(TEXT("99 picks granted"), Upgrades->GetTotalPicks() - PicksBefore, 99);
+		TestEqual(TEXT("No reroll used"), Upgrades->GetRerollsLeft(), Rerolls);
+		TestFalse(TEXT("No offer left"), Upgrades->HasOpenOffer());
+		TestFalse(TEXT("Unpaused after the last pick"), IsWorldPaused());
+
+		// Half way to 101: the bar is half full.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("XPAdd"), { TEXT("1535") });
+		TestEqual(TEXT("Still level 100"), Progression->GetLevel(), 100);
+		TestEqual(TEXT("HUD XP text half way"), HUD->GetXPLabelText(), FString(TEXT("1,535 / 3,070 XP")));
+		TestEqual(TEXT("HUD XP bar half"), HUD->GetDisplayedXPPercent(), 0.5f, 0.0001f);
+
+		// One more level: 101, one offer.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("XPAdd"), { TEXT("1535") });
+		TestEqual(TEXT("Level 101"), Progression->GetLevel(), 101);
+		TestEqual(TEXT("HUD level label 101"), HUD->GetLevelLabelText(), FString(TEXT("LV 101")));
+		TestEqual(TEXT("HUD XP text at 101"), HUD->GetXPLabelText(), FString(TEXT("0 / 3,100 XP")));
+		TestTrue(TEXT("Level 101: an offer"), Upgrades->HasOpenOffer());
+		TestEqual(TEXT("Level 101: nothing queued"), Upgrades->GetQueuedOffers(), 0);
+		PickAllUpgradeOffers();
+
+		// gs.XP.SetLevel past the old cap.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("XPSetLevel"), { TEXT("250") });
+		TestEqual(TEXT("SetLevel 250"), Progression->GetLevel(), 250);
+		TestEqual(TEXT("SetLevel: 0 XP into it"), Progression->GetCurrentXP(), 0);
+		TestEqual(TEXT("Level 251 needs 100 + 30 x 249"), Progression->GetXPForNextLevel(), 7570);
+		TestEqual(TEXT("HUD label LV 250"), HUD->GetLevelLabelText(), FString(TEXT("LV 250")));
+		PickAllUpgradeOffers();
+
+		// A new run starts at level 1 again.
+		GameMode->RestartRunWithSeed(4502);
+		TestEqual(TEXT("New run: level 1"), Progression->GetLevel(), 1);
+		TestEqual(TEXT("New run: HUD label"), HUD->GetLevelLabelText(), FString(TEXT("LV 1")));
+		TestEqual(TEXT("New run: HUD XP text"), HUD->GetXPLabelText(), FString(TEXT("0 / 100 XP")));
+		TestEqual(TEXT("New run: base MaxHealth"), GetAttr(UGSAttributeSet::GetMaxHealthAttribute()), BaseMaxHealth, 0.01f);
 	});
 	EndPIE();
 	return true;

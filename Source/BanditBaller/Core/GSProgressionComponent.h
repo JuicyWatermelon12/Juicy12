@@ -18,20 +18,17 @@ struct FGSProgressionState
 	UPROPERTY(BlueprintReadOnly, Category = "Progression")
 	int32 Level = 1;
 
-	/** XP into the current level (carries over between level-ups). 0 at max level. */
+	/** XP into the current level (carries over between level-ups). */
 	UPROPERTY(BlueprintReadOnly, Category = "Progression")
 	int32 CurrentXP = 0;
 
-	/** XP needed to reach Level + 1. 0 at max level (or without an XP curve). */
+	/** XP needed to reach Level + 1. 0 only without an XP curve (e.g. the hub). Levels are endless. */
 	UPROPERTY(BlueprintReadOnly, Category = "Progression")
 	int32 XPForNextLevel = 0;
 
-	/** All XP this player was granted this run (including XP past max level). */
+	/** All XP this player was granted this run. */
 	UPROPERTY(BlueprintReadOnly, Category = "Progression")
 	int32 TotalXP = 0;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Progression")
-	int32 MaxLevel = 1;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FGSOnXPChangedSignature, int32, CurrentXP, int32, XPForNextLevel, int32, Delta);
@@ -77,13 +74,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Progression")
 	int32 GetTotalXP() const { return State.TotalXP; }
 
-	UFUNCTION(BlueprintPure, Category = "Progression")
-	int32 GetMaxLevel() const { return State.MaxLevel; }
-
-	UFUNCTION(BlueprintPure, Category = "Progression")
-	bool IsMaxLevel() const { return State.Level >= State.MaxLevel; }
-
-	/** 0..1 progress towards the next level (1 at max level). */
+	/** 0..1 progress towards the next level (0 without an XP curve). */
 	UFUNCTION(BlueprintPure, Category = "Progression")
 	float GetLevelProgress() const;
 
@@ -106,7 +97,7 @@ private:
 	/** The server's XP curve (AGSGameMode). nullptr on clients or if unset. */
 	const UGSXPCurve* GetXPCurve() const;
 
-	/** Recompute MaxLevel / XPForNextLevel from the curve (server). */
+	/** Recompute XPForNextLevel from the curve (server). */
 	void RefreshFromCurve(const UGSXPCurve* Curve);
 
 	void BroadcastChanges(const FGSProgressionState& OldState, int32 Delta);

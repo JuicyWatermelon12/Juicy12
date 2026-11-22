@@ -402,12 +402,31 @@ void AGSGameMode::SetPlayerLevelForDebug(AGSPlayerState* Player, int32 Level)
 		UE_LOG(LogBanditBaller, Warning, TEXT("gs.XP.SetLevel: no progression component or no XPCurve on the GameMode."));
 		return;
 	}
-	const int32 Target = FMath::Clamp(Level, 1, XPCurve->GetMaxLevel());
+	// No level cap. XP amounts are int32, so the one limit is the highest level whose total XP still fits in one.
+	int32 Target = FMath::Max(Level, 1);
+	if (XPCurve->GetTotalXPToReachLevel(Target) > MAX_int32)
+	{
+		int32 Low = 1, High = Target;
+		while (Low < High)
+		{
+			const int32 Mid = Low + (High - Low + 1) / 2;
+			if (XPCurve->GetTotalXPToReachLevel(Mid) <= MAX_int32)
+			{
+				Low = Mid;
+			}
+			else
+			{
+				High = Mid - 1;
+			}
+		}
+		UE_LOG(LogBanditBaller, Warning, TEXT("gs.XP.SetLevel: level %d needs more XP than fits in an int32; using level %d."), Level, Low);
+		Target = Low;
+	}
 	Progression->ResetProgression();
 	const int64 Total = XPCurve->GetTotalXPToReachLevel(Target);
 	if (Total > 0)
 	{
-		Progression->AddXP(static_cast<int32>(FMath::Min<int64>(Total, MAX_int32)));
+		Progression->AddXP(static_cast<int32>(Total));
 	}
 	if (UGSRunStats* Stats = GetRunStats())
 	{

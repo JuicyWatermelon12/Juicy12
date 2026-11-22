@@ -219,7 +219,7 @@ docs/PROGRESS.md  progress log and reference
 - `CaptureViewport` shows the editor world, not PIE; use `CaptureEditorImage` (base64 PNG; decode with PowerShell).
 - Tests: stop PIE, then `AutomationTestToolset` → `DiscoverTests`. Area tests: `RunTests(["BanditBaller.Round.PhaseLoop",
   ...])` or `RunTestsByFilter("StartsWith:BanditBaller.Round")`. Full suite (once per prompt, before the commit):
-  `RunTestsByFilter("StartsWith:BanditBaller")`, about 2 minutes (123 s for 51 tests in Prompt 44b). The editor console also works:
+  `RunTestsByFilter("StartsWith:BanditBaller")`, about 2 minutes (123 s for 52 tests in Prompt 45). The editor console also works:
   `Automation RunTests BanditBaller`. Each result has a `duration` for speed checks.
 - Playing in PIE through MCP: a console command takes 1–3 s to arrive, too slow to fight. Read live round state with
   `ObjectTools.get_properties` on `...UEDPIE_0_L_Town_Graybox...:PersistentLevel.BP_GSGameState_C_0` (`RoundPhase`,

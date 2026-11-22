@@ -1164,6 +1164,16 @@ int32 UGSHUDWidget::GetActiveHealthPopupTotal() const
 	return Total;
 }
 
+FString UGSHUDWidget::GetLevelLabelText() const
+{
+	return LevelText ? LevelText->GetText().ToString() : FString();
+}
+
+FString UGSHUDWidget::GetXPLabelText() const
+{
+	return XPText ? XPText->GetText().ToString() : FString();
+}
+
 void UGSHUDWidget::RefreshProgressionDisplay()
 {
 	const UGSProgressionComponent* Progression = BoundProgression.Get();
@@ -1184,10 +1194,9 @@ void UGSHUDWidget::RefreshProgressionDisplay()
 	}
 	if (XPText)
 	{
-		XPText->SetText(Progression->IsMaxLevel()
-			? NSLOCTEXT("GSHUD", "XPMax", "MAX")
-			: FText::Format(NSLOCTEXT("GSHUD", "XPFormat", "{0} / {1} XP"),
-				FText::AsNumber(Progression->GetCurrentXP()), FText::AsNumber(Progression->GetXPForNextLevel())));
+		// Levels are endless, so there is always a next level to show.
+		XPText->SetText(FText::Format(NSLOCTEXT("GSHUD", "XPFormat", "{0} / {1} XP"),
+			FText::AsNumber(Progression->GetCurrentXP()), FText::AsNumber(Progression->GetXPForNextLevel())));
 	}
 }
 

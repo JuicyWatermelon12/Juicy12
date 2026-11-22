@@ -3,14 +3,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Curves/CurveFloat.h"
 #include "Engine/DataAsset.h"
 #include "GSXPCurve.generated.h"
 
 /**
  * Player level curve (DA_XPCurve, set on BP_GSGameMode). Read on the server by UGSProgressionComponent.
- * XPToReachLevel: X = level, Y = XP needed to go from level X-1 to level X (so X = 2 is the first level-up).
- * New assets start with 100 XP for level 2 and +25% per level up to level 50; edit the keys to tune.
+ * Levels are endless (no cap). The XP needed from level L-1 to level L grows by a fixed amount each level:
+ * BaseXP for level 2, then + XPIncreasePerLevel for every level after that (100, 130, 160, ...).
  */
 UCLASS(BlueprintType, Const)
 class BANDITBALLER_API UGSXPCurve : public UPrimaryDataAsset
@@ -18,50 +17,37 @@ class BANDITBALLER_API UGSXPCurve : public UPrimaryDataAsset
 	GENERATED_BODY()
 
 public:
-	UGSXPCurve()
-	{
-		// Starting values for new assets (the asset's own keys are what the game reads).
-		FRichCurve* Rich = XPToReachLevel.GetRichCurve();
-		for (int32 Level = 2; Level <= 50; ++Level)
-		{
-			const float XP = FMath::RoundToFloat(100.f * FMath::Pow(1.25f, static_cast<float>(Level - 2)));
-			Rich->SetKeyInterpMode(Rich->AddKey(static_cast<float>(Level), XP), RCIM_Linear);
-		}
-	}
-
-	/** XP needed to go from Level-1 to Level. 0 for Level <= 1 or past MaxLevel. */
+	/**
+	 * XP needed to go from Level-1 to Level: BaseXP + XPIncreasePerLevel x (Level - 2), at least 1. 0 for Level <= 1.
+	 * Clamped to the int32 range (only reached around level 70 million).
+	 */
 	int32 GetXPToReachLevel(int32 Level) const
 	{
-		if (Level <= 1 || Level > MaxLevel)
+		if (Level <= 1)
 		{
 			return 0;
 		}
-		const FRichCurve* Rich = XPToReachLevel.GetRichCurveConst();
-		if (!Rich || Rich->GetNumKeys() == 0)
-		{
-			return 0;
-		}
-		return FMath::Max(1, FMath::RoundToInt(Rich->Eval(static_cast<float>(Level))));
+		const int64 XP = static_cast<int64>(BaseXP) + static_cast<int64>(XPIncreasePerLevel) * (Level - 2);
+		return static_cast<int32>(FMath::Clamp<int64>(XP, 1, MAX_int32));
 	}
 
-	/** Total XP from level 1 (0 XP) to reach Level. */
+	/** Total XP from level 1 (0 XP) to reach Level (arithmetic series; no loop, so it is cheap at any level). */
 	int64 GetTotalXPToReachLevel(int32 Level) const
 	{
-		int64 Total = 0;
-		for (int32 L = 2; L <= FMath::Min(Level, MaxLevel); ++L)
+		if (Level <= 1)
 		{
-			Total += GetXPToReachLevel(L);
+			return 0;
 		}
-		return Total;
+		const int64 Steps = Level - 1; // level-ups from 1 to Level
+		const int64 Total = Steps * FMath::Max(BaseXP, 1) + static_cast<int64>(XPIncreasePerLevel) * Steps * (Steps - 1) / 2;
+		return FMath::Max<int64>(Total, Steps);
 	}
 
-	int32 GetMaxLevel() const { return FMath::Max(1, MaxLevel); }
-
-	/** X = level, Y = XP needed from the previous level. Past the last key the last value repeats. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "XP")
-	FRuntimeFloatCurve XPToReachLevel;
-
-	/** Players stop levelling here; XP past it still counts as earned but fills no bar. */
+	/** XP needed for the first level-up (level 1 -> 2). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "XP", meta = (ClampMin = "1"))
-	int32 MaxLevel = 50;
+	int32 BaseXP = 100;
+
+	/** How much more XP each level after level 2 needs than the one before it. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "XP", meta = (ClampMin = "0"))
+	int32 XPIncreasePerLevel = 30;
 };

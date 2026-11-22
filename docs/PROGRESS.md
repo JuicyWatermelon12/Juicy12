@@ -51,7 +51,7 @@ held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds
 M2b + M2c checkpoint (48), which replaces the old M2b checkpoint). Four more weapons and a weapons checkpoint follow
 (49–53). **Then M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Fix: slide and dash scale with Move Speed" (Prompt 44b), not pushed. The build is clean and all 51 automation tests pass in about 123 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Endless levels" (Prompt 45), not pushed. The build is clean and all 52 automation tests pass in about 123 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -111,7 +111,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2c 42 | Per-card roll: Legendary ability chance 0.8%, then an upgrade by AppearanceWeight and a rarity from its category's weights (whole units: Rare → Common); cards show category, rolled rarity, pick line and "Now:"; simulator by category | 8602397 |
 | M2c 43 | Weapon slots: MaxWeapons 3 in DA_UpgradePool, a weapon card in the first offer (kept by its rerolls), "NEW WEAPON" / "WEAPON UPGRADE" cards, three HUD weapon slots (icon only), weapons line in the run summary | e20b92f |
 | M2c 44 | No pick caps (MaxStacks removed); Loaded Dice past 100% = triple-hit chance (x3, own damage number), Powder Keg past 100% = double-size blast chance (6 m); overflow on cards and gs.Upgrade.List; high-value stat check | 7247435 |
-| M2c 44b | Fix: slide and dash scale with Move Speed (speed ratio = MoveSpeed / base walk speed, at least 1, kept per slide / dash); x33 checked against the boundary and town cover | see git log |
+| M2c 44b | Fix: slide and dash scale with Move Speed (speed ratio = MoveSpeed / base walk speed, at least 1, kept per slide / dash); x33 checked against the boundary and town cover | aaac26b |
+| M2c 45 | Endless levels: no cap; DA_XPCurve BaseXP 100 for level 2, +30 per level after that (replaces +25%); rewards, offers and HUD at any level | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -2316,7 +2317,8 @@ picked. Icon only.
 - The Floating Gun's steps: step 1 = the second gun, then +10% each (assumed above)? (41)
 - Powder Keg's double-size blast: double radius only, or double damage too? Loaded Dice's triple damage: ×3 in place of
   CritMultiplier ×2 (assumed above)? (44)
-- The fixed XP amount per level. (45)
+- ~~The fixed XP amount per level.~~ Decided in Prompt 45 (user): 100 XP for level 2, then +30 for each level after
+  that.
 - Does the player's Fire Rate speed up weapons? (Still open from Prompt 38; today it doesn't.)
 - Do owned weapons also show in the upgrade icon row, or only in the weapon slots? (43)
 - With more Legendary abilities later: which one a Legendary card shows.
@@ -2612,6 +2614,46 @@ running faster than them, sliding and dashing slowed the player down.
   PlayerStart moved the player 13.8 m (the 13.2 m dash plus a short coast at the 1,980 cm/s exit speed).
 - **Full suite:** 51 tests, all passing, in 122.6 s.
 
+### Prompt 45 — Endless levels
+- **No level cap.** `UGSXPCurve::MaxLevel` and the curve keys (`XPToReachLevel`) are gone. `DA_XPCurve` now has two
+  numbers: **`BaseXP` 100** (level 1 → 2) and **`XPIncreasePerLevel` 30** (each later level needs that much more than
+  the one before). `GetXPToReachLevel(L)` = 100 + 30 × (L − 2); `GetTotalXPToReachLevel(L)` is the series in closed form,
+  so it is cheap at any level. The asset was re-saved with the two values (the old keys dropped out).
+- **`UGSProgressionComponent`:** `FGSProgressionState::MaxLevel`, `GetMaxLevel` and `IsMaxLevel` are removed. There is
+  always a next level when there is a curve (`XPForNextLevel` is 0 only without one, e.g. the hub), XP past a level
+  always carries over, and a big gain levels up as many times as it covers. `GetLevelProgress` is 0 without a curve
+  (was 1 at max level).
+- **`gs.XP.SetLevel N`:** any N ≥ 1. XP amounts are int32, so above about level 11,960 (2.1 billion total XP) it uses
+  the highest level that fits, with a warning.
+- **Rewards and offers at any level:** unchanged code, now unbounded. Every level gained applies `DA_LevelRewards`
+  (+10 MaxHealth) and one full heal follows, and every level queues an offer. Level 100: MaxHealth 1,090, 99 offers.
+- **HUD:** the "MAX" XP text is gone; it is always "x / y XP" (with thousands separators). The level label is "LV N"
+  ("LV 1,000" from four digits). New test hooks `GetLevelLabelText()` / `GetXPLabelText()`.
+- **XP needed** (from the previous level / total from level 1): L2 100 / 100, L3 130 / 230, L4 160 / 390, L5 190 / 580,
+  L6 220 / 800, L7 250 / 1,050, L8 280 / 1,330, L9 310 / 1,640, L10 340 / 1,980, L25 790 / 10,680, L50 1,540 / 40,180,
+  L100 3,070 / 155,430.
+- **Levels per cleared round** (every enemy killed and orb collected, XPGain 1, every round cleared from round 1;
+  rounds 10 and 20 measured with seeds 2701 / 2702, the other generated rounds at the measured ~8.3 XP per budget point):
+
+  | Round | Wave | XP | Level during the round | XP that level needs | Levels |
+  |---|---|---|---|---|---|
+  | 1 | 4 melee | 40 | 1 | 100 | 0.4 |
+  | 5 | 9 melee, 4 ranged | 150 | 3.5 → 4.4 | 160–190 | ~0.9 |
+  | 10 | 8 melee, 11 ranged (19) | 245 | 7.6 → 8.5 | 280–310 | ~0.8 |
+  | 20 | 17–19 melee, 18–19 ranged (36–37) | 455–460 | 16.0 → 16.8 | 550 | ~0.85 |
+
+  XP per round and XP per level both grow linearly, so a cleared round stays worth a little under a level. A run
+  reaches level ~8.5 after round 10 and ~16.8 after round 20 (the old +25% curve: ~7.9 and ~12.7, and falling
+  further behind every round).
+- **Tests:** `Progression.XPAndLevels` reworked for the new curve (see the table; the old "cap at 50 / 40 offers" part
+  is now "level 10 → 60 in one gain, 50 offers, the remainder carries over"). New `Progression.EndlessLevels`.
+  `Upgrades.Offers`, `UI.UpgradeChoice` and `Run.NewRunResets` had hard-coded XP for the old curve (125 + 156, 1000,
+  225); they now read the amounts from the curve and check the same things.
+- **PIE check** (town, god mode, round paused, real profile): `gs.XP.SetLevel 100`, the 99 offers taken with
+  `gs.Upgrade.Choose`, `gs.XP.Add 1535`. The HUD read "LV 100" over a half-full bar and "1,535 / 3,070 XP", and
+  "1,090 / 1,090" health; the three-digit label fits with room to spare.
+- **Full suite:** 52 tests, all passing, in 122.8 s.
+
 ---
 
 ## Console commands and CVars
@@ -2632,7 +2674,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.Upgrade.Reroll` | Reroll the open offer for one of this run's rerolls (refused with none left or no offer). |
 | `gs.HealthOrb.Spawn [Count=1]` | Drop health orbs around the local player (no drop roll). At full health they wait on the ground until the player is hurt. |
 | `gs.XP.Add <N>` | Grant N raw XP to the local player (XPGain not applied; may level up several times). |
-| `gs.XP.SetLevel <N>` | Reset to level 1, then add exactly the XP for level N (0 XP into it; clamped to max level). |
+| `gs.XP.SetLevel <N>` | Reset to level 1, then add exactly the XP for level N (0 XP into it; no cap, only the int32 XP limit at about level 11,960). |
 | `gs.Profile.AddCash <N>` | Add N to the permanent cash balance (local profile; saved at the next save point). |
 | `gs.Profile.Reset` | Wipe the profile: delete the save file, cash 0. |
 | `gs.Profile.Save` | Save the profile now. |
@@ -2736,7 +2778,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (51, all passing, about 123 s)
+## Automation tests (52, all passing, about 123 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
@@ -2774,7 +2816,8 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Economy.KillCombo` | DA_ComboSettings on the GameMode (2.5 s, x1/x1.25/x1.5/x2 steps, end on damage, no XP); step lookup at each boundary; kills 1–10 in a row: count +1, multiplier, cash drop = round(CashValue × multiplier), XP orb unchanged, window restarted, HUD count / multiplier / shown from 2, "10 COMBO" / "x2 CASH", best combo; a target dummy kill doesn't count; the window drains with game time and the HUD bar follows; a kill inside the window continues; it times out one window after the last kill (HUD hidden); pickups collected after the combo ended pay the kill-time multipliers; a level-up pause freezes the window (1 s real time), picking resumes it; god mode keeps the combo, health lost ends it (DamageTaken); override bEndComboOnDamage off / bApplyComboToXP on: XP orbs multiplied, damage keeps the combo; a new run ends it (Reset) and clears the best combo; gs.Run.Stats shows it. |
 | `Economy.HealthOrbs` | DA_CashSettings: chance 20%, heal 15, no lifetime, M_HealthOrb look larger than the XP orb, a sound; the Magnet card mentions health orbs; chance 0: 10 player kills drop none; chance 1: 5 kills drop 5; an orb worth 15 with no expiry and the orb look; at full health, standing on it: not attracted or collected (1.5 s); hurt to 60: collected, Health 75 (+15), run stats 1 orb / 15 healed, green popup; `gs.HealthOrb.Spawn 2` at 75: both collected, Health = MaxHealth (only 25 healed, 40 in total); a spawned orb at full health waits; the RoundClear vacuum collects it anyway, nothing healed over MaxHealth; a kill that isn't the player's drops none; a shot kill + its Powder Keg blast kill drop 2; a new run clears orbs and the stats; a dead player collects nothing. Game time ×4. |
 | `Economy.XPOrbs` | XPOrbLifetime 0; kill → no XP, one orb worth XPValue with the orb mesh / material, no expiry; cash expires (gs.Cash.Lifetime 1.5) but the orb stays, no blink; walking in collects it → XP = XPValue × XPGain 1.5, run stats XPEarned, "+N XP" popup at the collection point; out-of-reach orb waits, RoundClear vacuums it; gs.XP.Add is instant; a new run clears orbs on the ground; a dead player collects nothing. |
-| `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over (HUD level + bar follow), one offer open + one queued; kill gives no XP but one orb; collected orb XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; level 10 → cap in one gain queues one offer per level (40); cap at max level; new run resets. |
+| `Progression.XPAndLevels` | DA_XPCurve BaseXP 100 / XPIncreasePerLevel 30: L2 = 100, L3 = 130, L10 = 340, L51 = 1,570, L1000 = 30,040, every step +30 and the totals equal the per-level sums to level 300 (logs the table for L2–10, 25, 50, 100); partial XP; 260 XP → level 3 with 30 carried over (HUD level, bar, "LV 3", "30 / 160 XP"), one offer open + one queued; kill gives no XP but one orb; collected orb XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; level 10 → 60 + 7 XP in one gain (past the old cap of 50) queues one offer per level (50), the remainder carries over, a next level is always there; new run resets. |
+| `Progression.EndlessLevels` | Total XP to level 100 = 155,430; `gs.XP.Add` 100 → level 2 (measures the MaxHealth per level), then the rest in one `gs.XP.Add` → level 100, 0 XP, 3,070 for 101, total XP, run stats level 100; MaxHealth = base + 99 rewards and a full heal; HUD "LV 100", "0 / 3,070 XP", empty bar, MaxHealth; 99 offers (one open, 98 queued, paused; the first has a weapon card), taken one by one: each has 3 different cards and the queue goes down by one, 99 picks, no reroll used, unpaused; 1,535 XP → "1,535 / 3,070 XP", bar half; another 1,535 → level 101 ("LV 101", "0 / 3,100 XP"), one offer; `gs.XP.SetLevel 250` → level 250, 7,570 for 251, "LV 250"; a new run → level 1, "LV 1", "0 / 100 XP", base MaxHealth. |
 | `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear; new run removes stacks and clamps Health; dead player gets the stack but no heal. Takes each upgrade offer (choice 0) so the game unpauses. |
 | `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → no popup, collected orb → "+XPValue XP" at the collection point; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); 3 upgrade offers taken; banner/pulse/glow end. |
 | `UI.UpgradeChoice` | Choice widget from the PlayerController; level-up pauses (GameMode owns the pause) and the cards wait for the banner; cards match the offer (order; category, rolled rarity text and frame color, pick line, "Now:" line, a description); the pick gets the card's rarity; "Reroll (3 left)", cursor shown; key / click ignored during the 0.3 s lock; R, gamepad Y and the button reroll (label 2/1/0, new cards, lock again), greyed out at 0 and R does nothing; key 2 picks the 2nd card, last pick hides, unpauses, cursor off; 1000 XP → 1 open + 3 queued; D-pad selects, A picks; next offer swaps in at once (no banner wait), locked, still paused; click / numpad 1 / key 3 pick the rest; hidden and unpaused after the queue. |
@@ -2861,14 +2904,21 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Health orbs: 20% chance per player kill (run stream), heal 15 (never over MaxHealth), same toss / magnet /
     vacuum, ignored at full health (except by the vacuum), no lifetime, sphere ×0.42 with M_HealthOrb, pulse ±12%
     at 1 Hz. On average one in five kills drops one: a round 5 wave (13 enemies) drops about 2.6 orbs, ~39 health.
-- **XP** (DA_XPCurve; XP needed from the previous level, +25% per level, max level 50):
+- **XP** (DA_XPCurve, since Prompt 45; no level cap): `BaseXP` 100 for level 2, then `XPIncreasePerLevel` +30 more
+  for every level after that (XP from the previous level = 100 + 30 × (level − 2)):
 
-  | Level | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
-  |---|---|---|---|---|---|---|---|---|---|
-  | XP | 100 | 125 | 156 | 195 | 244 | 305 | 381 | 477 | 596 |
+  | Level | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 25 | 50 | 100 |
+  |---|---|---|---|---|---|---|---|---|---|---|---|---|
+  | XP from the previous level | 100 | 130 | 160 | 190 | 220 | 250 | 280 | 310 | 340 | 790 | 1,540 | 3,070 |
+  | Total from level 1 | 100 | 230 | 390 | 580 | 800 | 1,050 | 1,330 | 1,640 | 1,980 | 10,680 | 40,180 | 155,430 |
 
-  - Reaching level 10 takes 2579 XP in total. Level 20 needs 5551 from level 19, and level 50 needs 4.48 M.
-  - XP per enemy (orb value): MeleeBandit 10, RangedBandit 15. DT_Waves rounds 1–5 drop 40 / 65 / 90 / 115 / 150 XP.
+  - The old curve (+25% per level, cap 50) needed 596 for level 10, ~16,900 for level 25 and 4.48 M for level 50.
+  - XP per enemy (orb value): MeleeBandit 10, RangedBandit 15. DT_Waves rounds 1–5 drop 40 / 65 / 90 / 115 / 150 XP;
+    generated waves about 8.3 XP per budget point (round 10: 19 enemies, 245 XP; round 20: 36–37 enemies, 455–460 XP).
+  - **Levels per cleared round** (every enemy killed and every orb collected, XPGain 1, clearing every round from 1):
+    round 1 0.4 (40 of the 100 for level 2), round 5 ~0.9 (150 XP at level 3–4, which needs 160–190), round 10 ~0.8
+    (245 XP at level 7–8, 280–310), round 20 ~0.85 (460 XP at level 16, 550). Because both the XP per round and the XP
+    per level grow linearly, a cleared round stays worth a little under one level all the way up.
 - **Kill combo** (DA_ComboSettings): 2.5 s window, restarted by every kill. Cash x1 from 1 kill, x1.25 from 3,
   x1.5 from 6 and x2 from 10. Damage ends it; XP isn't multiplied.
   - Melee bandit drops: $10 / $13 / $15 / $20.
@@ -2923,8 +2973,12 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 ## Known issues, TODOs and deviations
 
 **Not built yet / stubs**
-- The M2c upgrade rework is built up to Prompt 44 (rarity per card, weapon slots, no pick caps; plus the 44b fix). Until
-  Prompt 45, MaxLevel 50 and +25% XP per level stay.
+- The M2c upgrade rework is built up to Prompt 45 (rarity per card, weapon slots, no pick caps, the 44b fix, endless
+  levels). Razor Cards, Barbed Wire and the checkpoint (46–48) are next.
+- Endless levels (Prompt 45): XP amounts are int32 (`FGSProgressionState`, `AddXP`), so a run's total XP tops out at
+  about 2.1 billion, around level 11,960; `gs.XP.SetLevel` above that uses the highest level that fits (with a
+  warning). Far beyond real play. A single gain of many levels applies every level's reward and queues every offer
+  (level 1 → 100 at once: 99 offers), which is instant at that size.
 - Move Speed (Prompt 44b): at a high Move Speed a dash or slide into cover that is turned a few degrees skids round it and
   keeps going (×33: 127–184 m past a tower or shack); it never passes through. A ×33 dash covers 198 m, two-thirds of the
   town. No limit was added (44b asked only for a report); revisit with real play.
@@ -3205,7 +3259,8 @@ questions). Each prompt updates the tests that assume the old design.
     triple-damage hit, Powder Keg past 100% a chance of a double-size blast.~~ Done (see Prompt 44).
 44b. ~~**Fix: slide and dash scale with Move Speed** (the snag found in 44): SpeedBoost / MaxSpeed / EndSpeed and the dash's
     Distance / ExitSpeed × MoveSpeed ÷ base walk speed (at least 1), kept per slide or dash.~~ Done (see Prompt 44b).
-45. **Endless levels:** no level cap; the XP needed per level grows by a fixed amount.
+45. ~~**Endless levels:** no level cap; the XP needed per level grows by a fixed amount.~~ Done (see Prompt 45): 100 for
+    level 2, +30 per level after that.
 46. **Razor Cards** (weapon).
 47. **Barbed Wire** (weapon).
 48. **M2b + M2c tests + checkpoint:** tests for the M2b and M2c rules and a PIE checkpoint, like Prompt 28. Replaces
