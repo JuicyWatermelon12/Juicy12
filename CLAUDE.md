@@ -134,7 +134,14 @@ docs/PROGRESS.md  progress log and reference
   work; file edits for C++.
 - **Make one MCP call at a time**; wait for each result before the next (batch with `ProgrammaticToolset` instead).
 - **Build after every C++ change**; fix errors before moving on.
-- **Run the automation tests** (`StartsWith:BanditBaller`) after gameplay changes; add a test for new core rules.
+- **Tests: area tests while working, the full suite once per prompt.** Add a test for new core rules.
+  - While working on a prompt, run only the tests for the area being changed: `RunTests` with their names, or a
+    narrower filter such as `StartsWith:BanditBaller.Round`.
+  - Run the full suite (`StartsWith:BanditBaller`) once per prompt, right before the commit.
+  - Docs-only prompts don't need a test run.
+- **PIE checks: short when a test covers the rule.** If an automation test covers the rule, do one short PIE
+  confirmation (start, look at it, a command or two, stop) instead of a scripted playthrough. Full playthroughs (for
+  example several rounds or loops with a report) are for checkpoint prompts only, like M2's Prompt 28.
 - **Commit after each working slice** (builds + works in editor). Never push without asking.
 
 ## Conventions
@@ -151,6 +158,14 @@ docs/PROGRESS.md  progress log and reference
   `WaitUntil`, `Step`, `EndPIE`, …). `BeginPIE` opens `L_Town_Graybox` first (pass `HubMap` for the hub), since the
   editor starts in the hub. `EndPIE` only requests the end: before a second `BeginPIE` in the same test, wait for
   `GetPIEWorld() == nullptr`. When appending, keep the closing `#endif` last.
+- Keep tests fast without changing what they check:
+  - Wait on conditions (`WaitUntil`), not fixed times.
+  - For long game-time waits (phase timers, spawns, the vacuum, jumps and falls), use `SpeedUpWorld(D)` at the start
+    and `RestoreWorldSpeed()` at the end. That is the PIE world's time dilation plus no editor throttling. Use ×4 for
+    timers and spawns, ×3 for movement.
+  - Shorten real-time widget durations on the test's own widget instance with `SetFloatProperty` (e.g. the HUD's
+    banner lengths).
+  - Never edit tuning assets or gameplay code to make a test faster.
 - Commit messages: short imperative title, then a body listing what changed.
 
 ## Unreal MCP notes
@@ -171,8 +186,10 @@ docs/PROGRESS.md  progress log and reference
   set `/Script/UnrealEd.Default__EditorPerformanceSettings` `bThrottleCPUWhenNotForeground` false in memory for
   timing work, then restore it.
 - `CaptureViewport` shows the editor world, not PIE; use `CaptureEditorImage` (base64 PNG; decode with PowerShell).
-- Tests: stop PIE, then `AutomationTestToolset` → `DiscoverTests`, `RunTestsByFilter("StartsWith:BanditBaller")`
-  (or `Automation RunTests BanditBaller` in the editor console).
+- Tests: stop PIE, then `AutomationTestToolset` → `DiscoverTests`. Area tests: `RunTests(["BanditBaller.Round.PhaseLoop",
+  ...])` or `RunTestsByFilter("StartsWith:BanditBaller.Round")`. Full suite (once per prompt, before the commit):
+  `RunTestsByFilter("StartsWith:BanditBaller")`, about 80 s. The editor console also works:
+  `Automation RunTests BanditBaller`. Each result has a `duration` for speed checks.
 - Playing in PIE through MCP: a console command takes 1–3 s to arrive, too slow to fight. Read live round state with
   `ObjectTools.get_properties` on `...UEDPIE_0_L_Town_Graybox...:PersistentLevel.BP_GSGameState_C_0` (`RoundPhase`,
   `WaveEnemiesTotal/Remaining/Alive`). Clear waves with `gs.God 1` + `gs.KillAll`, and read results from the `[round]`

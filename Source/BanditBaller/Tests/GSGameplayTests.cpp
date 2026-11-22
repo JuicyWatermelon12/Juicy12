@@ -284,6 +284,57 @@ namespace GSTests
 
 	/** Enqueue: wait Seconds of PIE world time (defined with the economy helpers below). */
 	void WaitWorldSeconds(FAutomationTestBase* Test, double Seconds);
+
+	// --- Test speed (test-only; nothing here changes game rules or tuning assets) ---
+
+	/** Editor throttling saved by SpeedUpWorld, put back by RestoreWorldSpeed. */
+	bool GSavedThrottle = true;
+	bool GThrottleSaved = false;
+
+	/**
+	 * Run the PIE world's game time Dilation x faster (world timers, phases, spawns, pickups, movement) and keep the
+	 * frame rate up with the editor in the background (no CPU throttling), so each game-time step stays short. Rules
+	 * are checked in game time, so they don't change. Real-time parts (widget animations, input locks) aren't sped up.
+	 * Call RestoreWorldSpeed at the end of the test.
+	 */
+	void SpeedUpWorld(float Dilation)
+	{
+		UEditorPerformanceSettings* Perf = GetMutableDefault<UEditorPerformanceSettings>();
+		if (!GThrottleSaved)
+		{
+			GSavedThrottle = Perf->bThrottleCPUWhenNotForeground;
+			GThrottleSaved = true;
+		}
+		Perf->bThrottleCPUWhenNotForeground = false;
+		if (UWorld* World = GetPIEWorld())
+		{
+			World->GetWorldSettings()->SetTimeDilation(Dilation);
+		}
+	}
+
+	void RestoreWorldSpeed()
+	{
+		if (GThrottleSaved)
+		{
+			GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = GSavedThrottle;
+			GThrottleSaved = false;
+		}
+		if (UWorld* World = GetPIEWorld())
+		{
+			World->GetWorldSettings()->SetTimeDilation(1.f);
+		}
+	}
+
+	/** Set a float tuning property (EditDefaultsOnly, often protected) on one object, e.g. a widget's durations. */
+	bool SetFloatProperty(UObject* Object, FName Name, float Value)
+	{
+		FFloatProperty* Property = Object ? FindFProperty<FFloatProperty>(Object->GetClass(), Name) : nullptr;
+		if (Property)
+		{
+			Property->SetPropertyValue_InContainer(Object, Value);
+		}
+		return Property != nullptr;
+	}
 }
 
 using namespace GSTests;
@@ -609,6 +660,8 @@ bool FGSRoundPhaseLoopTest::RunTest(const FString& Parameters)
 		{
 			return;
 		}
+		// The phase timers run in game time: let it run 4x faster.
+		SpeedUpWorld(4.f);
 		TestEqual(TEXT("Round 1 at start"), GameState->GetRoundNumber(), 1);
 		TestTrue(TEXT("Starts in PreRound"), IsPhase(EGSRoundPhase::PreRound));
 		TestTrue(TEXT("PreRound has an end time"), GameState->GetPhaseEndTime() > 0.0);
@@ -678,6 +731,7 @@ bool FGSRoundPhaseLoopTest::RunTest(const FString& Parameters)
 	{
 		TestTrue(TEXT("Still GameOver after the PreRound time"), IsPhase(EGSRoundPhase::GameOver));
 		TestEqual(TEXT("No new round after death"), GetGameState()->GetRoundNumber(), 5);
+		RestoreWorldSpeed();
 	});
 	EndPIE();
 	return true;
@@ -2571,7 +2625,6 @@ bool FGSExtraJumpTest::RunTest(const FString& Parameters)
 
 	struct FState
 	{
-		bool bOldThrottle = true;
 		float AirJumpZ = 0.f;
 		float JumpZ = 0.f;
 		float Coyote = 0.f;
@@ -2580,12 +2633,11 @@ bool FGSExtraJumpTest::RunTest(const FString& Parameters)
 	TSharedRef<FState> S = MakeShared<FState>();
 	TSharedRef<double> FallStart = MakeShared<double>(0.0);
 
-	// Data, defaults, and timing that doesn't depend on the editor being in front.
+	// Data, defaults, and timing that doesn't depend on the editor being in front. Jumps, falls and dashes run in game
+	// time, 3x faster (each step stays shorter than a 60 fps frame; the 0.12 s coyote window still spans several).
 	Step([this, S]()
 	{
-		UEditorPerformanceSettings* Perf = GetMutableDefault<UEditorPerformanceSettings>();
-		S->bOldThrottle = Perf->bThrottleCPUWhenNotForeground;
-		Perf->bThrottleCPUWhenNotForeground = false;
+		SpeedUpWorld(3.f);
 		GetGameMode()->SetRoundTimerPaused(true); // stay in PreRound: no enemies
 
 		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("ExtraJump"));
@@ -2771,7 +2823,7 @@ bool FGSExtraJumpTest::RunTest(const FString& Parameters)
 		GetGameMode()->RestartRunWithSeed(5150);
 		TestEqual(TEXT("New run: ExtraJumps 0"), GetAttr(UGSAttributeSet::GetExtraJumpsAttribute()), 0.f, 0.001f);
 		TestEqual(TEXT("New run: JumpMaxCount 1"), GetPlayer()->JumpMaxCount, 1);
-		GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = S->bOldThrottle;
+		RestoreWorldSpeed();
 	});
 	EndPIE();
 	return true;
@@ -3758,6 +3810,8 @@ bool FGSRoundClearBonusTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Fast-clear bonus $15"), Settings->FastClearBonus, 15);
 		TestEqual(TEXT("Fast-clear time: 8 s + 1.5 s per enemy (4 enemies -> 14 s)"), Settings->GetFastClearTime(4), 14.f);
 
+		// Wave spawns and the vacuum run in game time (clear times are game time too): 4x faster.
+		SpeedUpWorld(4.f);
 		GameMode->SetRoundTimerPaused(true);
 		GameMode->RestartRunWithSeed(2301);
 		RemoveAllEnemies(GetPIEWorld());
@@ -3885,6 +3939,7 @@ bool FGSRoundClearBonusTest::RunTest(const FString& Parameters)
 
 		GameMode->SetRoundTimerPaused(false);
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		RestoreWorldSpeed();
 	});
 	EndPIE();
 	return true;
@@ -3943,6 +3998,13 @@ bool FGSRoundHUDTest::RunTest(const FString& Parameters)
 		{
 			return;
 		}
+		// Speed: game time 4x (countdown, spawns, kills); the HUD's real-time banners shortened on this HUD instance
+		// (the queueing rules don't depend on their length; the real-time wait for LEVEL UP! below follows it).
+		SpeedUpWorld(4.f);
+		UGSHUDWidget* MutableHUD = GetHUD();
+		TestTrue(TEXT("Shorter LEVEL UP! banner for the test"), SetFloatProperty(MutableHUD, TEXT("LevelUpBannerDuration"), 0.8f));
+		TestTrue(TEXT("Shorter round banners for the test"), SetFloatProperty(MutableHUD, TEXT("RoundBannerDuration"), 0.7f));
+
 		GameMode->SetRoundTimerPaused(true); // the countdown follows the phase end time and keeps counting
 		GameMode->RestartRunWithSeed(2401);
 		RemoveAllEnemies(GetPIEWorld());
@@ -3979,10 +4041,10 @@ bool FGSRoundHUDTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Upgrade offer open (game paused)"), GetPlayerUpgrades()->HasOpenOffer() && GetPIEWorld()->IsPaused());
 		TestFalse(TEXT("The level-up hides the round banner"), HUD->IsRoundBannerShowing());
 		TestEqual(TEXT("... and queues it again"), HUD->GetQueuedRoundBannerCount(), 1);
-		S->RealEnd = FPlatformTime::Seconds() + 3.5;
+		S->RealEnd = FPlatformTime::Seconds() + 0.8 + 0.7; // the test's LEVEL UP! length + margin
 	});
-	// LEVEL UP! ends (2.5 s) while the cards are up: the round banner keeps waiting.
-	WaitWatchingBanners(this, TEXT("3.5 s with the upgrade cards up"), Overlaps, [S]() { return FPlatformTime::Seconds() >= S->RealEnd; });
+	// LEVEL UP! ends (real time, the game is paused) while the cards are up: the round banner keeps waiting.
+	WaitWatchingBanners(this, TEXT("LEVEL UP! to end with the upgrade cards up"), Overlaps, [S]() { return FPlatformTime::Seconds() >= S->RealEnd; });
 	Step([this, S]()
 	{
 		UGSHUDWidget* HUD = GetHUD();
@@ -4081,6 +4143,7 @@ bool FGSRoundHUDTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: no upgrade icons"), GetHUD()->GetUpgradeIconCount(), 0);
 		GetGameMode()->SetRoundTimerPaused(false);
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		RestoreWorldSpeed();
 	});
 	EndPIE();
 	return true;
@@ -4321,6 +4384,8 @@ bool FGSTownLayoutTest::RunTest(const FString& Parameters)
 	Step([this, Targets]()
 	{
 		UWorld* World = GetPIEWorld();
+		// The wall runs below happen in game time: 4x faster.
+		SpeedUpWorld(4.f);
 		GetGameMode()->SetRoundTimerPaused(true);
 		RemoveAllEnemies(World);
 		UGSDebugLibrary::SetGodMode(GetPC(), true);
@@ -4479,6 +4544,7 @@ bool FGSTownLayoutTest::RunTest(const FString& Parameters)
 	{
 		GetGameMode()->SetRoundTimerPaused(false);
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		RestoreWorldSpeed();
 	});
 	EndPIE();
 	return true;

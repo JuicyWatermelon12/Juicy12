@@ -39,8 +39,8 @@ the hub map replaces them.
 were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **Next milestone: M3** (shop,
 owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after Prompt 28 ("M2 complete"), not pushed. The build is clean and all 35
-automation tests pass. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Workflow: faster test runs" (after Prompt 28, "M2 complete"), not
+pushed. The build is clean and all 35 automation tests pass in about 80 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -79,7 +79,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | Fix | Death screen R returns to the hub instead of restarting the town | 7b10eb2 |
 | M2 26b | Bigger town: 300 × 300 m, streets, outskirts cover, a landmark per side, NavMesh without islands | 97d2045 |
 | M2 27 | Run end: GameOver on death (wave stopped), run summary, Return to Market → hub | d2891c4 |
-| M2 28 | Tests for the M2 rules, two PIE loops, M2 checkpoint ("M2 complete") | see git log |
+| M2 28 | Tests for the M2 rules, two PIE loops, M2 checkpoint ("M2 complete") | b3dbae2 |
+| Workflow | Faster test runs: area tests while working, full suite once per prompt, short PIE checks; five slowest tests sped up (suite 118 → 80 s) | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -1313,6 +1314,40 @@ Totals: 6 rounds cleared, level 5, 53 kills, best combo 13, $1,151 earned (balan
     Damage was in 6 and Extra Jump in 2. Expected rates are about 86% and 42%; 8 offers is a small sample.
   - Standing still is lethal fast: 7.3 s in round 1 (4 melee), 10.1 s in round 5, 6.7 s in round 7 (ranged-heavy).
 
+## Workflow update — faster test runs (after M2)
+
+Not a numbered step. Docs and test code only; no gameplay, tuning or asset change.
+
+- **New workflow rules (CLAUDE.md):**
+  - **Tests:** while working on a prompt, run only the tests for the area being changed (`RunTests` with names, or
+    a filter like `StartsWith:BanditBaller.Round`). Run the full suite (`StartsWith:BanditBaller`) once per prompt,
+    right before the commit. Docs-only prompts don't need a test run.
+  - **PIE checks:** when an automation test covers the rule, one short PIE confirmation instead of a scripted
+    playthrough. Full playthroughs are for checkpoint prompts only.
+  - **Test speed convention:** wait on conditions rather than fixed times; speed up game-time waits with the new
+    helpers; never touch tuning assets or gameplay code for speed.
+- **Test speed helpers** (`Tests/GSGameplayTests.cpp`, `GSTests`):
+  - `SpeedUpWorld(D)` sets the PIE world's time dilation (game time runs D× faster) and turns off editor CPU
+    throttling, so frames stay short with the editor in the background. `RestoreWorldSpeed()` undoes both.
+  - Rules are checked in game time (phase lengths, clear times, coyote window), so what the tests check doesn't
+    change. Real-time parts (widget animations, input locks, the choice screen's reveal) aren't sped up.
+  - `SetFloatProperty(Object, Name, Value)` sets a float tuning property on one object (e.g. a widget instance's
+    banner length), never on the asset.
+- **The five slowest tests sped up** (each passed 3 runs in a row before the full suite; times from the automation
+  results):
+
+  | Test | Before | After | How |
+  |---|---|---|---|
+  | `UI.RoundHUD` | 14.5 s | 6.1 s | game time ×4; this HUD's LEVEL UP! banner 0.8 s (was 2.5) and round banners 0.7 s (was 1.8); the real-time wait with the cards up follows (1.5 s, was 3.5) |
+  | `Round.PhaseLoop` | 11.1 s | 2.9 s | game time ×4 (the PreRound / RoundClear timers and the wait after death) |
+  | `Upgrades.ExtraJump` | 10.6 s | 3.7 s | game time ×3 (jumps, falls, dashes); replaces the test's own throttle handling |
+  | `Map.TownLayout` | 9.7 s | 2.5 s | game time ×4 (the 8 wall runs) |
+  | `Round.ClearBonus` | 8.8 s | 2.3 s | game time ×4 (two waves spawning, the vacuum) |
+
+- **Suite time:** 35 tests, **117.8 s before → 80.5 s after** (−37 s, −32%), all passing. The slowest tests now are
+  `Economy.KillCombo` (6.3 s), `UI.RoundHUD` (6.1 s), `Economy.XPOrbs` (5.9 s), `Balance.TimeToKill` (5.1 s) and
+  `Economy.CashPickups` (5.0 s).
+
 ---
 
 ## Console commands and CVars
@@ -1411,10 +1446,13 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (35, all passing)
+## Automation tests (35, all passing, about 80 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
-starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running.
+starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
+the area's tests; run the full suite once per prompt before the commit (see **Workflow update — faster test runs**).
+`UI.RoundHUD`, `Round.PhaseLoop`, `Round.ClearBonus` and `Map.TownLayout` run game time ×4 and `Upgrades.ExtraJump` ×3
+(`SpeedUpWorld`). `UI.RoundHUD` also shortens its HUD's banners.
 
 | Test | Checks |
 |---|---|
