@@ -3788,7 +3788,8 @@ bool FGSPiercingRoundsTest::RunTest(const FString& Parameters)
 }
 
 // ---------------------------------------------------------------------------
-// Powder Keg: kills explode (radius, damage per stack x Damage), never the player, chains after a delay, kill credit
+// Powder Keg: a chance per stack that a kill explodes (run stream), a fixed blast (x Damage), never the player, chains
+// roll again after a delay, kill credit
 // ---------------------------------------------------------------------------
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSPowderKegTest, "BanditBaller.Upgrades.PowderKeg", GSTests::TestFlags)
@@ -3807,58 +3808,97 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 	};
 	TSharedRef<FState> S = MakeShared<FState>();
 	auto Health = [](const TWeakObjectPtr<AGSEnemyCharacter>& Bandit) { return Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f; };
+	auto GetPS = []() { return GetPC() ? GetPC()->GetPlayerState<AGSPlayerState>() : nullptr; };
 
-	// Data, no blast without the upgrade.
-	Step([this, S, Health]()
+	// Data; at 0 stacks a kill never explodes and nothing is rolled.
+	Step([this, S, Health, GetPS]()
 	{
 		SpeedUpWorld(4.f);
-		GetGameMode()->SetRoundTimerPaused(true); // stay in PreRound: no wave
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true); // stay in PreRound: no wave
+		GameMode->SetHealthOrbDropChanceOverride(0.f); // no health orbs: the player's health is checked exactly
 		GetPlayer()->TeleportTo(FVector(-400.f, 0.f, 100.f), FRotator(0.f, 180.f, 0.f));
+
+		const UGSCombatSettings* Combat = GameMode->GetCombatSettings();
+		if (!TestNotNull(TEXT("DA_CombatSettings"), Combat))
+		{
+			return;
+		}
+		TestEqual(TEXT("3% chance per stack"), Combat->ChancePerStack, 0.03f, 0.0001f);
+		TestEqual(TEXT("Blast damage 30"), Combat->BlastDamage, 30.f);
+		TestEqual(TEXT("Blast radius 3 m"), Combat->BlastRadius, 300.f);
+		TestEqual(TEXT("Chain delay 0.1 s"), Combat->ChainDelay, 0.1f);
+		TestEqual(TEXT("Chance at 0 stacks"), Combat->GetExplodeChance(0), 0.f);
+		TestEqual(TEXT("Chance at 1 stack"), Combat->GetExplodeChance(1), 0.03f, 0.0001f);
+		TestEqual(TEXT("Chance at 10 stacks"), Combat->GetExplodeChance(10), 0.3f, 0.0001f);
+		TestEqual(TEXT("Chance at 33 stacks"), Combat->GetExplodeChance(33), 0.99f, 0.0001f);
+		TestEqual(TEXT("Chance at 34 stacks: 100%"), Combat->GetExplodeChance(34), 1.f);
+		TestEqual(TEXT("Chance clamped to 100%"), Combat->GetExplodeChance(50), 1.f);
+		TestNotNull(TEXT("Blast damage effect set"), Combat->BlastDamageEffect.Get());
+		TestNotNull(TEXT("Placeholder blast effect set"), Combat->BlastEffect.Get());
+		TestNotNull(TEXT("Placeholder blast sound set"), Combat->BlastSound.Get());
 
 		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("PowderKeg"));
 		if (TestNotNull(TEXT("DA_Upgrade_PowderKeg exists"), Upgrade))
 		{
 			TestTrue(TEXT("Powder Keg is Epic"), Upgrade->Rarity == EGSUpgradeRarity::Epic);
-			TestEqual(TEXT("Powder Keg has no cap"), Upgrade->MaxStacks, 0);
+			TestEqual(TEXT("MaxStacks 34 (the chance reaches 100%)"), Upgrade->MaxStacks, 34);
+			TestTrue(TEXT("MaxStacks is the first stack count at 100%"),
+				Combat->GetExplodeChance(Upgrade->MaxStacks) >= 1.f && Combat->GetExplodeChance(Upgrade->MaxStacks - 1) < 1.f);
+			const FString Card = Upgrade->GetFormattedDescription().ToString();
+			const FString PerStack = FString::Printf(TEXT("+%d%% chance per stack"), FMath::RoundToInt(Combat->ChancePerStack * 100.f));
+			TestTrue(FString::Printf(TEXT("Card text matches ChancePerStack (%s): %s"), *PerStack, *Card), Card.Contains(PerStack));
 			TestTrue(TEXT("Effect is GE_Upgrade_PowderKeg"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_PowderKeg::StaticClass()));
-			const UGSUpgradePool* Pool = GetGameMode()->GetUpgradePool();
+			const UGSUpgradePool* Pool = GameMode->GetUpgradePool();
 			TestTrue(TEXT("Powder Keg is in DA_UpgradePool"), Pool && Pool->Upgrades.Contains(Upgrade));
-		}
-		const UGSCombatSettings* Combat = GetGameMode()->GetCombatSettings();
-		if (TestNotNull(TEXT("DA_CombatSettings"), Combat))
-		{
-			TestEqual(TEXT("Blast: 30 damage at 1 stack"), Combat->GetBlastDamage(1), 30.f);
-			TestEqual(TEXT("Blast: +10 per extra stack"), Combat->GetBlastDamage(3), 50.f);
-			TestEqual(TEXT("Blast: 3 m at 1 stack"), Combat->GetBlastRadius(1), 300.f);
-			TestEqual(TEXT("Blast: +0.5 m per extra stack"), Combat->GetBlastRadius(3), 400.f);
-			TestEqual(TEXT("Chain delay 0.1 s"), Combat->ChainDelay, 0.1f);
-			TestNotNull(TEXT("Blast damage effect set"), Combat->BlastDamageEffect.Get());
-			TestNotNull(TEXT("Placeholder blast effect set"), Combat->BlastEffect.Get());
-			TestNotNull(TEXT("Placeholder blast sound set"), Combat->BlastSound.Get());
 		}
 		TestEqual(TEXT("PowderKeg starts at 0"), GetAttr(UGSAttributeSet::GetPowderKegAttribute()), 0.f, 0.001f);
 
-		// A (dies) at -500, B 2 m away, C 4.5 m from A and 2.5 m from B, D 4 m from A off the line.
-		for (const FVector& At : { FVector(-500.f, 0.f, 0.f), FVector(-700.f, 0.f, 0.f), FVector(-950.f, 0.f, 0.f), FVector(-500.f, -400.f, 0.f) })
+		// 0 stacks: no roll at all (the stream is untouched), never an explosion.
+		const int32 SeedBefore = GameMode->GetRunStream().GetCurrentSeed();
+		int32 Explosions = 0;
+		for (int32 i = 0; i < 100; ++i)
+		{
+			Explosions += GameMode->RollPowderKegChance(GetPS()) ? 1 : 0;
+		}
+		TestEqual(TEXT("0 stacks: 100 kill rolls, no explosion"), Explosions, 0);
+		TestEqual(TEXT("0 stacks: nothing rolled on the run stream"), GameMode->GetRunStream().GetCurrentSeed(), SeedBefore);
+
+		// A (dies) at -500, B 2 m away: a real kill at 0 stacks doesn't explode.
+		for (const FVector& At : { FVector(-500.f, 0.f, 0.f), FVector(-700.f, 0.f, 0.f) })
 		{
 			S->Bandits.Add(SpawnFrozenBandit(At));
 		}
 		ApplyDamage(S->Bandits[0]->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
 		TestTrue(TEXT("No Powder Keg: the kill"), S->Bandits[0]->GetHealthComponent()->IsDead());
-		TestEqual(TEXT("No Powder Keg: no blast"), GetGameMode()->GetPowderKegBlasts(), 0);
+		TestEqual(TEXT("No Powder Keg: no blast"), GameMode->GetPowderKegBlasts(), 0);
 		TestEqual(TEXT("No Powder Keg: B untouched"), Health(S->Bandits[1]), 60.f, 0.01f);
 		RemoveAllEnemies(GetPIEWorld());
 		S->Bandits.Reset();
 	});
 
-	// One stack: 30 damage within 3 m, never the player (standing 1 m from the blast, god mode off). B (20 HP) dies in it
-	// and explodes 0.1 s later, which reaches C (out of the first blast's reach). The kills are the player's.
-	Step([this, S, Health]()
+	// 34 stacks (100%): every kill explodes, with no roll. 30 damage within 3 m, never the player (standing 1 m from the
+	// blast, god mode off). B (20 HP) dies in it, rolls its own 100% and explodes 0.1 s later, which reaches C (out of
+	// the first blast's reach). The kills are the player's.
+	Step([this, S, Health, GetPS]()
 	{
+		AGSGameMode* GameMode = GetGameMode();
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
-		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("PowderKeg") });
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("PowderKeg"), TEXT("34") });
 		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Leech") });
-		TestEqual(TEXT("PowderKeg 1"), GetAttr(UGSAttributeSet::GetPowderKegAttribute()), 1.f, 0.001f);
+		TestEqual(TEXT("PowderKeg 34"), GetAttr(UGSAttributeSet::GetPowderKegAttribute()), 34.f, 0.001f);
+		TestEqual(TEXT("A 35th stack is refused (MaxStacks 34)"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("PowderKeg")), 0);
+		TestEqual(TEXT("34 stacks: 100% chance"), GameMode->GetPowderKegChance(GetPS()), 1.f);
+
+		const int32 SeedBefore = GameMode->GetRunStream().GetCurrentSeed();
+		int32 Explosions = 0;
+		for (int32 i = 0; i < 100; ++i)
+		{
+			Explosions += GameMode->RollPowderKegChance(GetPS()) ? 1 : 0;
+		}
+		TestEqual(TEXT("34 stacks: 100 kill rolls, 100 explosions"), Explosions, 100);
+		TestEqual(TEXT("100%: no dice on the run stream"), GameMode->GetRunStream().GetCurrentSeed(), SeedBefore);
+
 		for (const FVector& At : { FVector(-500.f, 0.f, 0.f), FVector(-700.f, 0.f, 0.f), FVector(-950.f, 0.f, 0.f), FVector(-500.f, -400.f, 0.f) })
 		{
 			S->Bandits.Add(SpawnFrozenBandit(At));
@@ -3883,11 +3923,11 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 
 		// Kill A as the player: it explodes at once.
 		ApplyDamage(S->Bandits[0]->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
-		TestEqual(TEXT("One blast at once"), GetGameMode()->GetPowderKegBlasts(), 1);
+		TestEqual(TEXT("One blast at once"), GameMode->GetPowderKegBlasts(), 1);
 		TestTrue(TEXT("B (20 HP, 2 m) died in the blast"), S->Bandits[1]->GetHealthComponent()->IsDead());
 		TestEqual(TEXT("C (4.5 m) is out of reach"), Health(S->Bandits[2]), 60.f, 0.01f);
 		TestEqual(TEXT("D (4 m) is out of reach"), Health(S->Bandits[3]), 60.f, 0.01f);
-		TestEqual(TEXT("B's blast waits for the chain delay"), GetGameMode()->GetPendingPowderKegs(), 1);
+		TestEqual(TEXT("B's blast waits for the chain delay"), GameMode->GetPendingPowderKegs(), 1);
 		// The player is 1 m from A: never hurt by it; Leech healed the two kills (A by the gun, B by the blast).
 		TestEqual(TEXT("The player isn't hurt and Leech healed both kills"), GetHealth(GetPlayerASC()), S->PlayerHealth + 2.f, 0.01f);
 		TestEqual(TEXT("Blast kill counts for the combo (A + B)"), Combo->GetComboCount(), S->ComboBefore + 2);
@@ -3895,34 +3935,83 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("The blast kill dropped cash"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash) > S->CashPickupsBefore);
 		TestEqual(TEXT("Two XP orbs (A and B)"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::XP), S->OrbsBefore + 2);
 	});
-	WaitWorldSeconds(this, 0.2);
-	Step([this, S, Health]()
+	// Wait on the chain itself (a fixed 0.2 s wait could end on a long first frame before the timer ticked).
+	WaitUntil(this, TEXT("B's chain blast"), []() { return GetGameMode()->GetPendingPowderKegs() == 0; }, 10.0);
+	Step([this, S, Health, GetPS]()
 	{
-		TestEqual(TEXT("B exploded 0.1 s later: two blasts"), GetGameMode()->GetPowderKegBlasts(), 2);
+		AGSGameMode* GameMode = GetGameMode();
+		TestEqual(TEXT("B exploded 0.1 s later: two blasts"), GameMode->GetPowderKegBlasts(), 2);
 		TestEqual(TEXT("B's blast hit C (2.5 m from B) for 30"), Health(S->Bandits[2]), 30.f, 0.01f);
 		TestEqual(TEXT("D (4.7 m from B) still untouched"), Health(S->Bandits[3]), 60.f, 0.01f);
-		TestEqual(TEXT("Nothing pending"), GetGameMode()->GetPendingPowderKegs(), 0);
+		TestEqual(TEXT("Nothing pending"), GameMode->GetPendingPowderKegs(), 0);
+
+		// A kill that isn't the player's doesn't explode, even at 100%.
+		const int32 Blasts = GameMode->GetPowderKegBlasts();
+		ApplyDamage(S->Bandits[2]->GetAbilitySystemComponent(), 1000.f);
+		TestTrue(TEXT("C died to its own damage"), S->Bandits[2]->GetHealthComponent()->IsDead());
+		TestEqual(TEXT("A kill by someone else: no blast"), GameMode->GetPowderKegBlasts(), Blasts);
 		RemoveAllEnemies(GetPIEWorld());
 		S->Bandits.Reset();
 
-		// Three stacks: 50 damage and 4 m; Damage x1.1 makes it 55. D at 3.5 m is in reach now.
-		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("PowderKeg"), TEXT("2") });
-		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Damage") });
-		for (const FVector& At : { FVector(-500.f, 0.f, 0.f), FVector(-500.f, -350.f, 0.f), FVector(-500.f, 450.f, 0.f) })
+		// The blast is the same size at 1 and at 20 stacks: 30 damage at 2.9 m, nothing at 3.1 m.
+		GameMode->RestartRunWithSeed(61);
+		GameMode->SetRoundTimerPaused(true);
+		const FVector Ground(-500.f, 0.f, 0.f);
+		FVector Center = Ground;
+		for (const int32 Stacks : { 1, 20 })
 		{
-			S->Bandits.Add(SpawnFrozenBandit(At));
+			const int32 Have = FMath::RoundToInt(GetAttr(UGSAttributeSet::GetPowderKegAttribute()));
+			UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("PowderKeg"), Stacks - Have);
+			TestEqual(FString::Printf(TEXT("PowderKeg %d"), Stacks), GetAttr(UGSAttributeSet::GetPowderKegAttribute()), static_cast<float>(Stacks), 0.001f);
+			const TWeakObjectPtr<AGSEnemyCharacter> Inside = SpawnFrozenBandit(Ground + FVector(0.f, -290.f, 0.f));
+			const TWeakObjectPtr<AGSEnemyCharacter> Outside = SpawnFrozenBandit(Ground + FVector(0.f, 310.f, 0.f));
+			if (!Inside.IsValid() || !Outside.IsValid())
+			{
+				AddError(TEXT("Blast-size bandits didn't spawn"));
+				return;
+			}
+			// The blast is measured in 3D: center it at the bandits' own height (where a dead enemy's blast starts).
+			Center = Inside->GetActorLocation() + FVector(0.f, 290.f, 0.f);
+			AddInfo(FString::Printf(TEXT("[blast] %d stack(s): bandits %.0f and %.0f cm from the blast"), Stacks,
+				FVector::Dist(Inside->GetActorLocation(), Center), FVector::Dist(Outside->GetActorLocation(), Center)));
+			GameMode->ExplodePowderKeg(Center, GetPS());
+			TestEqual(FString::Printf(TEXT("%d stack(s): 30 damage at 2.9 m"), Stacks), Health(Inside), 30.f, 0.01f);
+			TestEqual(FString::Printf(TEXT("%d stack(s): nothing at 3.1 m (radius 3 m)"), Stacks), Health(Outside), 60.f, 0.01f);
+			RemoveAllEnemies(GetPIEWorld());
 		}
-		ApplyDamage(S->Bandits[0]->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
-		TestEqual(TEXT("3 stacks x Damage 1.1: 55 at 3.5 m"), Health(S->Bandits[1]), 5.f, 0.01f);
-		TestEqual(TEXT("3 stacks: 4.5 m is out of the 4 m radius"), Health(S->Bandits[2]), 60.f, 0.01f);
 
-		// A kill that isn't the player's doesn't explode.
-		const int32 Blasts = GetGameMode()->GetPowderKegBlasts();
-		ApplyDamage(S->Bandits[2]->GetAbilitySystemComponent(), 1000.f);
-		TestEqual(TEXT("A kill by someone else: no blast"), GetGameMode()->GetPowderKegBlasts(), Blasts);
+		// The player's Damage still scales it: x1.1 -> 33.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Damage") });
+		const TWeakObjectPtr<AGSEnemyCharacter> Scaled = SpawnFrozenBandit(Ground + FVector(0.f, -290.f, 0.f));
+		GameMode->ExplodePowderKeg(Center, GetPS());
+		TestEqual(TEXT("Damage x1.1: 33"), Health(Scaled), 27.f, 0.01f);
+		RemoveAllEnemies(GetPIEWorld());
 
-		GetGameMode()->RestartRunWithSeed(61);
+		// 10 stacks: 1,000 kill rolls on the run stream come out close to 30%, and the same stream state replays them.
+		GameMode->RestartRunWithSeed(62);
+		GameMode->SetRoundTimerPaused(true);
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("PowderKeg"), 10);
+		TestEqual(TEXT("10 stacks: 30% chance"), GameMode->GetPowderKegChance(GetPS()), 0.3f, 0.0001f);
+		const FRandomStream Saved = GameMode->GetRunStream();
+		auto CountExplosions = [GameMode, GetPS]()
+		{
+			int32 Count = 0;
+			for (int32 i = 0; i < 1000; ++i)
+			{
+				Count += GameMode->RollPowderKegChance(GetPS()) ? 1 : 0;
+			}
+			return Count;
+		};
+		const int32 Explosions = CountExplosions();
+		AddInfo(FString::Printf(TEXT("[blast] 10 stacks: %d explosions in 1000 kill rolls (%.1f%%)"), Explosions, Explosions / 10.f));
+		TestTrue(FString::Printf(TEXT("10 stacks: ~30%% of 1000 kills explode (%d)"), Explosions), Explosions >= 260 && Explosions <= 340);
+		TestTrue(TEXT("The rolls advanced the run stream"), GameMode->GetRunStream().GetCurrentSeed() != Saved.GetCurrentSeed());
+		GameMode->GetRunStream() = Saved;
+		TestEqual(TEXT("The same stream state replays the same explosions"), CountExplosions(), Explosions);
+
+		GameMode->RestartRunWithSeed(63);
 		TestEqual(TEXT("New run: PowderKeg 0"), GetAttr(UGSAttributeSet::GetPowderKegAttribute()), 0.f, 0.001f);
+		GameMode->SetHealthOrbDropChanceOverride(-1.f);
 		RestoreWorldSpeed();
 	});
 	EndPIE();
@@ -6974,7 +7063,8 @@ bool FGSHealthOrbsTest::RunTest(const FString& Parameters)
 		}
 		TestEqual(TEXT("A kill that isn't the player's drops no health orb"), Pickups->GetNumActiveOfKind(EGSPickupKind::Health), 0);
 
-		TestEqual(TEXT("Powder Keg x1"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("PowderKeg"), 1), 1);
+		// Powder Keg x34: every kill explodes (100%), so the shot kill's blast surely kills the neighbour.
+		TestEqual(TEXT("Powder Keg x34"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("PowderKeg"), 34), 34);
 		AGSEnemyCharacter* Neighbour = SpawnFrozenMeleeAt(this, S->EnemyAt + FVector(0.f, 150.f, 0.f));
 		if (Neighbour)
 		{

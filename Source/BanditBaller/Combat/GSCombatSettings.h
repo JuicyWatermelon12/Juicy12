@@ -21,25 +21,24 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Critical Hits", meta = (ClampMin = "1"))
 	float CritMultiplier = 2.f;
 
-	// --- Powder Keg: enemies the player kills explode ---
+	// --- Powder Keg: enemies the player kills have a chance to explode ---
 
-	/** Blast damage at 1 stack, before the player's Damage multiplier. */
+	/**
+	 * Chance per PowderKeg stack that an enemy the player kills explodes (rolled on the run stream per kill), clamped to
+	 * 100%. DA_Upgrade_PowderKeg's card text and MaxStacks (34 at 3%) are written to match it by hand.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Powder Keg", meta = (ClampMin = "0", ClampMax = "1"))
+	float ChancePerStack = 0.03f;
+
+	/** Blast damage, before the player's Damage multiplier. The same at every stack count. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Powder Keg", meta = (ClampMin = "0"))
 	float BlastDamage = 30.f;
 
-	/** Extra blast damage per stack after the first. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Powder Keg", meta = (ClampMin = "0"))
-	float BlastDamagePerExtraStack = 10.f;
-
-	/** Blast radius at 1 stack. */
+	/** Blast radius. The same at every stack count. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Powder Keg", meta = (ClampMin = "0", Units = "cm"))
 	float BlastRadius = 300.f;
 
-	/** Extra blast radius per stack after the first. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Powder Keg", meta = (ClampMin = "0", Units = "cm"))
-	float BlastRadiusPerExtraStack = 50.f;
-
-	/** An enemy killed by a blast explodes this long after (so chains ripple). World time: pauses with the game. */
+	/** An enemy killed by a blast rolls its own chance; if it explodes, it does this long after (so chains ripple). World time: pauses with the game. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Powder Keg", meta = (ClampMin = "0", Units = "s"))
 	float ChainDelay = 0.1f;
 
@@ -47,13 +46,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Powder Keg")
 	TSubclassOf<UGameplayEffect> BlastDamageEffect;
 
-	/** Placeholder explosion, scaled with the radius (its size at 1 = BlastRadius). */
+	/** Placeholder explosion (its size at scale 1 matches BlastRadius). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Powder Keg")
 	TObjectPtr<UNiagaraSystem> BlastEffect;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Powder Keg")
 	TObjectPtr<USoundBase> BlastSound;
 
-	float GetBlastDamage(int32 Stacks) const { return Stacks > 0 ? BlastDamage + BlastDamagePerExtraStack * (Stacks - 1) : 0.f; }
-	float GetBlastRadius(int32 Stacks) const { return Stacks > 0 ? BlastRadius + BlastRadiusPerExtraStack * (Stacks - 1) : 0.f; }
+	/** Chance (0..1) that a kill explodes at Stacks PowderKeg stacks: Stacks x ChancePerStack, clamped. */
+	float GetExplodeChance(int32 Stacks) const { return Stacks > 0 ? FMath::Clamp(Stacks * ChancePerStack, 0.f, 1.f) : 0.f; }
 };

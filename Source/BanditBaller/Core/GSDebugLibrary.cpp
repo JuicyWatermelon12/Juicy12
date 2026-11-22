@@ -15,6 +15,7 @@
 #include "GSComboComponent.h"
 #include "GSEnemyCharacter.h"
 #include "GSEnemyData.h"
+#include "GSCombatSettings.h"
 #include "GSGameMode.h"
 #include "GSGameplayAbility_Dash.h"
 #include "GSGameplayTags.h"
@@ -247,6 +248,14 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 				Dash->GetMaxCharges(ASC->AbilityActorInfo.Get()), DashSettings ? DashSettings->MaxCharges : 1,
 				ASC->GetNumericAttribute(UGSAttributeSet::GetExtraDashChargesAttribute()),
 				Dash->GetAvailableCharges(ASC->AbilityActorInfo.Get()));
+		}
+		if (const AGSGameMode* GameMode = PC->GetWorld()->GetAuthGameMode<AGSGameMode>())
+		{
+			const UGSCombatSettings* Combat = GameMode->GetCombatSettings() ? GameMode->GetCombatSettings() : GetDefault<UGSCombatSettings>();
+			Text += FString::Printf(TEXT("\n  Powder Keg: %.0f stack(s), %.0f%% chance per kill (%.0f%% per stack), blast %.0f damage x Damage %.2f in %.1f m"),
+				ASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute()), GameMode->GetPowderKegChance(PS) * 100.f,
+				Combat->ChancePerStack * 100.f, Combat->BlastDamage, ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute()),
+				Combat->BlastRadius / 100.f);
 		}
 	}
 

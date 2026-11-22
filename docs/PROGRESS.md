@@ -42,9 +42,9 @@ the hub map replaces them.
 were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **Next: M2b**, eleven more
 level-up upgrades (Prompts 29–40; 29 is the docs-only plan, then Dash Charge (30), Fire Rate + Magnet (31) and the
 held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds (34) and Powder Keg (35); all done). **Then M3** (shop, owned items, gear loadout,
-two-layer save); not planned in detail yet. Health orbs (35b) were added between 35 and 36; they aren't an upgrade.
+two-layer save); not planned in detail yet. Health orbs (35b) were added between 35 and 36; they aren't an upgrade. Powder Keg became a chance to explode in 35c.
 
-State at the time of writing: `main` after "Health orbs" (Prompt 35b), not pushed. The build is clean and all 43 automation tests pass in about 95 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Powder Keg: chance to explode" (Prompt 35c), not pushed. The build is clean and all 43 automation tests pass in about 94 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -93,7 +93,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2b 33 | Loaded Dice: CritChance, one crit roll on the run stream, double damage, critical damage numbers | 0133f66 |
 | M2b 34 | Piercing Rounds: Pierce, shots pass through targets (once each, full damage, own crit and number), walls stop them | 2ee3f68 |
 | M2b 35 | Powder Keg: the player's kills explode (radius / damage per stack × Damage), chains 0.1 s apart, blast kills are the player's | a650a64 |
-| M2b 35b | Health orbs: a 20% chance per player kill (run stream), heal 15 at pickup, ignored at full health, vacuumed at RoundClear | see git log |
+| M2b 35b | Health orbs: a 20% chance per player kill (run stream), heal 15 at pickup, ignored at full health, vacuumed at RoundClear | 5a7086a |
+| M2b 35c | Powder Keg: a 3% chance per stack that a player kill explodes (run stream), fixed blast (30 × Damage, 3 m), MaxStacks 34 | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -1380,7 +1381,7 @@ data.
 | Leech | Rare | Heal 1 health per kill | none | new | 32 |
 | Floating Gun | Epic | 1st pick: a gun over the right shoulder; 2nd: a gun over the left; 3rd and later: +10% damage and +10% fire rate for the guns | none | new | 38, 39 |
 | Piercing Rounds | Epic | Shots pass through 1 more enemy | none | new | 34 |
-| Powder Keg | Epic | Enemies the player kills explode and damage enemies nearby; each pick makes the blast bigger | none | new | 35 |
+| Powder Keg | Epic | +3% chance that an enemy the player kills explodes and damages enemies nearby (fixed blast; changed in 35c, was "every kill explodes, the blast grows") | 34 (= 100%) | new | 35, 35c |
 | Second Wind | Legendary | Survive one killing blow and come back at 30% health | none | new | 37 |
 
 - After M2b the pool holds Common 6 (Reload Speed, Damage, Move Speed + 3), Rare 5 (Extra Jump + 4), Epic 3 and
@@ -1445,6 +1446,8 @@ data.
   open.
 - ~~Powder Keg: does an enemy killed by a blast explode too (a chain)? Does "bigger" mean the radius only, or the
   damage too?~~ Decided in Prompt 35: yes, chains, each link 0.1 s after the last; both radius and damage grow.
+  Changed in Prompt 35c: stacks raise the chance to explode (3% each), the blast stays the same, and each chain kill
+  rolls the chance too.
 - Floating Gun: do the player's Damage and Fire Rate upgrades also scale the guns? Which enemy does a gun target?
 - Second Wind: is there a short invulnerability after coming back?
 
@@ -1810,6 +1813,46 @@ Not an upgrade: a third kind of enemy drop. Added between Prompts 35 and 36; the
     stayed on the ground.
 - **Full suite:** 43 tests, all passing, in 94.8 s.
 
+### Prompt 35c — Powder Keg: chance to explode
+Changes Prompt 35. Stacks no longer grow the blast; they raise the chance that a kill explodes.
+- **Chance:** `DA_CombatSettings.ChancePerStack` 0.03 (new). Chance = PowderKeg stacks × ChancePerStack, clamped to
+  100% (`UGSCombatSettings::GetExplodeChance`, `AGSGameMode::GetPowderKegChance`).
+  - `AGSGameMode::RollPowderKegChance(Player)` rolls once per enemy the player kills, at the moment it dies, on the run
+    stream.
+  - At 0 stacks there is no roll. At 100% (34 stacks) there are no dice either, like crits and health orbs.
+  - Kills that aren't the player's never roll.
+- **Fixed blast:** always `BlastDamage` 30 × the player's Damage in `BlastRadius` 3 m. **`BlastDamagePerExtraStack`
+  and `BlastRadiusPerExtraStack` were removed** (with `GetBlastDamage` / `GetBlastRadius`). DA_CombatSettings needed
+  no change: it uses the class defaults for these (ChancePerStack 0.03 included), so it never stored them. The
+  explosion effect plays at scale 1.
+- **Unchanged:** no line of sight; never hurts the player; no crits; blast kills are the player's (cash, XP orb, health
+  orb chance, combo, Leech, run-stats kills).
+- **Chains:** an enemy killed by a blast rolls the same chance when it dies. On a hit it explodes `ChainDelay` 0.1 s
+  later (world timer; pauses with the game).
+- **DA_Upgrade_PowderKeg:** still Epic. MaxStacks 34 (the first stack count at 100%; 33 = 99%). Card: "+3% chance per
+  stack that an enemy you kill explodes and hurts enemies nearby."
+  - The "3" is typed in the card text. `{PerStack}` would read the GE's +1 stack, not the chance.
+  - `Upgrades.PowderKeg` checks that the card matches ChancePerStack, so a retune without the text fails the test.
+- **Log:** `[blast] Powder Keg x10 (30% chance per kill) at <loc>: radius 300, damage 30, H enemies hit, K killed (blast B
+  this run)`.
+- **`gs.Upgrade.List`:** a new line, "Powder Keg: 10 stack(s), 30% chance per kill (3% per stack), blast 30 damage x
+  Damage 1.00 in 3.0 m".
+- **Tests:**
+  - `Upgrades.PowderKeg` was rewritten (see the test table).
+  - Health orbs are off in it (override 0), so the exact Leech health check can't be thrown off by an orb.
+  - The chain check now waits for the pending blast instead of a fixed 0.2 s. On a long first frame at ×4 the fixed wait
+    ended before the timer ticked.
+  - The blast-size check centers the blast at the bandits' height. The radius is measured in 3D, and at floor height
+    the "2.9 m" bandit was 3.03 m away.
+  - `Economy.HealthOrbs` grants 34 stacks instead of 1 for its blast-kill drop.
+- **PIE check** (town, god mode, round paused, editor throttling off; restored after):
+  - `gs.Upgrade.Grant PowderKeg 34`, `gs.Spawn MeleeBandit 12`, `gs.KillAll`: 12 blasts. 8 came from the KillAll kills
+    at once, and 4 were chain blasts of bandits the blasts killed. Every log line read "x34 (100% chance per kill)".
+  - `gs.Run.Seed 3535`, `gs.Upgrade.Grant PowderKeg 10`, `gs.Spawn MeleeBandit 20`, `gs.KillAll`: 7 blasts in about 20
+    kills.
+  - `gs.Upgrade.List` showed "x10/34" and the chance line above.
+- **Full suite:** 43 tests, all passing, in 94.4 s.
+
 ---
 
 ## Console commands and CVars
@@ -1824,7 +1867,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.GiveWeapon <Weapon>` | Equip `Rifle` / `Pistol` / `BanditCarbine` with a full mag (replaces the equipped one if both slots are full). |
 | `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain, ReloadSpeed). |
 | `gs.Upgrade.Grant <Name> [Count=1]` | Add stacks of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed`, `FireRate`, `Magnet`, `BiggerMags`, `ExtraJump`, `DashCharge`, `Leech`, `LoadedDice`, `PiercingRounds`, `PowderKeg` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`. |
-| `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps / MagazineSizeMultiplier / HealthOnKill / CritChance / Pierce / PowderKeg, the magazine (ammo / size) and the dash charges (max = base + ExtraDashCharges, ready now). |
+| `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps / MagazineSizeMultiplier / HealthOnKill / CritChance / Pierce / PowderKeg, the magazine (ammo / size), the dash charges (max = base + ExtraDashCharges, ready now) and Powder Keg (stacks, chance per kill, blast damage and radius). |
 | `gs.Upgrade.Offer` | Queue a level-up offer without the level (opens at once if none is open) and print the open offer. Refused in GameOver. |
 | `gs.Upgrade.Choose <0-2>` | Take a choice of the open offer; the next queued offer opens. |
 | `gs.Upgrade.Reroll` | Reroll the open offer for one of this run's rerolls (refused with none left or no offer). |
@@ -1883,7 +1926,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | HealthOnKill | Health healed per enemy kill credited to the player (UGSHealthOnKillEffect, never above MaxHealth; constructor default 0, min 0). Raised by Leech. Not replicated yet. |
 | CritChance | Chance (0..1) that a hit from the player's weapons is critical (GSCombat::RollCriticalHit, run stream; damage × DA_CombatSettings CritMultiplier 2). Constructor default 0, clamped 0..1. Raised by Loaded Dice. Not replicated yet. |
 | Pierce | Targets a player shot passes through (UGSGameplayAbility_Fire::TraceShot): up to 1 + Pierce targets, each once, full damage; walls stop it. Constructor default 0, min 0, rounded. Raised by Piercing Rounds. Not replicated yet. |
-| PowderKeg | Powder Keg stacks: while > 0 the player's enemy kills explode (AGSGameMode::ExplodePowderKeg; DA_CombatSettings damage / radius per stack × Damage). Constructor default 0, min 0, rounded. Not replicated yet. |
+| PowderKeg | Powder Keg stacks: each of the player's enemy kills explodes with chance stacks × DA_CombatSettings ChancePerStack (3%, max 100%; run stream; AGSGameMode::RollPowderKegChance / ExplodePowderKeg). The blast is fixed: BlastDamage × Damage in BlastRadius. Constructor default 0, min 0, rounded. Not replicated yet. |
 | IncomingDamage | Meta attribute: GE_Damage writes it, the set converts it to Health loss and records the instigator. |
 
 **Gameplay tags** (native, `Abilities/GSGameplayTags.*`; none in config):
@@ -1973,7 +2016,7 @@ runs its magnet part at ×4. `Weapons.HeldFire` runs at ×4, and ×16 for its sl
 | `Round.ClearBonus` | DA_RoundClearSettings on the GameMode ($20 / $15 / $15, 8 s + 1.5 s per enemy) and the summary widget on the controller; PreRound starts the round's stats (no payout, no summary); Combat records its start and wave size; round 1 killed fast with no damage → base + no damage + fast clear, kills = wave size, profile += bonus + cash collected; summary shows round, title and each line; after the vacuum cash collected ≥ kills × CashValue, XP = kills × XPValue, profile and CashEarned += cash collected + bonus, summary lines follow; round 2 PreRound hides the summary and starts from zero; damage taken + an impossible time limit (override) → base only, "missed" lines, total = base; RoundClear from PreRound pays nothing and shows nothing; round 10 (skip) pays the same as round 1; gs.Run.Stats shows the last bonus; a new run clears payout and round stats. |
 | `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
 | `Upgrades.FireRateAndMagnet` | DA_Upgrade_FireRate (+8%) and DA_Upgrade_Magnet (+15%): Common, no cap, their GE classes, in DA_UpgradePool; FireRate 1 and PickupRadius 300 at start; rifle held for 12 shots: on the exact schedule every frame, 0.100 s apart on average (within a frame over the burst); `gs.Upgrade.Grant FireRate 10` → FireRate 1.8, refire interval / 1.8 (0.0556 s), 16 held shots on that schedule, 1.8 times as fast; a bandit's drop (cash + XP orb) lands 380–660 cm away: nothing flies in at radius 300; `gs.Upgrade.Grant Magnet 10` → PickupRadius 750, the cash and the orb fly in (cash += CashValue, XP += XPValue); a new run resets both. |
-| `Upgrades.PowderKeg` | DA_Upgrade_PowderKeg (Epic, no cap, GE class, in the pool); DA_CombatSettings blast 30 / 3 m at 1 stack, +10 / +0.5 m per extra stack, chain delay 0.1 s, damage effect, placeholder effect and sound; PowderKeg 0: a kill doesn't explode; 1 stack, player 1 m from the kill with god mode off: A's blast kills B (20 HP, 2 m) at once, C (4.5 m) and D (4 m) untouched, the player unhurt and Leech healed both kills, combo +2, run-stats kills +2, a cash drop and 2 XP orbs, one chain blast pending; 0.2 s later B's blast hit C for 30 (2.5 m), D still untouched, nothing pending; 3 stacks + Damage x1.1 → 55 at 3.5 m, nothing at 4.5 m; a kill that isn't the player's doesn't explode; a new run → 0. Game time ×4. |
+| `Upgrades.PowderKeg` | DA_CombatSettings: ChancePerStack 3%, blast 30 / 3 m, chain delay 0.1 s, damage effect, placeholder effect and sound; chance 0 at 0 stacks, 3% at 1, 30% at 10, 99% at 33, 100% at 34 and clamped above; DA_Upgrade_PowderKeg: Epic, MaxStacks 34 (the first count at 100%), card text "+3% chance per stack" matches ChancePerStack, GE class, in the pool; 0 stacks: 100 kill rolls never explode and draw nothing from the run stream, a real kill doesn't explode; 34 stacks (console; a 35th refused): 100 rolls all explode with no dice; A's kill explodes at once, B (20 HP, 2 m) dies, C (4.5 m) and D (4 m) untouched, the player (1 m, god off) unhurt and Leech healed both kills, combo +2, run-stats kills +2, cash and 2 XP orbs, B's chain blast pending; it fires and hits C for 30, D untouched; a kill that isn't the player's doesn't explode even at 100%; the blast is the same at 1 and 20 stacks (30 at 2.9 m, nothing at 3.1 m); Damage x1.1 → 33; 10 stacks: 1,000 kill rolls within 26–34% (314 in the run) and the same stream state replays them; a new run → 0. Health orbs off (override 0). Game time ×4. |
 | `Upgrades.PiercingRounds` | DA_Upgrade_PiercingRounds (Epic, no cap, "+1", GE class, in the pool); Pierce 0 at start; TraceShot along 4 frozen bandits in a line: Pierce 0 → the nearest, ending in it; Pierce 2 → bandits 1–3 in order, ending in the third; Pierce 10 → all 4, each once, ending at the last; a line with nothing on it runs to its end; a spawned wall between bandits 2 and 3 stops a Pierce 10 shot after 2, ending at the wall; a dead bandit is passed without using the pierce; a real shot from a zero-spread copy of the rifle with Piercing x2 and Loaded Dice x10 at 3 bandits placed on its exact line (+ a 4th): bandits 1–3 each take one full hit (20 or 40), bandit 4 none, 3 damage numbers, critical numbers = crits, exactly 3 crit rolls drawn from the run stream; a new run → Pierce 0. |
 | `Upgrades.LoadedDice` | DA_Upgrade_LoadedDice (Rare, MaxStacks 20, "+5%", GE class, in the pool); DA_CombatSettings on the GameMode, CritMultiplier 2; CritChance 0: 100 rolls, no crit, run stream untouched; 10 stacks (console) → 0.5: 2000 rolls ~50% crits (±4%), multiplier 2 on crits and 1 otherwise, the stream advanced, and the same stream state replays the same crits; 20 stacks → 1: every roll a crit, stream untouched, a 21st stack refused; the attribute clamps to 0..1; a new run → 0; a real rifle hit on a frozen bandit 4 m ahead deals 20 with a plain damage number, then with 20 stacks 40 with a critical one (one more critical number; crits are bigger and another colour). |
 | `Upgrades.BiggerMagsAndLeech` | DA_Upgrade_BiggerMags (Common, +15%) and DA_Upgrade_Leech (Rare, +1): no cap, their GE classes, in DA_UpgradePool; multiplier 1, HealthOnKill 0, rifle magazine 30, HUD "30 / 30"; two taps → 28, one Bigger Mags stack (console) → ×1.15, magazine 35, still 28 rounds (no refill, not full), HUD "28 / 35"; a reload fills 35; 4 stacks → ×1.6: rifle exactly 48, pistol ceil(19.2) = 20, rifle still 35 rounds, HUD "35 / 48"; the pistol equips with 20 ("20 / 20"); Leech: damaged to 70, a kill without Leech heals nothing, x1 → +1 per kill, x5 → +5, a kill that isn't the player's heals nothing, at 98 a kill stops at MaxHealth 100; a new run resets both (multiplier 1, magazine 30, HealthOnKill 0). Game time ×4. |
@@ -2061,10 +2104,12 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - **Upgrades** (per stack, additive on the base value): Reload Speed +10%, Damage +10%, Move Speed +8%, Fire Rate
   +8%, Magnet +15% pickup radius, Bigger Mags +15% magazine size (rounded up) (Common); Extra Jump +1 air jump, Dash
   Charge +1 dash charge, Leech +1 health per kill, Loaded Dice +5% crit chance (Rare); Piercing Rounds +1 enemy
-  pierced, Powder Keg +1 blast size (Epic). Only Loaded Dice has a cap (20 stacks = 100%).
+  pierced, Powder Keg +3% chance that a kill explodes (Epic). Loaded Dice (20 stacks = 100%) and Powder Keg (34
+  stacks = 100%) are capped.
 - **Critical hits** (DA_CombatSettings): CritMultiplier 2.0. Crit damage numbers: size 28 (normal 20), gold, "N!".
-- **Powder Keg blast** (DA_CombatSettings): 30 damage and 3 m at 1 stack, +10 damage and +0.5 m per extra stack, ×
-  the player's Damage; chain delay 0.1 s; no line of sight; never hurts the player; no crits.
+- **Powder Keg** (DA_CombatSettings): `ChancePerStack` 3% that a player kill explodes (10 stacks 30%, 34 stacks 100%),
+  rolled per kill on the run stream. The blast is always 30 damage × the player's Damage in 3 m, at any stack count;
+  chain kills roll again and explode 0.1 s later; no line of sight; never hurts the player; no crits.
 - **Upgrade offers** (DA_UpgradePool, 12 upgrades; placeholders): rarity weights Common 100 / Rare 20 / Epic 6 /
   Legendary 1, 3 choices, 3 rerolls per run.
   - `simulate_upgrade_offers(10000, 1)`, fresh run with no picks (Prompt 35): Move Speed in 40.3% of offers, Magnet
@@ -2091,6 +2136,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Effect and sound play only on the server (`TODO(co-op)`).
   - A blast that kills many enemies drops their cash and XP orbs together. In the PIE chain the orbs leveled the
     player up twice at once (the upgrade screen paused the game).
+  - Since Prompt 35c the 3% in the card text is typed by hand. Retuning ChancePerStack needs the card text and
+    MaxStacks (34 = 100% at 3%) changed too; `Upgrades.PowderKeg` fails until they match.
 - Piercing Rounds (Prompt 34): there is no tracer effect, so the shot's line through the targets is only visible with
   `gs.Debug.Weapons 1`. Target dummies count as targets (they have an ASC), so shots pierce them too.
 - Bigger Mags (Prompt 32): after a run restart in the same map (`gs.Run.Seed`, debug) the magazine can hold more
@@ -2285,6 +2332,9 @@ smaller pool.
 35b. ~~**Health orbs** (not an upgrade): enemies the player kills have a chance (20%, run stream) to drop a health orb
     that heals 15 when collected (never over MaxHealth). A third pickup kind on the cash / XP pickup system; full-health
     players don't attract it; the RoundClear vacuum collects it; it doesn't expire.~~ Done (see Prompt 35b).
+35c. ~~**Powder Keg: chance to explode.** Each stack adds a 3% chance (ChancePerStack in DA_CombatSettings, rolled on
+    the run stream per player kill) that the enemy explodes; the blast is a fixed 30 damage (× Damage) in 3 m; MaxStacks
+    34 (100%); chains roll the same chance after 0.1 s.~~ Done (see Prompt 35c).
 36. **Floating Shield** (Rare): +1 shield per pick; a shield takes a hit and comes back after 10 s. The damage order
     starts here (dash invulnerability → shield → Health).
 37. **Second Wind** (Legendary): survive one killing blow per pick at 30% health; the last step of the damage order.
@@ -2332,8 +2382,8 @@ Decided (user):
     up, and it comes back after 10 s), Loaded Dice (+5% double-damage chance per shot, MaxStacks 20 = 100%), Leech
     (heal 1 per kill).
   - Epic: Floating Gun (a gun over the right shoulder, then one over the left, then +10% gun damage and fire rate
-    per pick), Piercing Rounds (+1 enemy pierced), Powder Keg (kills explode and damage nearby enemies; bigger per
-    pick).
+    per pick), Piercing Rounds (+1 enemy pierced), Powder Keg (+3% chance per pick that a kill explodes and damages
+    nearby enemies; a fixed blast; MaxStacks 34 = 100%; changed in 35c).
   - Legendary: Second Wind (survive one killing blow per pick at 30% health).
   - Rules: the Extra Jump pattern (attribute + infinite stacking GE, DA_Upgrade_* asset, DA_UpgradePool,
     `gs.Upgrade.Grant` short name, `gs.Upgrade.List` line). Damage order: dash invulnerability → Floating Shield →

@@ -179,12 +179,21 @@ public:
 	// --- Powder Keg (server) ---
 
 	/**
-	 * Blast at Location for Player's Powder Keg: damages every living enemy within the radius (no line of sight, never a
-	 * player) through the blast damage effect, as the player's damage (kills are theirs). Damage and radius come from
-	 * DA_CombatSettings for the player's PowderKeg stacks, damage x their Damage attribute. Enemies it kills explode
+	 * Blast at Location for Player's Powder Keg: damages every living enemy within BlastRadius (no line of sight, never a
+	 * player) through the blast damage effect, as the player's damage (kills are theirs). BlastDamage x the player's
+	 * Damage attribute; the same at every stack count. Enemies it kills roll their own chance and, if it hits, explode
 	 * ChainDelay later. Returns how many enemies it damaged. Does nothing without stacks.
 	 */
 	int32 ExplodePowderKeg(const FVector& Location, const AGSPlayerState* Player);
+
+	/** Chance (0..1) that an enemy Player kills explodes: PowderKeg stacks x DA_CombatSettings ChancePerStack, clamped. */
+	float GetPowderKegChance(const AGSPlayerState* Player) const;
+
+	/**
+	 * One kill's Powder Keg roll for Player on the run stream: false without stacks (no roll), true at 100% (no roll).
+	 * Every enemy the player kills calls it once; tests call it directly to measure the rate.
+	 */
+	bool RollPowderKegChance(const AGSPlayerState* Player);
 
 	/** Chain blasts scheduled and not yet fired (tests). */
 	int32 GetPendingPowderKegs() const;
@@ -356,7 +365,7 @@ private:
 
 	int32 PowderKegBlasts = 0;
 
-	/** Player killed an enemy at Location: blast now, or after ChainDelay if this kill came from a blast. */
+	/** Player killed an enemy at Location: roll the chance; on a hit, blast now, or after ChainDelay if a blast made the kill. */
 	void TriggerPowderKeg(const FVector& Location, const AGSPlayerState* Player);
 
 	/** SetComboSettingsOverride (tests). */

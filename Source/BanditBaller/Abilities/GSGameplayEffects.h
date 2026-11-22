@@ -192,7 +192,7 @@ public:
 	UGSUpgradeEffect_Leech(const FObjectInitializer& ObjectInitializer);
 };
 
-/** +1 PowderKeg per stack (GE_Upgrade_PowderKeg): kills explode; each stack makes the blast bigger. */
+/** +1 PowderKeg per stack (GE_Upgrade_PowderKeg): each stack adds DA_CombatSettings ChancePerStack that a kill explodes. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_PowderKeg : public UGSUpgradeEffect
 {

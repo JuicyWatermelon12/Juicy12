@@ -169,17 +169,35 @@ void AGSGameMode::HandleEnemyKilled(AActor* Enemy, AActor* Killer)
 
 	OnEnemyKilled.Broadcast(Enemy, Killer);
 
-	// Powder Keg: an enemy the player killed explodes where it died (after the kill is fully counted).
+	// Powder Keg: an enemy the player killed may explode where it died (after the kill is fully counted).
 	if (KillerState && EnemyCharacter)
 	{
 		TriggerPowderKeg(Enemy->GetActorLocation(), KillerState);
 	}
 }
 
-void AGSGameMode::TriggerPowderKeg(const FVector& Location, const AGSPlayerState* Player)
+float AGSGameMode::GetPowderKegChance(const AGSPlayerState* Player) const
 {
 	const UAbilitySystemComponent* ASC = Player ? Player->GetAbilitySystemComponent() : nullptr;
-	if (!ASC || FMath::RoundToInt(ASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute())) <= 0)
+	const int32 Stacks = ASC ? FMath::RoundToInt(ASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute())) : 0;
+	const UGSCombatSettings* Settings = CombatSettings ? CombatSettings.Get() : GetDefault<UGSCombatSettings>();
+	return Settings->GetExplodeChance(Stacks);
+}
+
+bool AGSGameMode::RollPowderKegChance(const AGSPlayerState* Player)
+{
+	const float Chance = GetPowderKegChance(Player);
+	if (Chance <= 0.f)
+	{
+		return false; // no stacks: no roll (the run stream is untouched)
+	}
+	return Chance >= 1.f || UGSRunRandom::RollChance(this, Chance); // 100%: no dice either
+}
+
+void AGSGameMode::TriggerPowderKeg(const FVector& Location, const AGSPlayerState* Player)
+{
+	// Every kill rolls its own chance at the moment it dies (chain kills too, so the order of rolls follows the kills).
+	if (!RollPowderKegChance(Player))
 	{
 		return;
 	}
@@ -222,8 +240,9 @@ int32 AGSGameMode::ExplodePowderKeg(const FVector& Location, const AGSPlayerStat
 		return 0;
 	}
 	const UGSCombatSettings* Settings = CombatSettings ? CombatSettings.Get() : GetDefault<UGSCombatSettings>();
-	const float Radius = Settings->GetBlastRadius(Stacks);
-	const float Damage = Settings->GetBlastDamage(Stacks) * SourceASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute());
+	// The same blast at every stack count (stacks only raise the chance); the player's Damage scales it.
+	const float Radius = Settings->BlastRadius;
+	const float Damage = Settings->BlastDamage * SourceASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute());
 	++PowderKegBlasts;
 
 	// Every living enemy in the radius (no line of sight); players are never targets.
@@ -263,8 +282,7 @@ int32 AGSGameMode::ExplodePowderKeg(const FVector& Location, const AGSPlayerStat
 	// Placeholder explosion (local: single-player). TODO(co-op): multicast the effect and sound.
 	if (Settings->BlastEffect)
 	{
-		const float Scale = Settings->BlastRadius > 0.f ? Radius / Settings->BlastRadius : 1.f;
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), Settings->BlastEffect, Location, FRotator::ZeroRotator, FVector(Scale));
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), Settings->BlastEffect, Location, FRotator::ZeroRotator, FVector::OneVector);
 	}
 	if (Settings->BlastSound)
 	{
@@ -275,8 +293,8 @@ int32 AGSGameMode::ExplodePowderKeg(const FVector& Location, const AGSPlayerStat
 		DrawDebugSphere(GetWorld(), Location, Radius, 16, FColor::Orange, false, GSWeaponDebug::DrawDuration);
 	}
 
-	UE_LOG(LogBanditBaller, Log, TEXT("[blast] Powder Keg x%d at %s: radius %.0f, damage %.0f, %d enemies hit, %d killed (blast %d this run)"),
-		Stacks, *Location.ToCompactString(), Radius, Damage, Targets.Num(), Killed, PowderKegBlasts);
+	UE_LOG(LogBanditBaller, Log, TEXT("[blast] Powder Keg x%d (%.0f%% chance per kill) at %s: radius %.0f, damage %.0f, %d enemies hit, %d killed (blast %d this run)"),
+		Stacks, Settings->GetExplodeChance(Stacks) * 100.f, *Location.ToCompactString(), Radius, Damage, Targets.Num(), Killed, PowderKegBlasts);
 	return Targets.Num();
 }
 
