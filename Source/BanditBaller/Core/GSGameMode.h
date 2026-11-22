@@ -311,6 +311,9 @@ private:
 	/** The return-to-hub fade finished: open the hub (or ?Restart without a HubMap). */
 	void FinishReturnToHub();
 
+	/** "[round] Round N cleared|died: combat time, wave, kills, cash + bonus, XP, damage, level, fallback spawns". */
+	void LogRoundSummary(const TCHAR* Ending) const;
+
 	FTimerHandle ReturnToHubTimer;
 	bool bReturningToHub = false;
 

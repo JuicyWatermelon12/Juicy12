@@ -146,10 +146,11 @@ docs/PROGRESS.md  progress log and reference
 - Debug commands: `gs.` prefix, cheat-only, implemented in `UGSDebugLibrary` and registered in
   `GSCheatCommands.cpp`. Clients forward them through `ServerExecDebugCommand`. Debug toggles are `gs.Debug.*`
   cvars.
-- Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`, `[xp]`, `[profile]`, `[upgrade]`, `[combo]`).
+- Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`, `[xp]`, `[profile]`, `[upgrade]`, `[combo]`, `[round]` one line per finished round).
 - Tests: PIE-based latent tests in `Tests/GSGameplayTests.cpp`, built from the `GSTests` helpers (`BeginPIE`,
   `WaitUntil`, `Step`, `EndPIE`, …). `BeginPIE` opens `L_Town_Graybox` first (pass `HubMap` for the hub), since the
-  editor starts in the hub. When appending, keep the closing `#endif` last.
+  editor starts in the hub. `EndPIE` only requests the end: before a second `BeginPIE` in the same test, wait for
+  `GetPIEWorld() == nullptr`. When appending, keep the closing `#endif` last.
 - Commit messages: short imperative title, then a body listing what changed.
 
 ## Unreal MCP notes
@@ -172,6 +173,11 @@ docs/PROGRESS.md  progress log and reference
 - `CaptureViewport` shows the editor world, not PIE; use `CaptureEditorImage` (base64 PNG; decode with PowerShell).
 - Tests: stop PIE, then `AutomationTestToolset` → `DiscoverTests`, `RunTestsByFilter("StartsWith:BanditBaller")`
   (or `Automation RunTests BanditBaller` in the editor console).
+- Playing in PIE through MCP: a console command takes 1–3 s to arrive, too slow to fight. Read live round state with
+  `ObjectTools.get_properties` on `...UEDPIE_0_L_Town_Graybox...:PersistentLevel.BP_GSGameState_C_0` (`RoundPhase`,
+  `WaveEnemiesTotal/Remaining/Alive`). Clear waves with `gs.God 1` + `gs.KillAll`, and read results from the `[round]`
+  / `[upgrade]` log lines (the log file flushes a few seconds late). Click run-summary buttons with
+  `SlateInspectorToolset.Click` on the "Return to Market" button ref.
 
 Enabled plugins of note: ModelContextProtocol + AllToolsets, GameplayAbilities, StateTree, GameplayStateTree,
 EnhancedInput, CommonUI, ModelingToolsEditorMode, PCG. No online subsystems yet.

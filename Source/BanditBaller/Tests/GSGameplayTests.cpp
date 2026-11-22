@@ -281,6 +281,9 @@ namespace GSTests
 	{
 		ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
 	}
+
+	/** Enqueue: wait Seconds of PIE world time (defined with the economy helpers below). */
+	void WaitWorldSeconds(FAutomationTestBase* Test, double Seconds);
 }
 
 using namespace GSTests;
@@ -661,6 +664,20 @@ bool FGSRoundPhaseLoopTest::RunTest(const FString& Parameters)
 		GameMode->SetRound(5);
 		TestEqual(TEXT("gs.Round.Set jumps to round 5"), GameState->GetRoundNumber(), 5);
 		TestTrue(TEXT("gs.Round.Set restarts at PreRound"), IsPhase(EGSRoundPhase::PreRound));
+
+		// The loop stops on death: GameOver, with no timer to leave it.
+		ApplyDamage(GetPlayerASC(), 100000.f);
+		TestTrue(TEXT("Death -> GameOver"), IsPhase(EGSRoundPhase::GameOver));
+		TestTrue(TEXT("GameOver has no end time"), GameState->GetPhaseEndTime() <= 0.0);
+		GameMode->AdvancePhase();
+		TestTrue(TEXT("A skip doesn't leave GameOver"), IsPhase(EGSRoundPhase::GameOver));
+	});
+	// Longer than the PreRound it interrupted: still GameOver in round 5.
+	WaitWorldSeconds(this, GetDefault<UGSRoundSettings>()->PreRoundDuration + 1.0);
+	Step([this]()
+	{
+		TestTrue(TEXT("Still GameOver after the PreRound time"), IsPhase(EGSRoundPhase::GameOver));
+		TestEqual(TEXT("No new round after death"), GetGameState()->GetRoundNumber(), 5);
 	});
 	EndPIE();
 	return true;
@@ -809,6 +826,8 @@ bool FGSRunSeedAndStatsTest::RunTest(const FString& Parameters)
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSSpawnLocationFinderTest, "BanditBaller.Spawn.LocationFinder", GSTests::TestFlags)
 bool FGSSpawnLocationFinderTest::RunTest(const FString& Parameters)
 {
+	// The forced fallback below must be logged (at least once; the open-center search may log its own).
+	AddExpectedMessage(TEXT("using EnemySpawn fallback"), ELogVerbosity::Warning, EAutomationExpectedMessageFlags::Contains, 0, /*IsRegex*/ false);
 	BeginPIE(this);
 	Step([this]()
 	{
@@ -828,6 +847,11 @@ bool FGSSpawnLocationFinderTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Stats add up"), Stats.Ring + Stats.Fallback + Stats.Failed, 12);
 		TestTrue(TEXT("Open town center mostly uses the ring"), Stats.Ring >= 10);
 
+		const AGSMapBoundary* Boundary = AGSMapBoundary::Find(World);
+		if (!TestNotNull(TEXT("Map boundary"), Boundary))
+		{
+			return;
+		}
 		FNavLocation PlayerNav;
 		NavSys->ProjectPointToNavigation(Player->GetActorLocation(), PlayerNav, FVector(300.f, 300.f, 1000.f));
 		for (int32 Index = 0; Index < Points.Num(); ++Index)
@@ -836,6 +860,7 @@ bool FGSSpawnLocationFinderTest::RunTest(const FString& Parameters)
 			const FString Name = FString::Printf(TEXT("Point %d"), Index);
 			FNavLocation OnNav;
 			TestTrue(Name + TEXT(" is on the NavMesh"), NavSys->ProjectPointToNavigation(Point.Location, OnNav, FVector(10.f, 10.f, 100.f)));
+			TestTrue(Name + TEXT(" is inside the map boundary"), Boundary->IsInside(Point.Location, 60.f));
 			const UNavigationPath* Path = UNavigationSystemV1::FindPathToLocationSynchronously(World, Point.Location, PlayerNav.Location);
 			TestTrue(Name + TEXT(" is reachable"), Path && Path->IsValid() && !Path->IsPartial());
 			if (!Point.bFallback)
@@ -861,6 +886,28 @@ bool FGSSpawnLocationFinderTest::RunTest(const FString& Parameters)
 		}
 		TestTrue(TEXT("Same run seed picks the same points"), bSame);
 		// (No spawn points in the Market District: covered by Map.Hub, the hub map.)
+
+		// No valid ring point (the player 50 m up: the ring has no NavMesh there) -> logged EnemySpawn fallbacks,
+		// still on the NavMesh, spaced and inside the boundary.
+		APawn* MutablePlayer = GetPlayer();
+		const FVector Home = MutablePlayer->GetActorLocation();
+		MutablePlayer->SetActorLocation(Home + FVector(0.f, 0.f, 5000.f), false, nullptr, ETeleportType::TeleportPhysics);
+		FGSSpawnSearchStats FallbackStats;
+		const TArray<FGSSpawnPoint> Fallbacks = UGSSpawnLocationFinder::FindSpawnLocations(PC, 2, &FallbackStats);
+		MutablePlayer->SetActorLocation(Home, false, nullptr, ETeleportType::TeleportPhysics);
+		TestEqual(TEXT("Fallback: 2 points"), Fallbacks.Num(), 2);
+		TestEqual(TEXT("Fallback: counted as fallbacks, not ring points"), FallbackStats.Fallback, 2);
+		TestEqual(TEXT("Fallback: no ring point"), FallbackStats.Ring, 0);
+		for (int32 Index = 0; Index < Fallbacks.Num(); ++Index)
+		{
+			const FGSSpawnPoint& Point = Fallbacks[Index];
+			const FString Name = FString::Printf(TEXT("Fallback %d"), Index);
+			FNavLocation OnNav;
+			TestTrue(Name + TEXT(" is flagged"), Point.bFallback);
+			TestTrue(Name + TEXT(" is on the NavMesh"), NavSys->ProjectPointToNavigation(Point.Location, OnNav, FVector(10.f, 10.f, 100.f)));
+			TestTrue(Name + TEXT(" is inside the map boundary"), Boundary->IsInside(Point.Location, 60.f));
+		}
+		TestTrue(TEXT("Fallbacks keep MinSpacing"), Fallbacks.Num() < 2 || FVector::Dist2D(Fallbacks[0].Location, Fallbacks[1].Location) >= Settings.MinSpacing - 1.f);
 	});
 	EndPIE();
 	return true;
@@ -935,6 +982,17 @@ bool FGSWaveDirectorTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Wave size matches DT_Waves Round1"), Director->GetTotal(), *Expected);
 		TestTrue(TEXT("First batch chosen immediately (telegraphing)"), Director->GetPending() > 0 || Director->GetSpawned() > 0);
 		TestEqual(TEXT("GameState mirrors the wave total"), GetGameState()->GetWaveEnemiesTotal(), *Expected);
+	});
+
+	// Killing the first arrivals while the rest of the wave is still to come doesn't end Combat.
+	WaitUntil(this, TEXT("first wave enemies alive"), []() { return GetGameMode()->GetWaveDirector()->GetAlive() > 0; }, 10.0);
+	Step([this, Expected]()
+	{
+		const int32 Killed = KillAllEnemiesAsPlayer();
+		const UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
+		TestTrue(TEXT("Some of the wave killed"), Killed > 0 && Killed < *Expected);
+		TestTrue(TEXT("Enemies still to come"), Director->GetRemaining() > 0);
+		TestTrue(TEXT("Combat goes on while wave enemies remain"), IsPhase(EGSRoundPhase::Combat));
 	});
 
 	// Kill enemies as they arrive; Combat must end on its own once the whole wave is dead.
@@ -1825,7 +1883,10 @@ bool FGSXPAndLevelsTest::RunTest(const FString& Parameters)
 			AddError(TEXT("No HUD widget on the player controller"));
 		}
 
-		// The two level-ups opened upgrade offers (game paused); take them so orbs can fly.
+		// The two level-ups queued one offer each (one open, one waiting; game paused); take them so orbs can fly.
+		const UGSUpgradeComponent* Upgrades = PS->GetUpgradeComponent();
+		TestTrue(TEXT("Two level-ups: an offer open"), Upgrades->HasOpenOffer());
+		TestEqual(TEXT("Two level-ups: one more offer queued"), Upgrades->GetQueuedOffers(), 1);
 		TestEqual(TEXT("Two upgrade offers"), PickAllUpgradeOffers(), 2);
 
 		// A kill grants no XP itself; it drops one orb worth XPValue.
@@ -1874,8 +1935,14 @@ bool FGSXPAndLevelsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("XP for level 11"), Progression->GetXPForNextLevel(), Curve->GetXPToReachLevel(11));
 		TestEqual(TEXT("Level reached follows SetLevel"), Stats->GetLevelReached(), 10);
 
-		// Max level caps: no XP bar past it.
+		// A huge gain: every level up to the cap at once, one offer per level gained (one open, the rest queued).
+		PickAllUpgradeOffers(); // SetLevel 10 queued 9 offers
+		const UGSUpgradeComponent* Upgrades = PS->GetUpgradeComponent();
+		TestFalse(TEXT("No offer before the huge gain"), Upgrades->HasOpenOffer());
 		GameMode->AwardXP(PS, 100000000.f, false);
+		const int32 LevelsGained = Curve->GetMaxLevel() - 10;
+		TestTrue(TEXT("Huge gain: an offer open"), Upgrades->HasOpenOffer());
+		TestEqual(TEXT("Huge gain: one offer per level gained"), Upgrades->GetQueuedOffers() + 1, LevelsGained);
 		TestEqual(TEXT("Capped at max level"), Progression->GetLevel(), Curve->GetMaxLevel());
 		TestTrue(TEXT("IsMaxLevel"), Progression->IsMaxLevel());
 		TestEqual(TEXT("No XP into max level"), Progression->GetCurrentXP(), 0);
@@ -2238,7 +2305,39 @@ bool FGSProfileCashTest::RunTest(const FString& Parameters)
 		{
 			TestEqual(TEXT("New HUD shows the balance"), HUD->GetDisplayedCash(), 20 + *Bonus);
 		}
-		Profile->ResetProfile(); // leave the test slot empty
+
+		// A known balance for the next session: quitting (end of PIE) saves it.
+		Profile->ResetProfile();
+		Profile->AddCash(321, TEXT("Test"));
+	});
+	EndPIE();
+	// Ending PIE is only requested above; wait until it is over before the next session.
+	WaitUntil(this, TEXT("PIE to end"), []() { return GetPIEWorld() == nullptr; }, 15.0);
+
+	// A new session (new GameInstance) loads the balance from the save.
+	BeginPIE(this);
+	Step([this]()
+	{
+		UGSProfileSubsystem* Profile = GetProfile();
+		if (!TestNotNull(TEXT("Profile in the next session"), Profile))
+		{
+			return;
+		}
+		TestEqual(TEXT("Quit saved the balance"), GetSavedCash(*Profile), 321);
+		TestEqual(TEXT("Next session loads the balance"), Profile->GetCash(), 321);
+		if (const UGSHUDWidget* HUD = GetPC() ? GetPC()->GetGSHUD() : nullptr)
+		{
+			TestEqual(TEXT("Loaded balance on the HUD"), HUD->GetDisplayedCash(), 321);
+		}
+
+		// gs.Profile.Reset (the console command) clears it and deletes the save.
+		GEngine->Exec(GetPIEWorld(), TEXT("gs.Profile.Reset"));
+		TestEqual(TEXT("gs.Profile.Reset: cash 0"), Profile->GetCash(), 0);
+		TestEqual(TEXT("gs.Profile.Reset: save deleted"), GetSavedCash(*Profile), -1);
+		if (const UGSHUDWidget* HUD = GetPC() ? GetPC()->GetGSHUD() : nullptr)
+		{
+			TestEqual(TEXT("gs.Profile.Reset: HUD shows 0"), HUD->GetDisplayedCash(), 0);
+		}
 	});
 	EndPIE();
 	return true;
@@ -2653,6 +2752,18 @@ bool FGSExtraJumpTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Ground dash jump is the ground jump"), GetPlayer()->GetAirJumpsSinceLanded(), 0);
 	});
 	WaitLanded(this);
+
+	// No cap: many more stacks keep JumpMaxCount = 1 + stacks.
+	Step([this]()
+	{
+		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("ExtraJump"));
+		const int32 Before = GetPlayerUpgrades()->GetStacks(Upgrade);
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("ExtraJump"), TEXT("25") });
+		const int32 Stacks = GetPlayerUpgrades()->GetStacks(Upgrade);
+		TestEqual(TEXT("No cap: 25 more stacks granted"), Stacks, Before + 25);
+		TestEqual(TEXT("No cap: ExtraJumps = stacks"), GetAttr(UGSAttributeSet::GetExtraJumpsAttribute()), static_cast<float>(Stacks), 0.001f);
+		TestEqual(TEXT("No cap: JumpMaxCount = 1 + stacks"), GetPlayer()->JumpMaxCount, 1 + Stacks);
+	});
 
 	// A new run removes the extra jumps.
 	Step([this, S]()
@@ -4339,8 +4450,29 @@ bool FGSTownLayoutTest::RunTest(const FString& Parameters)
 		{
 			const FEdgeTarget& Target = (*Targets)[Index];
 			const FVector L = GetPlayer()->GetActorLocation();
-			TestTrue(FString::Printf(TEXT("%s: stopped by the boundary"), *Target.Name), AGSMapBoundary::Find(GetPIEWorld())->IsInside(L));
+			const AGSMapBoundary* Boundary = AGSMapBoundary::Find(GetPIEWorld());
+			TestTrue(FString::Printf(TEXT("%s: stopped by the boundary"), *Target.Name), Boundary->IsInside(L));
 			TestTrue(FString::Printf(TEXT("%s: still on the ground (Z %.0f)"), *Target.Name, L.Z), L.Z > 0.f && L.Z < 300.f);
+
+			// A spawn ring rolled in the corner stays inside: ring points in the ring, or a fallback; all on the NavMesh.
+			if (!Target.Name.Contains(TEXT("corner")))
+			{
+				return;
+			}
+			const UGSSpawnSettings& Settings = UGSSpawnLocationFinder::GetSettings(GetPIEWorld());
+			FGSSpawnSearchStats Stats;
+			const TArray<FGSSpawnPoint> Points = UGSSpawnLocationFinder::FindSpawnLocations(GetPC(), 6, &Stats);
+			AddInfo(FString::Printf(TEXT("%s spawn ring: %s"), *Target.Name, *Stats.ToString()));
+			TestEqual(FString::Printf(TEXT("%s: 6 spawn points"), *Target.Name), Points.Num(), 6);
+			for (int32 P = 0; P < Points.Num(); ++P)
+			{
+				const FGSSpawnPoint& Point = Points[P];
+				const FString Name = FString::Printf(TEXT("%s spawn %d"), *Target.Name, P);
+				TestTrue(Name + TEXT(" inside the boundary"), Boundary->IsInside(Point.Location, 60.f));
+				TestTrue(Name + TEXT(" on the NavMesh"), IsOnNavMesh(GetPIEWorld(), Point.Location));
+				const float Distance = FVector::Dist2D(Point.Location, L);
+				TestTrue(Name + TEXT(" in the ring (or a fallback)"), Point.bFallback || (Distance >= Settings.MinRadius - 1.f && Distance <= Settings.MaxRadius + 1.f));
+			}
 		});
 	}
 	Step([]()
@@ -4358,17 +4490,6 @@ bool FGSTownLayoutTest::RunTest(const FString& Parameters)
 
 namespace GSTests
 {
-	int32 CountLivingEnemiesInWorld()
-	{
-		int32 Count = 0;
-		for (TActorIterator<AGSEnemyCharacter> It(GetPIEWorld()); It; ++It)
-		{
-			const UGSHealthComponent* Health = It->GetHealthComponent();
-			Count += (!Health || !Health->IsDead()) ? 1 : 0;
-		}
-		return Count;
-	}
-
 	/** "$1,234" as the summary formats cash. */
 	FString FormatSummaryCash(int32 Amount)
 	{
@@ -4467,7 +4588,7 @@ bool FGSRunGameOverTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Offer open before the death"), Upgrades->HasOpenOffer());
 		TestTrue(TEXT("Paused for that offer"), GameMode->IsPausedForUpgradeChoice());
 
-		S->LivingEnemies = CountLivingEnemiesInWorld();
+		S->LivingEnemies = CountLivingEnemies();
 		*OldWorld = GetPIEWorld();
 		ApplyDamage(GetPlayerASC(), 100000.f);
 		TestTrue(TEXT("Player died"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
@@ -4487,7 +4608,7 @@ bool FGSRunGameOverTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("Wave stopped"), Director->IsWaveActive());
 		TestEqual(TEXT("Telegraphs cancelled"), Director->GetPending(), 0);
 		TestEqual(TEXT("Nothing left to spawn"), Director->GetRemaining(), 0);
-		TestEqual(TEXT("Living enemies stay"), CountLivingEnemiesInWorld(), S->LivingEnemies);
+		TestEqual(TEXT("Living enemies stay"), CountLivingEnemies(), S->LivingEnemies);
 		TestTrue(TEXT("GameOver is untimed"), GameState->GetPhaseEndTime() <= 0.0);
 		GameMode->AdvancePhase();
 		TestTrue(TEXT("GameOver is final (a skip does nothing)"), GameState->GetRoundPhase() == EGSRoundPhase::GameOver);
@@ -4534,7 +4655,7 @@ bool FGSRunGameOverTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Still GameOver"), GameState->GetRoundPhase() == EGSRoundPhase::GameOver);
 		TestEqual(TEXT("No spawns after death"), Director->GetSpawned(), 0);
 		TestEqual(TEXT("No telegraphs after death"), Director->GetPending(), 0);
-		TestEqual(TEXT("No new enemies"), CountLivingEnemiesInWorld(), S->LivingEnemies);
+		TestEqual(TEXT("No new enemies"), CountLivingEnemies(), S->LivingEnemies);
 		TestEqual(TEXT("No RoundClear after death"), Stats->GetLastRoundClearPayout().Round, 1);
 		TestEqual(TEXT("Rounds cleared unchanged"), Stats->GetRoundsCleared(), 1);
 		TestEqual(TEXT("Run time frozen"), Stats->GetRunTime(), S->RunTime, 0.001f);
@@ -4549,7 +4670,7 @@ bool FGSRunGameOverTest::RunTest(const FString& Parameters)
 				ApplyDamage(EnemyASC, GetMaxHealth(EnemyASC) + 100.f);
 			}
 		}
-		TestEqual(TEXT("All enemies dead"), CountLivingEnemiesInWorld(), 0);
+		TestEqual(TEXT("All enemies dead"), CountLivingEnemies(), 0);
 		TestTrue(TEXT("Killing the leftovers: still GameOver"), GameState->GetRoundPhase() == EGSRoundPhase::GameOver);
 		TestEqual(TEXT("Killing the leftovers: no bonus"), Stats->GetLastRoundClearPayout().Round, 1);
 		TestEqual(TEXT("Killing the leftovers: no cash"), Profile->GetCash(), S->Cash);
@@ -4647,6 +4768,325 @@ bool FGSRunGameOverTest::RunTest(const FString& Parameters)
 		if (Profile)
 		{
 			Profile->ResetProfile(); // leave the test slot empty
+		}
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Same seed, same run: waves, spawn positions (player still), upgrade offers and rerolls
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	FString DescribeChoices(const UGSUpgradeComponent* Upgrades)
+	{
+		return FString::JoinBy(Upgrades->GetCurrentChoices(), TEXT("/"), [](const UGSUpgradeData* Upgrade) { return Upgrade->GetName(); });
+	}
+
+	/**
+	 * Replay the start of a run with Seed, all in one frame so nothing else (enemy AI, drops) draws from the run stream
+	 * in between. Rounds 1, 2, 5 and 8 (8 is bought from the budget): every enemy of the wave in spawn order with its
+	 * spawn point (all batches run at once). Then a level-up offer, its 3 rerolls, the refused 4th, a pick and the next
+	 * offer. Returns one line per item.
+	 */
+	TArray<FString> ReplayRunStart(int32 Seed)
+	{
+		TArray<FString> Lines;
+		AGSGameMode* GameMode = GetGameMode();
+		UGSWaveDirector* Director = GameMode->GetWaveDirector();
+		AGSPlayerState* PS = GetPC()->GetPlayerState<AGSPlayerState>();
+		const UGSUpgradeComponent* Upgrades = PS->GetUpgradeComponent();
+
+		GameMode->RestartRunWithSeed(Seed);
+		for (const int32 Round : { 1, 2, 5, 8 })
+		{
+			GameMode->SetRound(Round);
+			GameMode->AdvancePhase(); // Combat: the wave is bought and shuffled, the first batch telegraphs
+			for (int32 Guard = 0; Guard < 100 && Director->GetSpawnQueue().Num() > 0; ++Guard)
+			{
+				Director->SpawnNextBatchNow();
+			}
+			Lines.Add(FString::Printf(TEXT("Round %d: %d enemies, %d unplaced"), Round, Director->GetTotal(), Director->GetSpawnQueue().Num()));
+			for (const FGSPendingSpawn& Spawn : Director->GetPendingSpawns())
+			{
+				Lines.Add(FString::Printf(TEXT("  %s at (%.1f, %.1f)"), *GetNameSafe(Spawn.EnemyData), Spawn.Location.X, Spawn.Location.Y));
+			}
+		}
+		GameMode->SetRound(1); // PreRound: the last wave stops
+
+		GameMode->AwardXP(PS, static_cast<float>(PS->GetProgressionComponent()->GetXPForNextLevel()), false);
+		Lines.Add(TEXT("Offer: ") + DescribeChoices(Upgrades));
+		for (int32 Reroll = 1; Reroll <= 4; ++Reroll)
+		{
+			const bool bRerolled = GameMode->RerollUpgradeOffer(PS);
+			Lines.Add(FString::Printf(TEXT("Reroll %d %s: %s"), Reroll, bRerolled ? TEXT("ok") : TEXT("refused"), *DescribeChoices(Upgrades)));
+		}
+		GameMode->ChooseUpgrade(PS, 0);
+		GameMode->AwardXP(PS, static_cast<float>(PS->GetProgressionComponent()->GetXPForNextLevel()), false);
+		Lines.Add(TEXT("Next offer: ") + DescribeChoices(Upgrades));
+
+		GameMode->RestartRunWithSeed(Seed); // drops the open offer (unpauses), back to round 1
+		return Lines;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRunSameSeedTest, "BanditBaller.Run.SameSeedSameRun", GSTests::TestFlags)
+bool FGSRunSameSeedTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		if (!TestNotNull(TEXT("AGSGameMode"), GameMode) || !TestNotNull(TEXT("Player"), GetPlayer()))
+		{
+			return;
+		}
+		GameMode->SetRoundTimerPaused(true);
+		const FVector Start = GetPlayer()->GetActorLocation();
+
+		const TArray<FString> A = ReplayRunStart(31337);
+		const TArray<FString> B = ReplayRunStart(31337);
+		const TArray<FString> C = ReplayRunStart(31338);
+		AddInfo(TEXT("Seed 31337:\n") + FString::Join(A, TEXT("\n")));
+		TestTrue(TEXT("The player stood still"), GetPlayer()->GetActorLocation().Equals(Start, 1.f));
+
+		// Sanity: four waves fully placed, 3 rerolls then a refused 4th.
+		TestEqual(TEXT("Lines recorded"), A.FilterByPredicate([](const FString& Line) { return Line.StartsWith(TEXT("Round ")); }).Num(), 4);
+		TestTrue(TEXT("Every enemy got a spawn point"), A.FilterByPredicate([](const FString& Line) { return Line.StartsWith(TEXT("Round ")) && !Line.EndsWith(TEXT(" 0 unplaced")); }).IsEmpty());
+		TestTrue(TEXT("Spawn points recorded"), A.FilterByPredicate([](const FString& Line) { return Line.StartsWith(TEXT("  ")); }).Num() >= 30);
+		TestEqual(TEXT("Rerolls 1-3 ok"), A.FilterByPredicate([](const FString& Line) { return Line.StartsWith(TEXT("Reroll ")) && Line.Contains(TEXT(" ok: ")); }).Num(), 3);
+		TestTrue(TEXT("Reroll 4 refused"), A.ContainsByPredicate([](const FString& Line) { return Line.StartsWith(TEXT("Reroll 4 refused")); }));
+
+		// Same seed: the same run, line for line.
+		int32 FirstDifference = INDEX_NONE;
+		for (int32 Index = 0; Index < FMath::Max(A.Num(), B.Num()); ++Index)
+		{
+			if (!A.IsValidIndex(Index) || !B.IsValidIndex(Index) || A[Index] != B[Index])
+			{
+				FirstDifference = Index;
+				break;
+			}
+		}
+		TestEqual(FString::Printf(TEXT("Same seed: same waves, spawn points, offers and rerolls (first difference at line %d: '%s' vs '%s')"), FirstDifference,
+			A.IsValidIndex(FirstDifference) ? *A[FirstDifference] : TEXT("-"), B.IsValidIndex(FirstDifference) ? *B[FirstDifference] : TEXT("-")), FirstDifference, static_cast<int32>(INDEX_NONE));
+		TestFalse(TEXT("Another seed: another run"), A == C);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// A new run (death -> hub -> Start Run) starts at level 1 with no upgrades but keeps the cash
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRunNewRunResetsTest, "BanditBaller.Run.NewRunResets", GSTests::TestFlags)
+bool FGSRunNewRunResetsTest::RunTest(const FString& Parameters)
+{
+	struct FNewRunState
+	{
+		int32 Cash = 0;
+		float BaseMaxHealth = 0.f;
+		float BaseDamage = 0.f;
+		float BaseMoveSpeed = 0.f;
+		int32 RerollsPerRun = 0;
+	};
+	TSharedRef<FNewRunState> S = MakeShared<FNewRunState>();
+	TSharedRef<TWeakObjectPtr<UWorld>> OldWorld = MakeShared<TWeakObjectPtr<UWorld>>();
+
+	BeginPIE(this);
+	Step([this, S, OldWorld]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		AGSPlayerController* PC = GetPC();
+		AGSPlayerState* PS = PC ? PC->GetPlayerState<AGSPlayerState>() : nullptr;
+		UGSProfileSubsystem* Profile = GetProfile();
+		UAbilitySystemComponent* ASC = GetPlayerASC();
+		if (!TestNotNull(TEXT("AGSGameMode"), GameMode) || !TestNotNull(TEXT("PlayerState"), PS) || !TestNotNull(TEXT("Profile"), Profile) || !TestNotNull(TEXT("ASC"), ASC))
+		{
+			return;
+		}
+		GameMode->SetRoundTimerPaused(true);
+		Profile->ResetProfile();
+		S->BaseMaxHealth = GetMaxHealth(ASC);
+		S->BaseDamage = ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute());
+		S->BaseMoveSpeed = ASC->GetNumericAttribute(UGSAttributeSet::GetMoveSpeedAttribute());
+		S->RerollsPerRun = GameMode->GetUpgradePool() ? GameMode->GetUpgradePool()->RerollsPerRun : 0;
+
+		// A run with progress: two level-ups (a reroll, both offers picked), more upgrade stacks, a kill and cash.
+		UGSUpgradeComponent* Upgrades = PS->GetUpgradeComponent();
+		GameMode->AwardXP(PS, 225.f, false);
+		TestEqual(TEXT("Level 3"), PS->GetProgressionComponent()->GetLevel(), 3);
+		TestTrue(TEXT("A reroll used"), GameMode->RerollUpgradeOffer(PS));
+		TestEqual(TEXT("Both offers picked"), PickAllUpgradeOffers(), 2);
+		UGSDebugLibrary::ExecuteDebugCommand(PC, TEXT("UpgradeGrant"), { TEXT("ExtraJump"), TEXT("2") });
+		UGSDebugLibrary::ExecuteDebugCommand(PC, TEXT("UpgradeGrant"), { TEXT("Damage"), TEXT("2") });
+		GameMode->AdvancePhase(); // Combat
+		KillTestEnemyAsPlayer(this);
+		GameMode->AwardCash(PC, 77, PC->GetPawn()->GetActorLocation());
+		TestEqual(TEXT("6 upgrade picks"), Upgrades->GetTotalPicks(), 6);
+		TestEqual(TEXT("A reroll spent"), Upgrades->GetRerollsLeft(), S->RerollsPerRun - 1);
+		TestTrue(TEXT("Air jumps"), GetPlayer()->JumpMaxCount >= 3);
+		TestEqual(TEXT("MaxHealth stacks"), GetMaxHealth(ASC), S->BaseMaxHealth + 20.f, 0.01f);
+		TestEqual(TEXT("A kill"), GetGameState()->GetRunStats()->GetTotalKills(), 1);
+		S->Cash = Profile->GetCash();
+		TestEqual(TEXT("Cash earned"), S->Cash, 77);
+
+		// The run ends.
+		*OldWorld = GetPIEWorld();
+		ApplyDamage(ASC, 100000.f);
+		TestTrue(TEXT("Run over"), IsPhase(EGSRoundPhase::GameOver));
+	});
+	Step([]() { GetPC()->ServerRequestReturnToHub(); });
+	WaitForMapTravel(this, OldWorld, HubMap);
+	Step([this, S, OldWorld]()
+	{
+		AGSHubGameMode* Hub = GetHubGameMode();
+		if (!TestNotNull(TEXT("Back in the hub"), Hub))
+		{
+			return;
+		}
+		TestEqual(TEXT("Cash in the hub"), GetProfile()->GetCash(), S->Cash);
+		*OldWorld = GetPIEWorld();
+		TestTrue(TEXT("Start a run from the hub (as the portal does)"), Hub->StartRun(GetPC()));
+	});
+	WaitForMapTravel(this, OldWorld, TownMap);
+	Step([this, S]()
+	{
+		AGSPlayerState* PS = GetPC()->GetPlayerState<AGSPlayerState>();
+		UAbilitySystemComponent* ASC = GetPlayerASC();
+		const AGSGameState* GameState = GetGameState();
+		const UGSRunStats* Stats = GameState ? GameState->GetRunStats() : nullptr;
+		if (!TestNotNull(TEXT("A run again"), GetGameMode()) || !TestNotNull(TEXT("Run stats"), Stats) || !PS || !ASC)
+		{
+			return;
+		}
+		const UGSProgressionComponent* Progression = PS->GetProgressionComponent();
+		const UGSUpgradeComponent* Upgrades = PS->GetUpgradeComponent();
+		TestEqual(TEXT("New run: level 1"), Progression->GetLevel(), 1);
+		TestEqual(TEXT("New run: no XP"), Progression->GetTotalXP(), 0);
+		TestEqual(TEXT("New run: no upgrades"), Upgrades->GetTotalPicks(), 0);
+		TestFalse(TEXT("New run: no offer"), Upgrades->HasOpenOffer() || Upgrades->GetQueuedOffers() > 0);
+		TestEqual(TEXT("New run: rerolls restored"), Upgrades->GetRerollsLeft(), S->RerollsPerRun);
+		TestEqual(TEXT("New run: ExtraJumps 0"), ASC->GetNumericAttribute(UGSAttributeSet::GetExtraJumpsAttribute()), 0.f, 0.001f);
+		TestEqual(TEXT("New run: JumpMaxCount 1"), GetPlayer()->JumpMaxCount, 1);
+		TestEqual(TEXT("New run: base Damage"), ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute()), S->BaseDamage, 0.001f);
+		TestEqual(TEXT("New run: base MoveSpeed"), ASC->GetNumericAttribute(UGSAttributeSet::GetMoveSpeedAttribute()), S->BaseMoveSpeed, 0.01f);
+		TestEqual(TEXT("New run: base MaxHealth"), GetMaxHealth(ASC), S->BaseMaxHealth, 0.01f);
+		TestEqual(TEXT("New run: full health"), GetHealth(ASC), S->BaseMaxHealth, 0.01f);
+		TestFalse(TEXT("New run: alive"), ASC->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
+		TestEqual(TEXT("New run: round 1"), GameState->GetRoundNumber(), 1);
+		TestEqual(TEXT("New run: no kills"), Stats->GetTotalKills(), 0);
+		TestEqual(TEXT("New run: no cash earned"), Stats->GetCashEarned(), 0);
+		TestEqual(TEXT("New run: best combo 0"), Stats->GetBestCombo(), 0);
+		TestEqual(TEXT("New run: combo 0"), PS->GetComboComponent()->GetComboCount(), 0);
+		TestEqual(TEXT("New run keeps the cash"), GetProfile()->GetCash(), S->Cash);
+		if (const UGSHUDWidget* HUD = GetHUD())
+		{
+			TestEqual(TEXT("New run: HUD level 1"), HUD->GetDisplayedLevel(), 1);
+			TestEqual(TEXT("New run: no upgrade icons"), HUD->GetUpgradeIconCount(), 0);
+			TestEqual(TEXT("New run: HUD cash"), HUD->GetDisplayedCash(), S->Cash);
+		}
+		GetProfile()->ResetProfile(); // leave the test slot empty
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Flat drops: an enemy type drops the same cash and XP in round 1 and round 10
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	struct FDropRecord
+	{
+		int32 Cash = 0;
+		int32 CashPieces = 0;
+		int32 XP = 0;
+		int32 XPOrbs = 0;
+		float MaxHealth = 0.f;
+	};
+
+	/** Spawn a frozen enemy of Type 8 m from the player, end the combo, kill it as the player and add up its drop. */
+	FDropRecord KillAndMeasureDrop(FAutomationTestBase* Test, const TCHAR* Type)
+	{
+		FDropRecord Out;
+		UGSCashPickupSubsystem* Pickups = GetCashSubsystem();
+		Pickups->ReleaseAll();
+		UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(Type);
+		const FVector PlayerAt = GetPlayer()->GetActorLocation();
+		AGSEnemyCharacter* Enemy = Data ? AGSEnemyCharacter::SpawnEnemy(GetPIEWorld(), Data, PlayerAt + GetPlayer()->GetActorForwardVector() * 800.f, PlayerAt) : nullptr;
+		if (!Test->TestNotNull(FString::Printf(TEXT("Spawned a %s"), Type), Enemy))
+		{
+			return Out;
+		}
+		if (AAIController* AIC = Cast<AAIController>(Enemy->GetController()))
+		{
+			if (UBrainComponent* Brain = AIC->GetBrainComponent())
+			{
+				Brain->StopLogic(TEXT("Drop test"));
+			}
+		}
+		Out.MaxHealth = GetMaxHealth(Enemy->GetAbilitySystemComponent());
+		if (UGSComboComponent* Combo = GetPlayerCombo())
+		{
+			Combo->EndCombo(EGSComboEndReason::Reset); // no combo multiplier on this kill
+		}
+		ApplyDamage(Enemy->GetAbilitySystemComponent(), 1000000.f, GetPlayerASC());
+		for (const AGSCashPickup* Pickup : Pickups->GetActivePickups())
+		{
+			if (Pickup && Pickup->IsXPOrb())
+			{
+				Out.XP += Pickup->GetValue();
+				++Out.XPOrbs;
+			}
+			else if (Pickup)
+			{
+				Out.Cash += Pickup->GetValue();
+				++Out.CashPieces;
+			}
+		}
+		Pickups->ReleaseAll();
+		return Out;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSFlatDropsTest, "BanditBaller.Economy.FlatDropsPerRound", GSTests::TestFlags)
+bool FGSFlatDropsTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		if (!TestNotNull(TEXT("AGSGameMode"), GameMode))
+		{
+			return;
+		}
+		GameMode->SetRoundTimerPaused(true);
+		for (const TCHAR* Type : { TEXT("MeleeBandit"), TEXT("RangedBandit") })
+		{
+			const UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(Type);
+			if (!TestNotNull(FString::Printf(TEXT("%s data"), Type), Data))
+			{
+				continue;
+			}
+			GameMode->SetRound(1);
+			const FDropRecord Round1 = KillAndMeasureDrop(this, Type);
+			GameMode->SetRound(10);
+			const FDropRecord Round10 = KillAndMeasureDrop(this, Type);
+			AddInfo(FString::Printf(TEXT("%s: round 1 HP %.0f, $%d in %d pieces, %d XP | round 10 HP %.0f, $%d in %d pieces, %d XP"), Type,
+				Round1.MaxHealth, Round1.Cash, Round1.CashPieces, Round1.XP, Round10.MaxHealth, Round10.Cash, Round10.CashPieces, Round10.XP));
+
+			TestTrue(FString::Printf(TEXT("%s: round 10 is tougher (round scaling applies)"), Type), Round10.MaxHealth > Round1.MaxHealth);
+			TestEqual(FString::Printf(TEXT("%s: round 1 drops CashValue"), Type), Round1.Cash, Data->CashValue);
+			TestEqual(FString::Printf(TEXT("%s: round 10 drops the same cash"), Type), Round10.Cash, Round1.Cash);
+			TestEqual(FString::Printf(TEXT("%s: same cash pieces"), Type), Round10.CashPieces, Round1.CashPieces);
+			TestEqual(FString::Printf(TEXT("%s: one XP orb in round 1"), Type), Round1.XPOrbs, 1);
+			TestEqual(FString::Printf(TEXT("%s: one XP orb in round 10"), Type), Round10.XPOrbs, 1);
+			TestEqual(FString::Printf(TEXT("%s: round 1 orb is XPValue"), Type), Round1.XP, Data->XPValue);
+			TestEqual(FString::Printf(TEXT("%s: round 10 orb is the same XP"), Type), Round10.XP, Round1.XP);
 		}
 	});
 	EndPIE();

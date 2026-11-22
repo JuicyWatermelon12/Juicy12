@@ -365,6 +365,24 @@ void AGSGameMode::PayRoundClearBonus()
 		Payout.Round, Total, Payout.BaseBonus, Payout.NoDamageBonus, Payout.FastClearBonus, Payout.ClearTime, Payout.FastClearTime, Round.DamageTaken);
 }
 
+void AGSGameMode::LogRoundSummary(const TCHAR* Ending) const
+{
+	const AGSGameState* GS = GetGameState<AGSGameState>();
+	const UGSRunStats* Stats = GetRunStats();
+	if (!GS || !Stats)
+	{
+		return;
+	}
+	const FGSRoundStats& Round = Stats->GetCurrentRound();
+	const FGSRoundClearPayout& Payout = Stats->GetLastRoundClearPayout();
+	const bool bPaid = Payout.Round == Round.Round && Round.Round > 0;
+	const float CombatTime = bPaid ? Payout.ClearTime
+		: (Round.CombatStartTime >= 0.0 ? static_cast<float>(GS->GetServerWorldTimeSeconds() - Round.CombatStartTime) : 0.f);
+	UE_LOG(LogBanditBaller, Log, TEXT("[round] Round %d %s: combat %.1f s, wave %d, %d kills, $%d collected + $%d bonus, %d XP, %.0f damage taken, level %d, fallback spawns %d"),
+		Round.Round, Ending, CombatTime, Round.WaveEnemies, Round.Kills, Round.CashCollected, bPaid ? Payout.GetTotal() : 0, Round.XPEarned, Round.DamageTaken,
+		Stats->GetLevelReached(), WaveDirector ? WaveDirector->GetFallbackSpawns() : 0);
+}
+
 UGSRunStats* AGSGameMode::GetRunStats() const
 {
 	const AGSGameState* GS = GetGameState<AGSGameState>();
@@ -635,6 +653,16 @@ void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
 	GetWorldTimerManager().ClearTimer(PhaseTimer);
 
 	const EGSRoundPhase OldPhase = GS->GetRoundPhase();
+
+	// One line per finished round (before the next PreRound starts its stats over), and for the round a death ends.
+	if (OldPhase == EGSRoundPhase::RoundClear && NewPhase != EGSRoundPhase::RoundClear)
+	{
+		LogRoundSummary(TEXT("cleared"));
+	}
+	else if (NewPhase == EGSRoundPhase::GameOver && OldPhase != EGSRoundPhase::GameOver)
+	{
+		LogRoundSummary(TEXT("died"));
+	}
 	const float Duration = GetPhaseDuration(NewPhase);
 	const double EndTime = Duration > 0.f ? GS->GetServerWorldTimeSeconds() + Duration : 0.0;
 

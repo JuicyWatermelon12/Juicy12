@@ -35,12 +35,13 @@ see **Design update — market, prestige and economy**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–27 and 26b are
-done (11–13 and 17 were design / scope updates and permanent cash).
+**M2 — the run loop is complete** (rounds, waves, scaling, economy, progression; Prompts 1–28 and 26b; 11–13 and 17
+were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **Next milestone: M3** (shop,
+owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after Prompt 27, not pushed. The build is clean and all 32 automation tests pass.
-The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to play a run in
-`L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
+State at the time of writing: `main` after Prompt 28 ("M2 complete"), not pushed. The build is clean and all 35
+automation tests pass. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
 | Step | What | Commit |
@@ -77,7 +78,8 @@ The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start 
 | M2 26 | Start Run portal (hub → town, run starts on load, seed hand-off); town cleanup (district sublevel, market travel removed) | 142a81e |
 | Fix | Death screen R returns to the hub instead of restarting the town | 7b10eb2 |
 | M2 26b | Bigger town: 300 × 300 m, streets, outskirts cover, a landmark per side, NavMesh without islands | 97d2045 |
-| M2 27 | Run end: GameOver on death (wave stopped), run summary, Return to Market → hub | see git log |
+| M2 27 | Run end: GameOver on death (wave stopped), run summary, Return to Market → hub | d2891c4 |
+| M2 28 | Tests for the M2 rules, two PIE loops, M2 checkpoint ("M2 complete") | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -146,7 +148,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–27 done)
+## M2 — The run loop (complete: Prompts 1–28)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -1212,6 +1214,105 @@ Map work only, done with MCP. The only C++ change is the new test.
     an upgrade offer and paused the game under the summary. That is fixed above (offers dropped and refused in
     GameOver) and covered by `Run.GameOver`.
 
+### Prompt 28 — Tests + M2 checkpoint ("M2 complete")
+- **Test audit:** each M2 rule was checked against the suite. Rules already covered stayed as they were: offers, Rare
+  weight, MaxStacks, empty tiers, reroll limits, per-stack stat amounts, the boundary vs. shots, combo and round-clear
+  amounts, level-up rewards, XP orbs and the hub.
+- **New tests (3):**
+  - `Run.SameSeedSameRun`: replays rounds 1, 2, 5 and 8 (8 is budget-generated) with the same seed. It compares every
+    wave's enemies in spawn order and every spawn point (player still), a level-up offer, its 3 rerolls, the refused
+    4th, and the next offer. Another seed gives another run.
+  - `Run.NewRunResets`: progress in a run, then death → hub → Start Run. The new run is level 1 with no XP, upgrades,
+    offers, ExtraJumps, Damage / MoveSpeed / MaxHealth bonuses, kills, cash earned or combo. Its rerolls are back to 3
+    and the cash is kept (HUD too).
+  - `Economy.FlatDropsPerRound`: melee and ranged bandits killed in round 1 and round 10 drop the same cash, in the
+    same pieces, and one orb of the same XP. Their HP doubles.
+- **Extended tests:**
+  - `Round.PhaseLoop`: death stops the loop. GameOver has no end time, a skip doesn't leave it, and it is still
+    GameOver in round 5 after the PreRound time.
+  - `Round.WaveDirector`: killing the first arrivals while the rest of the wave is still to come keeps Combat going.
+  - `Spawn.LocationFinder`: every point is inside the boundary. A forced fallback (the player 50 m up, where the
+    ring has no NavMesh) gives flagged EnemySpawn points, on the NavMesh, inside and spaced. The fallback warning
+    must be logged (`AddExpectedMessage`).
+  - `Map.TownLayout`: a spawn ring of 6 is rolled at each corner. Every point is inside the boundary, on the
+    NavMesh, and in the ring or a fallback.
+  - `Progression.XPAndLevels`: one offer per level. Two level-ups give one open + one queued. The jump from level 10
+    to the cap gives 40 offers (one open, 39 queued).
+  - `Upgrades.ExtraJump`: 25 more stacks give ExtraJumps = stacks and JumpMaxCount = 1 + stacks (no cap).
+  - `Profile.PermanentCash`: the quit at the end of PIE saves the balance. The next PIE session (a new GameInstance)
+    loads it (HUD too). `gs.Profile.Reset`, run through the console, sets it to 0 and deletes the save.
+- **Test hooks:** `UGSWaveDirector::GetSpawnQueue`, `GetPendingSpawns`, `SpawnNextBatchNow`.
+- **Test fixes:**
+  - `Run.GameOver` uses the existing `CountLivingEnemies` (my duplicate helper is gone).
+  - A second PIE session in one test must wait for `GetPIEWorld() == nullptr` after `EndPIE`. The end is only
+    requested, so without the wait the next steps ran in the old session. That also made the next test
+    (`Progression.LevelUpFeedback`) fail once.
+- **New log line** (for the checkpoint numbers): `[round] Round N cleared|died: combat T s, wave W, K kills, $C
+  collected + $B bonus, X XP, D damage taken, level L, fallback spawns F`. It is written once per round, when
+  RoundClear ends, and for the round a death ends (`AGSGameMode::LogRoundSummary`).
+- **Full suite:** 35 tests, all passing (M1's GAS / weapon / dash tests included), in about 118 s.
+
+#### M2 checkpoint — two full loops in PIE
+Hub → run → death → hub, twice. The seeds were set in the hub (`gs.Run.Seed`) and the run started with
+`gs.Market.Return` (the portal's path). Editor throttling was off; the real profile slot was used.
+- **How it was played:** MCP can't react in real time (a command takes 1–3 s to arrive). So the cleared rounds used
+  god mode and `gs.KillAll` once the whole wave had spawned, and the death round was played standing still with god
+  mode off.
+  - "Combat" times below are therefore the spawn time plus my command delay, not real kill speed.
+  - Damage taken is 0 in cleared rounds, so the no-damage bonus was always paid.
+  - Upgrades: Damage when offered, otherwise a reroll, then the Rare.
+- **Warm-up:** the first try (seed 2701, no god mode yet) died in round 1 after **7.3 s of combat** to 4 melee
+  bandits: 96 damage taken, standing still.
+
+**Loop 1 (seed 2701): died in round 5, 1:35 run time**
+
+| Round | Wave | Combat | Cash collected + bonus | XP | Level after | Upgrades |
+|---|---|---|---|---|---|---|
+| 1 | 4 melee | 11.5 s | $46 + $50 | 40 | 1 | — |
+| 2 | 5 melee, 1 ranged | 17.6 s | $80 + $35 (missed fast clear by 0.6 s) | 65 | 2 | offered MoveSpeed / Damage / ReloadSpeed → Damage |
+| 3 | 6 melee, 2 ranged | 12.0 s | $118 + $50 | 90 | 2 | — |
+| 4 | 7 melee, 3 ranged | 13.5 s | $165 + $50 | 115 | 3 | offered MoveSpeed / ReloadSpeed / ExtraJump → reroll → ExtraJump / MoveSpeed / ReloadSpeed → ExtraJump |
+| 5 | 9 melee, 4 ranged | died after 10.1 s (113 damage) | — | — | 3 | — |
+
+Totals: 4 rounds cleared, level 3, 28 kills, best combo 10, $594 earned (balance $2,429 → $3,023), 1 reroll used,
+0 fallback spawns. The summary showed exactly these numbers.
+
+**Loop 2 (seed 2702): died in round 7, 1:58 run time**
+
+| Round | Wave | Combat | Cash collected + bonus | XP | Level after | Upgrades |
+|---|---|---|---|---|---|---|
+| 1 | 4 melee | 14.5 s | $46 + $35 (missed fast clear by 0.5 s) | 40 | 1 | — |
+| 2 | 5 melee, 1 ranged | 12.6 s | $80 + $50 | 65 | 2 | offered Damage / ReloadSpeed / MoveSpeed → Damage |
+| 3 | 6 melee, 2 ranged | 6.7 s | $117 + $50 | 90 | 2 | — |
+| 4 | 7 melee, 3 ranged | 14.9 s | $159 + $50 | 115 | 3 | offered ReloadSpeed / MoveSpeed / Damage → Damage |
+| 5 | 9 melee, 4 ranged | 12.1 s | $225 + $50 | 150 | 4 | offered ReloadSpeed / MoveSpeed / Damage → reroll → ReloadSpeed / Damage / MoveSpeed → Damage |
+| 6 | generated (budget 20): 4 melee, 8 ranged | 5.9 s | $239 + $50 | 160 | 5 | offered Damage / ReloadSpeed / MoveSpeed → Damage |
+| 7 | generated (budget 22.5): 4 melee, 9 ranged | died after 6.7 s (138 damage) | — | — | 5 | — |
+
+Totals: 6 rounds cleared, level 5, 53 kills, best combo 13, $1,151 earned (balance $3,023 → $4,174), 1 reroll used,
+0 fallback spawns. The summary matched.
+
+- **Spawn fallbacks:** 0 in all 13 waves (the warm-up included). In the 10 cleared waves the closest spawn was
+  12.4–17.3 m (ring 12–25 m), and none was on-screen.
+- **Frame time** (`gs.Perf 5` in each death round, 120 fps cap; game / render / GPU averages):
+
+  | Loop | Enemies alive | Frame avg | p95 | Max | Game | Render | GPU |
+  |---|---|---|---|---|---|---|---|
+  | 1 (round 5) | 13 | 8.36 ms (120 fps) | 8.33 | 21.70 | 3.88 | 3.02 | 3.44 |
+  | 2 (round 7) | 12 | 8.37 ms (120 fps) | 8.33 | 23.31 | 3.82 | 3.01 | 3.61 |
+- **Flow checks:** Start Run carried each seed over. Each death showed the summary; "Return to Market" was clicked
+  through Slate (a real button click) and the hub opened 0.5 s later. The hub kept the cash with level 1 and no
+  upgrades, and the next run started fresh.
+- **Balance observations** (suggestions only, nothing changed):
+  - The first generated wave (round 6, budget 20) is **smaller than round 5** (12 vs 13 enemies) and **two-thirds
+    ranged**. Ranged bandits cost 2 and the budget buys them freely. Round 7 is 9 of 13 ranged. The DT_Waves → budget
+    hand-off feels like a step sideways, and the composition flips.
+  - Income per cleared round rose from $81–96 (round 1) to $289 (round 6). Most of it is drops ($46 → $239); the
+    flat $20–50 bonus matters mostly early, as designed.
+  - Levels: 2 after round 2, then about one per round from round 4. Of the 8 rolled offers (rerolls included),
+    Damage was in 6 and Extra Jump in 2. Expected rates are about 86% and 42%; 8 offers is a small sample.
+  - Standing still is lethal fast: 7.3 s in round 1 (4 melee), 10.1 s in round 5, 6.7 s in round 7 (ranged-heavy).
+
 ---
 
 ## Console commands and CVars
@@ -1310,7 +1411,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (32, all passing)
+## Automation tests (35, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running.
@@ -1324,30 +1425,33 @@ starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE b
 | `Abilities.DashInvulnerabilityBlocksDamage` | Dash i-frames block damage. |
 | `Map.Hub` | PIE in L_Hub_Graybox: AGSHubGameMode (no AGSGameMode), area MarketDistrict, round 0 / WaitingToStart; Casino, 4 stalls, MarketArrival, MarketExitPortalSpot; player starts at MarketArrival; no NavMesh; AGSMapBoundary contains the player and the Casino; gs.Spawn refused, no enemies; State.SafeZone (GE_SafeZone) on the player, GE_Damage blocked, the fire input fires nothing (no State.Firing, ammo unchanged); HUD in the safe area hides every combat element and shows the cash (= profile); still no round half a second later. |
 | `Map.Town` | PIE in L_Town_Graybox: AGSGameMode (no hub GameMode), area Town, run started; no sublevels; no TownReturn / MarketPortalSpot / MarketArrival / MarketExitPortalSpot / Casino / MarketStall / Market actors; EnemySpawn points on the NavMesh; NavMesh under the player; boundary; no State.SafeZone; HUD not in a safe area; gs.Market.Teleport opens the hub (AGSHubGameMode, MarketDistrict); gs.Market.Return starts a run and opens the town again (round 1). |
-| `Map.TownLayout` | Town 300 × 300 m: boundary PlayAreaSize 30000 × 30000, centered, ceiling 7500; ground with its top at Z 0 at the center, the edge midpoints and the corners; Kill Z below the ground; NavMesh bounds cover the ground; a tagged landmark on each side, more than 110 m out and at least 15 m tall; PlayerStart at the center; 4 EnemySpawn points at least 130 m out, inside the boundary, on the NavMesh; no ground NavMesh islands (5 m grid, at least 2800 ground samples, every one with a path from the PlayerStart); a path to every edge and corner; launched into the wall at each edge and corner, the player stays inside and on the ground. |
+| `Map.TownLayout` | Town 300 × 300 m: boundary PlayAreaSize 30000 × 30000, centered, ceiling 7500; ground with its top at Z 0 at the center, the edge midpoints and the corners; Kill Z below the ground; NavMesh bounds cover the ground; a tagged landmark on each side, more than 110 m out and at least 15 m tall; PlayerStart at the center; 4 EnemySpawn points at least 130 m out, inside the boundary, on the NavMesh; no ground NavMesh islands (5 m grid, at least 2800 ground samples, every one with a path from the PlayerStart); a path to every edge and corner; launched into the wall at each edge and corner, the player stays inside and on the ground; a spawn ring of 6 rolled at each corner: every point inside the boundary, on the NavMesh, in the ring or a fallback. |
 | `Map.StartRunPortal` | PIE in the hub: a portal at MarketExitPortalSpot ("START RUN"), RunMap = L_Town_Graybox; gs.Run.Seed 4242 in the hub sets the next seed; walking into the trigger starts the run (fade to black, a second start refused); the town loads with seed 4242 (GameMode + GameState), round 1, fresh run stats, area Town, same cash, no safe zone; round 1's first spawns: no fallback points, closest ≥ ring min, farthest ≤ ring max, every enemy on the NavMesh and inside the boundary. |
 | `Map.Boundary` | AGSMapBoundary in the town (ceiling 7500), player inside, cvar exists; 5 boxes: MapBoundary object type, block Pawn, ignore Visibility/Camera/WorldStatic/WorldDynamic/PhysicsBody, no NavMesh effect; player and enemy capsules block MapBoundary; Visibility / Camera / enemy-shot / pickup traces pass through a wall and the ceiling, a pawn sweep doesn't; spawn points near a corner are inside; player and a frozen enemy launched at a wall stay inside; dash and slide into the wall stop inside; a launch up stops at the ceiling (no damage, same XY); gs.Upgrade.Grant ExtraJump 3; an air jump under the ceiling works and is stopped by it. |
-| `Round.PhaseLoop` | PreRound on start, timer → Combat; no market phases in the enum; RoundClear timer → round 2 PreRound; skips round 2 → round 3 PreRound; gs.Round.Set. |
+| `Round.PhaseLoop` | PreRound on start, timer → Combat; no market phases in the enum; RoundClear timer → round 2 PreRound; skips round 2 → round 3 PreRound; gs.Round.Set; death → GameOver (no end time, a skip doesn't leave it), still GameOver in round 5 after the PreRound time. |
 | `Player.ReturnToHubRestoresInput` | Die → run summary with UI input and the cursor → R once the input lock is over (the widget's key path) → returning → the hub map (AGSHubGameMode, no run) → game input back, no cursor, no summary, pawn not dead. |
 | `Run.GameOver` | Return refused while alive; run time format; a level-up pick + 3 upgrade stacks, round 1 with 2 kills, a pickup and its clear bonus; round 2 wave running with enemies to come; an offer open at death (paused) → death: GameOver, still round 2, wave stopped (no telegraphs, nothing left to spawn), living enemies stay, untimed, a skip does nothing, offer closed and unpaused; debug XP after death levels up with no offer or pause; run time recorded, profile saved; summary shown with UI input + cursor, locked (R and the button do nothing); 3 s later: no spawns or new enemies, no RoundClear / bonus, run time frozen, same cash; killing the leftovers clears nothing; summary lines (rounds, level, kills, combo, cash earned, total cash, run time, seed, upgrades text + one icon per upgrade with stacks); held R (repeat) and Space do nothing; the "Return to Market" button → returning, second press / request refused, camera fades to black, the summary fades out before the hub opens; the hub: cash kept, no summary, game input, no cursor, unfaded, no upgrades. |
-| `Spawn.LocationFinder` | 12 points: on NavMesh, reachable, in ring, spaced; same seed → same points. (No spawns in the Market District: `Map.Hub`.) |
-| `Round.WaveDirector` | Round 1 size matches DT_Waves; killing the wave ends Combat; skipping removes leftovers. |
+| `Spawn.LocationFinder` | 12 points: on NavMesh, reachable, in ring, spaced, inside the boundary; same seed → same points; no ring NavMesh (player 50 m up) → 2 flagged EnemySpawn fallbacks, on NavMesh, inside, spaced, and the fallback warning is logged. (No spawns in the Market District: `Map.Hub`.) |
+| `Round.WaveDirector` | Round 1 size matches DT_Waves; killing the first arrivals while more are to come keeps Combat; killing the whole wave ends Combat; skipping removes leftovers. |
 | `Round.WaveBudget` | Seeded purchase within budget, MinRound respected, alive cap with telegraphs, spawns resume. |
 | `Round.DifficultyScaling` | Round 1 base stats; round 10 = base × curve, full health; GameState multipliers. |
 | `Balance.TimeToKill` | Rifle/pistol shots-to-kill at rounds 1/5/10 vs both bandits via the real fire path (`[ttk]` log). XPGain 0, so kills don't open upgrade offers. |
 | `Run.SeedAndStats` | Same seed replays rolls; restart resets stats; kills per type; damage dealt/taken; rounds cleared. |
+| `Run.SameSeedSameRun` | Rounds 1, 2, 5, 8 (generated) replayed with one seed, in one frame: the same enemies in spawn order and the same spawn point for each (all batches run at once, player still), the same level-up offer, 3 rerolls, refused 4th and next offer; every enemy placed; another seed gives another run. |
+| `Run.NewRunResets` | A run with 2 level-ups (a reroll), 6 upgrade picks, air jumps, +20 MaxHealth, a kill and $77 → death → hub (cash kept) → Start Run → town: level 1, 0 XP, no upgrades / offers, rerolls back to 3, ExtraJumps 0 / JumpMaxCount 1, base Damage / MoveSpeed / MaxHealth at full health, round 1, no kills / cash earned / combo, cash kept; HUD level 1, no icons, cash. |
+| `Economy.FlatDropsPerRound` | Melee and ranged bandits (frozen) killed in round 1 and round 10 with no combo: round 10 has more HP, but the cash (CashValue, same pieces) and the single XP orb (XPValue) are the same. |
 | `Economy.CashPickups` | Exact split; out-of-reach drop stays; radius collects into Cash/CashEarned/HUD + popup; pool reuse; RoundClear vacuum; short lifetime blinks, expires unpaid. Counts cash pickups only (the kills' XP orbs never expire). Ends the kill combo before each kill, so every drop is exactly CashValue. |
 | `Economy.KillCombo` | DA_ComboSettings on the GameMode (2.5 s, x1/x1.25/x1.5/x2 steps, end on damage, no XP); step lookup at each boundary; kills 1–10 in a row: count +1, multiplier, cash drop = round(CashValue × multiplier), XP orb unchanged, window restarted, HUD count / multiplier / shown from 2, "10 COMBO" / "x2 CASH", best combo; a target dummy kill doesn't count; the window drains with game time and the HUD bar follows; a kill inside the window continues; it times out one window after the last kill (HUD hidden); pickups collected after the combo ended pay the kill-time multipliers; a level-up pause freezes the window (1 s real time), picking resumes it; god mode keeps the combo, health lost ends it (DamageTaken); override bEndComboOnDamage off / bApplyComboToXP on: XP orbs multiplied, damage keeps the combo; a new run ends it (Reset) and clears the best combo; gs.Run.Stats shows it. |
 | `Economy.XPOrbs` | XPOrbLifetime 0; kill → no XP, one orb worth XPValue with the orb mesh / material, no expiry; cash expires (gs.Cash.Lifetime 1.5) but the orb stays, no blink; walking in collects it → XP = XPValue × XPGain 1.5, run stats XPEarned, "+N XP" popup at the collection point; out-of-reach orb waits, RoundClear vacuums it; gs.XP.Add is instant; a new run clears orbs on the ground; a dead player collects nothing. |
-| `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over (HUD level + bar follow); kill gives no XP but one orb; collected orb XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; cap at max level; new run resets. |
+| `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over (HUD level + bar follow), one offer open + one queued; kill gives no XP but one orb; collected orb XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; level 10 → cap in one gain queues one offer per level (40); cap at max level; new run resets. |
 | `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear; new run removes stacks and clamps Health; dead player gets the stack but no heal. Takes each upgrade offer (choice 0) so the game unpauses. |
 | `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → no popup, collected orb → "+XPValue XP" at the collection point; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); 3 upgrade offers taken; banner/pulse/glow end. |
 | `UI.UpgradeChoice` | Choice widget from the PlayerController; level-up pauses (GameMode owns the pause) and the cards wait for the banner; cards match the offer (order, rarity color, "Owned: N"); "Reroll (3 left)", cursor shown; key / click ignored during the 0.3 s lock; R, gamepad Y and the button reroll (label 2/1/0, new cards, lock again), greyed out at 0 and R does nothing; key 2 picks the 2nd card, last pick hides, unpauses, cursor off; 1000 XP → 1 open + 3 queued; D-pad selects, A picks; next offer swaps in at once (no banner wait), locked, still paused; click / numpad 1 / key 3 pick the rest; hidden and unpaused after the queue. |
 | `UI.RoundHUD` | PreRound: "ROUND 1", "PRE-ROUND", countdown "Round 1 in 3…" → "… 2…" a second later, no enemy count, ROUND 1 banner, no icons; gs.Round.Set 2 restarts text + countdown and shows ROUND 2; a level-up hides it and queues it again (LEVEL UP!, offer open, paused); 3.5 s with the cards up: still waiting; the pick replays ROUND 2; icons: picked upgrade x1 → same again x2 (one icon) → another upgrade (two icons); Combat: "COMBAT", no countdown, "N enemies left" = wave, a kill updates it; RoundClear: phase text, no enemy count, ROUND CLEAR banner; a level-up during ROUND CLEAR then round 3 starting with the cards up → queued ROUND CLEAR + ROUND 3 → after LEVEL UP! only ROUND 3 shows (stale one dropped); no frame with a round banner over LEVEL UP! or an open offer; a new run clears the icons. |
-| `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; Combat → RoundClear pays the round-clear bonus into the profile; save when RoundClear ends includes it (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + return to the hub (the hub's HUD shows it). |
+| `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; Combat → RoundClear pays the round-clear bonus into the profile; save when RoundClear ends includes it (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + return to the hub (the hub's HUD shows it); quitting saves it and the next PIE session (new GameInstance) loads it (HUD too); `gs.Profile.Reset` through the console → 0 and no save file. |
 | `Round.ClearBonus` | DA_RoundClearSettings on the GameMode ($20 / $15 / $15, 8 s + 1.5 s per enemy) and the summary widget on the controller; PreRound starts the round's stats (no payout, no summary); Combat records its start and wave size; round 1 killed fast with no damage → base + no damage + fast clear, kills = wave size, profile += bonus + cash collected; summary shows round, title and each line; after the vacuum cash collected ≥ kills × CashValue, XP = kills × XPValue, profile and CashEarned += cash collected + bonus, summary lines follow; round 2 PreRound hides the summary and starts from zero; damage taken + an impossible time limit (override) → base only, "missed" lines, total = base; RoundClear from PreRound pays nothing and shows nothing; round 10 (skip) pays the same as round 1; gs.Run.Stats shows the last bonus; a new run clears payout and round stats. |
 | `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
-| `Upgrades.ExtraJump` | DA_Upgrade_ExtraJump (Rare, no cap, "+1"); no air jump without it; ×3 → ExtraJumps 3, JumpMaxCount 4; three air jumps (rising, falling, falling fast) each set AirJumpZVelocity, 4th refused, one puff/sound each; landing resets; coyote jump is the ground jump; late jump after walking off uses an air jump; slide-hop then air jump; jump during an air dash is queued and becomes an air jump at the dash end; jump during a ground dash becomes the ground jump; new run → 0 / 1. |
+| `Upgrades.ExtraJump` | DA_Upgrade_ExtraJump (Rare, no cap, "+1"); no air jump without it; ×3 → ExtraJumps 3, JumpMaxCount 4; three air jumps (rising, falling, falling fast) each set AirJumpZVelocity, 4th refused, one puff/sound each; landing resets; coyote jump is the ground jump; late jump after walking off uses an air jump; slide-hop then air jump; jump during an air dash is queued and becomes an air jump at the dash end; jump during a ground dash becomes the ground jump; 25 more stacks (no cap) → ExtraJumps = stacks, JumpMaxCount = 1 + stacks; new run → 0 / 1. |
 | `Upgrades.Offers` | DA_UpgradePool on the GameMode (4 upgrades, 100/20/6/1, 3 choices, 3 rerolls), 4 rarities; roll rules: 3000 offers all 3 different, Rare in ~42%, same seed same offers, 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer; simulator deterministic, no short offers, no Epic / Legendary, run stream untouched. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
@@ -1468,6 +1572,12 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - `gs.Round.Set` and `gs.Run.Seed` still work in GameOver (debug). They restart rounds with a dead player, whose
     run summary stays up.
   - GameOver logs the wave's "stopped early" line as a warning, like any early stop.
+- M2 checkpoint (Prompt 28):
+  - Balance is unexamined with real shooting. The PIE loops cleared waves with god mode and `gs.KillAll`, so their
+    round times are the spawn time plus command delay, and the no-damage bonus was always paid.
+  - Generated waves start smaller than the last DT_Waves row (round 6: 12 enemies vs 13 in round 5) and are mostly
+    ranged (8 of 12, 9 of 13).
+  - A player who stands still dies in 7–10 s of combat in rounds 1–7.
 - Profile: there are no upgrade steps yet (version 1 is the only layout). A crash between save points loses the cash
   earned since the last RoundClear.
 - Cash drops and enemy XP don't scale with the round. This is by design (flat economy, user decision). The kill
@@ -1588,8 +1698,18 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
     the boundary and spawn points moved out, and a NavMesh without islands.
 27. ~~**Death → summary → hub.**~~ Done (see Prompt 27): GameOver on death (wave stopped, offers dropped), the run
     summary, and "Return to Market" (button, R, Start / Y) with a fade back to the hub.
-28. **Tests + M2 checkpoint.** Next. Fill test gaps for the new rules, run the full suite, update this file and close
-    M2.
+28. ~~**Tests + M2 checkpoint.**~~ Done (see Prompt 28 and **M2 checkpoint**). **M2 is complete.**
+
+**Next: M3** (not planned in detail yet; each item needs its own prompt). From the decisions so far:
+- The two-layer save (playthrough data: cash, owned items, loadout, total cash earned; prestige data, empty until
+  prestige), with an upgrade step from save version 1.
+- Item types: usable items (consumables, bought again to restock, used up in a run) and gear (bought once, one per
+  loadout slot). Other types (abilities, powerups) are decided in M3.
+- The static shop in the hub (a fixed catalogue, `TrySpendCash`), owned items in the profile, the hub loadout, and
+  owned things applied at the start of the next run.
+
+Suggestions from the M2 checkpoint (not scheduled): look at the DT_Waves → budget hand-off (round 6 is smaller than
+round 5 and mostly ranged), and replace `gs.KillAll` play with real shooting before balance work.
 
 Decided (user):
 - **Single-player first;** co-op is M6.

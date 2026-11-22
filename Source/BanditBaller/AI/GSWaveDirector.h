@@ -106,6 +106,17 @@ public:
 	/** Alive cap in effect (gs.Wave.MaxAlive overrides DA_WaveSettings). */
 	int32 GetMaxAlive() const;
 
+	// --- Tests (seed replays) ---
+
+	/** Enemies of this wave not yet telegraphed (shuffled; batches take them from the back). */
+	const TArray<TObjectPtr<UGSEnemyData>>& GetSpawnQueue() const { return SpawnQueue; }
+
+	/** Spawns currently telegraphing: enemy type and chosen location. */
+	const TArray<FGSPendingSpawn>& GetPendingSpawns() const { return PendingSpawns; }
+
+	/** Run the next spawn batch now instead of at the next interval (same rules: alive cap, finder, run stream). */
+	void SpawnNextBatchNow() { SpawnNextBatch(); }
+
 	/** DT_Waves row "RoundN"; nullptr if there is none (the round is generated). */
 	const FGSWaveRow* FindWaveRow(int32 Round) const;
 
