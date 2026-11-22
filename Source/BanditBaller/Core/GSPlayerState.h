@@ -13,6 +13,7 @@ class UGSAttributeSet;
 class UGSProgressionComponent;
 class UGSUpgradeComponent;
 class UGSComboComponent;
+class UGSShieldComponent;
 
 /**
  * Per-player run state. Owns the player's AbilitySystemComponent + attributes (so they survive pawn changes),
@@ -51,6 +52,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combo")
 	UGSComboComponent* GetComboComponent() const { return Combo; }
 
+	/** Floating Shields: which are ready, their recharge, TryAbsorbHit (UGSAttributeSet's damage path). */
+	UGSShieldComponent* GetShieldComponent() const { return Shields; }
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Abilities")
 	TObjectPtr<UGSAbilitySystemComponent> AbilitySystemComponent;
@@ -66,6 +70,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combo")
 	TObjectPtr<UGSComboComponent> Combo;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
+	TObjectPtr<UGSShieldComponent> Shields;
 
 private:
 	FGSAbilitySetGrantedHandles StartupAbilitySetHandles;

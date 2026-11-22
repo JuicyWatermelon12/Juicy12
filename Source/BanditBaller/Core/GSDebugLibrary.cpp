@@ -17,6 +17,7 @@
 #include "GSEnemyData.h"
 #include "GSCombatSettings.h"
 #include "GSGameMode.h"
+#include "GSShieldComponent.h"
 #include "GSGameplayAbility_Dash.h"
 #include "GSGameplayTags.h"
 #include "GSMovementAbilitySettings.h"
@@ -222,7 +223,7 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 	}
 	if (ASC)
 	{
-		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, FireRate %.2f, MoveSpeed %.0f, PickupRadius %.0f, ExtraJumps %.0f, MagazineSizeMultiplier %.2f, HealthOnKill %.0f, CritChance %.2f, Pierce %.0f, PowderKeg %.0f"),
+		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, FireRate %.2f, MoveSpeed %.0f, PickupRadius %.0f, ExtraJumps %.0f, MagazineSizeMultiplier %.2f, HealthOnKill %.0f, CritChance %.2f, Pierce %.0f, PowderKeg %.0f, Shields %.0f"),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetReloadSpeedAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetFireRateAttribute()),
@@ -233,7 +234,8 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 			ASC->GetNumericAttribute(UGSAttributeSet::GetHealthOnKillAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetCritChanceAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetPierceAttribute()),
-			ASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute()));
+			ASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetShieldsAttribute()));
 		if (const AGSCharacter* Character = Cast<AGSCharacter>(PC->GetPawn()))
 		{
 			if (const UGSWeaponComponent* Weapons = Character->GetWeaponComponent())
@@ -248,6 +250,17 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 				Dash->GetMaxCharges(ASC->AbilityActorInfo.Get()), DashSettings ? DashSettings->MaxCharges : 1,
 				ASC->GetNumericAttribute(UGSAttributeSet::GetExtraDashChargesAttribute()),
 				Dash->GetAvailableCharges(ASC->AbilityActorInfo.Get()));
+		}
+		if (const UGSShieldComponent* Shields = PS ? PS->GetShieldComponent() : nullptr)
+		{
+			FString Cooldowns;
+			for (int32 Index = 0; Index < Shields->GetNumShields(); ++Index)
+			{
+				Cooldowns += FString::Printf(TEXT("%s%s"), Cooldowns.IsEmpty() ? TEXT("") : TEXT(", "),
+					Shields->IsShieldReady(Index) ? TEXT("ready") : *FString::Printf(TEXT("%.1f s"), Shields->GetCooldownRemaining(Index)));
+			}
+			Text += FString::Printf(TEXT("\n  Floating shields: %d (%d ready%s%s), %d hit(s) blocked this run"), Shields->GetNumShields(),
+				Shields->GetNumReady(), Cooldowns.IsEmpty() ? TEXT("") : TEXT(": "), *Cooldowns, Shields->GetHitsBlocked());
 		}
 		if (const AGSGameMode* GameMode = PC->GetWorld()->GetAuthGameMode<AGSGameMode>())
 		{

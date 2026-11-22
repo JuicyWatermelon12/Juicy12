@@ -13,6 +13,7 @@ class UGSAbilitySet;
 class UGSInputConfig;
 class UCameraShakeBase;
 class UGSHealthComponent;
+class UGSFloatingShieldsComponent;
 class UGSDashSettings;
 class UGSMovementSettings;
 class UGSSlideSettings;
@@ -55,6 +56,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Health")
 	UGSHealthComponent* GetHealthComponent() const { return HealthComponent; }
+
+	/** The Floating Shields you see (visual only; the shields' state is the PlayerState's UGSShieldComponent). */
+	UGSFloatingShieldsComponent* GetFloatingShields() const { return FloatingShields; }
 
 	/** True while the pawn turns to face the camera (aiming or firing). */
 	UFUNCTION(BlueprintPure, Category = "Movement")
@@ -140,6 +144,10 @@ protected:
 	/** Shared health/death logic (listens to the PlayerState ASC's Health). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Health")
 	TObjectPtr<UGSHealthComponent> HealthComponent;
+
+	/** Floating Shield visuals: mesh, material, orbit and block / return feedback are set on BP_GSCharacter. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
+	TObjectPtr<UGSFloatingShieldsComponent> FloatingShields;
 
 	/** Played on the local player's camera when they take damage (CS_PlayerHit). */
 	UPROPERTY(EditDefaultsOnly, Category = "Health")

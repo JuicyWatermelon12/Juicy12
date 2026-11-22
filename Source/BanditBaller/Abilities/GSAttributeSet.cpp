@@ -6,6 +6,8 @@
 #include "GSGameMode.h"
 #include "GSGameplayTags.h"
 #include "GSPlayerController.h"
+#include "GSPlayerState.h"
+#include "GSShieldComponent.h"
 #include "Net/UnrealNetwork.h"
 
 UGSAttributeSet::UGSAttributeSet()
@@ -20,6 +22,7 @@ UGSAttributeSet::UGSAttributeSet()
 	InitCritChance(0.f);
 	InitPierce(0.f);
 	InitPowderKeg(0.f);
+	InitShields(0.f);
 }
 
 void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -56,7 +59,8 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 		|| Attribute == GetExtraDashChargesAttribute()
 		|| Attribute == GetHealthOnKillAttribute()
 		|| Attribute == GetPierceAttribute()
-		|| Attribute == GetPowderKegAttribute())
+		|| Attribute == GetPowderKegAttribute()
+		|| Attribute == GetShieldsAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}
@@ -98,6 +102,18 @@ void UGSAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 	{
 		const float LocalDamage = GetIncomingDamage();
 		SetIncomingDamage(0.f);
+
+		// Damage order: dash invulnerability (State.Invulnerable keeps GE_Damage from applying at all, so it never gets
+		// here) -> a ready Floating Shield cancels the whole hit -> Health. TODO(M2b 37): Second Wind on a killing blow.
+		if (LocalDamage > 0.f)
+		{
+			const AGSPlayerState* OwnerPS = Cast<AGSPlayerState>(GetOwningActor());
+			UGSShieldComponent* ShieldComponent = OwnerPS ? OwnerPS->GetShieldComponent() : nullptr;
+			if (ShieldComponent && ShieldComponent->TryAbsorbHit(LocalDamage, Data.EffectSpec.GetEffectContext().GetOriginalInstigator()))
+			{
+				return; // blocked: no Health lost (no damage taken, combo and no-damage bonus unaffected)
+			}
+		}
 
 		if (LocalDamage > 0.f)
 		{

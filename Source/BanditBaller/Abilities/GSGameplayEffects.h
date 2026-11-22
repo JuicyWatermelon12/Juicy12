@@ -202,6 +202,16 @@ public:
 	UGSUpgradeEffect_PowderKeg(const FObjectInitializer& ObjectInitializer);
 };
 
+/** +1 Shields per stack (GE_Upgrade_FloatingShield): one more floating shield that blocks a hit, then recharges. */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_FloatingShield : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_FloatingShield(const FObjectInitializer& ObjectInitializer);
+};
+
 /** +1 Pierce per stack (GE_Upgrade_PiercingRounds): each shot passes through one more target. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_PiercingRounds : public UGSUpgradeEffect

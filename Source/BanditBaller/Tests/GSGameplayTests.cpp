@@ -83,6 +83,8 @@
 #include "GSMovementAbilitySettings.h"
 #include "GSMovementSettings.h"
 #include "Editor/EditorPerformanceSettings.h"
+#include "GSFloatingShieldsComponent.h"
+#include "GSShieldComponent.h"
 #include "GSUpgradeComponent.h"
 #include "GSUpgradeData.h"
 #include "GSUpgradePool.h"
@@ -4578,7 +4580,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
-		TestEqual(TEXT("Pool has the 12 upgrades"), Pool->Upgrades.Num(), 12);
+		TestEqual(TEXT("Pool has the 13 upgrades"), Pool->Upgrades.Num(), 13);
 		TestEqual(TEXT("Common weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Common), 100.f);
 		TestEqual(TEXT("Rare weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Rare), 20.f);
 		TestEqual(TEXT("Epic weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Epic), 6.f);
@@ -4599,6 +4601,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		// Real pool: always 3 different upgrades (the empty Legendary tier never wastes a pick). Weights Common 100, Rare 20,
 		// Epic 6 (two Epics: Piercing Rounds, Powder Keg; the tier leaves the weighting once both are in the offer). An
 		// offer has no Rare with probability 0.5954 (every C/E ordering), so the Rare tier is in about 40.5% of offers.
+		// (Five Rares since Floating Shield: the Rare tier can't run out within an offer, so the rate is unchanged.)
 		FRandomStream Stream(7);
 		int32 WithRare = 0;
 		bool bAllFull = true, bAllDifferent = true;
@@ -7091,6 +7094,291 @@ bool FGSHealthOrbsTest::RunTest(const FString& Parameters)
 	{
 		TestEqual(TEXT("Dead player: the orb stays"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Health), 1);
 		TestEqual(TEXT("Dead player: nothing collected"), GetGameState()->GetRunStats()->GetHealthOrbsCollected(), 0);
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Floating Shield (Prompt 36): shields block whole hits in the damage path, each recharges on its own, dash first
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	UGSShieldComponent* GetPlayerShields()
+	{
+		const AGSPlayerState* PS = GetPC() ? GetPC()->GetPlayerState<AGSPlayerState>() : nullptr;
+		return PS ? PS->GetShieldComponent() : nullptr;
+	}
+
+	UGSFloatingShieldsComponent* GetShieldVisuals()
+	{
+		const AGSCharacter* Player = GetPlayer();
+		return Player ? Player->GetFloatingShields() : nullptr;
+	}
+
+	/** An enemy of Type at Location facing the player, AI and movement stopped (its attacks fire straight ahead). */
+	AGSEnemyCharacter* SpawnFrozenEnemyFacingPlayer(const TCHAR* Type, const FVector& Location)
+	{
+		AGSEnemyCharacter* Enemy = AGSEnemyCharacter::SpawnEnemy(GetPIEWorld(), UGSDebugLibrary::FindEnemyData(Type), Location,
+			GetPlayer()->GetActorLocation());
+		if (!Enemy)
+		{
+			return nullptr;
+		}
+		if (AAIController* AIC = Cast<AAIController>(Enemy->GetController()))
+		{
+			if (UBrainComponent* Brain = AIC->GetBrainComponent())
+			{
+				Brain->StopLogic(TEXT("Shield test"));
+			}
+			AIC->StopMovement();
+		}
+		Enemy->GetCharacterMovement()->DisableMovement();
+		const FVector ToPlayer = (GetPlayer()->GetActorLocation() - Enemy->GetActorLocation()).GetSafeNormal2D();
+		Enemy->SetActorRotation(ToPlayer.Rotation());
+		return Enemy;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSFloatingShieldTest, "BanditBaller.Upgrades.FloatingShield", GSTests::TestFlags)
+bool FGSFloatingShieldTest::RunTest(const FString& Parameters)
+{
+	struct FShieldState
+	{
+		TWeakObjectPtr<AGSEnemyCharacter> Attacker;
+		float Health = 0.f;
+		float DamageTakenBefore = 0.f;
+		double Block1Time = 0.0;
+		double Block2Time = 0.0;
+		int32 BlockedBefore = 0;
+	};
+	TSharedRef<FShieldState> S = MakeShared<FShieldState>();
+	const FVector PlayerHome(0.f, 0.f, 100.f);
+	auto Now = []() { return GetPIEWorld() ? GetPIEWorld()->GetTimeSeconds() : 0.0; };
+	auto AttackerASC = [S]() { return S->Attacker.IsValid() ? S->Attacker->GetAbilitySystemComponent() : nullptr; };
+
+	BeginPIE(this);
+
+	// Data; no shields: a hit takes Health. Then two shields (console).
+	Step([this, S, PlayerHome, AttackerASC]()
+	{
+		SpeedUpWorld(4.f);
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->SetHealthOrbDropChanceOverride(0.f);
+		GetPlayer()->TeleportTo(PlayerHome, FRotator::ZeroRotator);
+
+		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingShield"));
+		if (TestNotNull(TEXT("DA_Upgrade_FloatingShield exists"), Upgrade))
+		{
+			TestTrue(TEXT("Floating Shield is Rare"), Upgrade->Rarity == EGSUpgradeRarity::Rare);
+			TestEqual(TEXT("Floating Shield has no cap"), Upgrade->MaxStacks, 0);
+			TestTrue(TEXT("Effect is GE_Upgrade_FloatingShield"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_FloatingShield::StaticClass()));
+			TestTrue(FString::Printf(TEXT("Card says +1 shield: %s"), *Upgrade->GetFormattedDescription().ToString()),
+				Upgrade->GetFormattedDescription().ToString().Contains(TEXT("+1")));
+			const UGSUpgradePool* Pool = GameMode->GetUpgradePool();
+			TestTrue(TEXT("Floating Shield is in DA_UpgradePool"), Pool && Pool->Upgrades.Contains(Upgrade));
+		}
+		const UGSCombatSettings* Combat = GameMode->GetCombatSettings();
+		TestTrue(TEXT("ShieldCooldown 10 s"), Combat && FMath::IsNearlyEqual(Combat->ShieldCooldown, 10.f));
+
+		UGSShieldComponent* Shields = GetPlayerShields();
+		UGSFloatingShieldsComponent* Visuals = GetShieldVisuals();
+		if (!TestNotNull(TEXT("Shield component on the PlayerState"), Shields) || !TestNotNull(TEXT("Shield visuals on the character"), Visuals))
+		{
+			return;
+		}
+		TestEqual(TEXT("Shields start at 0"), GetAttr(UGSAttributeSet::GetShieldsAttribute()), 0.f, 0.001f);
+		TestEqual(TEXT("No shields"), Shields->GetNumShields(), 0);
+		TestEqual(TEXT("No shield meshes"), Visuals->GetNumShieldMeshes(), 0);
+
+		S->Attacker = SpawnFrozenBandit(FVector(-600.f, 0.f, 0.f));
+		const float Before = GetHealth(GetPlayerASC());
+		ApplyDamage(GetPlayerASC(), 10.f, AttackerASC());
+		TestEqual(TEXT("No shield: the hit takes Health"), GetHealth(GetPlayerASC()), Before - 10.f, 0.01f);
+		TestEqual(TEXT("No shield: nothing blocked"), Shields->GetHitsBlocked(), 0);
+
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FloatingShield"), TEXT("2") });
+		TestEqual(TEXT("Shields 2"), GetAttr(UGSAttributeSet::GetShieldsAttribute()), 2.f, 0.001f);
+		TestEqual(TEXT("Two shields"), Shields->GetNumShields(), 2);
+		TestEqual(TEXT("Both ready"), Shields->GetNumReady(), 2);
+	});
+	WaitFrames(this, 2);
+
+	// The visuals: two discs at chest height, evenly spaced, no collision.
+	Step([this]()
+	{
+		const UGSFloatingShieldsComponent* Visuals = GetShieldVisuals();
+		TestEqual(TEXT("Two shield meshes"), Visuals->GetNumShieldMeshes(), 2);
+		const FVector Center = GetPlayer()->GetActorLocation();
+		TArray<float> Yaws;
+		for (int32 i = 0; i < Visuals->GetNumShieldMeshes(); ++i)
+		{
+			const UStaticMeshComponent* Mesh = Visuals->GetShieldMesh(i);
+			if (!TestNotNull(FString::Printf(TEXT("Shield mesh %d"), i), Mesh))
+			{
+				return;
+			}
+			TestNotNull(TEXT("Placeholder mesh set (BP_GSCharacter)"), Mesh->GetStaticMesh().Get());
+			TestTrue(TEXT("Shown while ready"), Visuals->IsShieldShown(i));
+			TestEqual(TEXT("No collision"), static_cast<int32>(Mesh->GetCollisionEnabled()), static_cast<int32>(ECollisionEnabled::NoCollision));
+			const FVector Offset = Mesh->GetComponentLocation() - Center;
+			TestEqual(TEXT("On the orbit"), static_cast<float>(Offset.Size2D()), Visuals->GetOrbitRadius(), 1.f);
+			TestEqual(TEXT("At chest height"), static_cast<float>(Offset.Z), Visuals->GetHeight(), 1.f);
+			Yaws.Add(FMath::RadiansToDegrees(FMath::Atan2(Offset.Y, Offset.X)));
+		}
+		if (Yaws.Num() == 2)
+		{
+			const float Apart = FMath::Abs(FMath::FindDeltaAngleDegrees(Yaws[0], Yaws[1]));
+			TestEqual(TEXT("Two shields 180 degrees apart"), Apart, 180.f, 1.f);
+		}
+
+		// Dash invulnerability comes first: the hit is blocked without using a shield.
+		TapInput(GSGameplayTags::Ability_Dash);
+	});
+	WaitUntil(this, TEXT("dash i-frames"), []() { return GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Invulnerable); });
+	Step([this, S, AttackerASC]()
+	{
+		const float Before = GetHealth(GetPlayerASC());
+		ApplyDamage(GetPlayerASC(), 25.f, AttackerASC());
+		TestEqual(TEXT("Dash i-frames: no Health lost"), GetHealth(GetPlayerASC()), Before, 0.01f);
+		TestEqual(TEXT("Dash i-frames: no shield used"), GetPlayerShields()->GetNumReady(), 2);
+		TestEqual(TEXT("Dash i-frames: nothing blocked by a shield"), GetPlayerShields()->GetHitsBlocked(), 0);
+	});
+	WaitUntil(this, TEXT("dash i-frames to end"), []() { return !GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Invulnerable); });
+
+	// Block 1: the whole hit is cancelled; one shield goes. A blocked hit isn't damage taken (combo, stats).
+	Step([this, S, Now, AttackerASC]()
+	{
+		UGSShieldComponent* Shields = GetPlayerShields();
+		KillTestEnemyAsPlayer(this); // start a combo
+		UGSComboComponent* Combo = GetPlayerCombo();
+		const int32 ComboBefore = Combo->GetComboCount();
+		TestTrue(TEXT("A combo is running"), ComboBefore > 0);
+		S->Health = GetHealth(GetPlayerASC());
+		S->DamageTakenBefore = GetGameState()->GetRunStats()->GetDamageTaken();
+
+		ApplyDamage(GetPlayerASC(), 25.f, AttackerASC());
+		S->Block1Time = Now();
+		TestEqual(TEXT("Block 1: no Health lost"), GetHealth(GetPlayerASC()), S->Health, 0.01f);
+		TestEqual(TEXT("Block 1: one shield left"), Shields->GetNumReady(), 1);
+		TestFalse(TEXT("Block 1: the first shield went"), Shields->IsShieldReady(0));
+		TestEqual(TEXT("Block 1: back in 10 s"), Shields->GetCooldownRemaining(0), 10.f, 0.01f);
+		TestEqual(TEXT("Block 1: counted"), Shields->GetHitsBlocked(), 1);
+		TestEqual(TEXT("Block 1: no damage taken in run stats"), GetGameState()->GetRunStats()->GetDamageTaken(), S->DamageTakenBefore, 0.01f);
+		TestEqual(TEXT("Block 1: the combo goes on"), Combo->GetComboCount(), ComboBefore);
+		TestEqual(TEXT("Block 1: the block flash was shown"), GetShieldVisuals()->GetBlocksShown(), 1);
+	});
+	WaitWorldSeconds(this, 0.5);
+	Step([this]()
+	{
+		const UGSFloatingShieldsComponent* Visuals = GetShieldVisuals();
+		TestFalse(TEXT("The blocked shield is gone"), Visuals->IsShieldShown(0));
+		TestTrue(TEXT("The other shield is still there"), Visuals->IsShieldShown(1));
+	});
+	WaitWorldSeconds(this, 2.0);
+
+	// Block 2, then a third hit with no shield ready takes Health.
+	Step([this, S, Now, AttackerASC]()
+	{
+		UGSShieldComponent* Shields = GetPlayerShields();
+		ApplyDamage(GetPlayerASC(), 25.f, AttackerASC());
+		S->Block2Time = Now();
+		TestEqual(TEXT("Block 2: no Health lost"), GetHealth(GetPlayerASC()), S->Health, 0.01f);
+		TestEqual(TEXT("Block 2: no shield left"), Shields->GetNumReady(), 0);
+		TestTrue(TEXT("Each shield has its own cooldown"), Shields->GetCooldownRemaining(0) < Shields->GetCooldownRemaining(1) - 1.5f);
+
+		ApplyDamage(GetPlayerASC(), 25.f, AttackerASC());
+		TestEqual(TEXT("No shield ready: the hit takes Health"), GetHealth(GetPlayerASC()), S->Health - 25.f, 0.01f);
+		TestEqual(TEXT("No shield ready: still 2 blocks"), Shields->GetHitsBlocked(), 2);
+		TestEqual(TEXT("Run stats: 25 damage taken"), GetGameState()->GetRunStats()->GetDamageTaken(), S->DamageTakenBefore + 25.f, 0.01f);
+	});
+
+	// Each shield comes back 10 s after its own block.
+	WaitUntil(this, TEXT("the first shield to come back"), []() { return GetPlayerShields()->GetNumReady() >= 1; }, 15.0);
+	Step([this, S, Now]()
+	{
+		UGSShieldComponent* Shields = GetPlayerShields();
+		const double Elapsed = Now() - S->Block1Time;
+		AddInfo(FString::Printf(TEXT("[shield] shield 1 back %.2f s after its block"), Elapsed));
+		TestTrue(FString::Printf(TEXT("Shield 1 back 10 s after its block (%.2f)"), Elapsed), FMath::Abs(Elapsed - 10.0) < 0.5);
+		TestTrue(TEXT("Shield 1 ready"), Shields->IsShieldReady(0));
+		TestFalse(TEXT("Shield 2 still recharging"), Shields->IsShieldReady(1));
+		TestEqual(TEXT("The return was shown"), GetShieldVisuals()->GetReturnsShown(), 1);
+	});
+	WaitFrames(this, 2);
+	Step([this]() { TestTrue(TEXT("The returned shield is visible again"), GetShieldVisuals()->IsShieldShown(0)); });
+	WaitUntil(this, TEXT("the second shield to come back"), []() { return GetPlayerShields()->GetNumReady() >= 2; }, 15.0);
+	Step([this, S, Now]()
+	{
+		const double Elapsed = Now() - S->Block2Time;
+		TestTrue(FString::Printf(TEXT("Shield 2 back 10 s after its own block (%.2f)"), Elapsed), FMath::Abs(Elapsed - 10.0) < 0.5);
+
+		// A pick while a shield recharges: the new one is ready at once; three shields 120 degrees apart.
+		ApplyDamage(GetPlayerASC(), 25.f, GetPlayerASC());
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FloatingShield") });
+		UGSShieldComponent* Shields = GetPlayerShields();
+		TestEqual(TEXT("Three shields"), Shields->GetNumShields(), 3);
+		TestEqual(TEXT("The new one is ready at once (2 of 3)"), Shields->GetNumReady(), 2);
+	});
+	WaitFrames(this, 2);
+
+	// Real attacks: a melee bandit's swing and a ranged bandit's burst are both blocked.
+	Step([this, S]()
+	{
+		const UGSFloatingShieldsComponent* Visuals = GetShieldVisuals();
+		TestEqual(TEXT("Three shield meshes"), Visuals->GetNumShieldMeshes(), 3);
+		if (Visuals->GetNumShieldMeshes() == 3)
+		{
+			const FVector Center = GetPlayer()->GetActorLocation();
+			const FVector A = Visuals->GetShieldMesh(0)->GetComponentLocation() - Center;
+			const FVector B = Visuals->GetShieldMesh(1)->GetComponentLocation() - Center;
+			const float Apart = FMath::Abs(FMath::FindDeltaAngleDegrees(FMath::RadiansToDegrees(FMath::Atan2(A.Y, A.X)), FMath::RadiansToDegrees(FMath::Atan2(B.Y, B.X))));
+			TestEqual(TEXT("Three shields 120 degrees apart"), Apart, 120.f, 1.f);
+		}
+
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FloatingShield"), TEXT("5") });
+		GetPlayerShields()->ResetShields(); // all 8 ready
+		S->Health = GetHealth(GetPlayerASC());
+		S->BlockedBefore = GetPlayerShields()->GetHitsBlocked();
+		S->Attacker = SpawnFrozenEnemyFacingPlayer(TEXT("MeleeBandit"), GetPlayer()->GetActorLocation() + FVector(130.f, 0.f, 0.f));
+		TestTrue(TEXT("Melee bandit swings"), S->Attacker.IsValid()
+			&& S->Attacker->GetAbilitySystemComponent()->TryActivateAbilitiesByTag(FGameplayTagContainer(GSGameplayTags::Ability_Attack_Melee)));
+	});
+	WaitUntil(this, TEXT("the melee hit to be blocked"), [S]() { return GetPlayerShields()->GetHitsBlocked() > S->BlockedBefore; }, 10.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Melee hit blocked: no Health lost"), GetHealth(GetPlayerASC()), S->Health, 0.01f);
+		RemoveAllEnemies(GetPIEWorld());
+		S->BlockedBefore = GetPlayerShields()->GetHitsBlocked();
+		S->Attacker = SpawnFrozenEnemyFacingPlayer(TEXT("RangedBandit"), GetPlayer()->GetActorLocation() + FVector(600.f, 0.f, 0.f));
+		TestTrue(TEXT("Ranged bandit fires"), S->Attacker.IsValid()
+			&& S->Attacker->GetAbilitySystemComponent()->TryActivateAbilitiesByTag(FGameplayTagContainer(GSGameplayTags::Ability_Attack_Ranged)));
+	});
+	WaitUntil(this, TEXT("a shot to be blocked"), [S]() { return GetPlayerShields()->GetHitsBlocked() > S->BlockedBefore; }, 10.0);
+	WaitWorldSeconds(this, 2.0); // the rest of the burst
+	Step([this, S]()
+	{
+		const int32 Shots = GetPlayerShields()->GetHitsBlocked() - S->BlockedBefore;
+		AddInfo(FString::Printf(TEXT("[shield] %d shot(s) of the burst blocked"), Shots));
+		TestTrue(TEXT("Shots blocked (each hit uses a shield)"), Shots >= 1 && Shots <= 4);
+		TestEqual(TEXT("Shots blocked: no Health lost"), GetHealth(GetPlayerASC()), S->Health, 0.01f);
+		RemoveAllEnemies(GetPIEWorld());
+
+		// A new run: no shields, no meshes, no recharges.
+		GetGameMode()->RestartRunWithSeed(36);
+		TestEqual(TEXT("New run: Shields 0"), GetAttr(UGSAttributeSet::GetShieldsAttribute()), 0.f, 0.001f);
+		TestEqual(TEXT("New run: no shields"), GetPlayerShields()->GetNumShields(), 0);
+		TestEqual(TEXT("New run: nothing blocked yet"), GetPlayerShields()->GetHitsBlocked(), 0);
+	});
+	WaitFrames(this, 2);
+	Step([this]()
+	{
+		TestEqual(TEXT("New run: no shield meshes"), GetShieldVisuals()->GetNumShieldMeshes(), 0);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
 		RestoreWorldSpeed();
 	});

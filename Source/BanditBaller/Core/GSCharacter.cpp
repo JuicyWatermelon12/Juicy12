@@ -16,6 +16,7 @@
 #include "GSPlayerState.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "GSFloatingShieldsComponent.h"
 #include "GSHealthComponent.h"
 #include "GSWeaponComponent.h"
 #include "GSProgressionComponent.h"
@@ -30,6 +31,8 @@ AGSCharacter::AGSCharacter()
 
 	WeaponComponent = CreateDefaultSubobject<UGSWeaponComponent>(TEXT("WeaponComponent"));
 	HealthComponent = CreateDefaultSubobject<UGSHealthComponent>(TEXT("HealthComponent"));
+	FloatingShields = CreateDefaultSubobject<UGSFloatingShieldsComponent>(TEXT("FloatingShields"));
+	FloatingShields->SetupAttachment(GetRootComponent());
 
 	// Slides use crouch for the low capsule.
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;

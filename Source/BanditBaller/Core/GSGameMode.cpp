@@ -12,6 +12,7 @@
 #include "GSEnemyData.h"
 #include "GSRunRandom.h"
 #include "GSRunStats.h"
+#include "GSShieldComponent.h"
 #include "GSRunSummaryWidget.h"
 #include "GSWaveDirector.h"
 #include "GameFramework/PlayerState.h"
@@ -677,6 +678,10 @@ void AGSGameMode::StartRun(int32 Seed, const TCHAR* Source)
 			if (UGSComboComponent* Combo = GSPS ? GSPS->GetComboComponent() : nullptr)
 			{
 				Combo->EndCombo(EGSComboEndReason::Reset);
+			}
+			if (UGSShieldComponent* Shields = GSPS ? GSPS->GetShieldComponent() : nullptr)
+			{
+				Shields->ResetShields(); // after the upgrades reset: no shields left, no recharges running
 			}
 		}
 	}

@@ -167,6 +167,12 @@ UGSUpgradeEffect_PowderKeg::UGSUpgradeEffect_PowderKeg(const FObjectInitializer&
 	AddAdditiveModifier(UGSAttributeSet::GetPowderKegAttribute(), 1.f);
 }
 
+UGSUpgradeEffect_FloatingShield::UGSUpgradeEffect_FloatingShield(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddAdditiveModifier(UGSAttributeSet::GetShieldsAttribute(), 1.f);
+}
+
 UGSUpgradeEffect_PiercingRounds::UGSUpgradeEffect_PiercingRounds(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

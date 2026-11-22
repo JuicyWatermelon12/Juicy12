@@ -124,13 +124,23 @@ public:
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, Pierce)
 
 	/**
-	 * Powder Keg stacks: while above 0, every enemy this player kills explodes (AGSGameMode; damage and radius grow per
-	 * stack, DA_CombatSettings). Default 0, clamped to >= 0, rounded when read. Raised by the Powder Keg upgrade.
+	 * Powder Keg stacks: each enemy this player kills explodes with chance stacks x ChancePerStack (AGSGameMode; a fixed
+	 * blast, DA_CombatSettings). Default 0, clamped to >= 0, rounded when read. Raised by the Powder Keg upgrade.
 	 * TODO(co-op): not replicated (single-player first).
 	 */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
 	FGameplayAttributeData PowderKeg;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, PowderKeg)
+
+	/**
+	 * Floating shields: each one blocks a whole hit, then comes back after DA_CombatSettings ShieldCooldown
+	 * (UGSShieldComponent on the player's PlayerState; checked before IncomingDamage becomes Health loss). Default 0,
+	 * clamped to >= 0, rounded when read. Raised by the Floating Shield upgrade.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Health")
+	FGameplayAttributeData Shields;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, Shields)
 
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")

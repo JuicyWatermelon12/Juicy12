@@ -53,7 +53,7 @@ Systems, commands, GAS reference, tuning and known issues live in `docs/PROGRESS
 Source/BanditBaller/
   Core/       GameMode (round loop, run seed, map travel), hub GameMode, GameState, PlayerState, PlayerController,
               character, settings data classes, run random/stats, progression (XP/levels/rewards, upgrades),
-              kill combo,
+              kill combo, floating shields (state on the PlayerState, visuals on the character),
               debug library + cheat commands, profile subsystem + save (permanent cash),
               map boundary (AGSMapBoundary) + collision channels
   Abilities/  GAS: ASC, AttributeSet, tags, abilities, effects, ability sets
@@ -155,7 +155,7 @@ docs/PROGRESS.md  progress log and reference
 - Debug commands: `gs.` prefix, cheat-only, implemented in `UGSDebugLibrary` and registered in
   `GSCheatCommands.cpp`. Clients forward them through `ServerExecDebugCommand`. Debug toggles are `gs.Debug.*`
   cvars.
-- Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`, `[xp]`, `[profile]`, `[upgrade]`, `[combo]`, `[blast]`, `[heal]`, `[round]` one line per finished round).
+- Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`, `[xp]`, `[profile]`, `[upgrade]`, `[combo]`, `[blast]`, `[heal]`, `[shield]`, `[round]` one line per finished round).
 - Tests: PIE-based latent tests in `Tests/GSGameplayTests.cpp`, built from the `GSTests` helpers (`BeginPIE`,
   `WaitUntil`, `Step`, `EndPIE`, …). `BeginPIE` opens `L_Town_Graybox` first (pass `HubMap` for the hub), since the
   editor starts in the hub. `EndPIE` only requests the end: before a second `BeginPIE` in the same test, wait for

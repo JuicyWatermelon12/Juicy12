@@ -5,6 +5,7 @@
 #include "GSAttributeSet.h"
 #include "GSComboComponent.h"
 #include "GSProgressionComponent.h"
+#include "GSShieldComponent.h"
 #include "GSUpgradeComponent.h"
 
 AGSPlayerState::AGSPlayerState()
@@ -19,6 +20,7 @@ AGSPlayerState::AGSPlayerState()
 	Progression = CreateDefaultSubobject<UGSProgressionComponent>(TEXT("Progression"));
 	Upgrades = CreateDefaultSubobject<UGSUpgradeComponent>(TEXT("Upgrades"));
 	Combo = CreateDefaultSubobject<UGSComboComponent>(TEXT("Combo"));
+	Shields = CreateDefaultSubobject<UGSShieldComponent>(TEXT("Shields"));
 
 	// ASC on a PlayerState needs a higher update rate than the PlayerState default.
 	SetNetUpdateFrequency(100.f);

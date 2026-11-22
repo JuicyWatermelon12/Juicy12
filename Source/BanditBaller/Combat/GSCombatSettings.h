@@ -53,6 +53,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Powder Keg")
 	TObjectPtr<USoundBase> BlastSound;
 
+	// --- Floating Shield: each shield blocks one hit, then recharges ---
+
+	/** Seconds a shield is gone after it blocked a hit (each shield on its own; world time, so it pauses with the game). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Floating Shield", meta = (ClampMin = "0.1", Units = "s"))
+	float ShieldCooldown = 10.f;
+
 	/** Chance (0..1) that a kill explodes at Stacks PowderKeg stacks: Stacks x ChancePerStack, clamped. */
 	float GetExplodeChance(int32 Stacks) const { return Stacks > 0 ? FMath::Clamp(Stacks * ChancePerStack, 0.f, 1.f) : 0.f; }
 };

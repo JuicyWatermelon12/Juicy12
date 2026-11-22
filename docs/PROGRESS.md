@@ -41,10 +41,10 @@ the hub map replaces them.
 **M2 — the run loop is complete** (rounds, waves, scaling, economy, progression; Prompts 1–28 and 26b; 11–13 and 17
 were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **Next: M2b**, eleven more
 level-up upgrades (Prompts 29–40; 29 is the docs-only plan, then Dash Charge (30), Fire Rate + Magnet (31) and the
-held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds (34) and Powder Keg (35); all done). **Then M3** (shop, owned items, gear loadout,
+held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds (34), Powder Keg (35) and Floating Shield (36); all done). **Then M3** (shop, owned items, gear loadout,
 two-layer save); not planned in detail yet. Health orbs (35b) were added between 35 and 36; they aren't an upgrade. Powder Keg became a chance to explode in 35c.
 
-State at the time of writing: `main` after "Powder Keg: chance to explode" (Prompt 35c), not pushed. The build is clean and all 43 automation tests pass in about 94 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Floating Shield upgrade" (Prompt 36), not pushed. The build is clean and all 44 automation tests pass in about 98 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -94,7 +94,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2b 34 | Piercing Rounds: Pierce, shots pass through targets (once each, full damage, own crit and number), walls stop them | 2ee3f68 |
 | M2b 35 | Powder Keg: the player's kills explode (radius / damage per stack × Damage), chains 0.1 s apart, blast kills are the player's | a650a64 |
 | M2b 35b | Health orbs: a 20% chance per player kill (run stream), heal 15 at pickup, ignored at full health, vacuumed at RoundClear | 5a7086a |
-| M2b 35c | Powder Keg: a 3% chance per stack that a player kill explodes (run stream), fixed blast (30 × Damage, 3 m), MaxStacks 34 | see git log |
+| M2b 35c | Powder Keg: a 3% chance per stack that a player kill explodes (run stream), fixed blast (30 × Damage, 3 m), MaxStacks 34 | 07a8341 |
+| M2b 36 | Floating Shield: +1 shield per pick; a ready shield cancels a whole hit in the damage path and recharges 10 s on its own; dash i-frames first | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -1436,10 +1437,10 @@ data.
 **Open questions** (settled in each upgrade's prompt; not decided)
 - ~~Bigger Mags: how the size rounds (rifle 30 × 1.15 = 34.5, pistol 12 × 1.15 = 13.8). Does a pick fill the extra
   rounds at once?~~ Decided in Prompt 32: rounded up; a pick doesn't refill.
-- Floating Shield:
-  - Does a hit that a shield takes end the kill combo or cost the no-damage round bonus? Today both follow health
-    actually lost, so it would count as no damage.
-  - Does the 10 s recharge pause with the game, like the combo window?
+- ~~Floating Shield:~~ Settled in Prompt 36 (defaults; the prompt didn't decide them):
+  - ~~Does a hit that a shield takes end the kill combo or cost the no-damage round bonus?~~ No: a blocked hit is no
+    health lost, so the combo goes on and the no-damage bonus is kept.
+  - ~~Does the 10 s recharge pause with the game, like the combo window?~~ Yes: a world timer.
 - Loaded Dice and Piercing Rounds: do they also apply to the Floating Gun's projectiles? Is a piercing shot one dice
   roll for every enemy it hits? Partly decided in Prompt 33: every hit rolls (so a piercing shot rolls per enemy hit),
   and the Floating Gun will call the same roll (`GSCombat::RollCriticalHit`). Piercing for the Floating Gun is still
@@ -1853,6 +1854,69 @@ Changes Prompt 35. Stacks no longer grow the blast; they raise the chance that a
   - `gs.Upgrade.List` showed "x10/34" and the chance line above.
 - **Full suite:** 43 tests, all passing, in 94.4 s.
 
+### Prompt 36 — Floating Shield
+- **New attribute `Shields`** (default 0, clamped to ≥ 0, rounded when read; not replicated, `TODO(co-op)`).
+- **`Core/GSShieldComponent.*` (`UGSShieldComponent`, on `AGSPlayerState`, `GetShieldComponent()`)** holds the shields.
+  It is run state.
+  - One slot per shield, kept in sync with the attribute through its change delegate. A new shield is ready at once,
+    even while the others recharge. Removed shields drop their recharge.
+  - `TryAbsorbHit(Amount, Instigator)`: the first ready shield cancels the **whole** hit, then recharges for
+    `DA_CombatSettings.ShieldCooldown` (10 s, new) on its own world timer. Each shield has its own cooldown, and the
+    timers pause with the game.
+  - Read access: `GetNumShields`, `GetNumReady`, `IsShieldReady`, `GetCooldownRemaining`, `GetHitsBlocked`.
+  - Events (native): `OnShieldBlocked(Index)`, `OnShieldReturned(Index)`, `OnShieldCountChanged`.
+  - `AGSGameMode::StartRun` calls `ResetShields()` after the upgrades reset.
+  - Log prefix `[shield]`: one line per block ("shield 1 blocked 12 damage from …, back in 10.0 s"), per return and
+    per count change.
+- **In the damage path, not collision:** `UGSAttributeSet::PostGameplayEffectExecute` asks the player's shield
+  component before IncomingDamage turns into Health loss. A block returns early, so no Health changes,
+  `HandleDamageApplied` isn't called and no damage numbers appear. Melee swings, enemy shots, Powder Keg (never the
+  player), `gs.Damage.Self` and anything else through GE_Damage all count.
+- **Damage order:**
+  1. Dash invulnerability (`State.Invulnerable`; god mode too) keeps GE_Damage from applying at all, so no shield is
+     used.
+  2. A ready shield.
+  3. Health.
+  4. (Second Wind on a killing blow comes in Prompt 37.)
+- **Decided here** (the design left them open): a blocked hit is not damage taken. The kill combo goes on, the
+  no-damage round bonus is kept and run-stats damage taken doesn't change. The recharge pauses with the game.
+- **Visuals** (`Core/GSFloatingShieldsComponent.*`, `UGSFloatingShieldsComponent` on `AGSCharacter`,
+  `GetFloatingShields()`):
+  - One flat disc per shield circles the player, 85 cm out, 40 cm above the capsule center (chest height), evenly spaced
+    and facing out, turning at 120°/s.
+  - The discs are runtime static mesh components with **no collision**, no overlaps, no navigation effect and no
+    shadow.
+  - It reads the PlayerState's shield component every frame and binds to its events.
+  - **Block:** the shield grows to ×1.8 over 0.15 s and disappears. `BlockEffect` (the Niagara `RadialBurst` template,
+    ×0.5) and `BlockSound` (`Object_Snaps_To_Another_Actor`, editor content) play there.
+  - **Return:** it pops back in from nothing over 0.35 s with `ReturnSound` (`VR_open_Cue`).
+  - Everything is set on BP_GSCharacter's `FloatingShields`. The mesh is the engine Cylinder at (0.45, 0.45, 0.06), with
+    the new `Materials/M_FloatingShield` (a copy of M_XPOrb, light blue (0.35, 0.8, 1), intensity 2).
+  - Test hooks: `GetNumShieldMeshes`, `GetShieldMesh`, `IsShieldShown`, `GetBlocksShown`, `GetReturnsShown`.
+  - `TODO(co-op)`: the shield states aren't replicated.
+- **Upgrade:** `UGSUpgradeEffect_FloatingShield` → `Abilities/GE_Upgrade_FloatingShield` (+1 Shields per stack).
+  `Data/Upgrades/DA_Upgrade_FloatingShield`: **Rare**, no cap, "+{PerStack} floating shield per stack. A shield blocks
+  one whole hit, then comes back after a cooldown." Added to DA_UpgradePool (13: 6 Common, 5 Rare, 2 Epic).
+- **Debug:**
+  - `gs.Upgrade.Grant FloatingShield [N]`.
+  - `gs.Upgrade.List` adds Shields to its Stats line and a new line, "Floating shields: 2 (1 ready: ready, 7.5 s), 1
+    hit(s) blocked this run".
+- **Offer odds** (10,000 offers, seed 1): Floating Shield in 9.5% of offers. Each Rare is now ~9.7% (was ~12%); the
+  Rare tier is still 40.8%.
+- **Tests:**
+  - New `Upgrades.FloatingShield`. Shield 1 came back 10.03 s after its block. A real melee swing (12) and all 4 shots
+    of a ranged bandit's burst were blocked.
+  - `Upgrades.Offers` expects 13 upgrades. Its Rare rate is unchanged: with 5 Rares the tier can't run out within an
+    offer.
+  - Also fixed: a stale comment on the PowderKeg attribute (it still described the Prompt 35 blast).
+- **PIE check** (town, editor throttling off; restored after):
+  - `gs.Round.Pause 1`, `gs.Upgrade.Grant FloatingShield 2`: two light-blue discs circled the player at chest height on
+    opposite sides, and the HUD showed "x2 Floating Shield".
+  - `gs.Round.Pause 0` with god mode off, standing still in round 1: "shield 1 blocked 12 damage from
+    GSEnemyCharacter_0" and "shield 2 blocked 12 damage from GSEnemyCharacter_1". After that the melee bandits killed
+    the player, and both shields came back 10 s after their blocks.
+- **Full suite:** 44 tests, all passing, in 98.5 s.
+
 ---
 
 ## Console commands and CVars
@@ -1866,8 +1930,8 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.God [0\|1]` | Toggle/set damage immunity (one `State.Invulnerable` count). |
 | `gs.GiveWeapon <Weapon>` | Equip `Rifle` / `Pistol` / `BanditCarbine` with a full mag (replaces the equipped one if both slots are full). |
 | `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain, ReloadSpeed). |
-| `gs.Upgrade.Grant <Name> [Count=1]` | Add stacks of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed`, `FireRate`, `Magnet`, `BiggerMags`, `ExtraJump`, `DashCharge`, `Leech`, `LoadedDice`, `PiercingRounds`, `PowderKeg` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`. |
-| `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps / MagazineSizeMultiplier / HealthOnKill / CritChance / Pierce / PowderKeg, the magazine (ammo / size), the dash charges (max = base + ExtraDashCharges, ready now) and Powder Keg (stacks, chance per kill, blast damage and radius). |
+| `gs.Upgrade.Grant <Name> [Count=1]` | Add stacks of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed`, `FireRate`, `Magnet`, `BiggerMags`, `ExtraJump`, `DashCharge`, `Leech`, `LoadedDice`, `PiercingRounds`, `PowderKeg`, `FloatingShield` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`. |
+| `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps / MagazineSizeMultiplier / HealthOnKill / CritChance / Pierce / PowderKeg / Shields, the magazine (ammo / size), the dash charges (max = base + ExtraDashCharges, ready now), the floating shields (ready / each recharge / hits blocked) and Powder Keg (stacks, chance per kill, blast damage and radius). |
 | `gs.Upgrade.Offer` | Queue a level-up offer without the level (opens at once if none is open) and print the open offer. Refused in GameOver. |
 | `gs.Upgrade.Choose <0-2>` | Take a choice of the open offer; the next queued offer opens. |
 | `gs.Upgrade.Reroll` | Reroll the open offer for one of this run's rerolls (refused with none left or no offer). |
@@ -1926,6 +1990,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | HealthOnKill | Health healed per enemy kill credited to the player (UGSHealthOnKillEffect, never above MaxHealth; constructor default 0, min 0). Raised by Leech. Not replicated yet. |
 | CritChance | Chance (0..1) that a hit from the player's weapons is critical (GSCombat::RollCriticalHit, run stream; damage × DA_CombatSettings CritMultiplier 2). Constructor default 0, clamped 0..1. Raised by Loaded Dice. Not replicated yet. |
 | Pierce | Targets a player shot passes through (UGSGameplayAbility_Fire::TraceShot): up to 1 + Pierce targets, each once, full damage; walls stop it. Constructor default 0, min 0, rounded. Raised by Piercing Rounds. Not replicated yet. |
+| Shields | Floating shields: each blocks one whole hit in the damage path, then recharges for DA_CombatSettings ShieldCooldown (UGSShieldComponent on the PlayerState; drawn by AGSCharacter's UGSFloatingShieldsComponent). Constructor default 0, min 0, rounded. Raised by Floating Shield. Not replicated yet. |
 | PowderKeg | Powder Keg stacks: each of the player's enemy kills explodes with chance stacks × DA_CombatSettings ChancePerStack (3%, max 100%; run stream; AGSGameMode::RollPowderKegChance / ExplodePowderKeg). The blast is fixed: BlastDamage × Damage in BlastRadius. Constructor default 0, min 0, rounded. Not replicated yet. |
 | IncomingDamage | Meta attribute: GE_Damage writes it, the set converts it to Health loss and records the instigator. |
 
@@ -1961,6 +2026,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | `GE_Upgrade_Leech` | `UGSUpgradeEffect_Leech` | Infinite, stacking; Additive +1 HealthOnKill per stack. |
 | `GE_Upgrade_PiercingRounds` | `UGSUpgradeEffect_PiercingRounds` | Infinite, stacking; Additive +1 Pierce per stack. |
 | `GE_Upgrade_PowderKeg` | `UGSUpgradeEffect_PowderKeg` | Infinite, stacking; Additive +1 PowderKeg per stack. |
+| `GE_Upgrade_FloatingShield` | `UGSUpgradeEffect_FloatingShield` | Infinite, stacking; Additive +1 Shields per stack. |
 | `GE_Upgrade_LoadedDice` | `UGSUpgradeEffect_LoadedDice` | Infinite, stacking; Additive +0.05 CritChance per stack (MaxStacks 20 on the upgrade). |
 | (native, no asset) | `UGSHealEffect` | Instant; Health + SetByCaller `Data.Heal`, clamped to MaxHealth. AGSGameMode::AwardHealthPickup applies it when a health orb is collected (DA_CashSettings `HealthOrbHealEffect` can replace it). |
 | (native, no asset) | `UGSHealthOnKillEffect` | Instant; Health + the target's HealthOnKill (captured live). AGSGameMode applies it to the killer per enemy kill (`HealthOnKillEffect`). |
@@ -1969,7 +2035,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (43, all passing, about 95 s)
+## Automation tests (44, all passing, about 98 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
@@ -2015,6 +2081,7 @@ runs its magnet part at ×4. `Weapons.HeldFire` runs at ×4, and ×16 for its sl
 | `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; Combat → RoundClear pays the round-clear bonus into the profile; save when RoundClear ends includes it (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + return to the hub (the hub's HUD shows it); quitting saves it and the next PIE session (new GameInstance) loads it (HUD too); `gs.Profile.Reset` through the console → 0 and no save file. |
 | `Round.ClearBonus` | DA_RoundClearSettings on the GameMode ($20 / $15 / $15, 8 s + 1.5 s per enemy) and the summary widget on the controller; PreRound starts the round's stats (no payout, no summary); Combat records its start and wave size; round 1 killed fast with no damage → base + no damage + fast clear, kills = wave size, profile += bonus + cash collected; summary shows round, title and each line; after the vacuum cash collected ≥ kills × CashValue, XP = kills × XPValue, profile and CashEarned += cash collected + bonus, summary lines follow; round 2 PreRound hides the summary and starts from zero; damage taken + an impossible time limit (override) → base only, "missed" lines, total = base; RoundClear from PreRound pays nothing and shows nothing; round 10 (skip) pays the same as round 1; gs.Run.Stats shows the last bonus; a new run clears payout and round stats. |
 | `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
+| `Upgrades.FloatingShield` | DA_Upgrade_FloatingShield (Rare, no cap, "+1", GE class, in the pool); ShieldCooldown 10 s; Shields 0, no shields or meshes; no shield: a hit takes Health; `gs.Upgrade.Grant FloatingShield 2` → 2 shields, both ready, 2 meshes shown, no collision, on the orbit at chest height, 180° apart; a real dash's i-frames block a hit with no shield used; block 1: no Health lost, 1 of 2 ready, the first shield gone, 10 s cooldown, counted, no run-stats damage taken, the combo goes on, block flash shown; the blocked mesh hidden, the other shown; block 2 (2 s later): none ready, each shield on its own cooldown; a third hit takes Health (run stats 25 damage); shield 1 back 10 s after its block (return shown, visible again), shield 2 back 10 s after its own; a pick while one recharges: the new shield ready at once, 3 meshes 120° apart; a real melee bandit's swing and a ranged bandit's burst are blocked (no Health lost; 4 of 4 shots in the run); a new run → Shields 0, no shields, no meshes. Health orbs off. Game time ×4. |
 | `Upgrades.FireRateAndMagnet` | DA_Upgrade_FireRate (+8%) and DA_Upgrade_Magnet (+15%): Common, no cap, their GE classes, in DA_UpgradePool; FireRate 1 and PickupRadius 300 at start; rifle held for 12 shots: on the exact schedule every frame, 0.100 s apart on average (within a frame over the burst); `gs.Upgrade.Grant FireRate 10` → FireRate 1.8, refire interval / 1.8 (0.0556 s), 16 held shots on that schedule, 1.8 times as fast; a bandit's drop (cash + XP orb) lands 380–660 cm away: nothing flies in at radius 300; `gs.Upgrade.Grant Magnet 10` → PickupRadius 750, the cash and the orb fly in (cash += CashValue, XP += XPValue); a new run resets both. |
 | `Upgrades.PowderKeg` | DA_CombatSettings: ChancePerStack 3%, blast 30 / 3 m, chain delay 0.1 s, damage effect, placeholder effect and sound; chance 0 at 0 stacks, 3% at 1, 30% at 10, 99% at 33, 100% at 34 and clamped above; DA_Upgrade_PowderKeg: Epic, MaxStacks 34 (the first count at 100%), card text "+3% chance per stack" matches ChancePerStack, GE class, in the pool; 0 stacks: 100 kill rolls never explode and draw nothing from the run stream, a real kill doesn't explode; 34 stacks (console; a 35th refused): 100 rolls all explode with no dice; A's kill explodes at once, B (20 HP, 2 m) dies, C (4.5 m) and D (4 m) untouched, the player (1 m, god off) unhurt and Leech healed both kills, combo +2, run-stats kills +2, cash and 2 XP orbs, B's chain blast pending; it fires and hits C for 30, D untouched; a kill that isn't the player's doesn't explode even at 100%; the blast is the same at 1 and 20 stacks (30 at 2.9 m, nothing at 3.1 m); Damage x1.1 → 33; 10 stacks: 1,000 kill rolls within 26–34% (314 in the run) and the same stream state replays them; a new run → 0. Health orbs off (override 0). Game time ×4. |
 | `Upgrades.PiercingRounds` | DA_Upgrade_PiercingRounds (Epic, no cap, "+1", GE class, in the pool); Pierce 0 at start; TraceShot along 4 frozen bandits in a line: Pierce 0 → the nearest, ending in it; Pierce 2 → bandits 1–3 in order, ending in the third; Pierce 10 → all 4, each once, ending at the last; a line with nothing on it runs to its end; a spawned wall between bandits 2 and 3 stops a Pierce 10 shot after 2, ending at the wall; a dead bandit is passed without using the pierce; a real shot from a zero-spread copy of the rifle with Piercing x2 and Loaded Dice x10 at 3 bandits placed on its exact line (+ a 4th): bandits 1–3 each take one full hit (20 or 40), bandit 4 none, 3 damage numbers, critical numbers = crits, exactly 3 crit rolls drawn from the run stream; a new run → Pierce 0. |
@@ -2103,19 +2170,24 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
     matters less as waves grow.
 - **Upgrades** (per stack, additive on the base value): Reload Speed +10%, Damage +10%, Move Speed +8%, Fire Rate
   +8%, Magnet +15% pickup radius, Bigger Mags +15% magazine size (rounded up) (Common); Extra Jump +1 air jump, Dash
-  Charge +1 dash charge, Leech +1 health per kill, Loaded Dice +5% crit chance (Rare); Piercing Rounds +1 enemy
+  Charge +1 dash charge, Leech +1 health per kill, Loaded Dice +5% crit chance, Floating Shield +1 shield (Rare);
+  Piercing Rounds +1 enemy
   pierced, Powder Keg +3% chance that a kill explodes (Epic). Loaded Dice (20 stacks = 100%) and Powder Keg (34
   stacks = 100%) are capped.
 - **Critical hits** (DA_CombatSettings): CritMultiplier 2.0. Crit damage numbers: size 28 (normal 20), gold, "N!".
 - **Powder Keg** (DA_CombatSettings): `ChancePerStack` 3% that a player kill explodes (10 stacks 30%, 34 stacks 100%),
   rolled per kill on the run stream. The blast is always 30 damage × the player's Damage in 3 m, at any stack count;
   chain kills roll again and explode 0.1 s later; no line of sight; never hurts the player; no crits.
-- **Upgrade offers** (DA_UpgradePool, 12 upgrades; placeholders): rarity weights Common 100 / Rare 20 / Epic 6 /
+- **Floating Shield** (DA_CombatSettings): `ShieldCooldown` 10 s per shield, each on its own world timer (pauses with
+  the game). Visuals on BP_GSCharacter's `FloatingShields` component: engine cylinder at (0.45, 0.45, 0.06) with
+  M_FloatingShield, orbit 85 cm, 40 cm above the capsule center (chest height), 120°/s; block flash ×1.8 over 0.15 s,
+  return pop 0.35 s.
+- **Upgrade offers** (DA_UpgradePool, 13 upgrades; placeholders): rarity weights Common 100 / Rare 20 / Epic 6 /
   Legendary 1, 3 choices, 3 rerolls per run.
-  - `simulate_upgrade_offers(10000, 1)`, fresh run with no picks (Prompt 35): Move Speed in 40.3% of offers, Magnet
-    39.9%, Reload Speed 39.5%, Damage 39.5%, Bigger Mags 39.3%, Fire Rate 39.2%, Extra Jump 12.4%, Dash Charge 12.1%,
-    Leech 12.1%, Loaded Dice 11.8%, Piercing Rounds 7.1%, Powder Keg 7.0%.
-  - The Rare tier is in 40.8% of offers (40.5% expected), shared by four upgrades. The Epic tier (Piercing Rounds,
+  - `simulate_upgrade_offers(10000, 1)`, fresh run with no picks (Prompt 36): Move Speed in 40.3% of offers, Magnet
+    39.9%, Reload Speed 39.5%, Damage 39.5%, Bigger Mags 39.3%, Fire Rate 39.2%, Dash Charge 9.8%, Extra Jump 9.7%,
+    Loaded Dice 9.7%, Leech 9.7%, Floating Shield 9.5%, Piercing Rounds 7.1%, Powder Keg 7.0%.
+  - The Rare tier is in 40.8% of offers (40.5% expected), shared by five upgrades. The Epic tier (Piercing Rounds,
     Powder Keg) is in 13.5%.
   - By choices: Common 79.2%, Rare 16.1%, Epic 4.7%, Legendary 0 (empty tier). No short offers.
 - **Combo curves**: there is no combo system yet.
@@ -2123,6 +2195,12 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 ## Known issues, TODOs and deviations
 
 **Not built yet / stubs**
+- Floating Shield (Prompt 36):
+  - The shields are flat placeholder discs, and the block and return sounds are editor sounds that may not cook.
+  - There is no HUD readout of ready shields or their recharge (only the discs, and `gs.Upgrade.List`).
+  - The shields keep recharging after death (harmless: GameOver).
+  - A shield always takes a whole hit, however small; there is no partial block.
+  - The shield states aren't replicated (`TODO(co-op)`).
 - Health orbs (Prompt 35b):
   - The sound is an editor sound that may not cook (`VR_confirm_Cue`), and the look is a plain emissive sphere.
   - The orbs aren't in the run summary (only `gs.Run.Stats`).
@@ -2335,8 +2413,8 @@ smaller pool.
 35c. ~~**Powder Keg: chance to explode.** Each stack adds a 3% chance (ChancePerStack in DA_CombatSettings, rolled on
     the run stream per player kill) that the enemy explodes; the blast is a fixed 30 damage (× Damage) in 3 m; MaxStacks
     34 (100%); chains roll the same chance after 0.1 s.~~ Done (see Prompt 35c).
-36. **Floating Shield** (Rare): +1 shield per pick; a shield takes a hit and comes back after 10 s. The damage order
-    starts here (dash invulnerability → shield → Health).
+36. ~~**Floating Shield** (Rare): +1 shield per pick; a shield takes a hit and comes back after 10 s. The damage order
+    starts here (dash invulnerability → shield → Health).~~ Done (see Prompt 36).
 37. **Second Wind** (Legendary): survive one killing blow per pick at 30% health; the last step of the damage order.
 38. **Floating Gun, part 1** (Epic): the projectile and the first gun (right shoulder). Its kills count as the
     player's.
