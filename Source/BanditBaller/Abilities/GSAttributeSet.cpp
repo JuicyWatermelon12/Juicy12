@@ -35,6 +35,8 @@ UGSAttributeSet::UGSAttributeSet()
 	InitDynamitePower(0.f);
 	InitLuckyCoinLevel(0.f);
 	InitLuckyCoinPower(0.f);
+	InitMolotovLevel(0.f);
+	InitMolotovPower(0.f);
 }
 
 void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -83,7 +85,9 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 		|| Attribute == GetDynamiteLevelAttribute()
 		|| Attribute == GetDynamitePowerAttribute()
 		|| Attribute == GetLuckyCoinLevelAttribute()
-		|| Attribute == GetLuckyCoinPowerAttribute())
+		|| Attribute == GetLuckyCoinPowerAttribute()
+		|| Attribute == GetMolotovLevelAttribute()
+		|| Attribute == GetMolotovPowerAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}

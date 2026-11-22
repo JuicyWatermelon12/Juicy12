@@ -285,6 +285,19 @@ public:
 	UGSUpgradeEffect_LuckyCoin(const FObjectInitializer& ObjectInitializer);
 };
 
+/**
+ * GE_Upgrade_Molotov: MolotovLevel = the number of picks (1+ = the weapon) and MolotovPower = the total value (the fire's
+ * +damage / +patch radius steps).
+ */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_Molotov : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_Molotov(const FObjectInitializer& ObjectInitializer);
+};
+
 /** +1 SecondWinds per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_SecondWind): survive one more killing blow. Using one removes one pick. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_SecondWind : public UGSUpgradeEffect

@@ -96,6 +96,9 @@
 #include "GSLobbedThrow.h"
 #include "GSLuckyCoinComponent.h"
 #include "GSLuckyCoinSettings.h"
+#include "GSFirePatch.h"
+#include "GSMolotovComponent.h"
+#include "GSMolotovSettings.h"
 #include "GSThrownSubsystem.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "GSFloatingShieldsComponent.h"
@@ -4757,7 +4760,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
-		TestEqual(TEXT("Pool has the 19 upgrades"), Pool->Upgrades.Num(), 19);
+		TestEqual(TEXT("Pool has the 20 upgrades"), Pool->Upgrades.Num(), 20);
 		const float StatWeights[] = { 100.f, 20.f, 6.f, 1.f };
 		const float AbilityWeights[] = { 100.f, 10.f, 3.f, 0.5f };
 		for (const EGSUpgradeRarity Rarity : UGSUpgradePool::GetAllRarities())
@@ -4821,12 +4824,12 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		const double LegendaryShare = static_cast<double>(LegendaryCards) / Cards;
 		AddInfo(FString::Printf(TEXT("Legendary ability cards: %d of %d (%.3f%%, chance 0.8%% per card)"), LegendaryCards, Cards, 100.0 * LegendaryShare));
 		TestTrue(TEXT("Legendary ability cards at about 0.8% of cards"), FMath::Abs(LegendaryShare - 0.008) < 0.0015);
-		bool bEven = PerUpgrade.Num() == 18;
+		bool bEven = PerUpgrade.Num() == 19;
 		for (const TPair<const UGSUpgradeData*, int32>& Entry : PerUpgrade)
 		{
-			bEven &= FMath::Abs(static_cast<double>(Entry.Value) / NormalCards - 1.0 / 18.0) < 0.01;
+			bEven &= FMath::Abs(static_cast<double>(Entry.Value) / NormalCards - 1.0 / 19.0) < 0.01;
 		}
-		TestTrue(TEXT("The 18 other upgrades come up evenly (AppearanceWeight 1 each)"), bEven);
+		TestTrue(TEXT("The 19 other upgrades come up evenly (AppearanceWeight 1 each)"), bEven);
 		auto Share = [&Split](int32 Kind, EGSUpgradeRarity Rarity)
 		{
 			const int32 Total = Split[Kind][0] + Split[Kind][1] + Split[Kind][2] + Split[Kind][3];
@@ -8664,6 +8667,7 @@ namespace GSTests
 			{ TEXT("BarbedWire"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetBarbedWirePowerAttribute() },
 			{ TEXT("Dynamite"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetDynamitePowerAttribute() },
 			{ TEXT("LuckyCoin"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetLuckyCoinPowerAttribute() },
+			{ TEXT("Molotov"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetMolotovPowerAttribute() },
 		};
 	}
 
@@ -8718,7 +8722,7 @@ bool FGSUpgradePickValuesTest::RunTest(const FString& Parameters)
 			TestEqual(FString::Printf(TEXT("%s: percent upgrade"), E.Name), Upgrade->IsPercentUpgrade(), E.bPercent);
 			TestTrue(FString::Printf(TEXT("%s: in DA_UpgradePool"), E.Name), Pool->Upgrades.Contains(Upgrade));
 		}
-		TestEqual(TEXT("All 19 upgrades checked"), Seen.Num(), 19);
+		TestEqual(TEXT("All 20 upgrades checked"), Seen.Num(), 20);
 		TestEqual(TEXT("Every pool upgrade checked"), Pool->Upgrades.Num(), Seen.Num());
 		const UGSUpgradeData* Gun = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
 		TestEqual(TEXT("Floating Gun: its first two picks give the guns"), Gun ? Gun->WeaponGivingPicks : 0, 2);
@@ -8749,7 +8753,8 @@ bool FGSUpgradePickValuesTest::RunTest(const FString& Parameters)
 			FText2{ TEXT("RazorCards"), TEXT("+10% Razor Cards damage and fire rate"), TEXT("+30% Razor Cards damage and fire rate") },
 			FText2{ TEXT("BarbedWire"), TEXT("+10% Barbed Wire damage, +5% size"), TEXT("+30% Barbed Wire damage, +15% size") },
 			FText2{ TEXT("Dynamite"), TEXT("+10% Dynamite damage, +5% blast size"), TEXT("+30% Dynamite damage, +15% blast size") },
-			FText2{ TEXT("LuckyCoin"), TEXT("+10% Lucky Coin damage"), TEXT("+30% Lucky Coin damage") } })
+			FText2{ TEXT("LuckyCoin"), TEXT("+10% Lucky Coin damage"), TEXT("+30% Lucky Coin damage") },
+			FText2{ TEXT("Molotov"), TEXT("+10% Molotov burn damage, +5% patch size"), TEXT("+30% Molotov burn damage, +15% patch size") } })
 		{
 			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(E.Name);
 			if (!Upgrade)
@@ -9067,6 +9072,7 @@ bool FGSWeaponSlotsTest::RunTest(const FString& Parameters)
 		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("BarbedWire")));
 		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("Dynamite")));
 		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("LuckyCoin")));
+		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("Molotov")));
 		S->TestPool->Upgrades.Add(S->TestWeapon.Get());
 		S->TestPool->MaxWeapons = 1;
 		GameMode->SetUpgradePoolOverride(S->TestPool.Get());
@@ -10242,6 +10248,12 @@ namespace GSTests
 		return Player ? Player->GetLuckyCoin() : nullptr;
 	}
 
+	UGSMolotovComponent* GetMolotov()
+	{
+		const AGSCharacter* Player = GetPlayer();
+		return Player ? Player->GetMolotov() : nullptr;
+	}
+
 	struct FWireState
 	{
 		FVector PlayerSpot = FVector::ZeroVector;
@@ -10557,6 +10569,7 @@ bool FGSCheckpointPicksAndNewRunTest::RunTest(const FString& Parameters)
 			{ TEXT("RazorCards"), UGSAttributeSet::GetRazorCardsPowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
 			{ TEXT("Dynamite"), UGSAttributeSet::GetDynamitePowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
 			{ TEXT("LuckyCoin"), UGSAttributeSet::GetLuckyCoinPowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
+			{ TEXT("Molotov"), UGSAttributeSet::GetMolotovPowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
 			{ TEXT("BarbedWire"), UGSAttributeSet::GetBarbedWirePowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
 		};
 		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
@@ -10623,6 +10636,7 @@ bool FGSCheckpointPicksAndNewRunTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Before the new run: Razor Cards owned"), GetRazorCards()->GetLevel() > 0);
 		TestTrue(TEXT("Before the new run: Dynamite owned"), GetDynamite()->GetLevel() > 0);
 		TestTrue(TEXT("Before the new run: Lucky Coin owned"), GetLuckyCoin()->GetLevel() > 0);
+		TestTrue(TEXT("Before the new run: Molotov owned"), GetMolotov()->GetLevel() > 0);
 		TestTrue(TEXT("Before the new run: shields"), GetPC()->GetPlayerState<AGSPlayerState>()->GetShieldComponent()->GetNumShields() > 0);
 		GetGameMode()->RestartRunWithSeed(4811);
 		GetGameMode()->SetRoundTimerPaused(true);
@@ -10653,6 +10667,7 @@ bool FGSCheckpointPicksAndNewRunTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: Razor Cards gone"), GetRazorCards()->GetLevel(), 0);
 		TestEqual(TEXT("New run: Dynamite gone"), GetDynamite()->GetLevel(), 0);
 		TestEqual(TEXT("New run: Lucky Coin gone"), GetLuckyCoin()->GetLevel(), 0);
+		TestEqual(TEXT("New run: Molotov gone"), GetMolotov()->GetLevel(), 0);
 		TestEqual(TEXT("New run: nothing thrown is left in play"), GetPIEWorld()->GetSubsystem<UGSThrownSubsystem>()->GetActive().Num(), 0);
 		TestEqual(TEXT("New run: no combo"), PS->GetComboComponent()->GetComboCount(), 0);
 		TestEqual(TEXT("New run: no Powder Keg blasts"), GetGameMode()->GetPowderKegBlasts(), 0);
@@ -11846,6 +11861,391 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: no flips"), Coin->GetFlips(), S->FlipsBefore);
 		TestEqual(TEXT("New run: nothing in the air"), Coin->GetFlipsInAir(), 0);
 		TestEqual(TEXT("New run: a bandit in range takes nothing"), CoinLost(*S, 0), 0.f, 0.01f);
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Molotov (Prompt 51): a bottle lobbed at the nearest enemy leaves a patch of fire that burns on a fixed tick
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	struct FMolotovState
+	{
+		FVector PlayerSpot = FVector::ZeroVector;
+		FVector Ground = FVector::ZeroVector;
+		FVector Dir = FVector::ForwardVector;
+		FVector Side = FVector::RightVector;
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits;
+		TArray<float> HealthBefore;
+		int32 ThrowsBefore = 0;
+		int32 PatchesBefore = 0;
+		int32 BurnsBefore = 0;
+		float PlayerHealthBefore = 0.f;
+		float SourceDamageBefore = 0.f;
+		double InRangeAt = 0.0;
+		float AgeBefore = 0.f;
+		int32 PatchBurnsBefore = 0;
+		bool bScheduleOk = true;
+		int32 Frames = 0;
+		TWeakObjectPtr<AGSEnemyCharacter> Weak;
+		int32 KillsBefore = 0;
+		int32 XPOrbsBefore = 0;
+		int32 HealthOrbsBefore = 0;
+	};
+
+	int32 NumThrownActive()
+	{
+		const UGSThrownSubsystem* Thrown = GetThrown();
+		return Thrown ? Thrown->GetActive().Num() : 0;
+	}
+
+	AGSFirePatch* FindActivePatch()
+	{
+		const TArray<AGSFirePatch*> Patches = GetMolotov()->GetActivePatches();
+		return Patches.Num() > 0 ? Patches[0] : nullptr;
+	}
+
+	bool MolotovOnSchedule()
+	{
+		const UGSMolotovComponent* Molotov = GetMolotov();
+		if (!Molotov || Molotov->GetBurstShots() == 0)
+		{
+			return true;
+		}
+		const double Elapsed = GetPIEWorld()->GetTimeSeconds() - Molotov->GetBurstStartTime();
+		return Molotov->GetBurstShots() == 1 + FMath::FloorToInt(Elapsed / Molotov->GetThrowInterval() + 1e-6);
+	}
+
+	void RecordMolotov(FMolotovState& S)
+	{
+		S.HealthBefore.Reset();
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S.Bandits)
+		{
+			S.HealthBefore.Add(Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : 0.f);
+		}
+		S.ThrowsBefore = GetMolotov()->GetThrows();
+		S.PatchesBefore = GetMolotov()->GetPatchesLit();
+		S.BurnsBefore = GetMolotov()->GetBurns();
+		S.PlayerHealthBefore = GetHealth(GetPlayerASC());
+		S.SourceDamageBefore = GetGameState()->GetRunStats()->GetDamageDealtBy(EGSDamageSource::Molotov);
+	}
+
+	float MolotovLost(const FMolotovState& S, int32 Index)
+	{
+		const TWeakObjectPtr<AGSEnemyCharacter>& Bandit = S.Bandits[Index];
+		return Bandit.IsValid() ? S.HealthBefore[Index] - GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f;
+	}
+
+	/** Enqueue: wait until nothing is in the air or burning (a gap between patches), then record. */
+	void WaitMolotovIdleAndRecord(FAutomationTestBase* Test, TSharedRef<FMolotovState> S)
+	{
+		WaitUntil(Test, TEXT("no bottle or patch"), []() { return NumThrownActive() == 0; }, 20.0);
+		Step([S]() { RecordMolotov(*S); });
+	}
+
+	/** Enqueue: wait for Count patches lit after the last record to burn out. */
+	void WaitPatchesDone(FAutomationTestBase* Test, TSharedRef<FMolotovState> S, int32 Count, bool bCheckSchedule = false)
+	{
+		WaitUntil(Test, FString::Printf(TEXT("%d patch(es) burned out"), Count), [S, Count, bCheckSchedule]()
+		{
+			if (bCheckSchedule)
+			{
+				S->bScheduleOk &= MolotovOnSchedule();
+				++S->Frames;
+			}
+			return GetMolotov()->GetPatchesLit() >= S->PatchesBefore + Count && GetMolotov()->GetActivePatches().Num() == 0;
+		}, 40.0);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSMolotovTest, "BanditBaller.Upgrades.Molotov", GSTests::TestFlags)
+bool FGSMolotovTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	TSharedRef<FMolotovState> S = MakeShared<FMolotovState>();
+
+	// Data, a clear lane, the player near its start. Game time x4.
+	Step([this, S]()
+	{
+		SpeedUpWorld(4.f);
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->SetHealthOrbDropChanceOverride(0.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		const UGSMolotovSettings* Settings = GameMode->GetMolotovSettings();
+		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("Molotov"));
+		if (!TestNotNull(TEXT("DA_MolotovSettings on BP_GSGameMode"), Settings) || !TestNotNull(TEXT("DA_Upgrade_Molotov"), Upgrade)
+			|| !TestNotNull(TEXT("Molotov component on the character"), GetMolotov()))
+		{
+			return;
+		}
+		TestEqual(TEXT("A throw every 5 s"), Settings->ThrowInterval, 5.f);
+		TestEqual(TEXT("15 m range"), Settings->Range, 1500.f);
+		TestEqual(TEXT("0.6 s flight"), Settings->FlightTime, 0.6f);
+		TestEqual(TEXT("4 damage per burn"), Settings->BurnDamage, 4.f);
+		TestEqual(TEXT("A burn every 0.5 s"), Settings->BurnInterval, 0.5f);
+		TestEqual(TEXT("A patch burns 4 s"), Settings->PatchDuration, 4.f);
+		TestEqual(TEXT("2.5 m patch"), Settings->PatchRadius, 250.f);
+		TestEqual(TEXT("+10% burn damage per power"), Settings->DamageBonusPerPower, 0.1f);
+		TestEqual(TEXT("+5% patch radius per power"), Settings->RadiusBonusPerPower, 0.05f);
+		TestNotNull(TEXT("Damage effect (GE_Damage)"), Settings->DamageEffect.Get());
+		TestTrue(TEXT("Bottle and patch meshes and materials"), Settings->BottleMesh && Settings->BottleMaterial && Settings->PatchMesh && Settings->PatchMaterial);
+		TestTrue(TEXT("Category Weapon"), Upgrade->Category == EGSUpgradeCategory::Weapon);
+		TestEqual(TEXT("The first pick gives the weapon"), Upgrade->WeaponGivingPicks, 1);
+		TestTrue(TEXT("Effect GE_Upgrade_Molotov"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_Molotov::StaticClass()));
+		TestTrue(TEXT("In DA_UpgradePool"), GameMode->GetUpgradePool() && GameMode->GetUpgradePool()->Upgrades.Contains(Upgrade));
+		TestEqual(TEXT("Card text, none owned"), Upgrade->GetFormattedDescription(0).ToString(), FString(TEXT("New weapon: throws a bottle that leaves a patch of fire on the ground.")));
+		TestEqual(TEXT("Card text, owned"), Upgrade->GetFormattedDescription(1).ToString(), FString(TEXT("Makes the Molotov's fire stronger and its patch bigger.")));
+		TestEqual(TEXT("Card line of a later Common pick"), Upgrade->FormatValueText(GameMode->GetUpgradePool()->GetPickValue(Upgrade, EGSUpgradeRarity::Common, 1)).ToString(),
+			FString(TEXT("+10% Molotov burn damage, +5% patch size")));
+		TestEqual(TEXT("Card line of a Rare later pick (halves)"), Upgrade->FormatValueText(1.5f).ToString(), FString(TEXT("+15% Molotov burn damage, +7.5% patch size")));
+		TestEqual(TEXT("The card's +10% matches the settings"), Upgrade->GetDisplayScale() / 100.f, Settings->DamageBonusPerPower, 0.0001f);
+		TestEqual(TEXT("The card's +5% matches the settings"), Upgrade->SecondaryDisplayScale / 100.f, Settings->RadiusBonusPerPower, 0.0001f);
+
+		FVector Lane;
+		if (!TestTrue(TEXT("A clear lane in the town"), FindClearLane(2600.f, Lane, S->Dir)))
+		{
+			return;
+		}
+		S->Side = FVector(-S->Dir.Y, S->Dir.X, 0.f);
+		S->PlayerSpot = Lane + S->Dir * 300.f;
+		S->Ground = FVector(S->PlayerSpot.X, S->PlayerSpot.Y, 0.f);
+		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
+		RemoveAllEnemies(GetPIEWorld());
+
+		// Granted; the only bandit is 16 m away (out of range).
+		TestEqual(TEXT("gs.Upgrade.Grant Molotov"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Molotov"), 1), 1);
+		TestEqual(TEXT("Owned: level 1"), GetMolotov()->GetLevel(), 1);
+		TestEqual(TEXT("Power 0: 4 per burn"), GetMolotov()->GetBurnDamage(), 4.f, 0.0001f);
+		TestEqual(TEXT("Power 0: radius 250"), GetMolotov()->GetPatchRadius(), 250.f, 0.01f);
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 1600.f));
+		RecordMolotov(*S);
+	});
+	WaitWorldSeconds(this, 1.5);
+	Step([this, S]()
+	{
+		TestNull(TEXT("16 m: no target"), GetMolotov()->FindTarget());
+		TestEqual(TEXT("16 m: no throw"), GetMolotov()->GetThrows(), S->ThrowsBefore);
+		// It walks into range: a bottle at once (nothing banked).
+		AGSEnemyCharacter* Bandit = S->Bandits[0].Get();
+		if (Bandit)
+		{
+			const FVector At = S->Ground + S->Dir * 800.f;
+			Bandit->SetActorLocation(FVector(At.X, At.Y, Bandit->GetActorLocation().Z), false, nullptr, ETeleportType::TeleportPhysics);
+		}
+		S->InRangeAt = GetPIEWorld()->GetTimeSeconds();
+	});
+	WaitUntil(this, TEXT("a patch"), [S]() { return GetMolotov()->GetPatchesLit() > S->PatchesBefore; }, 10.0);
+	Step([this, S]()
+	{
+		UGSMolotovComponent* Molotov = GetMolotov();
+		const double Delay = Molotov->GetBurstStartTime() - S->InRangeAt;
+		TestEqual(TEXT("One throw (nothing banked)"), Molotov->GetThrows(), S->ThrowsBefore + 1);
+		TestTrue(FString::Printf(TEXT("The throw comes at once (%.3f s)"), Delay), Delay >= -0.001 && Delay < 0.25);
+		const AGSFirePatch* Patch = FindActivePatch();
+		const AGSEnemyCharacter* Bandit = S->Bandits[0].Get();
+		if (TestNotNull(TEXT("A patch is burning"), Patch) && Bandit)
+		{
+			const float Feet = Bandit->GetActorLocation().Z - Bandit->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+			TestTrue(TEXT("The patch is at the target's feet"), FVector::Dist2D(Patch->GetParams().Center, Bandit->GetActorLocation()) < 1.f
+				&& FMath::IsNearlyEqual(Patch->GetParams().Center.Z, Feet, 1.f));
+			TestTrue(TEXT("The patch has no collision"), Patch->GetMesh()->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
+			TestEqual(TEXT("The patch is drawn at its radius"), static_cast<float>(Patch->GetActorScale3D().X * 50.0), 250.f, 0.1f);
+		}
+
+		// The burn test: T 1.2 m in front of the player (who stands in the fire, god mode off); A 1.5 m and B 2.4 m from T
+		// (inside), C 2.7 m (outside at 2.5 m), D floating 3 m above the patch.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		const FVector T = S->Ground + S->Dir * 120.f;
+		S->Bandits.Add(SpawnToughBandit(T));                                                   // [0] T
+		S->Bandits.Add(SpawnToughBandit(T + S->Side * 150.f));                                 // [1] A
+		S->Bandits.Add(SpawnToughBandit(T - S->Side * 240.f));                                 // [2] B
+		S->Bandits.Add(SpawnToughBandit(T + S->Dir * 270.f));                                  // [3] C
+		S->Bandits.Add(SpawnToughBandit(T + S->Dir * 100.f + FVector(0.f, 0.f, 300.f)));       // [4] D, 3 m up
+	});
+	WaitMolotovIdleAndRecord(this, S);
+	Step([this, S]()
+	{
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		S->PlayerHealthBefore = GetHealth(GetPlayerASC());
+		S->bScheduleOk = true;
+		S->Frames = 0;
+	});
+	WaitPatchesDone(this, S, 2, true);
+	Step([this, S]()
+	{
+		UGSMolotovComponent* Molotov = GetMolotov();
+		const int32 Patches = Molotov->GetPatchesLit() - S->PatchesBefore;
+		TestTrue(FString::Printf(TEXT("Every frame on the exact 5 s schedule (%d frames)"), S->Frames), S->bScheduleOk);
+		TestEqual(TEXT("Target T"), Molotov->GetLastTarget(), S->Bandits[0].Get());
+		TestEqual(TEXT("8 burns per patch (4 s at 0.5 s, the first on landing)"), Molotov->GetBurns() - S->BurnsBefore, 8 * Patches);
+		const FString Names[] = { TEXT("T"), TEXT("A (1.5 m)"), TEXT("B (2.4 m)"), TEXT("C (2.7 m, outside)"), TEXT("D (3 m up, outside)") };
+		const float Expect[] = { 32.f, 32.f, 32.f, 0.f, 0.f };
+		for (int32 Index = 0; Index < 5; ++Index)
+		{
+			TestEqual(FString::Printf(TEXT("%s: %.0f per patch"), *Names[Index], Expect[Index]), MolotovLost(*S, Index), Expect[Index] * Patches, 0.01f);
+		}
+		TestEqual(TEXT("The player standing in the fire is unhurt"), GetHealth(GetPlayerASC()), S->PlayerHealthBefore, 0.01f);
+		TestEqual(TEXT("Run stats count it as Molotov damage"), GetGameState()->GetRunStats()->GetDamageDealtBy(EGSDamageSource::Molotov) - S->SourceDamageBefore,
+			96.f * Patches, 0.01f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		// Power 1: 4.4 per burn, 262.5 cm (C still outside).
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Molotov"), 1);
+		TestEqual(TEXT("Power 1: 4.4 per burn"), Molotov->GetBurnDamage(), 4.4f, 0.0001f);
+		TestEqual(TEXT("Power 1: radius 262.5"), Molotov->GetPatchRadius(), 262.5f, 0.01f);
+	});
+	WaitMolotovIdleAndRecord(this, S);
+	WaitPatchesDone(this, S, 1);
+	Step([this, S]()
+	{
+		// Tough bandits have 100,000 HP, where a float step is about 0.008: eight burns of a fractional amount drift by a
+		// few hundredths, so these allow 0.1.
+		TestEqual(TEXT("Power 1: T takes 8 x 4.4"), MolotovLost(*S, 0), 35.2f, 0.1f);
+		TestEqual(TEXT("Power 1: C still outside"), MolotovLost(*S, 3), 0.f, 0.01f);
+		// An Epic pick (+2): power 3, 5.2 per burn, 287.5 cm: C (2.7 m) is inside now.
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Molotov"), 1, EGSUpgradeRarity::Epic);
+		TestEqual(TEXT("Power 3: 5.2 per burn"), GetMolotov()->GetBurnDamage(), 5.2f, 0.0001f);
+		TestEqual(TEXT("Power 3: radius 287.5"), GetMolotov()->GetPatchRadius(), 287.5f, 0.01f);
+	});
+	WaitMolotovIdleAndRecord(this, S);
+	WaitPatchesDone(this, S, 1);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Power 3: T takes 8 x 5.2"), MolotovLost(*S, 0), 41.6f, 0.1f);
+		TestEqual(TEXT("Power 3: C (2.7 m) burns now"), MolotovLost(*S, 3), 41.6f, 0.1f);
+		TestEqual(TEXT("Power 3: D (3 m up) still doesn't"), MolotovLost(*S, 4), 0.f, 0.01f);
+
+		// Paused with a patch burning: no burns, the patch doesn't age.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 500.f));
+	});
+	WaitUntil(this, TEXT("a patch burning"), []() { return FindActivePatch() != nullptr; }, 20.0);
+	Step([S]()
+	{
+		RecordMolotov(*S);
+		const AGSFirePatch* Patch = FindActivePatch();
+		S->AgeBefore = Patch ? Patch->GetAge() : -1.f;
+		S->PatchBurnsBefore = Patch ? Patch->GetBurns() : -1;
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), true);
+	});
+	WaitRealSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		const AGSFirePatch* Patch = FindActivePatch();
+		TestTrue(TEXT("Paused: the patch doesn't age"), Patch && FMath::IsNearlyEqual(Patch->GetAge(), S->AgeBefore));
+		TestTrue(TEXT("Paused: no burns"), Patch && Patch->GetBurns() == S->PatchBurnsBefore && GetMolotov()->GetBurns() == S->BurnsBefore);
+		TestEqual(TEXT("Paused: no damage"), MolotovLost(*S, 0), 0.f, 0.01f);
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), false);
+		// A safe zone: the burning patch skips its burns, and nothing is thrown.
+		GetPlayerASC()->AddLooseGameplayTag(GSGameplayTags::State_SafeZone);
+		RecordMolotov(*S);
+	});
+	WaitWorldSeconds(this, 1.2);
+	Step([this, S]()
+	{
+		TestFalse(TEXT("Safe zone: it can't throw"), GetMolotov()->CanThrow());
+		TestEqual(TEXT("Safe zone: no burns"), GetMolotov()->GetBurns(), S->BurnsBefore);
+		TestEqual(TEXT("Safe zone: no damage"), MolotovLost(*S, 0), 0.f, 0.01f);
+		GetPlayerASC()->RemoveLooseGameplayTag(GSGameplayTags::State_SafeZone);
+
+		// DPS: one bandit in the fire, then five.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 500.f));
+	});
+	WaitMolotovIdleAndRecord(this, S);
+	WaitPatchesDone(this, S, 1);
+	Step([this, S]()
+	{
+		const float Lost = MolotovLost(*S, 0);
+		AddInfo(FString::Printf(TEXT("DPS vs one enemy (power 3): %.1f (%.1f per patch, a throw every %.0f s; %.1f DPS while it burns)"),
+			Lost / GetMolotov()->GetThrowInterval(), Lost, GetMolotov()->GetThrowInterval(), Lost / 4.f));
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		const FVector Center = S->Ground + S->Dir * 600.f;
+		for (const FVector& Offset : { FVector::ZeroVector, S->Dir * 120.f, S->Dir * -120.f, S->Side * 120.f, S->Side * -120.f })
+		{
+			S->Bandits.Add(SpawnToughBandit(Center + Offset));
+		}
+	});
+	WaitMolotovIdleAndRecord(this, S);
+	WaitPatchesDone(this, S, 1);
+	Step([this, S]()
+	{
+		float Lost = 0.f;
+		for (int32 Index = 0; Index < S->Bandits.Num(); ++Index)
+		{
+			Lost += MolotovLost(*S, Index);
+		}
+		TestEqual(TEXT("Five in the fire: all burn every tick"), Lost, 5.f * 8.f * GetMolotov()->GetBurnDamage(), 0.5f);
+		AddInfo(FString::Printf(TEXT("DPS vs five enemies (power 3): %.1f (%.1f per patch)"), Lost / GetMolotov()->GetThrowInterval(), Lost));
+
+		// Its kill is the player's: a weak bandit, Leech, a sure health orb.
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Leech"), 1);
+		GetGameMode()->SetHealthOrbDropChanceOverride(1.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		ApplyDamage(GetPlayerASC(), 10.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		S->PlayerHealthBefore = GetHealth(GetPlayerASC());
+		GetPlayerCombo()->EndCombo(EGSComboEndReason::Reset);
+		S->KillsBefore = GetGameState()->GetRunStats()->GetTotalKills();
+		S->XPOrbsBefore = GetCashSubsystem()->GetNumXPOrbsDropped();
+		S->HealthOrbsBefore = GetCashSubsystem()->GetNumHealthOrbsDropped();
+		S->Weak = SpawnFrozenBandit(S->Ground + S->Dir * 500.f);
+		if (S->Weak.IsValid())
+		{
+			S->Weak->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
+		}
+	});
+	WaitUntil(this, TEXT("the fire to kill the bandit"), [S]() { return !S->Weak.IsValid() || S->Weak->GetHealthComponent()->IsDead(); }, 20.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Fire kill: counted in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), S->KillsBefore + 1);
+		TestEqual(TEXT("Fire kill: counts for the combo"), GetPlayerCombo()->GetComboCount(), 1);
+		TestEqual(TEXT("Fire kill: an XP orb"), GetCashSubsystem()->GetNumXPOrbsDropped(), S->XPOrbsBefore + 1);
+		TestEqual(TEXT("Fire kill: the health orb chance (1: one orb)"), GetCashSubsystem()->GetNumHealthOrbsDropped(), S->HealthOrbsBefore + 1);
+		TestTrue(TEXT("Fire kill: a cash drop"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash) > 0);
+		TestEqual(TEXT("Fire kill: Leech heals"), GetHealth(GetPlayerASC()), S->PlayerHealthBefore + 1.f, 0.01f);
+		GetGameMode()->SetHealthOrbDropChanceOverride(0.f);
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 500.f));
+	});
+
+	// A new run with a patch burning: the patch and any bottle are gone, the weapon is gone.
+	WaitUntil(this, TEXT("a patch burning"), []() { return FindActivePatch() != nullptr; }, 20.0);
+	Step([this, S]()
+	{
+		GetGameMode()->RestartRunWithSeed(5101);
+		GetGameMode()->SetRoundTimerPaused(true);
+		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
+		TestEqual(TEXT("New run: no patch or bottle left"), NumThrownActive(), 0);
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 500.f));
+		RecordMolotov(*S);
+	});
+	WaitWorldSeconds(this, 2.0);
+	Step([this, S]()
+	{
+		UGSMolotovComponent* Molotov = GetMolotov();
+		TestEqual(TEXT("New run: level 0"), Molotov->GetLevel(), 0);
+		TestEqual(TEXT("New run: power 0"), Molotov->GetPower(), 0.f);
+		TestEqual(TEXT("New run: no throws"), Molotov->GetThrows(), S->ThrowsBefore);
+		TestEqual(TEXT("New run: no burns"), Molotov->GetBurns(), S->BurnsBefore);
+		TestEqual(TEXT("New run: no patches"), Molotov->GetActivePatches().Num(), 0);
+		TestEqual(TEXT("New run: a bandit in range takes nothing"), MolotovLost(*S, 0), 0.f, 0.01f);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
 		RestoreWorldSpeed();
 	});

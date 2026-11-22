@@ -247,6 +247,24 @@ public:
 	FGameplayAttributeData LuckyCoinPower;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, LuckyCoinPower)
 
+	/**
+	 * Molotov picks: 1 or more = the player throws bottles that leave a burning patch on the ground (UGSMolotovComponent on
+	 * the character, DA_MolotovSettings). Default 0, clamped to >= 0, rounded when read.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData MolotovLevel;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, MolotovLevel)
+
+	/**
+	 * Molotov weapon power: each point adds DA_MolotovSettings' burn damage and patch radius bonus (added up; fractions
+	 * count). The first pick adds the rarity multiplier - 1, later picks the multiplier. Default 0, clamped to >= 0.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData MolotovPower;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, MolotovPower)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;

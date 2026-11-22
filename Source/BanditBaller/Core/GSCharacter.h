@@ -19,6 +19,7 @@ class UGSRazorCardsComponent;
 class UGSBarbedWireComponent;
 class UGSDynamiteComponent;
 class UGSLuckyCoinComponent;
+class UGSMolotovComponent;
 class UGSDashSettings;
 class UGSMovementSettings;
 class UGSSlideSettings;
@@ -79,6 +80,9 @@ public:
 
 	/** Lucky Coin (flips bouncing coins while the LuckyCoinLevel attribute is 1 or more). */
 	UGSLuckyCoinComponent* GetLuckyCoin() const { return LuckyCoin; }
+
+	/** Molotov (throws bottles that leave fire while the MolotovLevel attribute is 1 or more). */
+	UGSMolotovComponent* GetMolotov() const { return Molotov; }
 
 	// --- Camera debug / tests (local player): the same as the aim and shoulder-swap inputs ---
 	void SetAimingForDebug(bool bAim) { bAim ? OnAimStarted() : OnAimCompleted(); }
@@ -206,6 +210,10 @@ protected:
 	/** Lucky Coin: flips bouncing coins for the player's LuckyCoinLevel (tuning in DA_LuckyCoinSettings). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
 	TObjectPtr<UGSLuckyCoinComponent> LuckyCoin;
+
+	/** Molotov: throws bottles that leave fire patches for the player's MolotovLevel (tuning in DA_MolotovSettings). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
+	TObjectPtr<UGSMolotovComponent> Molotov;
 
 	/** Played on the local player's camera when they take damage (CS_PlayerHit). */
 	UPROPERTY(EditDefaultsOnly, Category = "Health")

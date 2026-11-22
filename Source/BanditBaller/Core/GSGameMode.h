@@ -19,6 +19,7 @@ class UGSRazorCardsSettings;
 class UGSBarbedWireSettings;
 class UGSDynamiteSettings;
 class UGSLuckyCoinSettings;
+class UGSMolotovSettings;
 class UGSComboSettings;
 class UGSCombatSettings;
 class UGSRoundClearSettings;
@@ -197,6 +198,9 @@ public:
 	/** Lucky Coin tuning (DA_LuckyCoinSettings); nothing is flipped if unset. */
 	const UGSLuckyCoinSettings* GetLuckyCoinSettings() const { return LuckyCoinSettings; }
 
+	/** Molotov tuning (DA_MolotovSettings); nothing is thrown if unset. */
+	const UGSMolotovSettings* GetMolotovSettings() const { return MolotovSettings; }
+
 	// --- Powder Keg (server) ---
 
 	/**
@@ -355,6 +359,10 @@ protected:
 	/** Lucky Coin: damage, flip interval, range, bounces, the homing coin, power bonuses, look (DA_LuckyCoinSettings). */
 	UPROPERTY(EditDefaultsOnly, Category = "Combat")
 	TObjectPtr<UGSLuckyCoinSettings> LuckyCoinSettings;
+
+	/** Molotov: throw interval, range, the lobbed bottle, the fire patch, power bonuses, look (DA_MolotovSettings). */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat")
+	TObjectPtr<UGSMolotovSettings> MolotovSettings;
 
 	/** Round-clear bonus: base, no damage, fast clear (DA_RoundClearSettings). No bonus if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")

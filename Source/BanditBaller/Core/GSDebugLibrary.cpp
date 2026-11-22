@@ -30,6 +30,8 @@
 #include "GSDynamiteSettings.h"
 #include "GSLuckyCoinComponent.h"
 #include "GSLuckyCoinSettings.h"
+#include "GSMolotovComponent.h"
+#include "GSMolotovSettings.h"
 #include "GSSecondWindComponent.h"
 #include "GSShieldComponent.h"
 #include "GSGameplayAbility_Dash.h"
@@ -308,6 +310,9 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 			ASC->GetNumericAttribute(UGSAttributeSet::GetRazorCardsPowerAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetBarbedWireLevelAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetBarbedWirePowerAttribute()));
+		Text += FString::Printf(TEXT(", MolotovLevel %.0f, MolotovPower %g"),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetMolotovLevelAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetMolotovPowerAttribute()));
 		Text += FString::Printf(TEXT(", DynamiteLevel %.0f, DynamitePower %g, LuckyCoinLevel %.0f, LuckyCoinPower %g"),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetDynamiteLevelAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetDynamitePowerAttribute()),
@@ -397,6 +402,14 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 					Coin->GetLevel(), Coin->GetPower(), Coin->GetDamageMultiplier(),
 					Coin->GetSettings() ? Coin->GetSettings()->Damage * Coin->GetDamageMultiplier() : 0.f, Coin->GetBounces(), 1 + Coin->GetBounces(),
 					Coin->GetFlipInterval(), Coin->GetFlips(), Coin->GetHitsDealt(), Coin->GetLastFlipHits().Num(), *GetNameSafe(Coin->GetTarget()));
+			}
+			if (const UGSMolotovComponent* Molotov = GunOwner->GetMolotov())
+			{
+				const UGSMolotovSettings* MolotovSettings = Molotov->GetSettings();
+				Text += FString::Printf(TEXT("\n  Molotov: %d pick(s), power %g, x%.2f damage (%.2f per burn x Damage), patch radius %.0f cm, every %.2f s, %d thrown, %d patch(es) lit, %d burning now, %d burn(s), %d hit(s)"),
+					Molotov->GetLevel(), Molotov->GetPower(), Molotov->GetDamageMultiplier(),
+					MolotovSettings ? MolotovSettings->BurnDamage * Molotov->GetDamageMultiplier() : 0.f, Molotov->GetPatchRadius(), Molotov->GetThrowInterval(),
+					Molotov->GetThrows(), Molotov->GetPatchesLit(), Molotov->GetActivePatches().Num(), Molotov->GetBurns(), Molotov->GetHitsDealt());
 			}
 		}
 		if (const UGSSecondWindComponent* SecondWind = PS ? PS->GetSecondWindComponent() : nullptr)
@@ -977,6 +990,20 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 		}
 		const int32 Dropped = GameMode->SpawnHealthOrbsForDebug(PC, Count);
 		UE_LOG(LogBanditBaller, Log, TEXT("gs.HealthOrb.Spawn: %d health orb(s) dropped around the player."), Dropped);
+	}
+	else if (Command == TEXT("MolotovPatches"))
+	{
+		const AGSCharacter* Character = Cast<AGSCharacter>(PC->GetPawn());
+		UGSMolotovComponent* Molotov = Character ? Character->GetMolotov() : nullptr;
+		const int32 Count = Args.Num() > 0 ? FCString::Atoi(*Args[0]) : 4;
+		if (!Molotov || !Molotov->GetSettings() || Count < 1)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.Molotov.Patches [Count=4] (in a run; lights fire patches 4 m around the player at the current Molotov power)"));
+			return;
+		}
+		const int32 Lit = Molotov->SpawnPatchesForDebug(Count);
+		UE_LOG(LogBanditBaller, Log, TEXT("gs.Molotov.Patches: %d patch(es) lit around the player (radius %.0f cm, %.2f per burn)."), Lit,
+			Molotov->GetPatchRadius(), Molotov->GetBurnDamage());
 	}
 	else if (Command == TEXT("UpgradeGrant"))
 	{

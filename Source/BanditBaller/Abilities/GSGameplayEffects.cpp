@@ -235,6 +235,13 @@ UGSUpgradeEffect_LuckyCoin::UGSUpgradeEffect_LuckyCoin(const FObjectInitializer&
 	AddAdditiveModifier(UGSAttributeSet::GetLuckyCoinPowerAttribute()); // +damage steps, bounces
 }
 
+UGSUpgradeEffect_Molotov::UGSUpgradeEffect_Molotov(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddPicksModifier(UGSAttributeSet::GetMolotovLevelAttribute()); // owned
+	AddAdditiveModifier(UGSAttributeSet::GetMolotovPowerAttribute()); // +burn damage / patch radius steps
+}
+
 UGSUpgradeEffect_SecondWind::UGSUpgradeEffect_SecondWind(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

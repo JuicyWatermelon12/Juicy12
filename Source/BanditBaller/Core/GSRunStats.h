@@ -18,6 +18,7 @@ enum class EGSDamageSource : uint8
 	PowderKeg,
 	Dynamite,
 	LuckyCoin,
+	Molotov,
 	/** Anything untagged (debug damage such as gs.KillAll). */
 	Other,
 	Count

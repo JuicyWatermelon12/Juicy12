@@ -18,6 +18,7 @@
 //   gs.Run.Stats                                        print run stats (local replicated copy)
 //   gs.XP.Add <N> / gs.XP.SetLevel <N>                  grant raw XP / jump to a level (UGSProgressionComponent)
 //   gs.HealthOrb.Spawn [N]                              drop health orbs around the player (AGSGameMode)
+//   gs.Molotov.Patches [N]                              light Molotov fire patches around the player (UGSMolotovComponent)
 //   gs.Upgrade.Grant <Name> [N] [Rarity] / gs.Upgrade.List  add upgrade picks / list upgrades (UGSUpgradeComponent)
 //   gs.Debug.Boundary 1                                 draw the map boundary (AGSMapBoundary)
 //   gs.Upgrade.Offer / Choose <0-2> / Reroll            queue, pick from and reroll level-up offers (AGSGameMode)
@@ -154,6 +155,14 @@ namespace GSCheats
 		TEXT("gs.HealthOrb.Spawn"),
 		TEXT("Drop health orbs around the local player (no chance roll). At full health they wait until you are hurt. Usage: gs.HealthOrb.Spawn [Count=1]"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("HealthOrbSpawn"), Args, World); }),
+		ECVF_Cheat);
+
+	// --- Molotov (frame-time checks) ---
+
+	FAutoConsoleCommandWithWorldAndArgs MolotovPatchesCommand(
+		TEXT("gs.Molotov.Patches"),
+		TEXT("Light Molotov fire patches 4 m around the local player at the current Molotov power (they burn for the usual duration). Usage: gs.Molotov.Patches [Count=4]"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("MolotovPatches"), Args, World); }),
 		ECVF_Cheat);
 
 	// --- Level-up upgrades (per run) ---
