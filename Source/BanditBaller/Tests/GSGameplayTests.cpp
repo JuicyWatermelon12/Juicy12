@@ -74,6 +74,11 @@
 #include "GSAbilityIconWidget.h"
 #include "GSCombatSettings.h"
 #include "GSCriticalHit.h"
+#include "GSGameplayAbility_Fire.h"
+#include "GSWeapon.h"
+#include "Engine/StaticMeshActor.h"
+#include "Engine/StaticMesh.h"
+#include "Components/StaticMeshComponent.h"
 #include "Blueprint/WidgetTree.h"
 #include "GSMovementAbilitySettings.h"
 #include "GSMovementSettings.h"
@@ -3545,6 +3550,243 @@ bool FGSLoadedDiceTest::RunTest(const FString& Parameters)
 }
 
 // ---------------------------------------------------------------------------
+// Piercing Rounds: Pierce, the shot trace through targets (once each, stops at walls), full damage, a crit roll each
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	float GetActorHealth(const AActor* Actor)
+	{
+		const AGSEnemyCharacter* Enemy = Cast<AGSEnemyCharacter>(Actor);
+		return Enemy ? GetHealth(Enemy->GetAbilitySystemComponent()) : -1.f;
+	}
+
+	/** Names of the trace's target hits, in order (for messages). */
+	FString DescribeShot(const FGSShotTrace& Shot)
+	{
+		FString Text = FString::JoinBy(Shot.TargetHits, TEXT(", "), [](const FHitResult& Hit) { return GetNameSafe(Hit.GetActor()); });
+		if (Shot.BlockingHit.bBlockingHit)
+		{
+			Text += FString::Printf(TEXT(" | stopped by %s"), *GetNameSafe(Shot.BlockingHit.GetActor()));
+		}
+		return Text;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSPiercingRoundsTest, "BanditBaller.Upgrades.PiercingRounds", GSTests::TestFlags)
+bool FGSPiercingRoundsTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	struct FState
+	{
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Line;
+		TArray<float> HealthBefore;
+		int32 NumbersBefore = 0;
+		int32 CritNumbersBefore = 0;
+		FRandomStream StreamBefore;
+	};
+	TSharedRef<FState> S = MakeShared<FState>();
+
+	// The trace on its own, along an exact line behind the start point (-X): 4 frozen bandits 1.5 m apart.
+	Step([this, S]()
+	{
+		GetGameMode()->SetRoundTimerPaused(true); // stay in PreRound: no wave
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		GetPlayer()->TeleportTo(FVector(0.f, 0.f, 100.f), FRotator(0.f, 180.f, 0.f));
+
+		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("PiercingRounds"));
+		if (TestNotNull(TEXT("DA_Upgrade_PiercingRounds exists"), Upgrade))
+		{
+			TestTrue(TEXT("Piercing Rounds is Epic"), Upgrade->Rarity == EGSUpgradeRarity::Epic);
+			TestEqual(TEXT("Piercing Rounds has no cap"), Upgrade->MaxStacks, 0);
+			TestTrue(TEXT("Effect is GE_Upgrade_PiercingRounds"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_PiercingRounds::StaticClass()));
+			const FString Description = Upgrade->GetFormattedDescription().ToString();
+			TestTrue(FString::Printf(TEXT("Description '%s' shows +1"), *Description), Description.Contains(TEXT("+1")));
+			const UGSUpgradePool* Pool = GetGameMode()->GetUpgradePool();
+			TestTrue(TEXT("Piercing Rounds is in DA_UpgradePool"), Pool && Pool->Upgrades.Contains(Upgrade));
+		}
+		TestEqual(TEXT("Pierce starts at 0"), GetAttr(UGSAttributeSet::GetPierceAttribute()), 0.f, 0.001f);
+
+		for (const float X : { -400.f, -550.f, -700.f, -850.f })
+		{
+			S->Line.Add(SpawnFrozenBandit(FVector(X, 0.f, 0.f)));
+		}
+		for (int32 i = 0; i < S->Line.Num(); ++i)
+		{
+			if (!TestTrue(FString::Printf(TEXT("Bandit %d spawned"), i + 1), S->Line[i].IsValid()))
+			{
+				return;
+			}
+		}
+		const float Z = S->Line[0]->GetActorLocation().Z + 30.f;
+		const FVector Start(-250.f, 0.f, Z), End(-1100.f, 0.f, Z);
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(GSPierceTest), false);
+		Params.AddIgnoredActor(GetPlayer());
+		auto HitActor = [](const FGSShotTrace& Shot, int32 Index) { return Shot.TargetHits.IsValidIndex(Index) ? Shot.TargetHits[Index].GetActor() : nullptr; };
+
+		const FGSShotTrace Zero = UGSGameplayAbility_Fire::TraceShot(GetPIEWorld(), Start, End, 0, Params);
+		AddInfo(FString::Printf(TEXT("Pierce 0: %s"), *DescribeShot(Zero)));
+		TestEqual(TEXT("Pierce 0: one target"), Zero.TargetHits.Num(), 1);
+		TestTrue(TEXT("Pierce 0: the nearest bandit"), HitActor(Zero, 0) == S->Line[0].Get());
+		TestTrue(TEXT("Pierce 0: the shot ends in it"), Zero.End.Equals(Zero.TargetHits.IsValidIndex(0) ? FVector(Zero.TargetHits[0].ImpactPoint) : FVector::ZeroVector, 1.f));
+
+		const FGSShotTrace Two = UGSGameplayAbility_Fire::TraceShot(GetPIEWorld(), Start, End, 2, Params);
+		AddInfo(FString::Printf(TEXT("Pierce 2: %s"), *DescribeShot(Two)));
+		TestEqual(TEXT("Pierce 2: three targets"), Two.TargetHits.Num(), 3);
+		TestTrue(TEXT("Pierce 2: bandits 1, 2, 3 in order"), HitActor(Two, 0) == S->Line[0].Get() && HitActor(Two, 1) == S->Line[1].Get() && HitActor(Two, 2) == S->Line[2].Get());
+		TestTrue(TEXT("Pierce 2: the line ends in the third"), Two.TargetHits.Num() == 3 && Two.End.Equals(FVector(Two.TargetHits[2].ImpactPoint), 1.f));
+
+		const FGSShotTrace Ten = UGSGameplayAbility_Fire::TraceShot(GetPIEWorld(), Start, End, 10, Params);
+		AddInfo(FString::Printf(TEXT("Pierce 10: %s"), *DescribeShot(Ten)));
+		TestEqual(TEXT("Pierce 10: all four bandits, each once"), Ten.TargetHits.Num(), 4);
+		TSet<AActor*> Unique;
+		for (const FHitResult& Hit : Ten.TargetHits)
+		{
+			Unique.Add(Hit.GetActor());
+		}
+		TestEqual(TEXT("Pierce 10: every enemy at most once"), Unique.Num(), Ten.TargetHits.Num());
+		TestFalse(TEXT("Setup: nothing else on the line"), Ten.BlockingHit.bBlockingHit);
+		TestTrue(TEXT("Pierce 10: the line runs to the last thing hit (bandit 4)"), Ten.TargetHits.Num() == 4 && Ten.End.Equals(FVector(Ten.TargetHits[3].ImpactPoint), 1.f));
+		const FGSShotTrace Empty = UGSGameplayAbility_Fire::TraceShot(GetPIEWorld(), FVector(-250.f, 300.f, Z), FVector(-1100.f, 300.f, Z), 10, Params);
+		TestTrue(TEXT("A line that hits nothing runs to its end"), Empty.TargetHits.Num() == 0 && !Empty.BlockingHit.bBlockingHit && Empty.End.Equals(FVector(-1100.f, 300.f, Z), 1.f));
+
+		// A wall between bandits 2 and 3 stops even a big pierce.
+		AStaticMeshActor* Wall = GetPIEWorld()->SpawnActor<AStaticMeshActor>(FVector(-625.f, 0.f, 150.f), FRotator::ZeroRotator);
+		if (TestNotNull(TEXT("Spawned a wall"), Wall))
+		{
+			Wall->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+			Wall->GetStaticMeshComponent()->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")));
+			Wall->GetStaticMeshComponent()->SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
+			Wall->SetActorScale3D(FVector(0.2f, 3.f, 3.f));
+			const FGSShotTrace Walled = UGSGameplayAbility_Fire::TraceShot(GetPIEWorld(), Start, End, 10, Params);
+			AddInfo(FString::Printf(TEXT("Pierce 10 with a wall: %s"), *DescribeShot(Walled)));
+			TestEqual(TEXT("Wall: only the two bandits before it"), Walled.TargetHits.Num(), 2);
+			TestTrue(TEXT("Wall: it stops the shot"), Walled.BlockingHit.bBlockingHit && Walled.BlockingHit.GetActor() == Wall);
+			TestTrue(TEXT("Wall: the shot ends at the wall"), Walled.End.Equals(FVector(Walled.BlockingHit.ImpactPoint), 1.f));
+			Wall->Destroy();
+		}
+
+		// A dead target is passed without using up the pierce.
+		ApplyDamage(S->Line[0]->GetAbilitySystemComponent(), 1000.f);
+		const FGSShotTrace PastDead = UGSGameplayAbility_Fire::TraceShot(GetPIEWorld(), Start, End, 0, Params);
+		TestTrue(TEXT("Dead bandit 1: Pierce 0 hits bandit 2"), HitActor(PastDead, 0) == S->Line[1].Get() && PastDead.TargetHits.Num() == 1);
+
+		RemoveAllEnemies(GetPIEWorld());
+		S->Line.Reset();
+	});
+
+	// A real rifle shot (a zero-spread copy of the rifle, so the line is exact) with Piercing Rounds x2 and Loaded Dice
+	// x10 (50%): three bandits on the shot's line each take one full hit, each with its own crit roll and damage number.
+	Step([this, S]()
+	{
+		const UGSWeaponData* Rifle = UGSDebugLibrary::FindWeaponData(TEXT("Rifle"));
+		UGSWeaponData* Exact = DuplicateObject<UGSWeaponData>(Rifle, GetTransientPackage());
+		Exact->HipSpread = 0.f;
+		Exact->ADSSpread = 0.f;
+		UGSDebugLibrary::GiveWeaponTo(GetPC(), Exact);
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("PiercingRounds"), TEXT("2") });
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("LoadedDice"), TEXT("10") });
+		TestEqual(TEXT("Pierce 2"), GetAttr(UGSAttributeSet::GetPierceAttribute()), 2.f, 0.001f);
+		GetPlayer()->TeleportTo(FVector(0.f, 0.f, 100.f), FRotator(0.f, 180.f, 0.f));
+		for (int32 i = 0; i < 4; ++i)
+		{
+			S->Line.Add(SpawnFrozenBandit(FVector(-400.f - 150.f * i, 0.f, 0.f)));
+		}
+	});
+	TSharedRef<int32> AimFrames = MakeShared<int32>(0);
+	WaitUntil(this, TEXT("aim at the first bandit"), [S, AimFrames]()
+	{
+		if (S->Line.Num() == 0 || !S->Line[0].IsValid())
+		{
+			return true;
+		}
+		AimAt(*S->Line[0]);
+		return ++(*AimFrames) >= 6;
+	});
+	Step([this, S]()
+	{
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S->Line)
+		{
+			if (!TestTrue(TEXT("Bandits are there"), Bandit.IsValid()))
+			{
+				return;
+			}
+		}
+		// Put bandits 2-4 on the shot's exact line: muzzle -> where the camera ray meets bandit 1 (what GA_Fire does).
+		AimAt(*S->Line[0]);
+		FVector ViewLocation;
+		FRotator ViewRotation;
+		GetPC()->GetPlayerViewPoint(ViewLocation, ViewRotation);
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(GSPierceAim), false);
+		Params.AddIgnoredActor(GetPlayer());
+		Params.AddIgnoredActor(GetPlayer()->GetWeaponComponent()->GetCurrentWeapon());
+		FHitResult CameraHit;
+		GetPIEWorld()->LineTraceSingleByChannel(CameraHit, ViewLocation, ViewLocation + ViewRotation.Vector() * 5000.f, ECC_Visibility, Params);
+		if (!TestTrue(TEXT("The camera ray meets bandit 1"), CameraHit.GetActor() == S->Line[0].Get()))
+		{
+			return;
+		}
+		const FVector Muzzle = GetPlayer()->GetWeaponComponent()->GetCurrentWeapon()->GetMuzzleLocation();
+		const FVector AimPoint = CameraHit.ImpactPoint;
+		const FVector Direction = (AimPoint - Muzzle).GetSafeNormal();
+		const float HeightOnBandit = AimPoint.Z - S->Line[0]->GetActorLocation().Z;
+		for (int32 i = 1; i < S->Line.Num(); ++i)
+		{
+			const FVector OnLine = AimPoint + Direction * (60.f + 150.f * i);
+			S->Line[i]->SetActorLocation(OnLine - FVector(0.f, 0.f, HeightOnBandit), false, nullptr, ETeleportType::TeleportPhysics);
+		}
+
+		S->HealthBefore.Reset();
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S->Line)
+		{
+			S->HealthBefore.Add(GetActorHealth(Bandit.Get()));
+		}
+		const UGSHUDWidget* HUD = GetHUD();
+		S->NumbersBefore = HUD ? HUD->GetDamageNumbersAdded() : 0;
+		S->CritNumbersBefore = HUD ? HUD->GetCriticalDamageNumbersAdded() : 0;
+		S->StreamBefore = GetGameMode()->GetRunStream();
+
+		TapInput(GSGameplayTags::Ability_Fire);
+
+		int32 Hits = 0, Crits = 0;
+		for (int32 i = 0; i < S->Line.Num(); ++i)
+		{
+			const float Dealt = S->HealthBefore[i] - GetActorHealth(S->Line[i].Get());
+			AddInfo(FString::Printf(TEXT("Bandit %d took %.0f"), i + 1, Dealt));
+			if (i < 3)
+			{
+				TestTrue(FString::Printf(TEXT("Bandit %d took one full hit (20, or 40 on a crit)"), i + 1), FMath::IsNearlyEqual(Dealt, 20.f, 0.01f) || FMath::IsNearlyEqual(Dealt, 40.f, 0.01f));
+				Hits += Dealt > 0.f ? 1 : 0;
+				Crits += FMath::IsNearlyEqual(Dealt, 40.f, 0.01f) ? 1 : 0;
+			}
+			else
+			{
+				TestEqual(TEXT("Bandit 4 is past the pierce: untouched"), Dealt, 0.f, 0.01f);
+			}
+		}
+		TestEqual(TEXT("Three bandits hit by one shot"), Hits, 3);
+		if (HUD)
+		{
+			TestEqual(TEXT("One damage number per bandit hit"), HUD->GetDamageNumbersAdded() - S->NumbersBefore, 3);
+			TestEqual(TEXT("Critical numbers match the crits"), HUD->GetCriticalDamageNumbersAdded() - S->CritNumbersBefore, Crits);
+		}
+		// Each hit rolled its own crit: exactly three draws from the run stream (no kills, so nothing else rolled).
+		FRandomStream Expected = S->StreamBefore;
+		Expected.FRand();
+		Expected.FRand();
+		Expected.FRand();
+		TestEqual(TEXT("Three crit rolls on the run stream, one per hit"), GetGameMode()->GetRunStream().GetCurrentSeed(), Expected.GetCurrentSeed());
+
+		// A new run removes the upgrade.
+		GetGameMode()->RestartRunWithSeed(57);
+		TestEqual(TEXT("New run: Pierce 0"), GetAttr(UGSAttributeSet::GetPierceAttribute()), 0.f, 0.001f);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
 // Extra Jump: JumpMaxCount sync, consistent air jumps, coyote / slide-hop / dash, landing reset
 // ---------------------------------------------------------------------------
 
@@ -4104,7 +4346,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
-		TestEqual(TEXT("Pool has the 10 upgrades"), Pool->Upgrades.Num(), 10);
+		TestEqual(TEXT("Pool has the 11 upgrades"), Pool->Upgrades.Num(), 11);
 		TestEqual(TEXT("Common weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Common), 100.f);
 		TestEqual(TEXT("Rare weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Rare), 20.f);
 		TestEqual(TEXT("Epic weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Epic), 6.f);
@@ -4122,9 +4364,9 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 
 		auto NoStacks = [](const UGSUpgradeData*) { return 0; };
 
-		// Real pool: always 3 different upgrades (empty Epic / Legendary tiers never waste a pick), and the Rare tier
-		// (Extra Jump, Dash Charge, Leech, Loaded Dice) shows up in about 1 - (100/120)^3 = 42% of offers: with 6 Commons and 4 Rares
-		// neither tier runs out within one offer, so each choice is Rare with 20/120.
+		// Real pool: always 3 different upgrades (the empty Legendary tier never wastes a pick). Weights Common 100, Rare 20,
+		// Epic 6 (the lone Epic, Piercing Rounds, leaves the weighting once it is in the offer). An offer has no Rare with
+		// (100/126)^3 + 3 orderings with the Epic once = 0.5944, so the Rare tier is in about 40.6% of offers.
 		FRandomStream Stream(7);
 		int32 WithRare = 0;
 		bool bAllFull = true, bAllDifferent = true;
@@ -4137,8 +4379,8 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		}
 		TestTrue(TEXT("Every offer has 3 choices"), bAllFull);
 		TestTrue(TEXT("Choices in an offer are different"), bAllDifferent);
-		AddInfo(FString::Printf(TEXT("Rare in %.1f%% of 3000 offers (expected 42.1%%)"), 100.0 * WithRare / 3000.0));
-		TestTrue(TEXT("Rare frequency matches the tier weights"), FMath::Abs(WithRare / 3000.0 - 0.4213) < 0.03);
+		AddInfo(FString::Printf(TEXT("Rare in %.1f%% of 3000 offers (expected 40.6%%)"), 100.0 * WithRare / 3000.0));
+		TestTrue(TEXT("Rare frequency matches the tier weights"), FMath::Abs(WithRare / 3000.0 - 0.4056) < 0.03);
 
 		// Same seed -> same offers.
 		FRandomStream A(99), B(99);
@@ -4269,7 +4511,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Simulated choices"), Sim1.TotalChoices, 6000);
 		TestEqual(TEXT("No short offers"), Sim1.ShortOffers, 0);
 		TestTrue(TEXT("Simulator is deterministic"), Sim1.UpgradeOffers.OrderIndependentCompareEqual(Sim2.UpgradeOffers));
-		TestEqual(TEXT("No Epic choices (empty tier)"), Sim1.RarityChoices.FindRef(TEXT("Epic")), 0);
+		TestTrue(TEXT("Epic choices now appear (Piercing Rounds)"), Sim1.RarityChoices.FindRef(TEXT("Epic")) > 0);
 		TestEqual(TEXT("No Legendary choices (empty tier)"), Sim1.RarityChoices.FindRef(TEXT("Legendary")), 0);
 	});
 	EndPIE();

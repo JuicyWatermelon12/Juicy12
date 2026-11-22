@@ -113,6 +113,16 @@ public:
 	FGameplayAttributeData CritChance;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, CritChance)
 
+	/**
+	 * Targets a shot from the player's weapons passes through (UGSGameplayAbility_Fire::TraceShot): a shot hits up to
+	 * 1 + Pierce targets at full damage and still stops at walls. Default 0, clamped to >= 0, rounded when read.
+	 * Raised by the Piercing Rounds upgrade.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData Pierce;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, Pierce)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;

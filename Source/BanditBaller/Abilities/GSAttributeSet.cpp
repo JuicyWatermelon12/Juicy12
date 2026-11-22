@@ -18,6 +18,7 @@ UGSAttributeSet::UGSAttributeSet()
 	InitMagazineSizeMultiplier(1.f);
 	InitHealthOnKill(0.f);
 	InitCritChance(0.f);
+	InitPierce(0.f);
 }
 
 void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -52,7 +53,8 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 		|| Attribute == GetXPGainAttribute()
 		|| Attribute == GetExtraJumpsAttribute()
 		|| Attribute == GetExtraDashChargesAttribute()
-		|| Attribute == GetHealthOnKillAttribute())
+		|| Attribute == GetHealthOnKillAttribute()
+		|| Attribute == GetPierceAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}

@@ -10,6 +10,19 @@ class UGameplayEffect;
 class UGSWeaponData;
 struct FOnAttributeChangeData;
 
+/** Where one shot went: the targets it hit, in order, and where it ended. */
+struct FGSShotTrace
+{
+	/** Damageable targets hit (actors with an ASC), nearest first, each at most once. */
+	TArray<FHitResult> TargetHits;
+
+	/** World geometry that stopped the shot (bBlockingHit false if nothing did). */
+	FHitResult BlockingHit;
+
+	/** End of the shot: the last thing hit, or the trace end. */
+	FVector End = FVector::ZeroVector;
+};
+
 /**
  * Fires hitscan shots from the equipped weapon and owns State.Firing while active.
  *
@@ -52,6 +65,14 @@ public:
 		const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 		const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
+
+	/**
+	 * Traces one shot (Visibility) from Start to End and passes through up to Pierce damageable targets (Piercing
+	 * Rounds): it hits at most 1 + Pierce live targets (actors with an ASC), each at most once, and stops at the first
+	 * thing without an ASC (walls, world geometry). Dead targets are passed without counting. Params' ignored actors
+	 * (the shooter) are kept. GA_Fire damages every TargetHits entry.
+	 */
+	static FGSShotTrace TraceShot(const UWorld* World, const FVector& Start, const FVector& End, int32 Pierce, const FCollisionQueryParams& Params);
 
 protected:
 	/** Instant GE using SetByCaller Data.Damage into IncomingDamage (GE_Damage). */

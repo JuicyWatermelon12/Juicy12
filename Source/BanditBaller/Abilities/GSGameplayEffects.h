@@ -192,6 +192,16 @@ public:
 	UGSUpgradeEffect_Leech(const FObjectInitializer& ObjectInitializer);
 };
 
+/** +1 Pierce per stack (GE_Upgrade_PiercingRounds): each shot passes through one more target. */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_PiercingRounds : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_PiercingRounds(const FObjectInitializer& ObjectInitializer);
+};
+
 /** +0.05 CritChance per stack (GE_Upgrade_LoadedDice); 20 stacks = every hit critical. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_LoadedDice : public UGSUpgradeEffect

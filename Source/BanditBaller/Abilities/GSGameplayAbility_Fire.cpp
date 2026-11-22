@@ -228,6 +228,51 @@ void UGSGameplayAbility_Fire::EndAbility(const FGameplayAbilitySpecHandle Handle
 	}
 }
 
+FGSShotTrace UGSGameplayAbility_Fire::TraceShot(const UWorld* World, const FVector& Start, const FVector& End, int32 Pierce,
+	const FCollisionQueryParams& Params)
+{
+	FGSShotTrace Result;
+	Result.End = End;
+	if (!World)
+	{
+		return Result;
+	}
+
+	FCollisionQueryParams Query = Params;
+	const int32 MaxTargets = 1 + FMath::Max(Pierce, 0);
+	for (int32 Guard = 0; Guard < 256; ++Guard)
+	{
+		FHitResult Hit;
+		if (!World->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Query))
+		{
+			return Result; // nothing more on the line: the shot runs to End
+		}
+
+		AActor* HitActor = Hit.GetActor();
+		const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(HitActor);
+		if (!TargetASC)
+		{
+			Result.BlockingHit = Hit; // a wall or other world geometry stops the shot
+			Result.End = Hit.ImpactPoint;
+			return Result;
+		}
+
+		// A target: hit once, then ignored so the trace continues behind it. Dead ones don't use up the pierce.
+		Query.AddIgnoredActor(HitActor);
+		if (TargetASC->HasMatchingGameplayTag(GSGameplayTags::State_Dead))
+		{
+			continue;
+		}
+		Result.TargetHits.Add(Hit);
+		Result.End = Hit.ImpactPoint;
+		if (Result.TargetHits.Num() >= MaxTargets)
+		{
+			return Result; // out of pierce: the shot stops in this target
+		}
+	}
+	return Result;
+}
+
 void UGSGameplayAbility_Fire::FireShot(const FGameplayAbilityActorInfo* ActorInfo, const UGSWeaponData& WeaponData)
 {
 	AGSCharacter* Character = GetGSCharacter(ActorInfo);
@@ -266,35 +311,45 @@ void UGSGameplayAbility_Fire::FireShot(const FGameplayAbilityActorInfo* ActorInf
 	World->LineTraceSingleByChannel(CameraHit, CameraTraceStart, CameraTraceEnd, ECC_Visibility, Params);
 	const FVector AimPoint = CameraHit.bBlockingHit ? CameraHit.ImpactPoint : CameraTraceEnd;
 
-	// 2) Muzzle -> aim point (slightly past it so we register the surface).
+	// 2) Muzzle -> aim point. Without Pierce the trace ends just past the aim point (as it always has); with Pierce it
+	//    runs on to the weapon's range, through up to Pierce targets, and stops at walls.
 	const FVector Muzzle = Weapon->GetMuzzleLocation();
 	const FVector ShotDirection = (AimPoint - Muzzle).GetSafeNormal();
-	const FVector MuzzleTraceEnd = AimPoint + ShotDirection * 10.f;
+	UAbilitySystemComponent* SourceASC = ActorInfo->AbilitySystemComponent.Get();
+	const int32 Pierce = SourceASC ? FMath::Max(0, FMath::RoundToInt(SourceASC->GetNumericAttribute(UGSAttributeSet::GetPierceAttribute()))) : 0;
+	const FVector MuzzleTraceEnd = Pierce > 0 ? Muzzle + ShotDirection * WeaponData.Range : AimPoint + ShotDirection * 10.f;
 
-	FHitResult Hit;
-	const bool bHit = World->LineTraceSingleByChannel(Hit, Muzzle, MuzzleTraceEnd, ECC_Visibility, Params);
-	const FVector ShotEnd = bHit ? Hit.ImpactPoint : MuzzleTraceEnd;
+	const FGSShotTrace Shot = TraceShot(World, Muzzle, MuzzleTraceEnd, Pierce, Params);
 
-	// 3) Authority: ammo and damage.
-	float AppliedDamage = 0.f;
+	// 3) Authority: ammo once per shot, then full damage to every target hit, each with its own crit roll (run stream;
+	//    Loaded Dice) and its own damage spec (so its own damage number at its own impact point).
+	TArray<float> AppliedDamage;
+	AppliedDamage.Init(0.f, Shot.TargetHits.Num());
 	if (bAuthority)
 	{
 		Weapons->ConsumeAmmo();
 
-		UAbilitySystemComponent* SourceASC = ActorInfo->AbilitySystemComponent.Get();
-		UAbilitySystemComponent* TargetASC = bHit ? UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Hit.GetActor()) : nullptr;
-
-		if (SourceASC && TargetASC && DamageEffectClass)
+		for (int32 Index = 0; Index < Shot.TargetHits.Num(); ++Index)
 		{
-			// One crit roll per hit (run stream; Loaded Dice). A crit multiplies the damage and marks the spec.
+			const FHitResult& Hit = Shot.TargetHits[Index];
+			UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Hit.GetActor());
+			if (!SourceASC || !TargetASC || !DamageEffectClass)
+			{
+				if (TargetASC && !DamageEffectClass)
+				{
+					UE_LOG(LogBanditBaller, Warning, TEXT("%s has no DamageEffectClass; hit on %s did nothing."), *GetNameSafe(this), *GetNameSafe(Hit.GetActor()));
+				}
+				continue;
+			}
+
 			const FGSCritRoll Crit = GSCombat::RollCriticalHit(SourceASC);
 			const float DamageMultiplier = SourceASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute());
-			AppliedDamage = WeaponData.Damage * DamageMultiplier * Crit.DamageMultiplier;
+			AppliedDamage[Index] = WeaponData.Damage * DamageMultiplier * Crit.DamageMultiplier;
 
 			FGameplayEffectSpecHandle SpecHandle = MakeOutgoingGameplayEffectSpec(DamageEffectClass, GetAbilityLevel());
 			if (SpecHandle.IsValid())
 			{
-				SpecHandle.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Damage, AppliedDamage);
+				SpecHandle.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Damage, AppliedDamage[Index]);
 				if (Crit.bCritical)
 				{
 					SpecHandle.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Critical, 1.f);
@@ -303,13 +358,10 @@ void UGSGameplayAbility_Fire::FireShot(const FGameplayAbilityActorInfo* ActorInf
 				SourceASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data, TargetASC);
 			}
 		}
-		else if (TargetASC && !DamageEffectClass)
-		{
-			UE_LOG(LogBanditBaller, Warning, TEXT("%s has no DamageEffectClass; hit on %s did nothing."), *GetNameSafe(this), *GetNameSafe(Hit.GetActor()));
-		}
 	}
 
-	// 4) Cosmetics (placeholders; null assets are skipped).
+	// 4) Cosmetics (placeholders; null assets are skipped): an impact at every target hit and at the wall that stopped
+	//    the shot. The shot's line (debug draw; a tracer later) runs to the last thing hit.
 	if (WeaponData.MuzzleEffect)
 	{
 		UNiagaraFunctionLibrary::SpawnSystemAtLocation(World, WeaponData.MuzzleEffect, Muzzle, ShotDirection.Rotation());
@@ -318,24 +370,36 @@ void UGSGameplayAbility_Fire::FireShot(const FGameplayAbilityActorInfo* ActorInf
 	{
 		UGameplayStatics::PlaySoundAtLocation(World, WeaponData.FireSound, Muzzle);
 	}
-	if (bHit && WeaponData.ImpactEffect)
+	if (WeaponData.ImpactEffect)
 	{
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(World, WeaponData.ImpactEffect, Hit.ImpactPoint, Hit.ImpactNormal.Rotation());
+		for (const FHitResult& Hit : Shot.TargetHits)
+		{
+			UNiagaraFunctionLibrary::SpawnSystemAtLocation(World, WeaponData.ImpactEffect, Hit.ImpactPoint, Hit.ImpactNormal.Rotation());
+		}
+		if (Shot.BlockingHit.bBlockingHit)
+		{
+			UNiagaraFunctionLibrary::SpawnSystemAtLocation(World, WeaponData.ImpactEffect, Shot.BlockingHit.ImpactPoint, Shot.BlockingHit.ImpactNormal.Rotation());
+		}
 	}
 
 	if (bDebug)
 	{
 		const float Duration = GSWeaponDebug::DrawDuration;
+		const bool bHitSomething = Shot.TargetHits.Num() > 0 || Shot.BlockingHit.bBlockingHit;
 		DrawDebugLine(World, CameraTraceStart, AimPoint, FColor::Blue, false, Duration, 0, 0.5f);
-		DrawDebugLine(World, Muzzle, ShotEnd, bHit ? FColor::Red : FColor::Green, false, Duration, 0, 1.f);
+		DrawDebugLine(World, Muzzle, Shot.End, bHitSomething ? FColor::Red : FColor::Green, false, Duration, 0, 1.f);
 		DrawDebugSphere(World, Muzzle, 4.f, 8, FColor::Yellow, false, Duration);
-		if (bHit)
+		for (int32 Index = 0; Index < Shot.TargetHits.Num(); ++Index)
 		{
-			DrawDebugPoint(World, Hit.ImpactPoint, 10.f, FColor::Red, false, Duration);
-			if (AppliedDamage > 0.f)
+			DrawDebugPoint(World, Shot.TargetHits[Index].ImpactPoint, 10.f, FColor::Red, false, Duration);
+			if (AppliedDamage[Index] > 0.f)
 			{
-				DrawDebugString(World, Hit.ImpactPoint, FString::Printf(TEXT("%.0f"), AppliedDamage), nullptr, FColor::White, Duration);
+				DrawDebugString(World, Shot.TargetHits[Index].ImpactPoint, FString::Printf(TEXT("%.0f"), AppliedDamage[Index]), nullptr, FColor::White, Duration);
 			}
+		}
+		if (Shot.BlockingHit.bBlockingHit)
+		{
+			DrawDebugPoint(World, Shot.BlockingHit.ImpactPoint, 10.f, FColor::Red, false, Duration);
 		}
 	}
 
