@@ -24,11 +24,20 @@ listen-server co-op is planned for **M6**, after single-player is finished or ne
   and gives bonuses for the next playthrough based on the total cash earned in the playthrough. Only prestige
   rewards survive it.
 - **Per-run progression** (reset on death): XP, level, and level-up upgrades. XP comes from pickups enemies drop,
-  not instantly on the kill.
-  - Each level-up fully heals, adds MaxHealth, and offers 3 random upgrades in four rarity tiers (Common, Rare, Epic,
-    Legendary).
-  - The upgrade pool grows from 4 to 15 in **M2b**, a block of eleven upgrades after M2 and before the market (M3).
-    The list and its rules are in `docs/PROGRESS.md` (**Design update — M2b upgrades**).
+  not instantly on the kill. Levels are endless (M2c): there is no level cap, and the XP needed per level grows by
+  a fixed amount.
+  - Each level-up fully heals, adds MaxHealth, and offers 3 random upgrade cards.
+  - Every upgrade is in one of three categories:
+    - **Stat Boosts:** Damage, Fire Rate, Reload Speed, Move Speed, Magnet, Bigger Mags, Loaded Dice.
+    - **Abilities:** Extra Jump, Dash Charge, Floating Shield, Piercing Rounds, Leech, Powder Keg. **Legendary
+      abilities** are a sub-group: Second Wind today, more later.
+    - **Weapons:** automatic attacks. Floating Gun today, then Razor Cards, Barbed Wire, Dynamite, Lucky Coin, Molotov
+      and Tomahawk. A run holds at most 3 weapons; the rifle and pistol aren't part of this.
+  - Each card rolls its own rarity (Common, Rare, Epic, Legendary), and a higher rarity gives a bigger pick. Nothing
+    has a pick cap.
+  - The 15 upgrades were built in **M2b** (after M2, before the market, M3). **M2c** reworks them before the M2b
+    checkpoint. The design and its rules are in `docs/PROGRESS.md` (**Design update — upgrade rework (M2c)**; the
+    original list is under **Design update — M2b upgrades**).
   - The player must take one (no skip), but can reroll the 3 choices a limited number of times per run (3 to start).
   - The game pauses while the player chooses (the co-op party pause is M6).
 
@@ -109,6 +118,25 @@ docs/PROGRESS.md  progress log and reference
   uses it (the shop is static).
 - **Cash and XP per enemy are flat**: the same in every round, with no round scaling (the round clear bonus is a flat
   amount too). Income grows only through more enemies and faster kills.
+- **Level-up upgrades** (M2c; full design in `docs/PROGRESS.md`, **Design update — upgrade rework (M2c)**):
+  - Every upgrade is a Stat Boost, an Ability (Legendary abilities are a sub-group) or a Weapon.
+  - Rarity is rolled for each card on the run stream, not fixed per upgrade. A pick's size is the upgrade's base
+    value × the rarity multiplier: ×1 / ×1.5 / ×2 / ×3 for Common / Rare / Epic / Legendary. Whole-unit upgrades
+    (Extra Jump, Dash Charge, Floating Shield, Piercing Rounds, Leech) give +1 / +2 / +3 and have no Rare version.
+  - Rarity weights per card: Stat Boosts and Weapons 100 / 20 / 6 / 1, Abilities 100 / 10 / 3 / 0.5. Weights,
+    multipliers and per-pick values live in data, never in code.
+  - Legendary abilities have no rarity: each card has a fixed chance (0.8%) to be one, and a pick adds one charge.
+    Second Wind charges are used one at a time.
+  - **No pick caps.** A stat that reaches a natural limit gets a secondary effect instead (Loaded Dice past 100%: a
+    chance of a triple-damage hit; Powder Keg past 100%: a chance of a double-size blast).
+  - **Weapons:** at most `MaxWeapons` (3, in data) different weapons per run; after that only the owned ones are
+    offered, as upgrades. The first level-up of a run always includes one weapon card. The first pick gives the
+    weapon; every pick adds weapon power equal to its rarity multiplier (the first pick adds the multiplier − 1). Each
+    point of power is one upgrade step, defined per weapon. The rifle and pistol are not weapons in this sense.
+  - **Every weapon:** attacks on its own; its damage is × the player's Damage attribute and can crit (Loaded Dice);
+    Piercing Rounds doesn't apply; its kills are the player's (cash, XP orb, combo, Leech, Powder Keg); it doesn't act
+    while the player is dead, in a safe zone or while the game is paused; its timing follows an exact schedule (as
+    GA_Fire's held fire, Prompt 31b); it has no collision; a new run removes it.
 - **Everything goes through GAS**: stats, buffs/debuffs, abilities and item effects are AttributeSets,
   GameplayEffects and GameplayAbilities with GameplayTags. Damage always goes through `GE_Damage`
   (SetByCaller `Data.Damage`).

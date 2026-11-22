@@ -22,11 +22,14 @@ first**; 2–4 player listen-server co-op is planned for **M6** (see **Later —
   - The shop is a static, fixed catalogue (never random). Casino prizes are owned items too; bets risk cash only.
 - **Prestige** (later milestone): an optional reset that wipes cash and everything bought or won, in exchange for
   bonuses for the next playthrough based on the total cash earned. Only prestige rewards survive it.
-- **Per-run progression** (reset on death): XP, level, and level-up upgrades.
-  - Each level-up fully heals, adds MaxHealth, and offers 3 random upgrades in four rarity tiers (Common, Rare, Epic,
-    Legendary).
-  - The upgrade pool grows from 4 to 15 in **M2b**, a block of eleven upgrades after M2 and before the market (M3);
-    see **Design update — M2b upgrades**.
+- **Per-run progression** (reset on death): XP, level, and level-up upgrades. Since M2c levels are endless: no
+  level cap, and the XP needed per level grows by a fixed amount.
+  - Each level-up fully heals, adds MaxHealth, and offers 3 random upgrade cards.
+  - Upgrades are Stat Boosts, Abilities (with Legendary abilities as a sub-group) or Weapons (automatic attacks; at
+    most 3 per run). Each card rolls its own rarity (Common, Rare, Epic, Legendary), and a higher rarity gives a
+    bigger pick. Nothing has a pick cap.
+  - The upgrade pool grew from 4 to 15 in **M2b** (see **Design update — M2b upgrades**). **M2c** reworks it; see
+    **Design update — upgrade rework (M2c)**.
   - The player must take one (no skip) but can reroll the choices a limited number of times per run (3 to start).
   - The game pauses while the player chooses.
 
@@ -34,17 +37,21 @@ The design changed after M2 Prompt 10; see **Design change — permanent cash, h
 scope then changed to single-player first; see **Scope change — single-player first**. Five more decisions came
 before M3; see **Design update — decisions before M3**. The market, prestige and economy were settled after that;
 see **Design update — market, prestige and economy**. After M2, eleven more level-up upgrades were planned as block
-**M2b**, before M3; see **Design update — M2b upgrades**.
+**M2b**, before M3; see **Design update — M2b upgrades**. Before the M2b checkpoint the upgrade design was reworked
+as block **M2c**; see **Design update — upgrade rework (M2c)**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
 **M2 — the run loop is complete** (rounds, waves, scaling, economy, progression; Prompts 1–28 and 26b; 11–13 and 17
-were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **Next: M2b**, eleven more
-level-up upgrades (Prompts 29–40; 29 is the docs-only plan, then Dash Charge (30), Fire Rate + Magnet (31) and the
-held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds (34), Powder Keg (35), Floating Shield (36), Second Wind (37) and Floating Gun (38, 39); all done; the M2b checkpoint (40) is next). **Then M3** (shop, owned items, gear loadout,
-two-layer save); not planned in detail yet. Health orbs (35b) were added between 35 and 36; they aren't an upgrade. Powder Keg became a chance to explode in 35c.
+were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **M2b**, eleven more
+level-up upgrades, is built (Prompts 29–39; 29 is the docs-only plan, then Dash Charge (30), Fire Rate + Magnet (31) and the
+held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds (34), Powder Keg (35), Floating Shield (36), Second Wind (37) and Floating Gun (38, 39)). Health orbs (35b) were added between 35 and 36; they aren't an upgrade. Powder Keg became a chance to explode in 35c.
+**Next: M2c**, the upgrade rework (Prompts 40–48; 40 is the docs-only plan, then upgrade data (41), the offer roll
+(42), weapon slots (43), overflow effects (44), endless levels (45), Razor Cards (46), Barbed Wire (47) and the
+M2b + M2c checkpoint (48), which replaces the old M2b checkpoint). Four more weapons and a weapons checkpoint follow
+(49–53). **Then M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Floating Gun upgrade, part 2" (Prompt 39), not pushed. The build is clean and all 47 automation tests pass in about 113 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Docs: upgrade rework (M2c)" (Prompt 40, docs only), not pushed. The code is as of Prompt 39: the build is clean and all 47 automation tests pass in about 113 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -98,7 +105,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2b 36 | Floating Shield: +1 shield per pick; a ready shield cancels a whole hit in the damage path and recharges 10 s on its own; dash i-frames first | 2bbe7d4, ae5d083 |
 | M2b 37 | Second Wind: a killing blow uses one instead (30% Health, 2 s invulnerable, one stack gone); flash, sound, banner | 5adacd1, aa887b5 |
 | M2b 38 | Floating Gun part 1: level 1 = a gun over the right shoulder that shoots the nearest enemy with pooled projectiles (8 × Damage, crits, 1.5 / s on an exact schedule, 20 m); kept off the crosshair | c7f3d6f |
-| M2b 39 | Floating Gun part 2: level 2 = a second gun over the left shoulder (never more than two), the guns prefer different targets, level 3+ = +10% damage and fire rate each; card text per next level | see git log |
+| M2b 39 | Floating Gun part 2: level 2 = a second gun over the left shoulder (never more than two), the guns prefer different targets, level 3+ = +10% damage and fire rate each; card text per next level | 062273f |
+| M2c 40 | Design update: upgrade rework (categories, rarity per card, weapons with 3 slots, no pick caps, endless levels); Prompts 41–53 planned (docs only) | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -1369,6 +1377,10 @@ Not a numbered step. Docs and test code only; no gameplay, tuning or asset chang
 
 ## Design update — M2b upgrades
 
+(Partly replaced by **Design update — upgrade rework (M2c)**: rarity is rolled per card instead of fixed per
+upgrade, there are no MaxStacks, and Floating Gun is a weapon. The checkpoint planned here as Prompt 40 is now
+Prompt 48.)
+
 Prompt 29. Docs only; no code changed. **M2b** is a block of eleven level-up upgrades after M2 (complete) and before
 the market (M3). It grows DA_UpgradePool from 4 to 15 upgrades.
 
@@ -1466,7 +1478,7 @@ data.
   - **Decided (user)** and **Next up** (the M2b block, Prompts 29–40, before M3);
   - the known issue about empty Epic and Legendary tiers.
 
-## M2b — More level-up upgrades (Prompts 29–40)
+## M2b — More level-up upgrades (Prompts 29–39; checkpoint in Prompt 48)
 
 Prompt 29 is the design update above.
 
@@ -2151,6 +2163,164 @@ Level 1 only: one gun over the right shoulder. The second gun and the +10% picks
     and the choice screen opened over the two guns and a 7-kill combo (normal game behaviour).
 - **Full suite:** 47 tests, all passing, in 112.6 s.
 
+## Design update — upgrade rework (M2c)
+
+Prompt 40. Docs only; no code changed. **M2c** reworks the level-up upgrades after M2b is built and before its
+checkpoint. The old Prompt 40 (M2b tests + checkpoint) becomes Prompt 48 and covers M2b and M2c together. Until
+Prompts 41–45 change it, the code still follows the M2b design: one rarity and a MaxStacks per upgrade, MaxLevel 50
+and +25% XP per level.
+
+**1. Categories (user).** Every upgrade is in exactly one:
+
+| Category | Upgrades |
+|---|---|
+| Stat Boosts | Damage, Fire Rate, Reload Speed, Move Speed, Magnet, Bigger Mags, Loaded Dice |
+| Abilities | Extra Jump, Dash Charge, Floating Shield, Piercing Rounds, Leech, Powder Keg |
+| Legendary abilities (a sub-group of Abilities) | Second Wind today; more later |
+| Weapons (automatic attacks) | Floating Gun today; Razor Cards (46) and Barbed Wire (47) next; Dynamite, Lucky Coin, Molotov and Tomahawk after the checkpoint (49–52) |
+
+What each new weapon does is designed in its own prompt.
+
+**2. Rarity is rolled for each card, not fixed per upgrade.** Any stat boost, ability or weapon can come up Common,
+Rare, Epic or Legendary. A higher rarity gives a bigger increase for that pick:
+
+| Rarity | Multiplier | Whole-unit upgrades |
+|---|---|---|
+| Common | ×1 | +1 |
+| Rare | ×1.5 | no Rare version |
+| Epic | ×2 | +2 |
+| Legendary | ×3 | +3 |
+
+- Whole-unit upgrades: Extra Jump, Dash Charge, Floating Shield, Piercing Rounds, Leech.
+- With today's per-pick values as the Common value (all of them stay in data):
+
+  | Upgrade | Common | Rare | Epic | Legendary |
+  |---|---|---|---|---|
+  | Damage, Reload Speed | +10% | +15% | +20% | +30% |
+  | Fire Rate, Move Speed | +8% | +12% | +16% | +24% |
+  | Magnet, Bigger Mags | +15% | +22.5% | +30% | +45% |
+  | Loaded Dice (crit chance) | +5% | +7.5% | +10% | +15% |
+  | Powder Keg (chance to explode) | +3% | +4.5% | +6% | +9% |
+  | Extra Jump, Dash Charge, Floating Shield, Piercing Rounds, Leech | +1 | — | +2 | +3 |
+
+- Weapons use the multiplier as weapon power (6 below).
+
+**3. Rarity weights per card** (placeholders, in data):
+
+| Category | Common | Rare | Epic | Legendary |
+|---|---|---|---|---|
+| Stat Boosts and Weapons | 100 (78.7%) | 20 (15.7%) | 6 (4.7%) | 1 (0.79%) |
+| Abilities | 100 (88.1%) | 10 (8.8%) | 3 (2.6%) | 0.5 (0.44%) |
+
+- Strong ability picks are rarer than strong stat boosts.
+- For the whole-unit abilities this doc assumes Rare is left out of the roll: 96.6% Common, 2.9% Epic, 0.48%
+  Legendary (an open question, below).
+
+**4. Legendary abilities** have no rarities.
+- Each card has a small fixed chance, 0.8% (about the Legendary rate, 1 / 127), to be a Legendary ability instead of
+  a normal card. The chance is in data.
+- A pick adds one charge.
+- Second Wind charges are used one at a time: the next one can save the player once the invulnerability from the
+  last has ended. Today's code already works this way: the 2 s `State.Invulnerable` keeps GE_Damage from applying,
+  so a killing blow inside it uses no charge (`Upgrades.SecondWind` checks this).
+
+**5. Weapons in a run.**
+- A run holds at most `MaxWeapons` 3 different weapons (in data).
+- Until the player owns 3, any weapon can be offered: owned ones as upgrades, the others as new weapons. After that
+  only the owned weapons are offered, as upgrades.
+- The rifle and pistol (GA_Fire and UGSWeaponComponent's two slots) are not part of this. They don't count toward
+  MaxWeapons and are never offered.
+- The first level-up of a run always includes one weapon card.
+
+**6. Weapon picks and power.**
+- The first pick of a weapon gives the weapon.
+- Every pick adds weapon power equal to its rarity multiplier. The first pick adds the multiplier − 1, so a Common
+  first pick is the plain weapon:
+
+  | Pick | Common | Rare | Epic | Legendary |
+  |---|---|---|---|---|
+  | First (gives the weapon) | +0 | +0.5 | +1 | +2 |
+  | Later | +1 | +1.5 | +2 | +3 |
+
+- Each point of power is one upgrade step, defined per weapon (in its data).
+- Floating Gun today (Prompt 39): level 1 = one gun, level 2 = the second gun, level 3+ = +10% damage and fire rate
+  each. As power steps that would be step 1 = the second gun and each later step +10% (to confirm in Prompt 41). A
+  Legendary first pick would then give both guns and +10%.
+
+**7. No limits.** Nothing has a pick cap: the MaxStacks of Loaded Dice (20) and Powder Keg (34) go; the other
+upgrades had none. Where a stat reaches a natural limit it gets a secondary effect:
+- **Loaded Dice past 100%:** every hit crits, and the chance above 100% is the chance of a triple-damage hit instead
+  (e.g. 130% → 30% of hits deal triple damage).
+- **Powder Keg past 100%:** every player kill explodes, and the chance above 100% is the chance of a double-size
+  blast.
+- Extra Jump is still limited only by the map boundary's ceiling.
+
+**8. Endless levels.** There is no level cap (MaxLevel 50 goes). The XP needed per level grows by a fixed amount
+each level instead of 25% (today: 100 for level 2, then ×1.25). The amounts are placeholders in DA_XPCurve, picked in
+Prompt 45.
+
+**9. HUD.** Three weapon slots in the top left, shown like the upgrade icons and filled in pick order as weapons are
+picked. Icon only.
+
+**Rules for every weapon (user)**
+- It attacks on its own.
+- Its damage is multiplied by the player's Damage attribute, and it can crit (Loaded Dice).
+- Piercing Rounds doesn't apply to it.
+- Its kills are the player's: cash drop with the combo multiplier, XP orb, health orb chance, combo, Leech, Powder Keg
+  and run-stats kills.
+- It doesn't act while the player is dead, in a safe zone (`State.SafeZone`) or while the game is paused.
+- Its timing follows an exact schedule, as in Prompt 31b (and the Floating Gun since Prompt 38).
+- It has no collision.
+- A new run removes it.
+- The M2b rules still hold for every upgrade: an attribute + infinite stacking GE where it fits, a DA_Upgrade_* asset,
+  an entry in DA_UpgradePool, a `gs.Upgrade.Grant` short name and a `gs.Upgrade.List` line; the damage order (dash
+  invulnerability → Floating Shield → Health → Second Wind); new rolls on the run stream; all damage through GE_Damage;
+  single-player only, co-op-ready.
+
+**What changes in the code and tests** (checked for this plan; built in Prompts 41–45)
+- `UGSUpgradeData`: `Rarity` and `MaxStacks` go. A category, the per-pick base value, the whole-unit flag and (for
+  weapons) the power steps come in (41). How a pick's size reaches its GE (a SetByCaller magnitude, or one stack per
+  unit) is decided in 41.
+- `UGSUpgradeComponent` counts one stack per pick today. With rarity a pick is no longer one stack, so the card's
+  "Owned: N", the HUD icon's "xN", `gs.Upgrade.List` and the run summary need another measure (41).
+- `UGSUpgradePool` / `RollOffer`: weights per category, the Legendary ability chance, the weapon rules and the first
+  level-up's weapon card (42). The simulator (`simulate_upgrade_offers`) reports rarities per category.
+- The cards show the rolled rarity's colour and the pick's value (42). Hand-typed card numbers (Powder Keg's "3%",
+  the Floating Gun's "+10%") need a value per rarity; DA_Upgrade_FloatingGun's `DescriptionsByOwnedStacks` becomes
+  per power step.
+- `FloatingGunLevel` becomes weapon power (41); the weapon slots are a new HUD element (43).
+- `CritChance` is clamped to 0..1 and `UGSCombatSettings::GetExplodeChance` to 100% today (44).
+- DA_XPCurve MaxLevel 50, the `gs.XP.SetLevel` clamp and the XP bar's "MAX" (45).
+- Tests that assume the old design: `Upgrades.Offers` (rarity per tier, Rare in ~40.2%), `Upgrades.StatUpgrades`
+  (MaxStacks 1 refuses a second pick), `Upgrades.LoadedDice` (MaxStacks 20, the clamp), `Upgrades.PowderKeg`
+  (MaxStacks 34, the 100% clamp, the card text), `Upgrades.FloatingGun` and `Upgrades.FloatingGunLevels` (levels,
+  card texts), `Upgrades.SecondWind` (stacks), `Progression.XPAndLevels` (level 3 = 125, the cap at 50, 40 offers
+  to the cap), `UI.UpgradeChoice` (rarity colour from the upgrade), `UI.RoundHUD` and `Run.NewRunResets` (icons and
+  stacks).
+
+**Open questions** (settled in each prompt; not decided)
+- How a card is rolled: an upgrade first and then its rarity from its category's weights, or a rarity first (as
+  today)? How do the categories share the 3 cards? (42)
+- Whole-unit upgrades: is Rare left out of their roll (assumed above), or does a Rare roll become Common? (42)
+- Can an offer show the same upgrade twice at different rarities? Today an offer never repeats an upgrade. (42)
+- With fewer than 3 weapons owned, can an offer hold several weapon cards? Does a reroll of the first level-up's offer
+  keep a weapon card? (42)
+- Weapon power from Rare picks has halves (+0.5, +1.5): does a half point carry over to the next step, or count as
+  half a step? (41)
+- The Floating Gun's steps: step 1 = the second gun, then +10% each (assumed above)? (41)
+- Powder Keg's double-size blast: double radius only, or double damage too? Loaded Dice's triple damage: ×3 in place of
+  CritMultiplier ×2 (assumed above)? (44)
+- The fixed XP amount per level. (45)
+- Does the player's Fire Rate speed up weapons? (Still open from Prompt 38; today it doesn't.)
+- Do owned weapons also show in the upgrade icon row, or only in the weapon slots? (43)
+- With more Legendary abilities later: which one a Legendary card shows.
+
+**Docs changed**
+- CLAUDE.md: the game summary (categories, rarity per card, at most 3 weapons, no pick caps, endless levels) and a new
+  **Level-up upgrades** rule (rarities, weights, Legendary abilities, no caps, weapons and the rules for every weapon).
+- This file: the game summary, the intro and the step table, this entry, a note on **Design update — M2b upgrades**,
+  the M2b heading, a known issue, **Next up** (Prompts 40–53) and **Decided (user)**.
+
 ---
 
 ## Console commands and CVars
@@ -2453,6 +2623,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 ## Known issues, TODOs and deviations
 
 **Not built yet / stubs**
+- The M2c upgrade rework (Prompt 40, docs only) isn't built. Until Prompts 41–45 the code keeps one rarity and a
+  MaxStacks per upgrade, the Floating Gun as an Epic upgrade with levels, MaxLevel 50 and +25% XP per level.
 - Floating Shield (Prompt 36):
   - The shields are flat placeholder discs, and the block and return sounds are editor sounds that may not cook.
   - There is no HUD readout of ready shields or their recharge (only the discs, and `gs.Upgrade.List`).
@@ -2706,9 +2878,38 @@ smaller pool.
     player's.~~ Done (see Prompt 38).
 39. ~~**Floating Gun, part 2:** the second gun (left shoulder) and the +10% damage / fire rate picks from the 3rd on.~~
     Done (see Prompt 39).
-40. **M2b tests + checkpoint:** tests for the M2b rules and a PIE checkpoint, like Prompt 28.
 
-**Then M3** (after M2b; not planned in detail yet; each item needs its own prompt). From the decisions so far:
+The M2b checkpoint (planned as Prompt 40) moved to Prompt 48, after the rework.
+
+**Next: M2c — upgrade rework** (see **Design update — upgrade rework (M2c)** for the design, the rules and the open
+questions). Each prompt updates the tests that assume the old design.
+
+40. ~~**M2c docs.**~~ Done (see **Design update — upgrade rework (M2c)**; docs only).
+41. **Upgrade data and per-pick values:** the three categories (and Legendary abilities), the rarity multipliers
+    (×1 / ×1.5 / ×2 / ×3) and whole-unit values (+1 / +2 / +3, no Rare) in data; a pick of a given rarity applies that
+    much; weapon power and the per-weapon steps (the Floating Gun's levels become steps); Second Wind as charges.
+42. **Offer roll and cards:** a rarity rolled per card on the run stream with the category weights (100 / 20 / 6 / 1;
+    Abilities 100 / 10 / 3 / 0.5); the 0.8% Legendary ability chance; MaxWeapons 3 and owned-only weapons after that;
+    a weapon card in the first level-up of a run; cards show the rolled rarity and the pick's value; the simulator.
+43. **Weapon slots and HUD:** three weapon slots in the top left, like the upgrade icons, filled in pick order (icon
+    only).
+44. **Overflow effects and no pick caps:** every MaxStacks removed; Loaded Dice past 100% gives a chance of a
+    triple-damage hit, Powder Keg past 100% a chance of a double-size blast.
+45. **Endless levels:** no level cap; the XP needed per level grows by a fixed amount.
+46. **Razor Cards** (weapon).
+47. **Barbed Wire** (weapon).
+48. **M2b + M2c tests + checkpoint:** tests for the M2b and M2c rules and a PIE checkpoint, like Prompt 28. Replaces
+    the old Prompt 40.
+
+**Then more weapons** (each follows the rules for every weapon):
+
+49. **Dynamite** (weapon).
+50. **Lucky Coin** (weapon).
+51. **Molotov** (weapon).
+52. **Tomahawk** (weapon).
+53. **Weapons checkpoint.**
+
+**Then M3** (after the weapons checkpoint; not planned in detail yet; each item needs its own prompt). From the decisions so far:
 - The two-layer save (playthrough data: cash, owned items, loadout, total cash earned; prestige data, empty until
   prestige), with an upgrade step from save version 1.
 - Item types: usable items (consumables, bought again to restock, used up in a run) and gear (bought once, one per
@@ -2738,9 +2939,10 @@ Decided (user):
 - **Flat economy:** cash and XP per enemy are the same every round, and so is the round clear bonus. There is no
   round scaling for drops.
 - **Epic / Legendary upgrades:** Floating Gun, Piercing Rounds and Powder Keg are Epic and Second Wind is Legendary
-  (M2b). The rarity weights are still placeholders.
+  (M2b). The rarity weights are still placeholders. (Replaced by M2c: rarity is rolled per card.)
 - **M2b upgrades** (after M2, before M3; the pool grows from 4 to 15). Every number is a starting value in data; no
-  cap unless noted.
+  cap unless noted. (M2c replaces the rarities and caps below with rarity per card and no caps; the per-pick values
+  become the Common values.)
   - Common: Fire Rate (+8% FireRate), Magnet (+15% PickupRadius, cash and XP orbs), Bigger Mags (+15% magazine
     size).
   - Rare: Dash Charge (+1 charge; the player starts with 1 instead of 2), Floating Shield (+1 shield; a hit uses one
@@ -2762,8 +2964,32 @@ Decided (user):
   the kill combo and costs that round's no-damage bonus.
 - **Floating Shield** (Prompt 36): a hit a shield blocks is not damage taken (the kill combo goes on, the no-damage
   round bonus is kept, run-stats damage taken doesn't change). The shield recharge pauses with the game.
-- **Upgrade rarities and rerolls:** four tiers (Common, Rare, Epic, Legendary). The 3 choices can be rerolled a
-  limited number of times per run (3 to start). There is no skip.
+- **Upgrade rarities and rerolls:** four tiers (Common, Rare, Epic, Legendary), rolled per card since M2c. The 3
+  choices can be rerolled a limited number of times per run (3 to start). There is no skip.
+- **Upgrade rework (M2c, Prompt 40).** Every number is a placeholder in data.
+  - Categories: Stat Boosts (Damage, Fire Rate, Reload Speed, Move Speed, Magnet, Bigger Mags, Loaded Dice),
+    Abilities (Extra Jump, Dash Charge, Floating Shield, Piercing Rounds, Leech, Powder Keg; Legendary abilities are
+    a sub-group: Second Wind today, more later) and Weapons (automatic attacks: Floating Gun; Razor Cards and Barbed
+    Wire next; Dynamite, Lucky Coin, Molotov and Tomahawk after the checkpoint).
+  - Rarity is rolled for each card. A higher rarity gives a bigger pick: ×1, ×1.5, ×2, ×3. Whole-unit upgrades
+    (Extra Jump, Dash Charge, Floating Shield, Piercing Rounds, Leech) give +1 / +2 / +3 and have no Rare version.
+  - Rarity weights per card: Stat Boosts and Weapons 100 / 20 / 6 / 1; Abilities 100 / 10 / 3 / 0.5.
+  - Legendary abilities have no rarities: each card has a fixed 0.8% chance to be one, and a pick adds one charge.
+    Second Wind charges are used one at a time; the next can save the player once the last one's invulnerability
+    has ended.
+  - Weapons: at most `MaxWeapons` 3 different weapons per run; until then any weapon can be offered, after that only
+    the owned ones, as upgrades. The rifle and pistol aren't part of this. The first level-up of a run always
+    includes one weapon card.
+  - Weapon picks: the first pick gives the weapon. Every pick adds weapon power equal to its rarity multiplier; the
+    first pick adds the multiplier − 1, so a Common first pick is the plain weapon. Each point of power is one
+    upgrade step, defined per weapon.
+  - Every weapon: attacks on its own; damage × the player's Damage, can crit (Loaded Dice); Piercing Rounds doesn't
+    apply; its kills are the player's; it doesn't act while the player is dead, in a safe zone or while the game is
+    paused; exact schedule (as Prompt 31b); no collision; a new run removes it.
+  - No pick caps. Loaded Dice past 100% becomes a chance of a triple-damage hit, Powder Keg past 100% a chance of a
+    double-size blast.
+  - Endless levels: no level cap; the XP needed per level grows by a fixed amount instead of 25%.
+  - HUD: three weapon slots in the top left, like the upgrade icons, filled as weapons are picked. Icon only.
 - **Casino bets** risk cash only, never owned items.
 - **XP pickups:** XP comes from pickups enemies drop, not instantly on the kill.
 - **Map boundary:** every map has invisible walls around the play area and a ceiling, blocking pawns only.
