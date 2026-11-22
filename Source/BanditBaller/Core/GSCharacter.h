@@ -17,6 +17,7 @@ class UGSFloatingShieldsComponent;
 class UGSFloatingGunComponent;
 class UGSRazorCardsComponent;
 class UGSBarbedWireComponent;
+class UGSDynamiteComponent;
 class UGSDashSettings;
 class UGSMovementSettings;
 class UGSSlideSettings;
@@ -71,6 +72,9 @@ public:
 
 	/** Barbed Wire (a damaging ring while the BarbedWireLevel attribute is 1 or more). */
 	UGSBarbedWireComponent* GetBarbedWire() const { return BarbedWire; }
+
+	/** Dynamite (lobs sticks while the DynamiteLevel attribute is 1 or more). */
+	UGSDynamiteComponent* GetDynamite() const { return Dynamite; }
 
 	// --- Camera debug / tests (local player): the same as the aim and shoulder-swap inputs ---
 	void SetAimingForDebug(bool bAim) { bAim ? OnAimStarted() : OnAimCompleted(); }
@@ -190,6 +194,10 @@ protected:
 	/** Barbed Wire: the damaging ring for the player's BarbedWireLevel (tuning in DA_BarbedWireSettings). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
 	TObjectPtr<UGSBarbedWireComponent> BarbedWire;
+
+	/** Dynamite: lobs sticks at the biggest group for the player's DynamiteLevel (tuning in DA_DynamiteSettings). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
+	TObjectPtr<UGSDynamiteComponent> Dynamite;
 
 	/** Played on the local player's camera when they take damage (CS_PlayerHit). */
 	UPROPERTY(EditDefaultsOnly, Category = "Health")

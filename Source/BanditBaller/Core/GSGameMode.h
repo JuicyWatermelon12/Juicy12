@@ -17,6 +17,7 @@ class UGSCashSettings;
 class UGSFloatingGunSettings;
 class UGSRazorCardsSettings;
 class UGSBarbedWireSettings;
+class UGSDynamiteSettings;
 class UGSComboSettings;
 class UGSCombatSettings;
 class UGSRoundClearSettings;
@@ -189,6 +190,9 @@ public:
 	/** Barbed Wire tuning (DA_BarbedWireSettings); no ring if unset. */
 	const UGSBarbedWireSettings* GetBarbedWireSettings() const { return BarbedWireSettings; }
 
+	/** Dynamite tuning (DA_DynamiteSettings); nothing is thrown if unset. */
+	const UGSDynamiteSettings* GetDynamiteSettings() const { return DynamiteSettings; }
+
 	// --- Powder Keg (server) ---
 
 	/**
@@ -339,6 +343,10 @@ protected:
 	/** Barbed Wire: radius, damage, tick, power bonuses, look (DA_BarbedWireSettings). */
 	UPROPERTY(EditDefaultsOnly, Category = "Combat")
 	TObjectPtr<UGSBarbedWireSettings> BarbedWireSettings;
+
+	/** Dynamite: damage, blast radius, throw interval, range, the lobbed stick, power bonuses, look (DA_DynamiteSettings). */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat")
+	TObjectPtr<UGSDynamiteSettings> DynamiteSettings;
 
 	/** Round-clear bonus: base, no damage, fast clear (DA_RoundClearSettings). No bonus if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")

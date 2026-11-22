@@ -26,6 +26,8 @@
 #include "GSRazorCardsSettings.h"
 #include "GSBarbedWireComponent.h"
 #include "GSBarbedWireSettings.h"
+#include "GSDynamiteComponent.h"
+#include "GSDynamiteSettings.h"
 #include "GSSecondWindComponent.h"
 #include "GSShieldComponent.h"
 #include "GSGameplayAbility_Dash.h"
@@ -304,6 +306,9 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 			ASC->GetNumericAttribute(UGSAttributeSet::GetRazorCardsPowerAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetBarbedWireLevelAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetBarbedWirePowerAttribute()));
+		Text += FString::Printf(TEXT(", DynamiteLevel %.0f, DynamitePower %g"),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetDynamiteLevelAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetDynamitePowerAttribute()));
 		if (const AGSCharacter* Character = Cast<AGSCharacter>(PC->GetPawn()))
 		{
 			// Slide and dash scale with Move Speed (at least x1); a slide or dash keeps the ratio it started with.
@@ -374,6 +379,13 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 					Wire->GetLevel(), Wire->GetPower(), Wire->GetRadius(), Wire->GetDamageMultiplier(),
 					WireSettings ? WireSettings->Damage * Wire->GetDamageMultiplier() : 0.f, WireSettings ? WireSettings->TickInterval : 0.f,
 					Wire->GetTicks(), Wire->GetHitsDealt(), Wire->GetLastTickHits());
+			}
+			if (const UGSDynamiteComponent* Dynamite = GunOwner->GetDynamite())
+			{
+				Text += FString::Printf(TEXT("\n  Dynamite: %d pick(s), power %g, x%.2f damage (%.1f per blast x Damage), blast radius %.0f cm, every %.2f s, %d thrown, %d blast(s), %d hit(s), %d hit by the last blast"),
+					Dynamite->GetLevel(), Dynamite->GetPower(), Dynamite->GetDamageMultiplier(),
+					Dynamite->GetSettings() ? Dynamite->GetSettings()->Damage * Dynamite->GetDamageMultiplier() : 0.f, Dynamite->GetBlastRadius(),
+					Dynamite->GetThrowInterval(), Dynamite->GetThrows(), Dynamite->GetBlasts(), Dynamite->GetHitsDealt(), Dynamite->GetLastBlastHits());
 			}
 		}
 		if (const UGSSecondWindComponent* SecondWind = PS ? PS->GetSecondWindComponent() : nullptr)

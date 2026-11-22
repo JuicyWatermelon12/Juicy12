@@ -259,6 +259,19 @@ public:
 	UGSUpgradeEffect_BarbedWire(const FObjectInitializer& ObjectInitializer);
 };
 
+/**
+ * GE_Upgrade_Dynamite: DynamiteLevel = the number of picks (1+ = the weapon) and DynamitePower = the total value
+ * (the sticks' +damage / +blast radius steps).
+ */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_Dynamite : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_Dynamite(const FObjectInitializer& ObjectInitializer);
+};
+
 /** +1 SecondWinds per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_SecondWind): survive one more killing blow. Using one removes one pick. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_SecondWind : public UGSUpgradeEffect

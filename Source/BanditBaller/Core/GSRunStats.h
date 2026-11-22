@@ -16,6 +16,7 @@ enum class EGSDamageSource : uint8
 	RazorCards,
 	BarbedWire,
 	PowderKeg,
+	Dynamite,
 	/** Anything untagged (debug damage such as gs.KillAll). */
 	Other,
 	Count

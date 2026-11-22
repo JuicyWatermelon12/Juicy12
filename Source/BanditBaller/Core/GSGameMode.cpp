@@ -13,6 +13,7 @@
 #include "GSRunRandom.h"
 #include "GSRunStats.h"
 #include "GSProjectileSubsystem.h"
+#include "GSThrownSubsystem.h"
 #include "GSSecondWindComponent.h"
 #include "GSShieldComponent.h"
 #include "GSRunSummaryWidget.h"
@@ -709,6 +710,10 @@ void AGSGameMode::StartRun(int32 Seed, const TCHAR* Source)
 	if (UGSProjectileSubsystem* Projectiles = GetWorld()->GetSubsystem<UGSProjectileSubsystem>())
 	{
 		Projectiles->ReleaseAll();
+	}
+	if (UGSThrownSubsystem* Thrown = GetWorld()->GetSubsystem<UGSThrownSubsystem>())
+	{
+		Thrown->ReleaseAll(); // Dynamite sticks in the air
 	}
 
 	if (AGSGameState* GS = GetGameState<AGSGameState>())

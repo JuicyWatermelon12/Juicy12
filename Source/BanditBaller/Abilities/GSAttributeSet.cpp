@@ -31,6 +31,8 @@ UGSAttributeSet::UGSAttributeSet()
 	InitRazorCardsPower(0.f);
 	InitBarbedWireLevel(0.f);
 	InitBarbedWirePower(0.f);
+	InitDynamiteLevel(0.f);
+	InitDynamitePower(0.f);
 }
 
 void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -75,7 +77,9 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 		|| Attribute == GetRazorCardsLevelAttribute()
 		|| Attribute == GetRazorCardsPowerAttribute()
 		|| Attribute == GetBarbedWireLevelAttribute()
-		|| Attribute == GetBarbedWirePowerAttribute())
+		|| Attribute == GetBarbedWirePowerAttribute()
+		|| Attribute == GetDynamiteLevelAttribute()
+		|| Attribute == GetDynamitePowerAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}

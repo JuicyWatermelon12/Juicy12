@@ -211,6 +211,24 @@ public:
 	FGameplayAttributeData BarbedWirePower;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, BarbedWirePower)
 
+	/**
+	 * Dynamite picks: 1 or more = the player lobs dynamite at the biggest group of enemies nearby (UGSDynamiteComponent on
+	 * the character, DA_DynamiteSettings). Default 0, clamped to >= 0, rounded when read.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData DynamiteLevel;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, DynamiteLevel)
+
+	/**
+	 * Dynamite weapon power: each point adds DA_DynamiteSettings' damage and blast radius bonus (added up; fractions
+	 * count). The first pick adds the rarity multiplier - 1, later picks the multiplier. Default 0, clamped to >= 0.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData DynamitePower;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, DynamitePower)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;

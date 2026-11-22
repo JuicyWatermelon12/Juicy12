@@ -221,6 +221,13 @@ UGSUpgradeEffect_BarbedWire::UGSUpgradeEffect_BarbedWire(const FObjectInitialize
 	AddAdditiveModifier(UGSAttributeSet::GetBarbedWirePowerAttribute()); // +damage / radius steps
 }
 
+UGSUpgradeEffect_Dynamite::UGSUpgradeEffect_Dynamite(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddPicksModifier(UGSAttributeSet::GetDynamiteLevelAttribute()); // owned
+	AddAdditiveModifier(UGSAttributeSet::GetDynamitePowerAttribute()); // +damage / blast radius steps
+}
+
 UGSUpgradeEffect_SecondWind::UGSUpgradeEffect_SecondWind(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

@@ -91,6 +91,10 @@
 #include "GSRazorCardsSettings.h"
 #include "GSBarbedWireComponent.h"
 #include "GSBarbedWireSettings.h"
+#include "GSDynamiteComponent.h"
+#include "GSDynamiteSettings.h"
+#include "GSLobbedThrow.h"
+#include "GSThrownSubsystem.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "GSFloatingShieldsComponent.h"
 #include "GSProjectileSubsystem.h"
@@ -4751,7 +4755,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
-		TestEqual(TEXT("Pool has the 17 upgrades"), Pool->Upgrades.Num(), 17);
+		TestEqual(TEXT("Pool has the 18 upgrades"), Pool->Upgrades.Num(), 18);
 		const float StatWeights[] = { 100.f, 20.f, 6.f, 1.f };
 		const float AbilityWeights[] = { 100.f, 10.f, 3.f, 0.5f };
 		for (const EGSUpgradeRarity Rarity : UGSUpgradePool::GetAllRarities())
@@ -4815,12 +4819,12 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		const double LegendaryShare = static_cast<double>(LegendaryCards) / Cards;
 		AddInfo(FString::Printf(TEXT("Legendary ability cards: %d of %d (%.3f%%, chance 0.8%% per card)"), LegendaryCards, Cards, 100.0 * LegendaryShare));
 		TestTrue(TEXT("Legendary ability cards at about 0.8% of cards"), FMath::Abs(LegendaryShare - 0.008) < 0.0015);
-		bool bEven = PerUpgrade.Num() == 16;
+		bool bEven = PerUpgrade.Num() == 17;
 		for (const TPair<const UGSUpgradeData*, int32>& Entry : PerUpgrade)
 		{
-			bEven &= FMath::Abs(static_cast<double>(Entry.Value) / NormalCards - 1.0 / 16.0) < 0.01;
+			bEven &= FMath::Abs(static_cast<double>(Entry.Value) / NormalCards - 1.0 / 17.0) < 0.01;
 		}
-		TestTrue(TEXT("The 16 other upgrades come up evenly (AppearanceWeight 1 each)"), bEven);
+		TestTrue(TEXT("The 17 other upgrades come up evenly (AppearanceWeight 1 each)"), bEven);
 		auto Share = [&Split](int32 Kind, EGSUpgradeRarity Rarity)
 		{
 			const int32 Total = Split[Kind][0] + Split[Kind][1] + Split[Kind][2] + Split[Kind][3];
@@ -8656,6 +8660,7 @@ namespace GSTests
 			{ TEXT("FloatingGun"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetFloatingGunPowerAttribute() },
 			{ TEXT("RazorCards"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetRazorCardsPowerAttribute() },
 			{ TEXT("BarbedWire"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetBarbedWirePowerAttribute() },
+			{ TEXT("Dynamite"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetDynamitePowerAttribute() },
 		};
 	}
 
@@ -8710,7 +8715,7 @@ bool FGSUpgradePickValuesTest::RunTest(const FString& Parameters)
 			TestEqual(FString::Printf(TEXT("%s: percent upgrade"), E.Name), Upgrade->IsPercentUpgrade(), E.bPercent);
 			TestTrue(FString::Printf(TEXT("%s: in DA_UpgradePool"), E.Name), Pool->Upgrades.Contains(Upgrade));
 		}
-		TestEqual(TEXT("All 17 upgrades checked"), Seen.Num(), 17);
+		TestEqual(TEXT("All 18 upgrades checked"), Seen.Num(), 18);
 		TestEqual(TEXT("Every pool upgrade checked"), Pool->Upgrades.Num(), Seen.Num());
 		const UGSUpgradeData* Gun = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
 		TestEqual(TEXT("Floating Gun: its first two picks give the guns"), Gun ? Gun->WeaponGivingPicks : 0, 2);
@@ -8739,7 +8744,8 @@ bool FGSUpgradePickValuesTest::RunTest(const FString& Parameters)
 			FText2{ TEXT("SecondWind"), TEXT("+1 Second Wind"), TEXT("+1 Second Wind") },
 			FText2{ TEXT("FloatingGun"), TEXT("+10% floating gun damage and fire rate"), TEXT("+30% floating gun damage and fire rate") },
 			FText2{ TEXT("RazorCards"), TEXT("+10% Razor Cards damage and fire rate"), TEXT("+30% Razor Cards damage and fire rate") },
-			FText2{ TEXT("BarbedWire"), TEXT("+10% Barbed Wire damage, +5% size"), TEXT("+30% Barbed Wire damage, +15% size") } })
+			FText2{ TEXT("BarbedWire"), TEXT("+10% Barbed Wire damage, +5% size"), TEXT("+30% Barbed Wire damage, +15% size") },
+			FText2{ TEXT("Dynamite"), TEXT("+10% Dynamite damage, +5% blast size"), TEXT("+30% Dynamite damage, +15% blast size") } })
 		{
 			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(E.Name);
 			if (!Upgrade)
@@ -9012,16 +9018,33 @@ bool FGSWeaponSlotsTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Rerolls of the first offer keep a weapon card"), bRerollsKeepIt);
 		TestTrue(TEXT("Pick a non-weapon card"), GameMode->ChooseUpgrade(PS, FirstNonWeaponCard(Upgrades->GetCurrentOffer())));
 		TestFalse(TEXT("After the first pick no more guaranteed weapon cards"), Upgrades->IsFirstOfferPending());
-		// Later offers: a weapon card only by chance. About 79% of 20 offers have none without the guarantee.
+		// Later offers: a weapon card only by chance, at the rate the pool gives three cards drawn without a weapon
+		// (Legendary ability cards left out of the estimate: they only make a weapon-free offer a little likelier).
+		int32 NonWeapons = 0, Normal = 0;
+		for (const UGSUpgradeData* Upgrade : GameMode->GetUpgradePool()->Upgrades)
+		{
+			if (!Upgrade->bLegendaryAbility)
+			{
+				++Normal;
+				NonWeapons += Upgrade->Category != EGSUpgradeCategory::Weapon ? 1 : 0;
+			}
+		}
+		double Expected = 1.0;
+		for (int32 Card = 0; Card < 3; ++Card)
+		{
+			Expected *= static_cast<double>(NonWeapons - Card) / (Normal - Card);
+		}
+		constexpr int32 NumLater = 200;
 		int32 Without = 0;
-		for (int32 i = 0; i < 20; ++i)
+		for (int32 i = 0; i < NumLater; ++i)
 		{
 			GameMode->QueueUpgradeOfferForDebug(PS);
 			Without += OfferHasWeapon(Upgrades->GetCurrentOffer()) ? 0 : 1;
 			GameMode->ChooseUpgrade(PS, FirstNonWeaponCard(Upgrades->GetCurrentOffer()));
 		}
-		AddInfo(FString::Printf(TEXT("Later offers without a weapon card: %d of 20"), Without));
-		TestTrue(TEXT("Later offers are rolled as usual (most without a weapon card)"), Without > 5);
+		const double Share = static_cast<double>(Without) / NumLater;
+		AddInfo(FString::Printf(TEXT("Later offers without a weapon card: %d of %d (%.1f%%; expected about %.1f%%)"), Without, NumLater, 100.0 * Share, 100.0 * Expected));
+		TestTrue(TEXT("Later offers are rolled as usual (the pool's weapon-free share, no guarantee)"), FMath::Abs(Share - Expected) < 0.1);
 		GameMode->RestartRunWithSeed(4302);
 		TestTrue(TEXT("A new run: pending again"), Upgrades->IsFirstOfferPending());
 	});
@@ -9038,6 +9061,7 @@ bool FGSWeaponSlotsTest::RunTest(const FString& Parameters)
 		// Exactly two weapons here (the Floating Gun and the test weapon): the other weapons stay out of this copy.
 		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("RazorCards")));
 		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("BarbedWire")));
+		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("Dynamite")));
 		S->TestPool->Upgrades.Add(S->TestWeapon.Get());
 		S->TestPool->MaxWeapons = 1;
 		GameMode->SetUpgradePoolOverride(S->TestPool.Get());
@@ -10201,6 +10225,12 @@ namespace GSTests
 		return Player ? Player->GetBarbedWire() : nullptr;
 	}
 
+	UGSDynamiteComponent* GetDynamite()
+	{
+		const AGSCharacter* Player = GetPlayer();
+		return Player ? Player->GetDynamite() : nullptr;
+	}
+
 	struct FWireState
 	{
 		FVector PlayerSpot = FVector::ZeroVector;
@@ -10514,6 +10544,7 @@ bool FGSCheckpointPicksAndNewRunTest::RunTest(const FString& Parameters)
 		const FWeapon Weapons[] = {
 			{ TEXT("FloatingGun"), UGSAttributeSet::GetFloatingGunPowerAttribute(), { 0.f, 0.5f, 2.5f, 5.5f } }, // two giving picks
 			{ TEXT("RazorCards"), UGSAttributeSet::GetRazorCardsPowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
+			{ TEXT("Dynamite"), UGSAttributeSet::GetDynamitePowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
 			{ TEXT("BarbedWire"), UGSAttributeSet::GetBarbedWirePowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
 		};
 		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
@@ -10578,6 +10609,7 @@ bool FGSCheckpointPicksAndNewRunTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Before the new run: two floating guns"), GetPlayer()->GetFloatingGuns()->GetGuns().Num(), 2);
 		TestTrue(TEXT("Before the new run: the Barbed Wire ring"), GetBarbedWire()->IsRingShown());
 		TestTrue(TEXT("Before the new run: Razor Cards owned"), GetRazorCards()->GetLevel() > 0);
+		TestTrue(TEXT("Before the new run: Dynamite owned"), GetDynamite()->GetLevel() > 0);
 		TestTrue(TEXT("Before the new run: shields"), GetPC()->GetPlayerState<AGSPlayerState>()->GetShieldComponent()->GetNumShields() > 0);
 		GetGameMode()->RestartRunWithSeed(4811);
 		GetGameMode()->SetRoundTimerPaused(true);
@@ -10606,6 +10638,8 @@ bool FGSCheckpointPicksAndNewRunTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: no floating guns"), GetPlayer()->GetFloatingGuns()->GetGuns().Num(), 0);
 		TestFalse(TEXT("New run: no ring"), GetBarbedWire()->IsRingShown());
 		TestEqual(TEXT("New run: Razor Cards gone"), GetRazorCards()->GetLevel(), 0);
+		TestEqual(TEXT("New run: Dynamite gone"), GetDynamite()->GetLevel(), 0);
+		TestEqual(TEXT("New run: nothing thrown is left in play"), GetPIEWorld()->GetSubsystem<UGSThrownSubsystem>()->GetActive().Num(), 0);
 		TestEqual(TEXT("New run: no combo"), PS->GetComboComponent()->GetComboCount(), 0);
 		TestEqual(TEXT("New run: no Powder Keg blasts"), GetGameMode()->GetPowderKegBlasts(), 0);
 		TestEqual(TEXT("New run: no damage dealt"), GetGameState()->GetRunStats()->GetDamageDealt(), 0.f);
@@ -10625,6 +10659,60 @@ bool FGSCheckpointWeaponLimitTest::RunTest(const FString& Parameters)
 	BeginPIE(this);
 	TSharedRef<TStrongObjectPtr<UGSUpgradePool>> Pool = MakeShared<TStrongObjectPtr<UGSUpgradePool>>();
 	TSharedRef<TStrongObjectPtr<UGSUpgradeData>> Extra = MakeShared<TStrongObjectPtr<UGSUpgradeData>>();
+
+	// The real pool has more weapons than slots: with three owned, no other real weapon is offered (offers and rerolls).
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->RestartRunWithSeed(4819);
+		GameMode->SetRoundTimerPaused(true);
+		AGSPlayerState* PS = GetPC()->GetPlayerState<AGSPlayerState>();
+		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		const UGSUpgradePool* RealPool = GameMode->GetUpgradePool();
+		TArray<const UGSUpgradeData*> Owned, Unowned;
+		for (const UGSUpgradeData* Upgrade : RealPool->Upgrades)
+		{
+			if (Upgrade->Category == EGSUpgradeCategory::Weapon)
+			{
+				(Owned.Num() < RealPool->MaxWeapons ? Owned : Unowned).Add(Upgrade);
+			}
+		}
+		if (!TestTrue(TEXT("The real pool has more weapons than MaxWeapons"), Unowned.Num() > 0))
+		{
+			return;
+		}
+		for (const UGSUpgradeData* Weapon : Owned)
+		{
+			Upgrades->GrantUpgrade(Weapon, EGSUpgradeRarity::Common, TEXT("Test"));
+		}
+		TestEqual(TEXT("Real pool: three weapons owned"), Upgrades->GetOwnedWeapons().Num(), RealPool->MaxWeapons);
+		bool bUnownedSeen = false;
+		int32 OwnedSeen = 0, Rerolls = 0;
+		auto Look = [&](const TArray<FGSUpgradeChoice>& Offer)
+		{
+			for (const FGSUpgradeChoice& Choice : Offer)
+			{
+				bUnownedSeen |= Unowned.Contains(Choice.Upgrade);
+				OwnedSeen += Owned.Contains(Choice.Upgrade) ? 1 : 0;
+			}
+		};
+		for (int32 i = 0; i < 60; ++i)
+		{
+			GameMode->QueueUpgradeOfferForDebug(PS);
+			Look(Upgrades->GetCurrentOffer());
+			if (GameMode->RerollUpgradeOffer(PS))
+			{
+				++Rerolls;
+				Look(Upgrades->GetCurrentOffer());
+			}
+			GameMode->ChooseUpgrade(PS, FirstNonWeaponCard(Upgrades->GetCurrentOffer()));
+		}
+		AddInfo(FString::Printf(TEXT("Real pool: %d unowned weapon(s); owned weapon cards in 60 offers + %d rerolls: %d"), Unowned.Num(), Rerolls, OwnedSeen));
+		TestFalse(TEXT("Real pool, three weapons owned: an unowned weapon is never offered (offers and rerolls)"), bUnownedSeen);
+		TestTrue(TEXT("Real pool: the owned weapons are still offered"), OwnedSeen > 0);
+		TestEqual(TEXT("Real pool: still three weapons"), Upgrades->GetOwnedWeapons().Num(), RealPool->MaxWeapons);
+	});
+
 	Step([this, Pool, Extra]()
 	{
 		AGSGameMode* GameMode = GetGameMode();
@@ -10935,6 +11023,478 @@ bool FGSHealthOrbsAllSourcesTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("The ring killed most of the crowd"), RingKills >= S->Bandits.Num() * 3 / 4);
 		TestTrue(TEXT("Own kills drop at about 0.3"), OwnRate > 0.15 && OwnRate < 0.45);
 		TestTrue(TEXT("Ring kills drop at about 0.3"), RingRate > 0.15 && RingRate < 0.45);
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Dynamite (Prompt 49): lobs a stick at the biggest group in range; it explodes where it lands
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	struct FDynamiteState
+	{
+		FVector PlayerSpot = FVector::ZeroVector;
+		FVector Ground = FVector::ZeroVector;
+		FVector Dir = FVector::ForwardVector;
+		FVector Side = FVector::RightVector;
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits;
+		TArray<float> HealthBefore;
+		int32 ThrowsBefore = 0;
+		int32 BlastsBefore = 0;
+		int32 NumbersBefore = 0;
+		int32 CritNumbersBefore = 0;
+		float SourceDamageBefore = 0.f;
+		float PlayerHealthBefore = 0.f;
+		float FlownBefore = 0.f;
+		double InRangeAt = 0.0;
+		bool bScheduleOk = true;
+		int32 Frames = 0;
+		TWeakObjectPtr<AGSEnemyCharacter> Weak;
+		int32 KillsBefore = 0;
+		int32 XPOrbsBefore = 0;
+		int32 HealthOrbsBefore = 0;
+	};
+
+	UGSThrownSubsystem* GetThrown()
+	{
+		return GetPIEWorld() ? GetPIEWorld()->GetSubsystem<UGSThrownSubsystem>() : nullptr;
+	}
+
+	int32 NumSticksInFlight()
+	{
+		const UGSThrownSubsystem* Thrown = GetThrown();
+		return Thrown ? Thrown->GetNumActive(AGSLobbedThrow::StaticClass()) : 0;
+	}
+
+	const AGSLobbedThrow* FindStickInFlight()
+	{
+		const UGSThrownSubsystem* Thrown = GetThrown();
+		for (const AGSThrownActor* Actor : Thrown ? Thrown->GetActive() : TArray<TObjectPtr<AGSThrownActor>>())
+		{
+			if (const AGSLobbedThrow* Stick = Cast<AGSLobbedThrow>(Actor))
+			{
+				return Stick;
+			}
+		}
+		return nullptr;
+	}
+
+	/** Every throw of the current run of throws is on its exact schedule (1 + floor(elapsed / interval) throws by now). */
+	bool DynamiteOnSchedule()
+	{
+		const UGSDynamiteComponent* Dynamite = GetDynamite();
+		if (!Dynamite || Dynamite->GetBurstShots() == 0)
+		{
+			return true;
+		}
+		const double Elapsed = GetPIEWorld()->GetTimeSeconds() - Dynamite->GetBurstStartTime();
+		return Dynamite->GetBurstShots() == 1 + FMath::FloorToInt(Elapsed / Dynamite->GetThrowInterval() + 1e-6);
+	}
+
+	void RecordDynamite(FDynamiteState& S)
+	{
+		S.HealthBefore.Reset();
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S.Bandits)
+		{
+			S.HealthBefore.Add(Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : 0.f);
+		}
+		S.ThrowsBefore = GetDynamite()->GetThrows();
+		S.BlastsBefore = GetDynamite()->GetBlasts();
+		const UGSHUDWidget* HUD = GetHUD();
+		S.NumbersBefore = HUD ? HUD->GetDamageNumbersAdded() : 0;
+		S.CritNumbersBefore = HUD ? HUD->GetCriticalDamageNumbersAdded() : 0;
+		S.SourceDamageBefore = GetGameState()->GetRunStats()->GetDamageDealtBy(EGSDamageSource::Dynamite);
+		S.PlayerHealthBefore = GetHealth(GetPlayerASC());
+	}
+
+	float DynamiteLost(const FDynamiteState& S, int32 Index)
+	{
+		const TWeakObjectPtr<AGSEnemyCharacter>& Bandit = S.Bandits[Index];
+		return Bandit.IsValid() ? S.HealthBefore[Index] - GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f;
+	}
+
+	/** Enqueue: wait until no stick is in the air (so the next blasts all come from throws made after a change). */
+	void WaitNoStickInFlight(FAutomationTestBase* Test)
+	{
+		WaitUntil(Test, TEXT("no stick in the air"), []() { return NumSticksInFlight() == 0; }, 10.0);
+	}
+
+	/** Enqueue: wait for Count more blasts after the last RecordDynamite. */
+	void WaitBlasts(FAutomationTestBase* Test, TSharedRef<FDynamiteState> S, int32 Count, bool bCheckSchedule = false)
+	{
+		WaitUntil(Test, FString::Printf(TEXT("%d blast(s)"), Count), [S, Count, bCheckSchedule]()
+		{
+			if (bCheckSchedule)
+			{
+				S->bScheduleOk &= DynamiteOnSchedule();
+				++S->Frames;
+			}
+			return GetDynamite()->GetBlasts() >= S->BlastsBefore + Count;
+		}, 30.0);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSDynamiteTest, "BanditBaller.Upgrades.Dynamite", GSTests::TestFlags)
+bool FGSDynamiteTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	TSharedRef<FDynamiteState> S = MakeShared<FDynamiteState>();
+
+	// Data, a clear lane, the player near its start. Game time x4.
+	Step([this, S]()
+	{
+		SpeedUpWorld(4.f);
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->SetHealthOrbDropChanceOverride(0.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		const UGSDynamiteSettings* Settings = GameMode->GetDynamiteSettings();
+		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("Dynamite"));
+		if (!TestNotNull(TEXT("DA_DynamiteSettings on BP_GSGameMode"), Settings) || !TestNotNull(TEXT("DA_Upgrade_Dynamite"), Upgrade)
+			|| !TestNotNull(TEXT("Dynamite component on the character"), GetDynamite()))
+		{
+			return;
+		}
+		TestEqual(TEXT("40 damage"), Settings->Damage, 40.f);
+		TestEqual(TEXT("3 m blast radius"), Settings->BlastRadius, 300.f);
+		TestEqual(TEXT("A throw every 4 s"), Settings->ThrowInterval, 4.f);
+		TestEqual(TEXT("20 m range"), Settings->Range, 2000.f);
+		TestEqual(TEXT("0.6 s flight"), Settings->FlightTime, 0.6f);
+		TestEqual(TEXT("+10% damage per power"), Settings->DamageBonusPerPower, 0.1f);
+		TestEqual(TEXT("+5% blast radius per power"), Settings->RadiusBonusPerPower, 0.05f);
+		TestNotNull(TEXT("Damage effect (GE_Damage)"), Settings->DamageEffect.Get());
+		TestTrue(TEXT("Stick mesh and material"), Settings->StickMesh && Settings->StickMaterial);
+		TestNotNull(TEXT("An explosion effect"), Settings->BlastEffect.Get());
+		TestTrue(TEXT("Category Weapon"), Upgrade->Category == EGSUpgradeCategory::Weapon);
+		TestEqual(TEXT("The first pick gives the weapon"), Upgrade->WeaponGivingPicks, 1);
+		TestTrue(TEXT("Effect GE_Upgrade_Dynamite"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_Dynamite::StaticClass()));
+		TestTrue(TEXT("In DA_UpgradePool"), GameMode->GetUpgradePool() && GameMode->GetUpgradePool()->Upgrades.Contains(Upgrade));
+		TestEqual(TEXT("Card text, none owned"), Upgrade->GetFormattedDescription(0).ToString(), FString(TEXT("New weapon: lobs dynamite at the biggest group of enemies nearby.")));
+		TestEqual(TEXT("Card text, owned"), Upgrade->GetFormattedDescription(1).ToString(), FString(TEXT("Makes Dynamite stronger and its blast bigger.")));
+		TestEqual(TEXT("Card line of a later Common pick"), Upgrade->FormatValueText(GameMode->GetUpgradePool()->GetPickValue(Upgrade, EGSUpgradeRarity::Common, 1)).ToString(),
+			FString(TEXT("+10% Dynamite damage, +5% blast size")));
+		TestEqual(TEXT("Card line of a Rare later pick (halves)"), Upgrade->FormatValueText(1.5f).ToString(), FString(TEXT("+15% Dynamite damage, +7.5% blast size")));
+		TestEqual(TEXT("The card's +10% damage matches the settings"), Upgrade->GetDisplayScale() / 100.f, Settings->DamageBonusPerPower, 0.0001f);
+		TestEqual(TEXT("The card's +5% blast size matches the settings"), Upgrade->SecondaryDisplayScale / 100.f, Settings->RadiusBonusPerPower, 0.0001f);
+
+		FVector Lane;
+		if (!TestTrue(TEXT("A clear lane in the town"), FindClearLane(2600.f, Lane, S->Dir)))
+		{
+			return;
+		}
+		S->Side = FVector(-S->Dir.Y, S->Dir.X, 0.f);
+		S->PlayerSpot = Lane + S->Dir * 400.f;
+		S->Ground = FVector(S->PlayerSpot.X, S->PlayerSpot.Y, 0.f);
+		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
+		RemoveAllEnemies(GetPIEWorld());
+	});
+	WaitFrames(this, 3);
+
+	// Granted, but the only bandit is 21.5 m away: nothing is thrown and nothing is banked.
+	Step([this, S]()
+	{
+		TestEqual(TEXT("gs.Upgrade.Grant Dynamite"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Dynamite"), 1), 1);
+		UGSDynamiteComponent* Dynamite = GetDynamite();
+		TestEqual(TEXT("Owned: level 1"), Dynamite->GetLevel(), 1);
+		TestEqual(TEXT("A Common first pick: power 0"), Dynamite->GetPower(), 0.f);
+		TestEqual(TEXT("Blast radius 300"), Dynamite->GetBlastRadius(), 300.f, 0.01f);
+		TestEqual(TEXT("40 per blast"), Dynamite->GetBlastDamage(), 40.f, 0.0001f);
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 2150.f));
+		RecordDynamite(*S);
+	});
+	WaitWorldSeconds(this, 9.0);
+	Step([this, S]()
+	{
+		UGSDynamiteComponent* Dynamite = GetDynamite();
+		TestTrue(TEXT("It could throw (owned, alive, no safe zone)"), Dynamite->CanThrow());
+		TestNull(TEXT("No target out of range"), Dynamite->FindTarget());
+		TestEqual(TEXT("Out of range: no throws in 9 s"), Dynamite->GetThrows(), S->ThrowsBefore);
+		// The bandit walks into range: the first throw comes at once (nothing banked, nothing owed).
+		AGSEnemyCharacter* Bandit = S->Bandits[0].Get();
+		if (TestNotNull(TEXT("Bandit"), Bandit))
+		{
+			const FVector At = S->Ground + S->Dir * 1000.f;
+			Bandit->SetActorLocation(FVector(At.X, At.Y, Bandit->GetActorLocation().Z), false, nullptr, ETeleportType::TeleportPhysics);
+		}
+		S->InRangeAt = GetPIEWorld()->GetTimeSeconds();
+	});
+	WaitUntil(this, TEXT("the first throw"), [S]() { return GetDynamite()->GetThrows() > S->ThrowsBefore; }, 10.0);
+	Step([this, S]()
+	{
+		UGSDynamiteComponent* Dynamite = GetDynamite();
+		TestEqual(TEXT("One throw (nothing banked)"), Dynamite->GetThrows(), S->ThrowsBefore + 1);
+		const double Delay = Dynamite->GetBurstStartTime() - S->InRangeAt;
+		AddInfo(FString::Printf(TEXT("First throw %.3f s after the bandit came into range"), Delay));
+		TestTrue(TEXT("The first throw comes at once"), Delay >= -0.001 && Delay < 0.25);
+		TestTrue(TEXT("A stick is in the air"), NumSticksInFlight() == 1);
+		TestEqual(TEXT("It was thrown at the bandit"), Dynamite->GetLastTarget(), S->Bandits[0].Get());
+
+		// Targeting: a lone bandit 5 m out and a group of three 14 m out: the group, its nearest member.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 500.f));                     // [0] alone
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 1400.f));                    // [1] group, nearest
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 1400.f + S->Side * 120.f));  // [2] group
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 1400.f - S->Side * 120.f));  // [3] group
+	});
+	WaitFrames(this, 2);
+	Step([this, S]()
+	{
+		UGSDynamiteComponent* Dynamite = GetDynamite();
+		TestEqual(TEXT("The lone bandit has no neighbours"), Dynamite->CountNeighbours(S->Bandits[0].Get()), 0);
+		TestEqual(TEXT("Each in the group has two"), Dynamite->CountNeighbours(S->Bandits[1].Get()), 2);
+		TestEqual(TEXT("It picks the group's nearest member over the nearer lone bandit"), Dynamite->FindTarget(), S->Bandits[1].Get());
+
+		// A tie (two lone bandits): the nearest.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 1100.f));
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
+	});
+	WaitFrames(this, 2);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("A tie goes to the nearest"), GetDynamite()->FindTarget(), S->Bandits[1].Get());
+
+		// Damage per second at power 0: one bandit, then a group of five.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 300.f));
+	});
+	WaitNoStickInFlight(this);
+	Step([S]() { RecordDynamite(*S); });
+	WaitBlasts(this, S, 3);
+	Step([this, S]()
+	{
+		const int32 Blasts = GetDynamite()->GetBlasts() - S->BlastsBefore;
+		const float Lost = DynamiteLost(*S, 0);
+		TestEqual(TEXT("One bandit: 40 per blast"), Lost, 40.f * Blasts, 0.01f);
+		AddInfo(FString::Printf(TEXT("DPS vs one enemy: %.1f (%.0f in %d blasts, one every %.1f s)"), Lost / (Blasts * GetDynamite()->GetThrowInterval()), Lost, Blasts,
+			GetDynamite()->GetThrowInterval()));
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		const FVector Center = S->Ground + S->Dir * 700.f;
+		for (const FVector& Offset : { FVector::ZeroVector, S->Dir * 120.f, S->Dir * -120.f, S->Side * 120.f, S->Side * -120.f })
+		{
+			S->Bandits.Add(SpawnToughBandit(Center + Offset));
+		}
+	});
+	WaitNoStickInFlight(this);
+	Step([S]() { RecordDynamite(*S); });
+	WaitBlasts(this, S, 3);
+	Step([this, S]()
+	{
+		const int32 Blasts = GetDynamite()->GetBlasts() - S->BlastsBefore;
+		float Lost = 0.f;
+		for (int32 Index = 0; Index < S->Bandits.Num(); ++Index)
+		{
+			TestEqual(FString::Printf(TEXT("Group of five: bandit %d takes 40 per blast"), Index), DynamiteLost(*S, Index), 40.f * Blasts, 0.01f);
+			Lost += DynamiteLost(*S, Index);
+		}
+		TestEqual(TEXT("Group of five: every blast hits all five"), GetDynamite()->GetLastBlastHits(), 5);
+		AddInfo(FString::Printf(TEXT("DPS vs a group of five: %.1f (%.0f in %d blasts)"), Lost / (Blasts * GetDynamite()->GetThrowInterval()), Lost, Blasts));
+
+		// The blast: T 2 m in front of the player, A 2.5 m beside it (inside), B 3.4 m further on (outside at 3 m).
+		// The player (god mode off) is 2 m from the blast center.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		const FVector T = S->Ground + S->Dir * 200.f;
+		S->Bandits.Add(SpawnToughBandit(T));                       // [0] T, the target
+		S->Bandits.Add(SpawnToughBandit(T + S->Side * 250.f));     // [1] A
+		S->Bandits.Add(SpawnToughBandit(T + S->Dir * 340.f));      // [2] B
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+	});
+	WaitNoStickInFlight(this);
+	Step([S]()
+	{
+		RecordDynamite(*S);
+		S->bScheduleOk = true;
+		S->Frames = 0;
+	});
+	WaitBlasts(this, S, 2, true);
+	Step([this, S]()
+	{
+		UGSDynamiteComponent* Dynamite = GetDynamite();
+		const int32 Blasts = Dynamite->GetBlasts() - S->BlastsBefore;
+		TestTrue(FString::Printf(TEXT("Every frame on the exact 4 s schedule (%d frames)"), S->Frames), S->bScheduleOk);
+		TestEqual(TEXT("Target T"), Dynamite->GetLastTarget(), S->Bandits[0].Get());
+		const AGSEnemyCharacter* T = S->Bandits[0].Get();
+		if (T)
+		{
+			TestTrue(TEXT("The blast is centered on where T stood"), Dynamite->GetLastBlastCenter().Equals(T->GetActorLocation(), 1.f));
+			const float Feet = T->GetActorLocation().Z - T->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+			TestTrue(TEXT("The stick landed at T's feet"), FVector::Dist2D(Dynamite->GetLastLanding(), T->GetActorLocation()) < 1.f
+				&& FMath::IsNearlyEqual(Dynamite->GetLastLanding().Z, Feet, 1.f));
+		}
+		TestEqual(TEXT("Two hit per blast"), Dynamite->GetLastBlastHits(), 2);
+		TestEqual(TEXT("T: 40 per blast"), DynamiteLost(*S, 0), 40.f * Blasts, 0.01f);
+		TestEqual(TEXT("A (2.5 m): 40 per blast"), DynamiteLost(*S, 1), 40.f * Blasts, 0.01f);
+		TestEqual(TEXT("B (3.4 m, outside): nothing"), DynamiteLost(*S, 2), 0.f, 0.01f);
+		TestEqual(TEXT("The player 2 m from the blast: unhurt"), GetHealth(GetPlayerASC()), S->PlayerHealthBefore, 0.01f);
+		TestEqual(TEXT("A damage number per enemy hit"), GetHUD()->GetDamageNumbersAdded(), S->NumbersBefore + 2 * Blasts);
+		TestEqual(TEXT("Run stats count it as Dynamite damage"), GetGameState()->GetRunStats()->GetDamageDealtBy(EGSDamageSource::Dynamite) - S->SourceDamageBefore,
+			80.f * Blasts, 0.01f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		// Power 1: +10% damage, +5% radius (315 cm: B is still outside).
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Dynamite"), 1);
+		TestEqual(TEXT("Power 1"), Dynamite->GetPower(), 1.f);
+		TestEqual(TEXT("Power 1: x1.1 damage"), Dynamite->GetDamageMultiplier(), 1.1f, 0.0001f);
+		TestEqual(TEXT("Power 1: 44 per blast"), Dynamite->GetBlastDamage(), 44.f, 0.0001f);
+		TestEqual(TEXT("Power 1: radius 315"), Dynamite->GetBlastRadius(), 315.f, 0.01f);
+	});
+	WaitNoStickInFlight(this);
+	Step([S]() { RecordDynamite(*S); });
+	WaitBlasts(this, S, 1);
+	Step([this, S]()
+	{
+		const int32 Blasts = GetDynamite()->GetBlasts() - S->BlastsBefore;
+		TestEqual(TEXT("Power 1: T takes 44 per blast"), DynamiteLost(*S, 0), 44.f * Blasts, 0.01f);
+		TestEqual(TEXT("Power 1: B still outside"), DynamiteLost(*S, 2), 0.f, 0.01f);
+		TestEqual(TEXT("Power 1: the blast radius"), GetDynamite()->GetLastBlastRadius(), 315.f, 0.01f);
+
+		// An Epic pick (+2): power 3, x1.3 damage, radius 345 cm: B is inside now.
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Dynamite"), 1, EGSUpgradeRarity::Epic);
+		TestEqual(TEXT("Power 3"), GetDynamite()->GetPower(), 3.f);
+		TestEqual(TEXT("Power 3: 52 per blast"), GetDynamite()->GetBlastDamage(), 52.f, 0.0001f);
+		TestEqual(TEXT("Power 3: radius 345"), GetDynamite()->GetBlastRadius(), 345.f, 0.01f);
+	});
+	WaitNoStickInFlight(this);
+	Step([S]() { RecordDynamite(*S); });
+	WaitBlasts(this, S, 1);
+	Step([this, S]()
+	{
+		const int32 Blasts = GetDynamite()->GetBlasts() - S->BlastsBefore;
+		TestEqual(TEXT("Power 3: three hit"), GetDynamite()->GetLastBlastHits(), 3);
+		TestEqual(TEXT("Power 3: T takes 52"), DynamiteLost(*S, 0), 52.f * Blasts, 0.01f);
+		TestEqual(TEXT("Power 3: B (3.4 m) is inside the bigger blast"), DynamiteLost(*S, 2), 52.f * Blasts, 0.01f);
+
+		// Every hit rolls its own crit: at 100% (Loaded Dice x20) every enemy hit is a critical hit.
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("LoadedDice"), 20);
+	});
+	WaitNoStickInFlight(this);
+	Step([S]() { RecordDynamite(*S); });
+	WaitBlasts(this, S, 1);
+	Step([this, S]()
+	{
+		const int32 Blasts = GetDynamite()->GetBlasts() - S->BlastsBefore;
+		TestEqual(TEXT("Crits: T takes 104 (52 x2)"), DynamiteLost(*S, 0), 104.f * Blasts, 0.01f);
+		TestEqual(TEXT("Crits: a critical number for each of the three hit"), GetHUD()->GetCriticalDamageNumbersAdded(), S->CritNumbersBefore + 3 * Blasts);
+
+		// Its kill is the player's: a weak bandit, Leech, a sure health orb.
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Leech"), 1);
+		GetGameMode()->SetHealthOrbDropChanceOverride(1.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		ApplyDamage(GetPlayerASC(), 10.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		S->PlayerHealthBefore = GetHealth(GetPlayerASC());
+		GetPlayerCombo()->EndCombo(EGSComboEndReason::Reset);
+		S->KillsBefore = GetGameState()->GetRunStats()->GetTotalKills();
+		S->XPOrbsBefore = GetCashSubsystem()->GetNumXPOrbsDropped();
+		S->HealthOrbsBefore = GetCashSubsystem()->GetNumHealthOrbsDropped();
+		S->Weak = SpawnFrozenBandit(S->Ground + S->Dir * 300.f);
+		if (S->Weak.IsValid())
+		{
+			S->Weak->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
+		}
+	});
+	WaitUntil(this, TEXT("a blast to kill the bandit"), [S]() { return !S->Weak.IsValid() || S->Weak->GetHealthComponent()->IsDead(); }, 20.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Dynamite kill: counted in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), S->KillsBefore + 1);
+		TestEqual(TEXT("Dynamite kill: counts for the combo"), GetPlayerCombo()->GetComboCount(), 1);
+		TestEqual(TEXT("Dynamite kill: an XP orb"), GetCashSubsystem()->GetNumXPOrbsDropped(), S->XPOrbsBefore + 1);
+		TestEqual(TEXT("Dynamite kill: the health orb chance (1: one orb)"), GetCashSubsystem()->GetNumHealthOrbsDropped(), S->HealthOrbsBefore + 1);
+		TestTrue(TEXT("Dynamite kill: a cash drop"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash) > 0);
+		TestEqual(TEXT("Dynamite kill: Leech heals"), GetHealth(GetPlayerASC()), S->PlayerHealthBefore + 1.f, 0.01f);
+		GetGameMode()->SetHealthOrbDropChanceOverride(0.f);
+
+		// Paused with a stick in the air: it stays put, nothing is thrown.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
+	});
+	WaitUntil(this, TEXT("a stick in the air"), []() { return NumSticksInFlight() > 0; }, 20.0);
+	Step([S]()
+	{
+		RecordDynamite(*S);
+		const AGSLobbedThrow* Stick = FindStickInFlight();
+		S->FlownBefore = Stick ? Stick->GetFlown() : -1.f;
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), true);
+	});
+	WaitRealSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		const AGSLobbedThrow* Stick = FindStickInFlight();
+		TestEqual(TEXT("Paused: no throws"), GetDynamite()->GetThrows(), S->ThrowsBefore);
+		TestEqual(TEXT("Paused: no blast"), GetDynamite()->GetBlasts(), S->BlastsBefore);
+		TestTrue(TEXT("Paused: the stick doesn't fly on"), Stick && FMath::IsNearlyEqual(Stick->GetFlown(), S->FlownBefore));
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), false);
+
+		// A safe zone: no throws, and none banked.
+		GetPlayerASC()->AddLooseGameplayTag(GSGameplayTags::State_SafeZone);
+	});
+	WaitNoStickInFlight(this);
+	Step([S]() { RecordDynamite(*S); });
+	WaitWorldSeconds(this, 9.0);
+	Step([this, S]()
+	{
+		TestFalse(TEXT("Safe zone: it can't throw"), GetDynamite()->CanThrow());
+		TestEqual(TEXT("Safe zone: no throws in 9 s"), GetDynamite()->GetThrows(), S->ThrowsBefore);
+		GetPlayerASC()->RemoveLooseGameplayTag(GSGameplayTags::State_SafeZone);
+		S->InRangeAt = GetPIEWorld()->GetTimeSeconds();
+	});
+	WaitUntil(this, TEXT("a throw after the safe zone"), [S]() { return GetDynamite()->GetThrows() > S->ThrowsBefore; }, 10.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("After the safe zone: one throw (nothing banked)"), GetDynamite()->GetThrows(), S->ThrowsBefore + 1);
+		TestTrue(TEXT("After the safe zone: it comes at once"), GetPIEWorld()->GetTimeSeconds() - S->InRangeAt < 0.3);
+
+		// A new run with a stick in the air: the stick is gone and never explodes, the weapon is gone.
+		TestTrue(TEXT("A stick is in the air before the new run"), NumSticksInFlight() > 0);
+		GetGameMode()->RestartRunWithSeed(4901);
+		GetGameMode()->SetRoundTimerPaused(true);
+		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
+		TestEqual(TEXT("New run: no stick in the air"), NumSticksInFlight(), 0);
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
+		RecordDynamite(*S);
+	});
+	WaitWorldSeconds(this, 6.0);
+	Step([this, S]()
+	{
+		UGSDynamiteComponent* Dynamite = GetDynamite();
+		TestEqual(TEXT("New run: level 0"), Dynamite->GetLevel(), 0);
+		TestEqual(TEXT("New run: power 0"), Dynamite->GetPower(), 0.f);
+		TestEqual(TEXT("New run: the stick never exploded"), Dynamite->GetBlasts(), S->BlastsBefore);
+		TestEqual(TEXT("New run: no throws"), Dynamite->GetThrows(), S->ThrowsBefore);
+		TestEqual(TEXT("New run: a bandit in range takes nothing"), DynamiteLost(*S, 0), 0.f, 0.01f);
+
+		// Dead: no throws.
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Dynamite"), 1);
+	});
+	WaitUntil(this, TEXT("a throw in the new run"), [S]() { return GetDynamite()->GetThrows() > S->ThrowsBefore; }, 10.0);
+	Step([this, S]()
+	{
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		ApplyDamage(GetPlayerASC(), 100000.f);
+		TestTrue(TEXT("The player is dead"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
+		S->ThrowsBefore = GetDynamite()->GetThrows();
+	});
+	WaitWorldSeconds(this, 9.0);
+	Step([this, S]()
+	{
+		TestFalse(TEXT("Dead: it can't throw"), GetDynamite()->CanThrow());
+		TestEqual(TEXT("Dead: no throws in 9 s"), GetDynamite()->GetThrows(), S->ThrowsBefore);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
 		RestoreWorldSpeed();
 	});
