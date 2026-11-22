@@ -7,8 +7,8 @@
 #include "GSDeathScreenWidget.generated.h"
 
 /**
- * "You Died" screen (WBP_DeathScreen derives from this). Takes keyboard focus and asks the
- * server to restart when the restart key is pressed (R, or Start/Y on gamepad).
+ * "You Died" screen (WBP_DeathScreen derives from this). Takes keyboard focus and, on the restart key (R, or
+ * Start/Y on gamepad), asks the server to end the run and go back to the hub (the market).
  */
 UCLASS(Abstract)
 class BANDITBALLER_API UGSDeathScreenWidget : public UUserWidget

@@ -40,8 +40,7 @@ the hub map replaces them.
 
 State at the time of writing: `main` after Prompt 26, not pushed. The build is clean and all 30 automation tests pass.
 The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to play a run in
-`L_Town_Graybox`. There is no way back to the hub after death yet (Prompt 27): death still reloads the town
-(`?Restart`).
+`L_Town_Graybox`. After death, R on the death screen goes back to the hub. The run summary in between is Prompt 27.
 
 | Step | What | Commit |
 |---|---|---|
@@ -1069,6 +1068,24 @@ Everything below is in WBP_HUD (`UGSHUDWidget`), built with MCP and driven by de
     and the cash unchanged ($1,340).
   - Round 1's spawns stayed in the ring (above).
 
+### Fix — death returns to the hub
+User report: dying and pressing R started a new run in the town; it should go back to the market.
+- `AGSGameMode::RequestRestart` (death screen R, through `ServerRequestRestart`; still only honored while dead) now
+  ends the run with `OpenHubMap()` instead of `?Restart`. If `HubMap` is unset it falls back to `?Restart`.
+  - The profile was already saved at death, so the cash carries over. Everything else from the run is rebuilt by the
+    hub map.
+  - Log: `Run over: <PC> returns to the hub.`
+- `WBP_DeathScreen` text: "YOU DIED — Press R to return to the market" (MCP).
+- The GameOver phase and the run summary are still Prompt 27. This only moves the R press from "restart the town" to
+  "go to the hub".
+- Tests: `Player.RestartRestoresInput` and `Profile.PermanentCash` now expect the hub after R (AGSHubGameMode, game
+  input back, balance kept).
+- PIE check:
+  - The hub, then `gs.Market.Return` into a run.
+  - `gs.Damage.Self 1000` showed the new death screen.
+  - A real R key press led to "Run over … returns to the hub" and the hub, at 100 health with the cash unchanged
+    ($1,697).
+
 ---
 
 ## Console commands and CVars
@@ -1184,7 +1201,7 @@ starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE b
 | `Map.StartRunPortal` | PIE in the hub: a portal at MarketExitPortalSpot ("START RUN"), RunMap = L_Town_Graybox; gs.Run.Seed 4242 in the hub sets the next seed; walking into the trigger starts the run (fade to black, a second start refused); the town loads with seed 4242 (GameMode + GameState), round 1, fresh run stats, area Town, same cash, no safe zone; round 1's first spawns: no fallback points, closest ≥ ring min, farthest ≤ ring max, every enemy on the NavMesh and inside the boundary. |
 | `Map.Boundary` | AGSMapBoundary in the town (ceiling 7500), player inside, cvar exists; 5 boxes: MapBoundary object type, block Pawn, ignore Visibility/Camera/WorldStatic/WorldDynamic/PhysicsBody, no NavMesh effect; player and enemy capsules block MapBoundary; Visibility / Camera / enemy-shot / pickup traces pass through a wall and the ceiling, a pawn sweep doesn't; spawn points near a corner are inside; player and a frozen enemy launched at a wall stay inside; dash and slide into the wall stop inside; a launch up stops at the ceiling (no damage, same XY); gs.Upgrade.Grant ExtraJump 3; an air jump under the ceiling works and is stopped by it. |
 | `Round.PhaseLoop` | PreRound on start, timer → Combat; no market phases in the enum; RoundClear timer → round 2 PreRound; skips round 2 → round 3 PreRound; gs.Round.Set. |
-| `Player.RestartRestoresInput` | Die → death screen UI input → restart → game input back. |
+| `Player.RestartRestoresInput` | Die → death screen UI input → restart (R) → the hub map (AGSHubGameMode, no run) → game input back, pawn not dead. |
 | `Spawn.LocationFinder` | 12 points: on NavMesh, reachable, in ring, spaced; same seed → same points. (No spawns in the Market District: `Map.Hub`.) |
 | `Round.WaveDirector` | Round 1 size matches DT_Waves; killing the wave ends Combat; skipping removes leftovers. |
 | `Round.WaveBudget` | Seeded purchase within budget, MinRound respected, alive cap with telegraphs, spawns resume. |
@@ -1199,7 +1216,7 @@ starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE b
 | `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → no popup, collected orb → "+XPValue XP" at the collection point; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); 3 upgrade offers taken; banner/pulse/glow end. |
 | `UI.UpgradeChoice` | Choice widget from the PlayerController; level-up pauses (GameMode owns the pause) and the cards wait for the banner; cards match the offer (order, rarity color, "Owned: N"); "Reroll (3 left)", cursor shown; key / click ignored during the 0.3 s lock; R, gamepad Y and the button reroll (label 2/1/0, new cards, lock again), greyed out at 0 and R does nothing; key 2 picks the 2nd card, last pick hides, unpauses, cursor off; 1000 XP → 1 open + 3 queued; D-pad selects, A picks; next offer swaps in at once (no banner wait), locked, still paused; click / numpad 1 / key 3 pick the rest; hidden and unpaused after the queue. |
 | `UI.RoundHUD` | PreRound: "ROUND 1", "PRE-ROUND", countdown "Round 1 in 3…" → "… 2…" a second later, no enemy count, ROUND 1 banner, no icons; gs.Round.Set 2 restarts text + countdown and shows ROUND 2; a level-up hides it and queues it again (LEVEL UP!, offer open, paused); 3.5 s with the cards up: still waiting; the pick replays ROUND 2; icons: picked upgrade x1 → same again x2 (one icon) → another upgrade (two icons); Combat: "COMBAT", no countdown, "N enemies left" = wave, a kill updates it; RoundClear: phase text, no enemy count, ROUND CLEAR banner; a level-up during ROUND CLEAR then round 3 starting with the cards up → queued ROUND CLEAR + ROUND 3 → after LEVEL UP! only ROUND 3 shows (stale one dropped); no frame with a round banner over LEVEL UP! or an open offer; a new run clears the icons. |
-| `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; Combat → RoundClear pays the round-clear bonus into the profile; save when RoundClear ends includes it (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + `?Restart` (new HUD shows it). |
+| `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; Combat → RoundClear pays the round-clear bonus into the profile; save when RoundClear ends includes it (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + return to the hub (the hub's HUD shows it). |
 | `Round.ClearBonus` | DA_RoundClearSettings on the GameMode ($20 / $15 / $15, 8 s + 1.5 s per enemy) and the summary widget on the controller; PreRound starts the round's stats (no payout, no summary); Combat records its start and wave size; round 1 killed fast with no damage → base + no damage + fast clear, kills = wave size, profile += bonus + cash collected; summary shows round, title and each line; after the vacuum cash collected ≥ kills × CashValue, XP = kills × XPValue, profile and CashEarned += cash collected + bonus, summary lines follow; round 2 PreRound hides the summary and starts from zero; damage taken + an impossible time limit (override) → base only, "missed" lines, total = base; RoundClear from PreRound pays nothing and shows nothing; round 10 (skip) pays the same as round 1; gs.Run.Stats shows the last bonus; a new run clears payout and round stats. |
 | `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
 | `Upgrades.ExtraJump` | DA_Upgrade_ExtraJump (Rare, no cap, "+1"); no air jump without it; ×3 → ExtraJumps 3, JumpMaxCount 4; three air jumps (rising, falling, falling fast) each set AirJumpZVelocity, 4th refused, one puff/sound each; landing resets; coyote jump is the ground jump; late jump after walking off uses an air jump; slide-hop then air jump; jump during an air dash is queued and becomes an air jump at the dash end; jump during a ground dash becomes the ground jump; new run → 0 / 1. |
@@ -1303,8 +1320,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - `EGSArea::MarketDistrict` now only means "in the hub map". The in-town district and its travel are gone.
 - No shop or casino logic yet (M3/M4); CashSpent is never used.
 - Crits are stubbed (`TODO(crits)` in `GSAttributeSet.cpp`; damage numbers support them, nothing sets them).
-- The `GameOver` phase exists but is unused. Player death reloads the whole map (`?Restart`); the cash balance
-  survives it (profile, saved on death).
+- The `GameOver` phase exists but is unused. Player death shows the death screen, and R goes straight back to the hub
+  (no run summary yet, Prompt 27). The cash balance survives it (profile, saved on death).
 - Profile: there are no upgrade steps yet (version 1 is the only layout). A crash between save points loses the cash
   earned since the last RoundClear.
 - Cash drops and enemy XP don't scale with the round. This is by design (flat economy, user decision). The kill
@@ -1421,7 +1438,8 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
     - Run summary widget (run stats: rounds, kills, cash earned, level), then Continue → `OpenLevel` back to the hub
       (`AGSGameMode::OpenHubMap` already exists; `HubMap` is set on BP_GSGameMode).
     - Nothing from the run carries over except what is chosen explicitly, so progression, upgrades, health, weapons
-      and run stats reset by construction. Cash is kept in the profile. This replaces `?Restart`.
+      and run stats reset by construction. Cash is kept in the profile. (Death → R → hub already works without the
+      summary, see the fix after Prompt 26.)
 28. **Tests + M2 checkpoint.** Fill test gaps for the new rules, run the full suite, update this file and close M2.
 
 Decided (user):

@@ -453,9 +453,13 @@ void AGSGameMode::RequestRestart(AController* Requester)
 		return;
 	}
 
-	UE_LOG(LogBanditBaller, Log, TEXT("Restarting level (requested by %s)"), *GetNameSafe(Requester));
-	// Reload the current map (AGameModeBase has no RestartGame()).
-	GetWorld()->ServerTravel(TEXT("?Restart"));
+	// The run is over: back to the hub (the market), where the next run starts from the portal. Nothing from the run
+	// carries over; the cash is in the profile, saved at death. (Prompt 27 puts a run summary in between.)
+	UE_LOG(LogBanditBaller, Log, TEXT("Run over: %s returns to the hub."), *GetNameSafe(Requester));
+	if (!OpenHubMap())
+	{
+		GetWorld()->ServerTravel(TEXT("?Restart")); // no HubMap set: at least start over in this map
+	}
 }
 
 // ---------------------------------------------------------------------------

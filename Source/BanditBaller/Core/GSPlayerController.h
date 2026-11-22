@@ -27,7 +27,7 @@ public:
 	UFUNCTION(Client, Reliable)
 	void ClientShowDeathScreen(TSubclassOf<UUserWidget> WidgetClass);
 
-	/** Death screen -> server: restart the level (only honored while dead). */
+	/** Death screen -> server: leave the run for the hub (only honored while dead; AGSGameMode::RequestRestart). */
 	UFUNCTION(Server, Reliable)
 	void ServerRequestRestart();
 

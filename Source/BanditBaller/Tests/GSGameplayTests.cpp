@@ -695,12 +695,11 @@ bool FGSRestartRestoresInputTest::RunTest(const FString& Parameters)
 		// Same request the death screen sends on R.
 		GetPC()->ServerRequestRestart();
 	});
-	WaitUntil(this, TEXT("restarted level with a new, ready player"), [OldWorld]()
-	{
-		return GetPIEWorld() && GetPIEWorld() != OldWorld->Get() && IsPlayerReady();
-	}, 30.0);
+	WaitForMapTravel(this, OldWorld, HubMap);
 	Step([this]()
 	{
+		TestNotNull(TEXT("R on the death screen goes back to the hub (the market)"), GetHubGameMode());
+		TestNull(TEXT("No run running in the hub"), GetGameMode());
 		TestFalse(TEXT("Viewport accepts game input after restart"), IsViewportIgnoringInput());
 		const APawn* Player = GetPlayer();
 		TestTrue(TEXT("Respawned pawn takes input"), Player && Player->InputEnabled());
@@ -2201,20 +2200,18 @@ bool FGSProfileCashTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Saved at run end (death)"), GetSavedCash(*Profile), 20 + *Bonus);
 	});
 
-	// Restarting the map after death keeps the balance (the profile lives on the GameInstance).
+	// Going back to the hub after death keeps the balance (the profile lives on the GameInstance).
 	Step([]() { GetPC()->ServerRequestRestart(); });
-	WaitUntil(this, TEXT("restarted map with a new, ready player"), [OldWorld]()
-	{
-		return GetPIEWorld() && GetPIEWorld() != OldWorld->Get() && IsPlayerReady();
-	}, 30.0);
+	WaitForMapTravel(this, OldWorld, HubMap);
 	Step([this, Bonus]()
 	{
 		UGSProfileSubsystem* Profile = GetProfile();
-		if (!TestNotNull(TEXT("Profile after restart"), Profile))
+		if (!TestNotNull(TEXT("Profile in the hub"), Profile))
 		{
 			return;
 		}
-		TestEqual(TEXT("Balance survives death + restart"), Profile->GetCash(), 20 + *Bonus);
+		TestNotNull(TEXT("Death + R leads to the hub"), GetHubGameMode());
+		TestEqual(TEXT("Balance survives death + return to the hub"), Profile->GetCash(), 20 + *Bonus);
 		if (const UGSHUDWidget* HUD = GetPC() ? GetPC()->GetGSHUD() : nullptr)
 		{
 			TestEqual(TEXT("New HUD shows the balance"), HUD->GetDisplayedCash(), 20 + *Bonus);

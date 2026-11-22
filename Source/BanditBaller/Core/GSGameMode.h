@@ -49,7 +49,10 @@ public:
 	/** Called by UGSHealthComponent when a player-controlled pawn dies. */
 	void HandlePlayerDeath(APawn* Player, AActor* Killer);
 
-	/** A dead player asked to restart (death screen). Restarts the level. */
+	/**
+	 * A dead player asked to restart (death screen, R): the run is over, so they go back to the hub map (OpenHubMap),
+	 * where the next run starts from the portal. The profile was already saved at death.
+	 */
 	void RequestRestart(AController* Requester);
 
 	/** Server-only: an enemy (anything with a health component that isn't a player) died. */
