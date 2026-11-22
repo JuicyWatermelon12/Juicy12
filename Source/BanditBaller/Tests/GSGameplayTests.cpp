@@ -2170,8 +2170,9 @@ bool FGSCashPickupsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Expired: every piece counted"), Cash->GetNumExpired(), State->ExpiredBefore + State->Pieces);
 		TestEqual(TEXT("Expired: no cash paid"), GetPlayerCash(), State->CashBefore);
 		TestTrue(TEXT("Pieces blink before they vanish"), State->bSawBlinking);
-		// The kill's XP orb never expires, so it is still out; everything else is back in the pool.
-		TestEqual(TEXT("Expired pickups are back in the pool (XP orbs stay)"), Cash->GetNumPooled() + Cash->GetNumActiveOfKind(EGSPickupKind::XP), Cash->GetNumCreated());
+		// The kills' XP orbs (and any health orbs) never expire, so they are still out; everything else is back in the pool.
+		TestEqual(TEXT("Expired pickups are back in the pool (orbs stay)"),
+			Cash->GetNumPooled() + Cash->GetNumActiveOfKind(EGSPickupKind::XP) + Cash->GetNumActiveOfKind(EGSPickupKind::Health), Cash->GetNumCreated());
 
 		IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Cash.Lifetime"))->Set(0.f, ECVF_SetByCode);
 		GetGameMode()->SetRoundTimerPaused(false);
@@ -6708,7 +6709,7 @@ namespace GSTests
 				Out.XP += Pickup->GetValue();
 				++Out.XPOrbs;
 			}
-			else if (Pickup)
+			else if (Pickup && Pickup->IsCash()) // a health orb (a chance per kill) isn't part of the flat drop
 			{
 				Out.Cash += Pickup->GetValue();
 				++Out.CashPieces;
@@ -6754,6 +6755,254 @@ bool FGSFlatDropsTest::RunTest(const FString& Parameters)
 			TestEqual(FString::Printf(TEXT("%s: round 1 orb is XPValue"), Type), Round1.XP, Data->XPValue);
 			TestEqual(FString::Printf(TEXT("%s: round 10 orb is the same XP"), Type), Round10.XP, Round1.XP);
 		}
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Health orbs (Prompt 35b)
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	AGSCashPickup* FindActiveHealthOrb()
+	{
+		for (AGSCashPickup* Pickup : GetCashSubsystem()->GetActivePickups())
+		{
+			if (Pickup && Pickup->IsHealthOrb())
+			{
+				return Pickup;
+			}
+		}
+		return nullptr;
+	}
+
+	int32 CountMagnetizedHealthOrbs()
+	{
+		int32 Count = 0;
+		for (const AGSCashPickup* Pickup : GetCashSubsystem()->GetActivePickups())
+		{
+			Count += (Pickup && Pickup->IsHealthOrb() && Pickup->IsMagnetized()) ? 1 : 0;
+		}
+		return Count;
+	}
+
+	/** A frozen MeleeBandit at Location (no AI, no movement), for blast and kill-credit checks. */
+	AGSEnemyCharacter* SpawnFrozenMeleeAt(FAutomationTestBase* Test, const FVector& Location)
+	{
+		UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		AGSEnemyCharacter* Enemy = Data ? AGSEnemyCharacter::SpawnEnemy(GetPIEWorld(), Data, Location, GetPlayer()->GetActorLocation()) : nullptr;
+		if (!Test->TestNotNull(TEXT("Spawned a frozen MeleeBandit"), Enemy))
+		{
+			return nullptr;
+		}
+		if (AAIController* AIC = Cast<AAIController>(Enemy->GetController()))
+		{
+			if (UBrainComponent* Brain = AIC->GetBrainComponent())
+			{
+				Brain->StopLogic(TEXT("Health orb test"));
+			}
+			AIC->StopMovement();
+		}
+		Enemy->GetCharacterMovement()->DisableMovement();
+		return Enemy;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSHealthOrbsTest, "BanditBaller.Economy.HealthOrbs", GSTests::TestFlags)
+bool FGSHealthOrbsTest::RunTest(const FString& Parameters)
+{
+	struct FHealState
+	{
+		FVector PlayerHome = FVector(0.f, 0.f, 100.f);
+		FVector EnemyAt = FVector(1000.f, 0.f, 0.f);
+		FVector DropOrigin = FVector::ZeroVector;
+		int32 CashValue = 0;
+		int32 HealAmount = 0;
+		int32 DroppedBefore = 0;
+		int32 CollectedBefore = 0;
+	};
+	TSharedRef<FHealState> S = MakeShared<FHealState>();
+
+	BeginPIE(this);
+
+	// Settings, then chance 0 never drops and chance 1 always drops (enemies killed by the player, out of reach).
+	Step([this, S]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		const UGSCashSettings* Settings = GameMode->GetCashSettings();
+		if (!TestNotNull(TEXT("Pickup settings (DA_CashSettings)"), Settings))
+		{
+			return;
+		}
+		SpeedUpWorld(4.f); // tosses, magnet flights and the waits run in game time
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->RestartRunWithSeed(351);
+		RemoveAllEnemies(GetPIEWorld());
+		GetPlayer()->TeleportTo(S->PlayerHome, FRotator::ZeroRotator);
+		// The kills' XP orbs must not level the player up (a level-up pauses the game and heals).
+		GetPlayerASC()->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 0.f);
+
+		TestEqual(TEXT("DropChance 20%"), Settings->HealthOrbDropChance, 0.2f, 0.0001f);
+		TestEqual(TEXT("Drop chance read from the settings"), GameMode->GetHealthOrbDropChance(), 0.2f, 0.0001f);
+		TestEqual(TEXT("HealAmount 15"), Settings->HealthOrbHealAmount, 15);
+		TestEqual(TEXT("Health orbs never expire by default"), Settings->HealthOrbLifetime, 0.f);
+		TestTrue(TEXT("Health orb look: mesh + material"), Settings->HealthOrbLook.Mesh && Settings->HealthOrbLook.Material);
+		TestTrue(TEXT("Its own material, not the XP orb's"), Settings->HealthOrbLook.Material != Settings->XPOrbLook.Material);
+		TestTrue(TEXT("Larger than the XP orb"), Settings->HealthOrbLook.Scale.X > Settings->XPOrbLook.Scale.X);
+		TestNotNull(TEXT("Placeholder pickup sound"), Settings->HealthOrbSound.Get());
+		const UGSUpgradeData* Magnet = UGSDebugLibrary::FindUpgradeData(TEXT("Magnet"));
+		TestTrue(TEXT("Magnet card mentions health orbs"), Magnet && Magnet->GetFormattedDescription().ToString().Contains(TEXT("health")));
+		S->HealAmount = Settings->HealthOrbHealAmount;
+
+		UGSCashPickupSubsystem* Pickups = GetCashSubsystem();
+		S->DroppedBefore = Pickups->GetNumHealthOrbsDropped();
+		GameMode->SetHealthOrbDropChanceOverride(0.f);
+		for (int32 Index = 0; Index < 10; ++Index)
+		{
+			KillEnemyForCash(this, S->EnemyAt, S->DropOrigin, S->CashValue);
+		}
+		TestEqual(TEXT("Chance 0: 10 kills, no health orb"), Pickups->GetNumHealthOrbsDropped(), S->DroppedBefore);
+		TestEqual(TEXT("Chance 0: none on the ground"), Pickups->GetNumActiveOfKind(EGSPickupKind::Health), 0);
+
+		GameMode->SetHealthOrbDropChanceOverride(1.f);
+		for (int32 Index = 0; Index < 5; ++Index)
+		{
+			KillEnemyForCash(this, S->EnemyAt, S->DropOrigin, S->CashValue);
+		}
+		TestEqual(TEXT("Chance 1: 5 kills, 5 health orbs"), Pickups->GetNumHealthOrbsDropped(), S->DroppedBefore + 5);
+		TestEqual(TEXT("Chance 1: 5 on the ground"), Pickups->GetNumActiveOfKind(EGSPickupKind::Health), 5);
+
+		// One orb for the next checks.
+		Pickups->ReleaseAll();
+		KillEnemyForCash(this, S->EnemyAt, S->DropOrigin, S->CashValue);
+		const AGSCashPickup* Orb = FindActiveHealthOrb();
+		if (TestNotNull(TEXT("Health orb"), Orb))
+		{
+			TestEqual(TEXT("Orb worth HealAmount"), Orb->GetValue(), S->HealAmount);
+			TestEqual(TEXT("Orb has no expiry"), Orb->GetExpireAtServerTime(), 0.0);
+			TestTrue(TEXT("Orb uses the health orb mesh"), Orb->GetMesh()->GetStaticMesh() == Settings->HealthOrbLook.Mesh);
+			TestTrue(TEXT("Orb uses M_HealthOrb"), Orb->GetMesh()->GetMaterial(0) == Settings->HealthOrbLook.Material);
+			TestFalse(TEXT("Orb is visible"), Orb->IsHidden());
+		}
+	});
+	WaitWorldSeconds(this, 0.6); // the toss lands
+
+	// Full health: standing on it, the orb isn't attracted or collected.
+	Step([this, S]()
+	{
+		const AGSCashPickup* Orb = FindActiveHealthOrb();
+		TestEqual(TEXT("Player at full health"), GetHealth(GetPlayerASC()), GetMaxHealth(GetPlayerASC()));
+		if (Orb)
+		{
+			GetPlayer()->TeleportTo(Orb->GetActorLocation() + FVector(-60.f, 0.f, 60.f), FRotator::ZeroRotator);
+		}
+		S->CollectedBefore = GetCashSubsystem()->GetNumHealthOrbsCollected();
+	});
+	WaitWorldSeconds(this, 1.5);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Full health: the orb stays"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Health), 1);
+		TestEqual(TEXT("Full health: not attracted"), CountMagnetizedHealthOrbs(), 0);
+		TestEqual(TEXT("Full health: not collected"), GetCashSubsystem()->GetNumHealthOrbsCollected(), S->CollectedBefore);
+
+		// Hurt: 100 -> 60, and the orb comes in.
+		ApplyDamage(GetPlayerASC(), 40.f);
+		TestEqual(TEXT("Hurt to 60"), GetHealth(GetPlayerASC()), GetMaxHealth(GetPlayerASC()) - 40.f, 0.01f);
+	});
+	WaitUntil(this, TEXT("the orb to be collected once hurt"), []() { return GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Health) == 0; }, 10.0);
+	Step([this, S]()
+	{
+		UAbilitySystemComponent* ASC = GetPlayerASC();
+		TestEqual(TEXT("Healed HealAmount"), GetHealth(ASC), GetMaxHealth(ASC) - 40.f + S->HealAmount, 0.01f);
+		TestEqual(TEXT("Counted as collected"), GetCashSubsystem()->GetNumHealthOrbsCollected(), S->CollectedBefore + 1);
+		const UGSRunStats* Stats = GetGameState()->GetRunStats();
+		TestEqual(TEXT("Run stats: 1 health orb"), Stats->GetHealthOrbsCollected(), 1);
+		TestEqual(TEXT("Run stats: healed HealAmount"), Stats->GetHealthHealedByOrbs(), static_cast<float>(S->HealAmount), 0.01f);
+		const UGSHUDWidget* HUD = GetPC()->GetGSHUD();
+		TestTrue(TEXT("Green +N popup"), HUD && HUD->GetActiveHealthPopupTotal() >= S->HealAmount);
+
+		// gs.HealthOrb.Spawn 2 at 75/100: 15 + 10, never above MaxHealth.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("HealthOrbSpawn"), { TEXT("2") });
+		TestEqual(TEXT("gs.HealthOrb.Spawn 2 drops 2"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Health), 2);
+	});
+	WaitUntil(this, TEXT("the spawned orbs to be collected"), []() { return GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Health) == 0; }, 10.0);
+	Step([this, S]()
+	{
+		UAbilitySystemComponent* ASC = GetPlayerASC();
+		TestEqual(TEXT("Never above MaxHealth"), GetHealth(ASC), GetMaxHealth(ASC), 0.01f);
+		const UGSRunStats* Stats = GetGameState()->GetRunStats();
+		TestEqual(TEXT("Run stats: 3 health orbs"), Stats->GetHealthOrbsCollected(), 3);
+		TestEqual(TEXT("Run stats: only the health actually healed (40)"), Stats->GetHealthHealedByOrbs(), 40.f, 0.01f);
+
+		// At full health a spawned orb waits on the ground.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("HealthOrbSpawn"), {});
+	});
+	WaitWorldSeconds(this, 1.5);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Full health: the spawned orb waits"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Health), 1);
+		TestEqual(TEXT("Full health: not attracted"), CountMagnetizedHealthOrbs(), 0);
+
+		// The RoundClear vacuum collects it anyway; the heal over MaxHealth is lost.
+		GetGameMode()->SetPhase(EGSRoundPhase::RoundClear);
+		TestEqual(TEXT("RoundClear: the orb flies to the player"), CountMagnetizedHealthOrbs(), 1);
+	});
+	WaitUntil(this, TEXT("the vacuumed health orb to arrive"), []() { return GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Health) == 0; }, 10.0);
+	Step([this, S]()
+	{
+		UAbilitySystemComponent* ASC = GetPlayerASC();
+		TestEqual(TEXT("Vacuum: still at MaxHealth"), GetHealth(ASC), GetMaxHealth(ASC), 0.01f);
+		const UGSRunStats* Stats = GetGameState()->GetRunStats();
+		TestEqual(TEXT("Vacuum: collected (4 orbs)"), Stats->GetHealthOrbsCollected(), 4);
+		TestEqual(TEXT("Vacuum: nothing healed over MaxHealth"), Stats->GetHealthHealedByOrbs(), 40.f, 0.01f);
+
+		// Kill credit: a blast kill (Powder Keg) drops one too; a kill that isn't the player's doesn't.
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRound(1);
+		GameMode->SetRoundTimerPaused(true);
+		GetPlayer()->TeleportTo(S->PlayerHome, FRotator::ZeroRotator);
+		UGSCashPickupSubsystem* Pickups = GetCashSubsystem();
+		Pickups->ReleaseAll();
+
+		AGSEnemyCharacter* Other = SpawnFrozenMeleeAt(this, FVector(1000.f, 800.f, 0.f));
+		if (Other)
+		{
+			ApplyDamage(Other->GetAbilitySystemComponent(), 100000.f); // its own damage: not the player's kill
+			TestTrue(TEXT("Non-player kill died"), Other->GetHealthComponent()->IsDead());
+		}
+		TestEqual(TEXT("A kill that isn't the player's drops no health orb"), Pickups->GetNumActiveOfKind(EGSPickupKind::Health), 0);
+
+		TestEqual(TEXT("Powder Keg x1"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("PowderKeg"), 1), 1);
+		AGSEnemyCharacter* Neighbour = SpawnFrozenMeleeAt(this, S->EnemyAt + FVector(0.f, 150.f, 0.f));
+		if (Neighbour)
+		{
+			Neighbour->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 20.f);
+		}
+		KillEnemyForCash(this, S->EnemyAt, S->DropOrigin, S->CashValue);
+		TestTrue(TEXT("The blast killed the neighbour"), Neighbour && Neighbour->GetHealthComponent()->IsDead());
+		TestEqual(TEXT("Shot kill + blast kill: 2 health orbs"), Pickups->GetNumActiveOfKind(EGSPickupKind::Health), 2);
+
+		// A new run clears health orbs on the ground and the run stats.
+		GameMode->RestartRunWithSeed(352);
+		TestEqual(TEXT("New run clears health orbs"), Pickups->GetNumActiveOfKind(EGSPickupKind::Health), 0);
+		TestEqual(TEXT("New run: 0 orbs collected"), GetGameState()->GetRunStats()->GetHealthOrbsCollected(), 0);
+		TestEqual(TEXT("New run: 0 healed"), GetGameState()->GetRunStats()->GetHealthHealedByOrbs(), 0.f);
+
+		// A dead player collects nothing.
+		GetPlayerASC()->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 0.f);
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("HealthOrbSpawn"), {});
+		ApplyDamage(GetPlayerASC(), 100000.f);
+		TestTrue(TEXT("Player is dead"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
+	});
+	WaitWorldSeconds(this, 1.5);
+	Step([this]()
+	{
+		TestEqual(TEXT("Dead player: the orb stays"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Health), 1);
+		TestEqual(TEXT("Dead player: nothing collected"), GetGameState()->GetRunStats()->GetHealthOrbsCollected(), 0);
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		RestoreWorldSpeed();
 	});
 	EndPIE();
 	return true;

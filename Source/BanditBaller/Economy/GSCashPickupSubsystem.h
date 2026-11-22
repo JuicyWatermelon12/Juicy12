@@ -11,17 +11,19 @@ class APlayerController;
 class UGSCashSettings;
 
 /**
- * Server-side owner of the enemy-drop pickup pool (one per game world): cash pieces and XP orbs.
+ * Server-side owner of the enemy-drop pickup pool (one per game world): cash pieces, XP orbs and health orbs.
  *
  * - SpawnCashDrop: AGSGameMode calls it when an enemy dies. The enemy's CashValue is split into a few pieces
  *   (SplitValue), scattered around the body with the run stream and tossed onto the ground.
  * - SpawnXPDrop: one XP orb worth the enemy's XPValue, tossed the same way. No XP is granted on the kill itself.
+ * - SpawnHealthDrop: one health orb worth HealthOrbHealAmount, tossed the same way (AGSGameMode rolls the chance).
  * - Pickups fly to a player once inside that player's PickupRadius attribute (AGSCashPickup) and are collected:
- *   cash through AGSGameMode::AwardCash, XP through AGSGameMode::AwardXPPickup. Uncollected cash expires after
- *   Lifetime (gs.Cash.Lifetime overrides); XP orbs after XPOrbLifetime (0 = never).
- * - VacuumAll (RoundClear) sends every pickup on the ground to the nearest living player; ReleaseAll (new run)
- *   clears them without paying out.
- * Pickups share one pool: created once (PoolPrewarm), then hidden and reused for either kind.
+ *   cash through AGSGameMode::AwardCash, XP through AGSGameMode::AwardXPPickup, health through
+ *   AGSGameMode::AwardHealthPickup. Health orbs ignore players at full health. Uncollected cash expires after
+ *   Lifetime (gs.Cash.Lifetime overrides); XP orbs after XPOrbLifetime, health orbs after HealthOrbLifetime (0 = never).
+ * - VacuumAll (RoundClear) sends every pickup on the ground to the nearest living player (health orbs too, even at full
+ *   health); ReleaseAll (new run) clears them without paying out.
+ * Pickups share one pool: created once (PoolPrewarm), then hidden and reused for any kind.
  */
 UCLASS()
 class BANDITBALLER_API UGSCashPickupSubsystem : public UWorldSubsystem
@@ -36,6 +38,9 @@ public:
 
 	/** Server: drop one XP orb worth XPValue near Origin. Returns the orb (nullptr if nothing dropped). */
 	AGSCashPickup* SpawnXPDrop(const UGSCashSettings* Settings, const FVector& Origin, int32 XPValue);
+
+	/** Server: drop one health orb (worth the settings' HealthOrbHealAmount) near Origin. Returns the orb. */
+	AGSCashPickup* SpawnHealthDrop(const UGSCashSettings* Settings, const FVector& Origin);
 
 	/** How TotalValue is split into piece values (sum == TotalValue, each >= 1; largest first). */
 	static void SplitValue(const UGSCashSettings& Settings, int32 TotalValue, TArray<int32>& OutPieces);
@@ -54,7 +59,7 @@ public:
 
 	/**
 	 * Seconds an uncollected pickup of Kind stays; 0 = forever. Cash: gs.Cash.Lifetime if > 0, else the settings'
-	 * Lifetime. XP: the settings' XPOrbLifetime.
+	 * Lifetime. XP: the settings' XPOrbLifetime. Health: HealthOrbLifetime.
 	 */
 	float GetLifetime(EGSPickupKind Kind = EGSPickupKind::Cash) const;
 
@@ -73,9 +78,15 @@ public:
 	int32 GetNumXPOrbsDropped() const { return NumXPOrbsDropped; }
 	int32 GetNumXPOrbsCollected() const { return NumXPOrbsCollected; }
 	int32 GetNumXPOrbsExpired() const { return NumXPOrbsExpired; }
+	int32 GetNumHealthOrbsDropped() const { return NumHealthOrbsDropped; }
+	int32 GetNumHealthOrbsCollected() const { return NumHealthOrbsCollected; }
+	int32 GetNumHealthOrbsExpired() const { return NumHealthOrbsExpired; }
 
 	/** Where the last XP orb was collected (tests: the "+N XP" popup appears there). */
 	FVector GetLastXPCollectLocation() const { return LastXPCollectLocation; }
+
+	/** Where the last health orb was collected (tests). */
+	FVector GetLastHealthCollectLocation() const { return LastHealthCollectLocation; }
 
 protected:
 	virtual bool DoesSupportWorldType(const EWorldType::Type WorldType) const override;
@@ -109,5 +120,12 @@ private:
 	int32 NumXPOrbsDropped = 0;
 	int32 NumXPOrbsCollected = 0;
 	int32 NumXPOrbsExpired = 0;
+	int32 NumHealthOrbsDropped = 0;
+	int32 NumHealthOrbsCollected = 0;
+	int32 NumHealthOrbsExpired = 0;
 	FVector LastXPCollectLocation = FVector::ZeroVector;
+	FVector LastHealthCollectLocation = FVector::ZeroVector;
+
+	/** Landing spot for one orb tossed from Origin (random angle and radius on the run stream). */
+	FVector RollOrbLanding(const UGSCashSettings& Settings, const FVector& Origin);
 };

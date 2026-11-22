@@ -57,6 +57,8 @@ void UGSRunStats::ResetStats(double InRunStartTime)
 	XPEarned = 0;
 	LevelReached = 1;
 	BestCombo = 0;
+	HealthOrbsCollected = 0;
+	HealthHealedByOrbs = 0.f;
 	CurrentRound = FGSRoundStats();
 	LastRoundClearPayout = FGSRoundClearPayout();
 	RunStartTime = InRunStartTime;
@@ -187,6 +189,16 @@ void UGSRunStats::RecordCombo(int32 Count)
 	}
 }
 
+void UGSRunStats::RecordHealthOrbCollected(float Healed)
+{
+	if (CanWrite())
+	{
+		++HealthOrbsCollected;
+		HealthHealedByOrbs += FMath::Max(Healed, 0.f);
+		Changed();
+	}
+}
+
 void UGSRunStats::EndRun(double InRunEndTime)
 {
 	if (CanWrite() && RunEndTime <= 0.0)
@@ -240,8 +252,9 @@ FString UGSRunStats::ToDebugString() const
 		TEXT("Damage taken:   %.0f\n")
 		TEXT("XP earned:      %d\n")
 		TEXT("Level reached:  %d\n")
-		TEXT("Best combo:     %d%s"),
+		TEXT("Best combo:     %d\n")
+		TEXT("Health orbs:    %d collected, %.0f health healed%s"),
 		FMath::FloorToInt(Seconds / 60.f), FMath::FloorToInt(FMath::Fmod(Seconds, 60.f)), Seconds, RunEndTime > 0.0 ? TEXT(" [ended]") : TEXT(""),
 		RoundsCleared, TotalKills, Kills.IsEmpty() ? TEXT("none") : *Kills, CashEarned, CashSpent, DamageDealt, DamageTaken, XPEarned, LevelReached,
-		BestCombo, *RoundLines);
+		BestCombo, HealthOrbsCollected, HealthHealedByOrbs, *RoundLines);
 }

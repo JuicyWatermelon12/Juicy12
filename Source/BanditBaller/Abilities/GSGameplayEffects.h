@@ -235,6 +235,19 @@ public:
 	UGSHealthOnKillEffect(const FObjectInitializer& ObjectInitializer);
 };
 
+/**
+ * Instant: adds SetByCaller Data.Heal to the target's Health (health orbs; DA_CashSettings HealthOrbHealEffect). Health's
+ * clamp keeps it at or below MaxHealth, so anything over is lost.
+ */
+UCLASS()
+class BANDITBALLER_API UGSHealEffect : public UGameplayEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSHealEffect(const FObjectInitializer& ObjectInitializer);
+};
+
 /** Instant: overrides Health with the target's current MaxHealth (GE_FullHeal; used after level-up rewards). */
 UCLASS()
 class BANDITBALLER_API UGSFullHealEffect : public UGameplayEffect

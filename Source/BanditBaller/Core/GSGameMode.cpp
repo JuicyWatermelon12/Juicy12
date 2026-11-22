@@ -10,6 +10,7 @@
 #include "GSRoundSettings.h"
 #include "GSEnemyCharacter.h"
 #include "GSEnemyData.h"
+#include "GSRunRandom.h"
 #include "GSRunStats.h"
 #include "GSRunSummaryWidget.h"
 #include "GSWaveDirector.h"
@@ -158,6 +159,11 @@ void AGSGameMode::HandleEnemyKilled(AActor* Enemy, AActor* Killer)
 		if (XP > 0)
 		{
 			Pickups->SpawnXPDrop(CashSettings, Enemy->GetActorLocation(), XP);
+		}
+		// Health orb: only enemies the player killed (shots, Powder Keg blasts; the Floating Gun later).
+		if (KillerState)
+		{
+			RollHealthOrbDrop(Enemy->GetActorLocation());
 		}
 	}
 
@@ -419,6 +425,84 @@ int32 AGSGameMode::AwardXPPickup(APlayerController* Player, int32 BaseXP, const 
 		PC->NotifyXPCollected(Location); // before AwardXP, so the popup pairs with this XP gain at once
 	}
 	return AwardXP(PS, static_cast<float>(BaseXP)); // XPGain applies here; level-ups, rewards and offers follow
+}
+
+float AGSGameMode::GetHealthOrbDropChance() const
+{
+	if (HealthOrbDropChanceOverride >= 0.f)
+	{
+		return FMath::Clamp(HealthOrbDropChanceOverride, 0.f, 1.f);
+	}
+	return CashSettings ? FMath::Clamp(CashSettings->HealthOrbDropChance, 0.f, 1.f) : 0.f;
+}
+
+void AGSGameMode::RollHealthOrbDrop(const FVector& Location)
+{
+	UGSCashPickupSubsystem* Pickups = GetWorld()->GetSubsystem<UGSCashPickupSubsystem>();
+	const float Chance = GetHealthOrbDropChance();
+	if (!Pickups || !CashSettings || Chance <= 0.f)
+	{
+		return; // no dice: a 0 chance leaves the run stream untouched
+	}
+	if (Chance >= 1.f || UGSRunRandom::RollChance(this, Chance))
+	{
+		Pickups->SpawnHealthDrop(CashSettings, Location);
+	}
+}
+
+int32 AGSGameMode::SpawnHealthOrbsForDebug(APlayerController* Player, int32 Count)
+{
+	UGSCashPickupSubsystem* Pickups = GetWorld()->GetSubsystem<UGSCashPickupSubsystem>();
+	const APawn* Pawn = Player ? Player->GetPawn() : nullptr;
+	if (!Pickups || !CashSettings || !Pawn)
+	{
+		return 0;
+	}
+	int32 Dropped = 0;
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		Dropped += Pickups->SpawnHealthDrop(CashSettings, Pawn->GetActorLocation()) ? 1 : 0;
+	}
+	return Dropped;
+}
+
+float AGSGameMode::AwardHealthPickup(APlayerController* Player, int32 HealAmount, const FVector& Location)
+{
+	const AGSPlayerState* PS = Player ? Player->GetPlayerState<AGSPlayerState>() : nullptr;
+	UAbilitySystemComponent* ASC = PS ? PS->GetAbilitySystemComponent() : nullptr;
+	if (!ASC || HealAmount <= 0 || ASC->HasMatchingGameplayTag(GSGameplayTags::State_Dead))
+	{
+		return 0.f;
+	}
+	// TODO(co-op): the orb heals whoever collects it (not shared with the party). The popup reaches only the local HUD.
+	const TSubclassOf<UGameplayEffect> HealEffect = (CashSettings && CashSettings->HealthOrbHealEffect)
+		? CashSettings->HealthOrbHealEffect : TSubclassOf<UGameplayEffect>(UGSHealEffect::StaticClass());
+	const float Before = ASC->GetNumericAttribute(UGSAttributeSet::GetHealthAttribute());
+	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(HealEffect, 1.f, ASC->MakeEffectContext());
+	if (!Spec.IsValid())
+	{
+		return 0.f;
+	}
+	Spec.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Heal, static_cast<float>(HealAmount));
+	ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data);
+	const float Healed = FMath::Max(0.f, ASC->GetNumericAttribute(UGSAttributeSet::GetHealthAttribute()) - Before);
+
+	if (UGSRunStats* Stats = GetRunStats())
+	{
+		Stats->RecordHealthOrbCollected(Healed);
+	}
+	// Placeholder sound (local: single-player). TODO(co-op): play it on the collecting player's machine.
+	if (CashSettings && CashSettings->HealthOrbSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, CashSettings->HealthOrbSound, Location);
+	}
+	if (AGSPlayerController* PC = Cast<AGSPlayerController>(Player))
+	{
+		PC->NotifyHealthCollected(Location, Healed);
+	}
+	UE_LOG(LogBanditBaller, Log, TEXT("[heal] %s: health orb +%d -> Health %.0f -> %.0f (healed %.0f)"), *GetNameSafe(PS), HealAmount, Before,
+		ASC->GetNumericAttribute(UGSAttributeSet::GetHealthAttribute()), Healed);
+	return Healed;
 }
 
 void AGSGameMode::HandleDamageApplied(AActor* Victim, AActor* DamageInstigator, float Amount)

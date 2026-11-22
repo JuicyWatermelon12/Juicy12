@@ -17,6 +17,7 @@
 //                                                       hub: print / set the next run's seed
 //   gs.Run.Stats                                        print run stats (local replicated copy)
 //   gs.XP.Add <N> / gs.XP.SetLevel <N>                  grant raw XP / jump to a level (UGSProgressionComponent)
+//   gs.HealthOrb.Spawn [N]                              drop health orbs around the player (AGSGameMode)
 //   gs.Upgrade.Grant <Name> [N] / gs.Upgrade.List       add upgrade stacks / list upgrades (UGSUpgradeComponent)
 //   gs.Debug.Boundary 1                                 draw the map boundary (AGSMapBoundary)
 //   gs.Upgrade.Offer / Choose <0-2> / Reroll            queue, pick from and reroll level-up offers (AGSGameMode)
@@ -145,6 +146,14 @@ namespace GSCheats
 		TEXT("gs.XP.SetLevel"),
 		TEXT("Reset the local player to level 1 and add exactly the XP for level N (0 XP into it). Usage: gs.XP.SetLevel <N>"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("XPSetLevel"), Args, World); }),
+		ECVF_Cheat);
+
+	// --- Health orbs ---
+
+	FAutoConsoleCommandWithWorldAndArgs HealthOrbSpawnCommand(
+		TEXT("gs.HealthOrb.Spawn"),
+		TEXT("Drop health orbs around the local player (no chance roll). At full health they wait until you are hurt. Usage: gs.HealthOrb.Spawn [Count=1]"),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("HealthOrbSpawn"), Args, World); }),
 		ECVF_Cheat);
 
 	// --- Level-up upgrades (per run) ---

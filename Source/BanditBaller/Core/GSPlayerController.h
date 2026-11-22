@@ -43,6 +43,9 @@ public:
 	/** An XP orb was collected at WorldLocation: the next "+N XP" popup appears there (local HUD). */
 	void NotifyXPCollected(const FVector& WorldLocation);
 
+	/** A health orb healed Healed at WorldLocation: green "+N" popup there (local HUD, not an RPC; TODO(co-op)). */
+	void NotifyHealthCollected(const FVector& WorldLocation, float Healed);
+
 	/** Debug (gs.Damage.Self): apply DebugDamageEffect to our own ASC on the server. */
 	UFUNCTION(Server, Reliable)
 	void ServerDebugDamageSelf(float Amount);

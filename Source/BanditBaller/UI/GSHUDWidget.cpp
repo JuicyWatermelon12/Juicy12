@@ -994,6 +994,30 @@ int32 UGSHUDWidget::GetActiveXPPopupTotal() const
 	return Total;
 }
 
+void UGSHUDWidget::AddHealthPopup(const FVector& WorldLocation, int32 Amount)
+{
+	if (Amount <= 0)
+	{
+		return;
+	}
+	FDamageNumber& Entry = AllocateFloatingNumber();
+	Entry.WorldLocation = WorldLocation + FVector(0.f, 0.f, HealthPopupHeight);
+	Entry.Heal = Amount;
+	Entry.Lifetime = HealthPopupLifetime;
+	Entry.JitterX = 0.f;
+	Entry.bHeal = true;
+}
+
+int32 UGSHUDWidget::GetActiveHealthPopupTotal() const
+{
+	int32 Total = 0;
+	for (const FDamageNumber& Entry : DamageNumbers)
+	{
+		Total += (Entry.bActive && Entry.bHeal) ? Entry.Heal : 0;
+	}
+	return Total;
+}
+
 void UGSHUDWidget::RefreshProgressionDisplay()
 {
 	const UGSProgressionComponent* Progression = BoundProgression.Get();
@@ -1359,6 +1383,12 @@ void UGSHUDWidget::PaintDamageNumbers(const FGeometry& Geometry, FSlateWindowEle
 			Text = FString::Printf(TEXT("+%d XP"), Entry.XP);
 			FontSize = XPPopupFontSize;
 			Color = XPPopupColor;
+		}
+		else if (Entry.bHeal)
+		{
+			Text = FString::Printf(TEXT("+%d"), Entry.Heal);
+			FontSize = HealthPopupFontSize;
+			Color = HealthPopupColor;
 		}
 		else if (Entry.bCritical)
 		{

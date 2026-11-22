@@ -6,7 +6,9 @@
 #include "Engine/DataAsset.h"
 #include "GSCashSettings.generated.h"
 
+class UGameplayEffect;
 class UMaterialInterface;
+class USoundBase;
 class UStaticMesh;
 
 /** How one cash piece looks (coin or bill). */
@@ -30,11 +32,12 @@ struct FGSCashPieceLook
 };
 
 /**
- * Pickup tuning for both kinds of enemy drops (DA_CashSettings), read by UGSCashPickupSubsystem via AGSGameMode and
+ * Pickup tuning for every kind of enemy drop (DA_CashSettings), read by UGSCashPickupSubsystem via AGSGameMode and
  * replicated to clients on each AGSCashPickup (for the look and blink timing).
  * - Cash pieces: Split, Lifetime, CoinLook / BillLook.
  * - XP orbs: the "XP Orb" section.
- * - Shared by both: Scatter (toss), Magnet, Pool.
+ * - Health orbs: the "Health Orb" section (drop chance, heal, lifetime, look, sound).
+ * - Shared by all: Scatter (toss), Magnet, Pool.
  */
 UCLASS(BlueprintType, Const)
 class BANDITBALLER_API UGSCashSettings : public UPrimaryDataAsset
@@ -130,4 +133,37 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "XP Orb", meta = (ClampMin = "0"))
 	float XPOrbPulseSpeed = 1.5f;
+
+	// --- Health orbs (a chance per enemy the player kills; heal the collector) ---
+
+	/** Chance (0..1) that an enemy the player kills drops one health orb, rolled on the run stream. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Health Orb", meta = (ClampMin = "0", ClampMax = "1"))
+	float HealthOrbDropChance = 0.2f;
+
+	/** Health one orb heals when collected (never above MaxHealth; the rest is lost). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Health Orb", meta = (ClampMin = "1"))
+	int32 HealthOrbHealAmount = 15;
+
+	/** Seconds an uncollected health orb stays; 0 = it never expires. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Health Orb", meta = (ClampMin = "0", Units = "s"))
+	float HealthOrbLifetime = 0.f;
+
+	/** Instant heal (SetByCaller Data.Heal on Health). Unset = the native UGSHealEffect. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Health Orb")
+	TSubclassOf<UGameplayEffect> HealthOrbHealEffect;
+
+	/** Placeholder look: a glowing green sphere, larger than the XP orb (it pulses instead of spinning). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Health Orb")
+	FGSCashPieceLook HealthOrbLook;
+
+	/** Scale pulse of the orb: +-HealthOrbPulseAmount around its look scale, HealthOrbPulseSpeed times per second. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Health Orb", meta = (ClampMin = "0", ClampMax = "1"))
+	float HealthOrbPulseAmount = 0.12f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Health Orb", meta = (ClampMin = "0"))
+	float HealthOrbPulseSpeed = 1.f;
+
+	/** Placeholder sound played where an orb is collected. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Health Orb")
+	TObjectPtr<USoundBase> HealthOrbSound;
 };

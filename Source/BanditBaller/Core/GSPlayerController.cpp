@@ -156,6 +156,15 @@ void AGSPlayerController::NotifyXPCollected(const FVector& WorldLocation)
 	}
 }
 
+void AGSPlayerController::NotifyHealthCollected(const FVector& WorldLocation, float Healed)
+{
+	// TODO(co-op): local HUD only (no RPC, single-player first).
+	if (UGSHUDWidget* HUD = GetGSHUD())
+	{
+		HUD->AddHealthPopup(WorldLocation, FMath::RoundToInt(Healed));
+	}
+}
+
 void AGSPlayerController::ClientNotifyCashCollected_Implementation(FVector_NetQuantize WorldLocation, int32 Amount)
 {
 	if (UGSHUDWidget* HUD = GetGSHUD())

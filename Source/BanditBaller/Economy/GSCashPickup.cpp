@@ -70,6 +70,7 @@ void AGSCashPickup::ActivatePickup(EGSPickupKind InKind, int32 InValue, bool bIn
 	TossElapsed = 0.f;
 	MagnetTarget.Reset();
 	MagnetSpeed = 0.f;
+	bForcedMagnet = false;
 	CosmeticTime = 0.f;
 
 	SetActorLocation(From, false, nullptr, ETeleportType::TeleportPhysics);
@@ -79,7 +80,7 @@ void AGSCashPickup::ActivatePickup(EGSPickupKind InKind, int32 InValue, bool bIn
 	ForceNetUpdate();
 }
 
-void AGSCashPickup::StartMagnet(APawn* Target)
+void AGSCashPickup::StartMagnet(APawn* Target, bool bForced)
 {
 	if (!bActive || !Target)
 	{
@@ -88,12 +89,37 @@ void AGSCashPickup::StartMagnet(APawn* Target)
 	State = EState::Magnet;
 	MagnetTarget = Target;
 	MagnetSpeed = Settings ? Settings->MagnetStartSpeed : 400.f;
+	bForcedMagnet = bForced;
 	ExpireAtServerTime = 0.0; // no expiry / blink while flying
+}
+
+void AGSCashPickup::ReturnToGround(UGSCashPickupSubsystem& Subsystem)
+{
+	const AGameStateBase* GameState = GetWorld()->GetGameState();
+	State = EState::Idle;
+	MagnetTarget.Reset();
+	bForcedMagnet = false;
+	const float Lifetime = Subsystem.GetLifetime(Kind);
+	ExpireAtServerTime = (GameState && Lifetime > 0.f) ? GameState->GetServerWorldTimeSeconds() + Lifetime : 0.0;
+}
+
+bool AGSCashPickup::IsAtFullHealth(const APawn* Pawn)
+{
+	const AGSPlayerState* PS = Pawn ? Pawn->GetPlayerState<AGSPlayerState>() : nullptr;
+	const UAbilitySystemComponent* ASC = PS ? PS->GetAbilitySystemComponent() : nullptr;
+	if (!ASC)
+	{
+		return true;
+	}
+	const float Health = ASC->GetNumericAttribute(UGSAttributeSet::GetHealthAttribute());
+	const float MaxHealth = ASC->GetNumericAttribute(UGSAttributeSet::GetMaxHealthAttribute());
+	return Health >= MaxHealth - KINDA_SMALL_NUMBER;
 }
 
 void AGSCashPickup::DeactivatePickup()
 {
 	bActive = false;
+	bForcedMagnet = false;
 	MagnetTarget.Reset();
 	ApplyActive();
 	ForceNetUpdate();
@@ -125,6 +151,10 @@ const FGSCashPieceLook* AGSCashPickup::GetLook() const
 	if (Kind == EGSPickupKind::XP)
 	{
 		return &Settings->XPOrbLook;
+	}
+	if (Kind == EGSPickupKind::Health)
+	{
+		return &Settings->HealthOrbLook;
 	}
 	return bBill ? &Settings->BillLook : &Settings->CoinLook;
 }
@@ -192,6 +222,10 @@ APawn* AGSCashPickup::FindPlayerInRange() const
 		{
 			continue;
 		}
+		if (Kind == EGSPickupKind::Health && IsAtFullHealth(Pawn))
+		{
+			continue; // nothing to heal: the orb waits until this player is hurt
+		}
 		const float Radius = ASC->GetNumericAttribute(UGSAttributeSet::GetPickupRadiusAttribute());
 		const float DistanceSq = FVector::DistSquared(Pawn->GetActorLocation(), GetActorLocation());
 		if (DistanceSq <= FMath::Square(Radius) && DistanceSq < BestDistanceSq)
@@ -246,14 +280,11 @@ void AGSCashPickup::TickServer(float DeltaSeconds)
 	case EState::Magnet:
 	{
 		APawn* Target = MagnetTarget.Get();
-		if (!IsLivingPlayer(Target))
+		if (!IsLivingPlayer(Target) || (Kind == EGSPickupKind::Health && !bForcedMagnet && IsAtFullHealth(Target)))
 		{
-			// Target died or left: wait on the ground again with a fresh lifetime (none for XP orbs by default).
-			const AGameStateBase* GameState = GetWorld()->GetGameState();
-			State = EState::Idle;
-			MagnetTarget.Reset();
-			const float Lifetime = Subsystem->GetLifetime(Kind);
-			ExpireAtServerTime = (GameState && Lifetime > 0.f) ? GameState->GetServerWorldTimeSeconds() + Lifetime : 0.0;
+			// Target died or left, or a health orb's target got to full health on the way: wait on the ground again with
+			// a fresh lifetime (none for orbs by default).
+			ReturnToGround(*Subsystem);
 			break;
 		}
 
@@ -277,12 +308,15 @@ void AGSCashPickup::TickCosmetic(float DeltaSeconds)
 {
 	CosmeticTime += DeltaSeconds;
 
-	// Spin (cash) or pulse (XP orb) + bob, on the mesh only (the replicated root stays where the server puts it).
+	// Spin (cash) or pulse (orbs) + bob, on the mesh only (the replicated root stays where the server puts it).
 	const FGSCashPieceLook* Look = GetLook();
 	const FRotator BaseRotation = Look ? Look->Rotation : FRotator::ZeroRotator;
-	if (Kind == EGSPickupKind::XP)
+	if (Kind != EGSPickupKind::Cash)
 	{
-		const float Pulse = Settings ? 1.f + Settings->XPOrbPulseAmount * FMath::Sin(CosmeticTime * Settings->XPOrbPulseSpeed * UE_TWO_PI) : 1.f;
+		const bool bHealth = Kind == EGSPickupKind::Health;
+		const float Amount = Settings ? (bHealth ? Settings->HealthOrbPulseAmount : Settings->XPOrbPulseAmount) : 0.f;
+		const float Speed = Settings ? (bHealth ? Settings->HealthOrbPulseSpeed : Settings->XPOrbPulseSpeed) : 0.f;
+		const float Pulse = 1.f + Amount * FMath::Sin(CosmeticTime * Speed * UE_TWO_PI);
 		Mesh->SetRelativeScale3D((Look ? Look->Scale : FVector::OneVector) * Pulse);
 		Mesh->SetRelativeRotation(BaseRotation);
 	}

@@ -42,9 +42,9 @@ the hub map replaces them.
 were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **Next: M2b**, eleven more
 level-up upgrades (Prompts 29–40; 29 is the docs-only plan, then Dash Charge (30), Fire Rate + Magnet (31) and the
 held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds (34) and Powder Keg (35); all done). **Then M3** (shop, owned items, gear loadout,
-two-layer save); not planned in detail yet.
+two-layer save); not planned in detail yet. Health orbs (35b) were added between 35 and 36; they aren't an upgrade.
 
-State at the time of writing: `main` after "Powder Keg upgrade" (Prompt 35), not pushed. The build is clean and all 42 automation tests pass in about 93 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Health orbs" (Prompt 35b), not pushed. The build is clean and all 43 automation tests pass in about 95 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -92,7 +92,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2b 32 | Bigger Mags (magazine × MagazineSizeMultiplier, rounded up) and Leech (heal HealthOnKill per kill) | c3d721e |
 | M2b 33 | Loaded Dice: CritChance, one crit roll on the run stream, double damage, critical damage numbers | 0133f66 |
 | M2b 34 | Piercing Rounds: Pierce, shots pass through targets (once each, full damage, own crit and number), walls stop them | 2ee3f68 |
-| M2b 35 | Powder Keg: the player's kills explode (radius / damage per stack × Damage), chains 0.1 s apart, blast kills are the player's | see git log |
+| M2b 35 | Powder Keg: the player's kills explode (radius / damage per stack × Damage), chains 0.1 s apart, blast kills are the player's | a650a64 |
+| M2b 35b | Health orbs: a 20% chance per player kill (run stream), heal 15 at pickup, ignored at full health, vacuumed at RoundClear | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -1756,6 +1757,59 @@ after each refire interval and the character's next tick re-activated it.
     bandits) until the offers were taken: normal game behaviour.
 - **Full suite:** 42 tests, all passing, in 93.0 s.
 
+### Prompt 35b — Health orbs
+Not an upgrade: a third kind of enemy drop. Added between Prompts 35 and 36; the other numbers stay.
+- **Drops** (`AGSGameMode::HandleEnemyKilled` → `RollHealthOrbDrop`): every enemy **killed by the player** (the same
+  killer the combo and Leech use: shots, `gs.KillAll`, Powder Keg blasts; the Floating Gun later) rolls
+  `HealthOrbDropChance` on the run stream after its cash and XP drops. At 0 there is no roll; at 1 it always drops
+  without a roll. Kills that aren't the player's never drop one.
+- **Pickup system:** `EGSPickupKind::Health` on `AGSCashPickup`, in the same pool, with the same toss, magnet
+  (PickupRadius), RoundClear vacuum and new-run clear as cash and XP. `UGSCashPickupSubsystem::SpawnHealthDrop`
+  tosses one orb worth `HealthOrbHealAmount`. New counters: `GetNumHealthOrbsDropped / Collected / Expired`,
+  `GetLastHealthCollectLocation`. `IsHealthOrb()` / `IsOrb()`.
+- **Full health:**
+  - A player at full health doesn't attract health orbs (`AGSCashPickup::IsAtFullHealth`), so they wait on the ground
+    until the player is hurt.
+  - An orb already flying to a player who reaches full health on the way (another orb healed them) drops back to the
+    ground.
+  - The RoundClear vacuum **forces** them in (`StartMagnet(Target, bForced)`, and `ForceMagnet()` for orbs already
+    flying). They heal then; anything over MaxHealth is lost.
+- **Heal** (`AGSGameMode::AwardHealthPickup`):
+  - New native instant GE `UGSHealEffect`: Additive on Health from SetByCaller `Data.Heal` (new native tag). It is
+    overridable with `HealthOrbHealEffect` in DA_CashSettings; there is no asset.
+  - Health's existing clamp keeps it at or below MaxHealth. A dead player gets nothing, and dead players don't
+    attract orbs.
+  - It records run stats, plays the placeholder sound at the pickup, and shows the popup.
+  - Log: `[heal] <PS>: health orb +15 -> Health A -> B (healed N)`.
+  - `TODO(co-op)`: an orb heals whoever collects it; the popup and sound are local.
+- **Tuning** (DA_CashSettings, new "Health Orb" section):
+  - `HealthOrbDropChance` 0.2, `HealthOrbHealAmount` 15, `HealthOrbLifetime` 0 (never expires).
+  - `HealthOrbLook`: the engine sphere at ×0.42 (the XP orb is ×0.32) with `Materials/M_HealthOrb` (a copy of M_XPOrb,
+    Color (0.05, 1, 0.12)).
+  - `HealthOrbPulseAmount` 0.12 and `HealthOrbPulseSpeed` 1. The orb pulses like the XP orb.
+  - `HealthOrbSound` = `/Engine/VREditor/Sounds/VR_confirm_Cue` (editor content, placeholder).
+- **Popup:** a green "+N" (`UGSHUDWidget::AddHealthPopup`) through `AGSPlayerController::NotifyHealthCollected` (not
+  an RPC). N is the health actually healed, so a vacuumed orb at full health shows nothing.
+  - Style: `HealthPopupColor` (0.15, 1, 0.45), size 22, 95 cm up. That is brighter than the cash popup and reads "+15",
+    not "+$15".
+  - Test hook `GetActiveHealthPopupTotal()`.
+- **Run stats:** `GetHealthOrbsCollected()` and `GetHealthHealedByOrbs()` (overheal not counted), reset with the run,
+  with a "Health orbs" line in `gs.Run.Stats`. Not replicated (`TODO(co-op)`), like BestCombo.
+- **Magnet card:** "+{PerStack}% pickup radius per stack (cash, XP and health orbs)."
+- **Debug:**
+  - `gs.HealthOrb.Spawn [Count=1]` drops orbs around the player with no roll (`AGSGameMode::SpawnHealthOrbsForDebug`).
+  - Tests use `AGSGameMode::SetHealthOrbDropChanceOverride(Chance)`; a negative value clears it.
+- **Tests:**
+  - New `Economy.HealthOrbs`.
+  - `Economy.FlatDropsPerRound` and `Economy.CashPickups` now count cash pieces only: a health orb isn't part of the
+    flat cash drop, and like XP orbs it doesn't expire. What they check is unchanged.
+  - No other test changed. The Leech and Powder Keg tests pass with their seeds.
+- **PIE check** (town, round paused, editor throttling off; restored after):
+  - `gs.HealthOrb.Spawn 3` at 100/100: three green orbs, clearly larger than an XP orb, stayed beside the player.
+  - `gs.Damage.Self 30`: two flew in. Log: "Health 70 -> 85 (healed 15)" and "85 -> 100 (healed 15)". The third
+    stayed on the ground.
+- **Full suite:** 43 tests, all passing, in 94.8 s.
+
 ---
 
 ## Console commands and CVars
@@ -1774,6 +1828,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.Upgrade.Offer` | Queue a level-up offer without the level (opens at once if none is open) and print the open offer. Refused in GameOver. |
 | `gs.Upgrade.Choose <0-2>` | Take a choice of the open offer; the next queued offer opens. |
 | `gs.Upgrade.Reroll` | Reroll the open offer for one of this run's rerolls (refused with none left or no offer). |
+| `gs.HealthOrb.Spawn [Count=1]` | Drop health orbs around the local player (no drop roll). At full health they wait on the ground until the player is hurt. |
 | `gs.XP.Add <N>` | Grant N raw XP to the local player (XPGain not applied; may level up several times). |
 | `gs.XP.SetLevel <N>` | Reset to level 1, then add exactly the XP for level N (0 XP into it; clamped to max level). |
 | `gs.Profile.AddCash <N>` | Add N to the permanent cash balance (local profile; saved at the next save point). |
@@ -1837,7 +1892,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Ability: `Ability.Fire`, `Ability.Reload`, `Ability.Slide`, `Ability.Dash`, `Ability.SwapWeapon`,
   `Ability.Attack.Melee`, `Ability.Attack.Ranged`
 - Cooldown: `Cooldown.Slide`, `Cooldown.Dash`
-- SetByCaller data: `Data.Damage`, `Data.Critical` (1 on a critical hit's damage spec), `Data.Cooldown`,
+- SetByCaller data: `Data.Damage`, `Data.Critical` (1 on a critical hit's damage spec), `Data.Heal` (health orbs), `Data.Cooldown`,
   `Data.HealthMultiplier`, `Data.DamageMultiplier`
 
 **Gameplay Effects** (`Content/BanditBaller/Abilities/`):
@@ -1864,19 +1919,20 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | `GE_Upgrade_PiercingRounds` | `UGSUpgradeEffect_PiercingRounds` | Infinite, stacking; Additive +1 Pierce per stack. |
 | `GE_Upgrade_PowderKeg` | `UGSUpgradeEffect_PowderKeg` | Infinite, stacking; Additive +1 PowderKeg per stack. |
 | `GE_Upgrade_LoadedDice` | `UGSUpgradeEffect_LoadedDice` | Infinite, stacking; Additive +0.05 CritChance per stack (MaxStacks 20 on the upgrade). |
+| (native, no asset) | `UGSHealEffect` | Instant; Health + SetByCaller `Data.Heal`, clamped to MaxHealth. AGSGameMode::AwardHealthPickup applies it when a health orb is collected (DA_CashSettings `HealthOrbHealEffect` can replace it). |
 | (native, no asset) | `UGSHealthOnKillEffect` | Instant; Health + the target's HealthOnKill (captured live). AGSGameMode applies it to the killer per enemy kill (`HealthOnKillEffect`). |
 
 **Abilities:**
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (42, all passing, about 93 s)
+## Automation tests (43, all passing, about 95 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
 the area's tests; run the full suite once per prompt before the commit (see **Workflow update — faster test runs**).
 `UI.RoundHUD`, `Round.PhaseLoop`, `Round.ClearBonus`, `Map.TownLayout` and `Upgrades.DashCharge` run game time ×4 and
-`Upgrades.ExtraJump` ×3 (`SpeedUpWorld`). `Upgrades.FireRateAndMagnet` measures its shots at ×1 (throttling off) and
+`Upgrades.ExtraJump` ×3 (`SpeedUpWorld`). `Economy.HealthOrbs` also runs ×4. `Upgrades.FireRateAndMagnet` measures its shots at ×1 (throttling off) and
 runs its magnet part at ×4. `Weapons.HeldFire` runs at ×4, and ×16 for its slow-frame burst. `UI.RoundHUD` also shortens its HUD's banners.
 
 | Test | Checks |
@@ -1906,6 +1962,7 @@ runs its magnet part at ×4. `Weapons.HeldFire` runs at ×4, and ×16 for its sl
 | `Economy.FlatDropsPerRound` | Melee and ranged bandits (frozen) killed in round 1 and round 10 with no combo: round 10 has more HP, but the cash (CashValue, same pieces) and the single XP orb (XPValue) are the same. |
 | `Economy.CashPickups` | Exact split; out-of-reach drop stays; radius collects into Cash/CashEarned/HUD + popup; pool reuse; RoundClear vacuum; short lifetime blinks, expires unpaid. Counts cash pickups only (the kills' XP orbs never expire). Ends the kill combo before each kill, so every drop is exactly CashValue. |
 | `Economy.KillCombo` | DA_ComboSettings on the GameMode (2.5 s, x1/x1.25/x1.5/x2 steps, end on damage, no XP); step lookup at each boundary; kills 1–10 in a row: count +1, multiplier, cash drop = round(CashValue × multiplier), XP orb unchanged, window restarted, HUD count / multiplier / shown from 2, "10 COMBO" / "x2 CASH", best combo; a target dummy kill doesn't count; the window drains with game time and the HUD bar follows; a kill inside the window continues; it times out one window after the last kill (HUD hidden); pickups collected after the combo ended pay the kill-time multipliers; a level-up pause freezes the window (1 s real time), picking resumes it; god mode keeps the combo, health lost ends it (DamageTaken); override bEndComboOnDamage off / bApplyComboToXP on: XP orbs multiplied, damage keeps the combo; a new run ends it (Reset) and clears the best combo; gs.Run.Stats shows it. |
+| `Economy.HealthOrbs` | DA_CashSettings: chance 20%, heal 15, no lifetime, M_HealthOrb look larger than the XP orb, a sound; the Magnet card mentions health orbs; chance 0: 10 player kills drop none; chance 1: 5 kills drop 5; an orb worth 15 with no expiry and the orb look; at full health, standing on it: not attracted or collected (1.5 s); hurt to 60: collected, Health 75 (+15), run stats 1 orb / 15 healed, green popup; `gs.HealthOrb.Spawn 2` at 75: both collected, Health = MaxHealth (only 25 healed, 40 in total); a spawned orb at full health waits; the RoundClear vacuum collects it anyway, nothing healed over MaxHealth; a kill that isn't the player's drops none; a shot kill + its Powder Keg blast kill drop 2; a new run clears orbs and the stats; a dead player collects nothing. Game time ×4. |
 | `Economy.XPOrbs` | XPOrbLifetime 0; kill → no XP, one orb worth XPValue with the orb mesh / material, no expiry; cash expires (gs.Cash.Lifetime 1.5) but the orb stays, no blink; walking in collects it → XP = XPValue × XPGain 1.5, run stats XPEarned, "+N XP" popup at the collection point; out-of-reach orb waits, RoundClear vacuums it; gs.XP.Add is instant; a new run clears orbs on the ground; a dead player collects nothing. |
 | `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over (HUD level + bar follow), one offer open + one queued; kill gives no XP but one orb; collected orb XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; level 10 → cap in one gain queues one offer per level (40); cap at max level; new run resets. |
 | `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear; new run removes stacks and clamps Health; dead player gets the stack but no heal. Takes each upgrade offer (choice 0) so the game unpauses. |
@@ -1980,6 +2037,9 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Magnet 400 → 3000 cm/s (accel 3000), collected within 80 cm. Pool prewarm 48 (shared with XP orbs).
   - XP orbs: one per kill worth XPValue, same toss / magnet / vacuum, no lifetime (XPOrbLifetime 0), sphere ×0.32
     with M_XPOrb, pulse ±15% at 1.5 Hz.
+  - Health orbs: 20% chance per player kill (run stream), heal 15 (never over MaxHealth), same toss / magnet /
+    vacuum, ignored at full health (except by the vacuum), no lifetime, sphere ×0.42 with M_HealthOrb, pulse ±12%
+    at 1 Hz. On average one in five kills drops one: a round 5 wave (13 enemies) drops about 2.6 orbs, ~39 health.
 - **XP** (DA_XPCurve; XP needed from the previous level, +25% per level, max level 50):
 
   | Level | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
@@ -2018,6 +2078,11 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 ## Known issues, TODOs and deviations
 
 **Not built yet / stubs**
+- Health orbs (Prompt 35b):
+  - The sound is an editor sound that may not cook (`VR_confirm_Cue`), and the look is a plain emissive sphere.
+  - The orbs aren't in the run summary (only `gs.Run.Stats`).
+  - The orb's kind isn't replicated, like XP orbs (`TODO(co-op)`).
+  - The 20% chance and the heal of 15 are first-pass numbers, not balanced against real fights.
 - The Legendary tier is still empty and never offered (Second Wind comes in Prompt 37). Epic has Piercing Rounds and
   Powder Keg so far (Floating Gun comes in Prompts 38–39).
 - Powder Keg (Prompt 35):
@@ -2118,6 +2183,7 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 - The telegraph uses `M_EnemyLaser`.
 - Level-up: `M_LevelUpGlow` overlay and the `CompileSuccess` editor sound.
 - XP orb: `M_XPOrb` on the engine sphere.
+- Health orb: `M_HealthOrb` (green copy of M_XPOrb) on the engine sphere, and the `VR_confirm_Cue` editor sound.
 - Air jump: the Niagara `RadialBurst` template and the `VR_teleport_Cue` editor sound (may not cook into a packaged
   build).
 
@@ -2216,6 +2282,9 @@ smaller pool.
 35. ~~**Powder Keg** (Epic): enemies the player kills explode and damage enemies nearby; the blast grows per pick.
     Blast kills count as the player's.~~ Done (see Prompt 35): chains 0.1 s apart; a 25-blast chain peaks at ~29 ms
     warm.
+35b. ~~**Health orbs** (not an upgrade): enemies the player kills have a chance (20%, run stream) to drop a health orb
+    that heals 15 when collected (never over MaxHealth). A third pickup kind on the cash / XP pickup system; full-health
+    players don't attract it; the RoundClear vacuum collects it; it doesn't expire.~~ Done (see Prompt 35b).
 36. **Floating Shield** (Rare): +1 shield per pick; a shield takes a hit and comes back after 10 s. The damage order
     starts here (dash invulnerability → shield → Health).
 37. **Second Wind** (Legendary): survive one killing blow per pick at 30% health; the last step of the damage order.

@@ -126,6 +126,8 @@ public:
 	void RecordLevelReached(int32 Level);
 	/** A player's kill combo reached Count kills (keeps the max). */
 	void RecordCombo(int32 Count);
+	/** A health orb was collected and healed Healed (0 if the player was already full, e.g. from the vacuum). */
+	void RecordHealthOrbCollected(float Healed);
 	/** A new round's PreRound: this round's stats start over. */
 	void BeginRound(int32 Round);
 	/** This round's Combat started at server time Time with a wave of WaveEnemies. */
@@ -172,6 +174,14 @@ public:
 	/** Longest kill combo any player reached this run (0 = no kills). */
 	UFUNCTION(BlueprintPure, Category = "Stats")
 	int32 GetBestCombo() const { return BestCombo; }
+
+	/** Health orbs collected this run (all players). */
+	UFUNCTION(BlueprintPure, Category = "Stats")
+	int32 GetHealthOrbsCollected() const { return HealthOrbsCollected; }
+
+	/** Health the orbs actually healed this run (overheal not counted). */
+	UFUNCTION(BlueprintPure, Category = "Stats")
+	float GetHealthHealedByOrbs() const { return HealthHealedByOrbs; }
 
 	/** The current round so far (until the next round's PreRound). */
 	UFUNCTION(BlueprintPure, Category = "Stats")
@@ -223,6 +233,14 @@ protected:
 	/** TODO(co-op): not replicated yet (single-player first); replicate it like the stats above in M6. */
 	UPROPERTY(VisibleInstanceOnly, Category = "Stats")
 	int32 BestCombo = 0;
+
+	/** TODO(co-op): not replicated yet (single-player first). */
+	UPROPERTY(VisibleInstanceOnly, Category = "Stats")
+	int32 HealthOrbsCollected = 0;
+
+	/** TODO(co-op): not replicated yet (single-player first). */
+	UPROPERTY(VisibleInstanceOnly, Category = "Stats")
+	float HealthHealedByOrbs = 0.f;
 
 	/** TODO(co-op): not replicated yet (single-player first); clients' RoundClear summary needs it in M6. */
 	UPROPERTY(VisibleInstanceOnly, Category = "Stats")

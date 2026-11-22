@@ -151,6 +151,23 @@ public:
 	 */
 	int32 AwardXPPickup(APlayerController* Player, int32 BaseXP, const FVector& Location);
 
+	/**
+	 * A health orb reached Player: heals HealAmount through the instant heal effect (DA_CashSettings HealthOrbHealEffect,
+	 * else UGSHealEffect), never above MaxHealth (the rest is lost; nothing for a dead player). Records run stats
+	 * (orbs collected, health healed), plays the orb sound and shows the "+N" popup at Location. Returns the health
+	 * actually healed. TODO(co-op): it heals whoever collects it.
+	 */
+	float AwardHealthPickup(APlayerController* Player, int32 HealAmount, const FVector& Location);
+
+	/** Chance an enemy the player kills drops a health orb: the test override if set (>= 0), else DA_CashSettings. */
+	float GetHealthOrbDropChance() const;
+
+	/** Tests / debug: use Chance (0..1) instead of DA_CashSettings HealthOrbDropChance; negative clears it. */
+	void SetHealthOrbDropChanceOverride(float Chance) { HealthOrbDropChanceOverride = Chance; }
+
+	/** gs.HealthOrb.Spawn: drop Count health orbs around Player's pawn (no chance roll). Returns how many dropped. */
+	int32 SpawnHealthOrbsForDebug(APlayerController* Player, int32 Count);
+
 	// --- Kill combo (server; state on the player's UGSComboComponent) ---
 
 	/** Combo window, cash multiplier steps, end on damage, XP option (DA_ComboSettings, or the test override). */
@@ -261,7 +278,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Upgrades")
 	TSubclassOf<UGameplayEffect> HealthOnKillEffect;
 
-	/** Cash drops: split, scatter, lifetime, magnet, looks (DA_CashSettings). */
+	/** Enemy drops: cash split, scatter, lifetime, magnet, looks; XP and health orbs (DA_CashSettings). */
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")
 	TObjectPtr<UGSCashSettings> CashSettings;
 
@@ -321,6 +338,12 @@ private:
 
 	/** Logged once: remote players' cash pickups are not credited yet (co-op TODO). */
 	bool bWarnedRemoteCash = false;
+
+	/** SetHealthOrbDropChanceOverride (tests); < 0 = use DA_CashSettings. */
+	float HealthOrbDropChanceOverride = -1.f;
+
+	/** An enemy the player killed at Location: roll the health orb chance (run stream; none at 0, no dice at 1). */
+	void RollHealthOrbDrop(const FVector& Location);
 
 	/** This GameMode paused the game for an upgrade choice (so it only unpauses its own pause). */
 	bool bPausedForUpgradeChoice = false;

@@ -195,6 +195,20 @@ UGSHealthOnKillEffect::UGSHealthOnKillEffect(const FObjectInitializer& ObjectIni
 	Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(HealthOnKill);
 }
 
+UGSHealEffect::UGSHealEffect(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	DurationPolicy = EGameplayEffectDurationType::Instant;
+
+	FSetByCallerFloat Heal;
+	Heal.DataTag = GSGameplayTags::Data_Heal;
+
+	FGameplayModifierInfo& Modifier = Modifiers.AddDefaulted_GetRef();
+	Modifier.Attribute = UGSAttributeSet::GetHealthAttribute();
+	Modifier.ModifierOp = EGameplayModOp::Additive;
+	Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(Heal);
+}
+
 UGSFullHealEffect::UGSFullHealEffect(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

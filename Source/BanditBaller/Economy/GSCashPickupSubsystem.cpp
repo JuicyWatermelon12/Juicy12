@@ -95,6 +95,10 @@ void UGSCashPickupSubsystem::ReleasePickup(AGSCashPickup* Pickup, bool bExpired)
 	{
 		++NumXPOrbsExpired;
 	}
+	else if (bExpired && Pickup->IsHealthOrb())
+	{
+		++NumHealthOrbsExpired;
+	}
 	else if (bExpired)
 	{
 		++NumExpired;
@@ -118,6 +122,10 @@ float UGSCashPickupSubsystem::GetLifetime(EGSPickupKind Kind) const
 	if (Kind == EGSPickupKind::XP)
 	{
 		return LastSettings ? FMath::Max(LastSettings->XPOrbLifetime, 0.f) : 0.f;
+	}
+	if (Kind == EGSPickupKind::Health)
+	{
+		return LastSettings ? FMath::Max(LastSettings->HealthOrbLifetime, 0.f) : 0.f;
 	}
 	const float Override = CVarCashLifetime.GetValueOnGameThread();
 	if (Override > 0.f)
@@ -263,12 +271,7 @@ AGSCashPickup* UGSCashPickupSubsystem::SpawnXPDrop(const UGSCashSettings* Settin
 	LastSettings = Settings;
 	PrewarmOnce(*Settings);
 
-	// Tossed like a cash piece, to a random spot around the body (run stream).
-	const float Angle = UGSRunRandom::FRandRange(this, 0.f, UE_TWO_PI);
-	const float Radius = UGSRunRandom::FRandRange(this, Settings->ScatterRadiusMin, FMath::Max(Settings->ScatterRadiusMin, Settings->ScatterRadiusMax));
-	const FVector Target = Origin + FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0.f) * Radius;
-	const FVector Landing = FindLanding(*Settings, Origin, Target);
-
+	const FVector Landing = RollOrbLanding(*Settings, Origin);
 	AGSCashPickup* Orb = AcquirePickup();
 	if (!Orb)
 	{
@@ -279,6 +282,39 @@ AGSCashPickup* UGSCashPickupSubsystem::SpawnXPDrop(const UGSCashSettings* Settin
 	Active.Add(Orb);
 	++NumXPOrbsDropped;
 	UE_LOG(LogBanditBaller, Verbose, TEXT("[xp] orb %d XP dropped at %s"), XPValue, *Origin.ToCompactString());
+	return Orb;
+}
+
+FVector UGSCashPickupSubsystem::RollOrbLanding(const UGSCashSettings& Settings, const FVector& Origin)
+{
+	// Tossed like a cash piece, to a random spot around the body (run stream).
+	const float Angle = UGSRunRandom::FRandRange(this, 0.f, UE_TWO_PI);
+	const float Radius = UGSRunRandom::FRandRange(this, Settings.ScatterRadiusMin, FMath::Max(Settings.ScatterRadiusMin, Settings.ScatterRadiusMax));
+	const FVector Target = Origin + FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0.f) * Radius;
+	return FindLanding(Settings, Origin, Target);
+}
+
+AGSCashPickup* UGSCashPickupSubsystem::SpawnHealthDrop(const UGSCashSettings* Settings, const FVector& Origin)
+{
+	UWorld* World = GetWorld();
+	if (!Settings || Settings->HealthOrbHealAmount <= 0 || !World || World->GetNetMode() == NM_Client)
+	{
+		return nullptr;
+	}
+	LastSettings = Settings;
+	PrewarmOnce(*Settings);
+
+	const FVector Landing = RollOrbLanding(*Settings, Origin);
+	AGSCashPickup* Orb = AcquirePickup();
+	if (!Orb)
+	{
+		UE_LOG(LogBanditBaller, Error, TEXT("[heal] could not create a health orb."));
+		return nullptr;
+	}
+	Orb->ActivatePickup(EGSPickupKind::Health, Settings->HealthOrbHealAmount, false, Settings, Origin, Landing, GetExpireAt(EGSPickupKind::Health));
+	Active.Add(Orb);
+	++NumHealthOrbsDropped;
+	UE_LOG(LogBanditBaller, Verbose, TEXT("[heal] health orb +%d dropped at %s"), Settings->HealthOrbHealAmount, *Origin.ToCompactString());
 	return Orb;
 }
 
@@ -295,9 +331,20 @@ void UGSCashPickupSubsystem::CollectPickup(AGSCashPickup* Pickup, APlayerControl
 	const int32 Value = Pickup->GetValue();
 	const FVector Location = Pickup->GetActorLocation();
 	const bool bXPOrb = Pickup->IsXPOrb();
+	const bool bHealthOrb = Pickup->IsHealthOrb();
 	ReleasePickup(Pickup, /*bExpired*/ false);
 
 	AGSGameMode* GameMode = GetWorld()->GetAuthGameMode<AGSGameMode>();
+	if (bHealthOrb)
+	{
+		++NumHealthOrbsCollected;
+		LastHealthCollectLocation = Location;
+		if (GameMode)
+		{
+			GameMode->AwardHealthPickup(Player, Value, Location);
+		}
+		return;
+	}
 	if (bXPOrb)
 	{
 		++NumXPOrbsCollected;
@@ -336,8 +383,13 @@ int32 UGSCashPickupSubsystem::VacuumAll()
 	int32 Sent = 0;
 	for (AGSCashPickup* Pickup : Active)
 	{
-		if (!Pickup || Pickup->IsMagnetized())
+		if (!Pickup)
 		{
+			continue;
+		}
+		if (Pickup->IsMagnetized())
+		{
+			Pickup->ForceMagnet(); // a health orb already flying in is collected even if its player is now full
 			continue;
 		}
 		APawn* Nearest = nullptr;
@@ -351,7 +403,7 @@ int32 UGSCashPickupSubsystem::VacuumAll()
 				NearestDistanceSq = DistanceSq;
 			}
 		}
-		Pickup->StartMagnet(Nearest);
+		Pickup->StartMagnet(Nearest, /*bForced*/ true); // health orbs come in even at full health (the excess is lost)
 		++Sent;
 	}
 	if (Sent > 0)

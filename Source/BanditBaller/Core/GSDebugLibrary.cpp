@@ -661,6 +661,18 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 			GameMode->SetPlayerLevelForDebug(PS, Value);
 		}
 	}
+	else if (Command == TEXT("HealthOrbSpawn"))
+	{
+		AGSGameMode* GameMode = PC->GetWorld()->GetAuthGameMode<AGSGameMode>();
+		const int32 Count = Args.Num() > 0 ? FCString::Atoi(*Args[0]) : 1;
+		if (!GameMode || Count < 1)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.HealthOrb.Spawn [Count=1] (in a run; drops health orbs around the player)"));
+			return;
+		}
+		const int32 Dropped = GameMode->SpawnHealthOrbsForDebug(PC, Count);
+		UE_LOG(LogBanditBaller, Log, TEXT("gs.HealthOrb.Spawn: %d health orb(s) dropped around the player."), Dropped);
+	}
 	else if (Command == TEXT("UpgradeGrant"))
 	{
 		if (Args.Num() < 1)

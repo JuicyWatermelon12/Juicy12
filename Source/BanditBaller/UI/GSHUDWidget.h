@@ -100,6 +100,12 @@ public:
 	/** Sum of the "+N XP" popups currently on screen (tests). */
 	int32 GetActiveXPPopupTotal() const;
 
+	/** Green "+N" where a health orb healed N (nothing for 0, e.g. a vacuumed orb at full health). */
+	void AddHealthPopup(const FVector& WorldLocation, int32 Amount);
+
+	/** Sum of the "+N" health popups currently on screen (tests). */
+	int32 GetActiveHealthPopupTotal() const;
+
 	/** Where the last "+N XP" popup was anchored, before its height offset (tests). */
 	FVector GetLastXPPopupAnchor() const { return LastXPPopupAnchor; }
 
@@ -386,6 +392,20 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|XP", meta = (Units = "s"))
 	float XPPopupPairWindow = 0.25f;
 
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Health Orb", meta = (Units = "s"))
+	float HealthPopupLifetime = 1.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Health Orb")
+	int32 HealthPopupFontSize = 22;
+
+	/** Brighter, bluer green than the cash popup, so "+15" doesn't read as cash. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Health Orb")
+	FLinearColor HealthPopupColor = FLinearColor(0.15f, 1.f, 0.45f);
+
+	/** Popups start this far above the collection point (cm); between the cash and XP popups. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Health Orb")
+	float HealthPopupHeight = 95.f;
+
 	/** The combo panel appears from this many kills (a single kill isn't shown as a combo). */
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|Combo", meta = (ClampMin = "1"))
 	int32 ComboMinCountToShow = 2;
@@ -448,12 +468,14 @@ private:
 		float Damage = 0.f;
 		int32 Cash = 0;
 		int32 XP = 0;
+		int32 Heal = 0;
 		float Age = 0.f;
 		float Lifetime = 1.f;
 		float JitterX = 0.f;
 		bool bCritical = false;
 		bool bCash = false;
 		bool bXP = false;
+		bool bHeal = false;
 		bool bActive = false;
 	};
 
