@@ -9,12 +9,62 @@ UGSUpgradePool::UGSUpgradePool()
 	RarityWeights.Add(EGSUpgradeRarity::Rare, 20.f);
 	RarityWeights.Add(EGSUpgradeRarity::Epic, 6.f);
 	RarityWeights.Add(EGSUpgradeRarity::Legendary, 1.f);
+
+	RarityValueMultipliers.Add(EGSUpgradeRarity::Common, 1.f);
+	RarityValueMultipliers.Add(EGSUpgradeRarity::Rare, 1.5f);
+	RarityValueMultipliers.Add(EGSUpgradeRarity::Epic, 2.f);
+	RarityValueMultipliers.Add(EGSUpgradeRarity::Legendary, 3.f);
+
+	WholeUnitValues.Add(EGSUpgradeRarity::Common, 1.f);
+	WholeUnitValues.Add(EGSUpgradeRarity::Epic, 2.f);
+	WholeUnitValues.Add(EGSUpgradeRarity::Legendary, 3.f);
 }
 
 float UGSUpgradePool::GetRarityWeight(EGSUpgradeRarity Rarity) const
 {
 	const float* Weight = RarityWeights.Find(Rarity);
 	return Weight ? FMath::Max(*Weight, 0.f) : 0.f;
+}
+
+float UGSUpgradePool::GetRarityValueMultiplier(EGSUpgradeRarity Rarity) const
+{
+	const float* Multiplier = RarityValueMultipliers.Find(Rarity);
+	return Multiplier ? FMath::Max(*Multiplier, 0.f) : 0.f;
+}
+
+bool UGSUpgradePool::HasRarity(const UGSUpgradeData* Upgrade, EGSUpgradeRarity Rarity) const
+{
+	if (!Upgrade)
+	{
+		return false;
+	}
+	if (Upgrade->bLegendaryAbility)
+	{
+		return true; // no rarities: any pick is one charge
+	}
+	return Upgrade->bWholeUnits ? WholeUnitValues.Contains(Rarity) : RarityValueMultipliers.Contains(Rarity);
+}
+
+float UGSUpgradePool::GetPickValue(const UGSUpgradeData* Upgrade, EGSUpgradeRarity Rarity, int32 PicksBefore) const
+{
+	if (!HasRarity(Upgrade, Rarity))
+	{
+		return 0.f;
+	}
+	if (Upgrade->bLegendaryAbility)
+	{
+		return Upgrade->BaseValue;
+	}
+	if (Upgrade->bWholeUnits)
+	{
+		return Upgrade->BaseValue * FMath::Max(WholeUnitValues.FindChecked(Rarity), 0.f);
+	}
+	const float Multiplier = GetRarityValueMultiplier(Rarity);
+	if (Upgrade->Category == EGSUpgradeCategory::Weapon && PicksBefore < FMath::Max(Upgrade->WeaponGivingPicks, 1))
+	{
+		return Upgrade->BaseValue * FMath::Max(Multiplier - 1.f, 0.f); // this pick gives the weapon (or a gun of it)
+	}
+	return Upgrade->BaseValue * Multiplier;
 }
 
 TArray<EGSUpgradeRarity> UGSUpgradePool::GetAllRarities()

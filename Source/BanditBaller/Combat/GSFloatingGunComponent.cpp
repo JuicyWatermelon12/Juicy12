@@ -29,6 +29,13 @@ int32 UGSFloatingGunComponent::GetLevel() const
 	return ASC ? FMath::Max(0, FMath::RoundToInt(ASC->GetNumericAttribute(UGSAttributeSet::GetFloatingGunLevelAttribute()))) : 0;
 }
 
+float UGSFloatingGunComponent::GetPower() const
+{
+	const AGSCharacter* Character = Cast<AGSCharacter>(GetOwner());
+	const UAbilitySystemComponent* ASC = Character ? Character->GetAbilitySystemComponent() : nullptr;
+	return ASC ? FMath::Max(0.f, ASC->GetNumericAttribute(UGSAttributeSet::GetFloatingGunPowerAttribute())) : 0.f;
+}
+
 void UGSFloatingGunComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
@@ -36,21 +43,22 @@ void UGSFloatingGunComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	{
 		return;
 	}
-	// Level 1: the right-shoulder gun; level 2+: and the left one (never more than two).
+	// One pick: the right-shoulder gun; two or more: and the left one (never more than two).
 	const UGSFloatingGunSettings* Settings = GetSettings();
 	const int32 Level = GetLevel();
 	SyncGuns(Settings ? UGSFloatingGunSettings::GetGunCount(Level) : 0);
 
-	// Level 3+: the guns read the bonus themselves each shot; just log it when it changes.
-	if (Settings && Level != LoggedLevel)
+	// Weapon power: the guns read the bonus themselves each shot; just log it when it changes.
+	const float Power = Level > 0 ? GetPower() : 0.f;
+	if (Settings && !FMath::IsNearlyEqual(Power, LoggedPower))
 	{
-		if (UGSFloatingGunSettings::GetBonusLevels(Level) > 0)
+		if (Power > 0.f)
 		{
-			UE_LOG(LogBanditBaller, Log, TEXT("[gun] %s: Floating Gun level %d -> both guns x%.2f damage, x%.2f fire rate (%.2f shots/s each)"),
-				*GetNameSafe(GetOwner()), Level, Settings->GetDamageMultiplier(Level), Settings->GetFireRateMultiplier(Level),
-				1.0 / Settings->GetShotInterval(Level));
+			UE_LOG(LogBanditBaller, Log, TEXT("[gun] %s: Floating Gun power %g -> the guns x%.2f damage, x%.2f fire rate (%.2f shots/s each)"),
+				*GetNameSafe(GetOwner()), Power, Settings->GetDamageMultiplier(Power), Settings->GetFireRateMultiplier(Power),
+				1.0 / Settings->GetShotInterval(Power));
 		}
-		LoggedLevel = Level;
+		LoggedPower = Power;
 	}
 }
 

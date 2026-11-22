@@ -125,7 +125,8 @@ public:
 
 	/**
 	 * Powder Keg stacks: each enemy this player kills explodes with chance stacks x ChancePerStack (AGSGameMode; a fixed
-	 * blast, DA_CombatSettings). Default 0, clamped to >= 0, rounded when read. Raised by the Powder Keg upgrade.
+	 * blast, DA_CombatSettings). A Common pick adds 1, a Rare one 1.5, so it isn't rounded. Default 0, clamped to >= 0.
+	 * Raised by the Powder Keg upgrade.
 	 * TODO(co-op): not replicated (single-player first).
 	 */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
@@ -153,14 +154,24 @@ public:
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, SecondWinds)
 
 	/**
-	 * Floating Gun level: from 1 a gun floats over the player's right shoulder and shoots enemies on its own
-	 * (UGSFloatingGunComponent on the character, AGSFloatingGun, DA_FloatingGunSettings). Default 0, clamped to >= 0,
-	 * rounded when read. Raised by the Floating Gun upgrade. (Level 2+ is Prompt 39.)
+	 * Floating Gun picks: 1 = a gun floats over the player's right shoulder and shoots enemies on its own, 2+ = a second
+	 * one over the left (UGSFloatingGunComponent on the character, AGSFloatingGun, DA_FloatingGunSettings). Default 0,
+	 * clamped to >= 0, rounded when read. Raised by every Floating Gun pick, whatever its rarity.
 	 * TODO(co-op): not replicated (single-player first).
 	 */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
 	FGameplayAttributeData FloatingGunLevel;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, FloatingGunLevel)
+
+	/**
+	 * Floating Gun weapon power: each point adds DA_FloatingGunSettings' damage and fire rate bonus to the guns (added
+	 * up; fractions count, so 1.5 = +15%). The total value of the Floating Gun picks (the weapon-pick rule: the two
+	 * picks that give a gun add the rarity multiplier - 1, later picks the multiplier). Default 0, clamped to >= 0.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData FloatingGunPower;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, FloatingGunPower)
 
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")

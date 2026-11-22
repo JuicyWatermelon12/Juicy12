@@ -31,4 +31,7 @@ namespace GSGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Cooldown, "Data.Cooldown", "SetByCaller duration for cooldown effects.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_HealthMultiplier, "Data.HealthMultiplier", "SetByCaller MaxHealth multiplier (enemy round scaling).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_DamageMultiplier, "Data.DamageMultiplier", "SetByCaller Damage multiplier (enemy round scaling).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_UpgradeValue, "Data.UpgradeValue", "SetByCaller on a level-up upgrade effect: the total value of every pick of it (additive modifiers).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_UpgradeMultiplier, "Data.UpgradeMultiplier", "SetByCaller on a level-up upgrade effect: 1 + the total value of every pick (Multiply (Additive) modifiers).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_UpgradePicks, "Data.UpgradePicks", "SetByCaller on a level-up upgrade effect: how many times it was picked (the Floating Gun's gun count).");
 }

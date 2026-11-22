@@ -74,5 +74,5 @@ public:
 	TSubclassOf<UGameplayEffect> SecondWindInvulnerableEffect;
 
 	/** Chance (0..1) that a kill explodes at Stacks PowderKeg stacks: Stacks x ChancePerStack, clamped. */
-	float GetExplodeChance(int32 Stacks) const { return Stacks > 0 ? FMath::Clamp(Stacks * ChancePerStack, 0.f, 1.f) : 0.f; }
+	float GetExplodeChance(float Stacks) const { return Stacks > 0.f ? FMath::Clamp(Stacks * ChancePerStack, 0.f, 1.f) : 0.f; }
 };

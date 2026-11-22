@@ -79,12 +79,14 @@ public:
 };
 
 /**
- * Base for level-up upgrade effects (GE_Upgrade_* derive from the subclasses below). Infinite, stacks by target with
- * no limit on the effect itself (UGSUpgradeData::MaxStacks caps picks); UGSUpgradeComponent adds one stack per pick
- * and removes them all when a new run starts.
- * Percent upgrades use one Multiply (Additive) modifier, magnitude 1 + per-stack bonus (edit it on the asset). GAS
- * scales it by the stack count around the bias of 1, so N stacks give base x (1 + bonus x N): +10% per stack stays
- * +10% of the base value, not compounding. Flat upgrades (Extra Jump) use one Additive modifier: N stacks add N x it.
+ * Base for level-up upgrade effects (GE_Upgrade_* derive from the subclasses below). Infinite and applied once per
+ * upgrade: UGSUpgradeComponent applies it on the first pick and, on every later pick (or a Second Wind used up),
+ * updates its SetByCaller values in place, so the attribute never dips between picks. A new run removes it.
+ * The per-pick values live in the upgrade data (UGSUpgradeData::BaseValue x the pick's rarity), not in the effect:
+ * - Percent upgrades use one Multiply (Additive) modifier with SetByCaller Data.UpgradeMultiplier = 1 + the total of
+ *   every pick, so the attribute is base x (1 + total): a +10% and a +15% pick give +25% of the base, not compounding.
+ * - Flat upgrades (Extra Jump) use one Additive modifier with SetByCaller Data.UpgradeValue = the total.
+ * - Data.UpgradePicks = how many times the upgrade was picked (the Floating Gun's gun count).
  */
 UCLASS(Abstract)
 class BANDITBALLER_API UGSUpgradeEffect : public UGameplayEffect
@@ -94,15 +96,21 @@ class BANDITBALLER_API UGSUpgradeEffect : public UGameplayEffect
 public:
 	UGSUpgradeEffect(const FObjectInitializer& ObjectInitializer);
 
-protected:
-	/** Adds the effect's Multiply (Additive) modifier on Attribute with magnitude 1 + PerStackBonus. */
-	void AddMultiplierModifier(const FGameplayAttribute& Attribute, float PerStackBonus);
+	/** True if a modifier reads Data.UpgradeMultiplier: the upgrade's values are fractions of the base (0.1 = +10%). */
+	bool IsPercentUpgrade() const;
 
-	/** Adds the effect's Additive modifier on Attribute with magnitude PerStackAmount. */
-	void AddAdditiveModifier(const FGameplayAttribute& Attribute, float PerStackAmount);
+protected:
+	/** Adds a Multiply (Additive) modifier on Attribute from SetByCaller Data.UpgradeMultiplier (1 + total value). */
+	void AddMultiplierModifier(const FGameplayAttribute& Attribute);
+
+	/** Adds an Additive modifier on Attribute from SetByCaller Data.UpgradeValue (the total value). */
+	void AddAdditiveModifier(const FGameplayAttribute& Attribute);
+
+	/** Adds an Additive modifier on Attribute from SetByCaller Data.UpgradePicks (the number of picks). */
+	void AddPicksModifier(const FGameplayAttribute& Attribute);
 };
 
-/** +1 ExtraJumps per stack (GE_Upgrade_ExtraJump); AGSCharacter keeps JumpMaxCount = 1 + ExtraJumps. */
+/** +1 ExtraJumps per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_ExtraJump); AGSCharacter keeps JumpMaxCount = 1 + ExtraJumps. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_ExtraJump : public UGSUpgradeEffect
 {
@@ -112,7 +120,7 @@ public:
 	UGSUpgradeEffect_ExtraJump(const FObjectInitializer& ObjectInitializer);
 };
 
-/** +1 ExtraDashCharges per stack (GE_Upgrade_DashCharge); GA_Dash's max charges = DA_DashSettings MaxCharges + it. */
+/** +1 ExtraDashCharges per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_DashCharge); GA_Dash's max charges = DA_DashSettings MaxCharges + it. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_DashCharge : public UGSUpgradeEffect
 {
@@ -122,7 +130,7 @@ public:
 	UGSUpgradeEffect_DashCharge(const FObjectInitializer& ObjectInitializer);
 };
 
-/** +10% ReloadSpeed per stack (GE_Upgrade_ReloadSpeed). */
+/** +10% ReloadSpeed per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_ReloadSpeed). */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_ReloadSpeed : public UGSUpgradeEffect
 {
@@ -132,7 +140,7 @@ public:
 	UGSUpgradeEffect_ReloadSpeed(const FObjectInitializer& ObjectInitializer);
 };
 
-/** +10% Damage per stack (GE_Upgrade_Damage). */
+/** +10% Damage per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_Damage). */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_Damage : public UGSUpgradeEffect
 {
@@ -142,7 +150,7 @@ public:
 	UGSUpgradeEffect_Damage(const FObjectInitializer& ObjectInitializer);
 };
 
-/** +8% MoveSpeed per stack (GE_Upgrade_MoveSpeed); AGSCharacter syncs MoveSpeed to MaxWalkSpeed. */
+/** +8% MoveSpeed per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_MoveSpeed); AGSCharacter syncs MoveSpeed to MaxWalkSpeed. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_MoveSpeed : public UGSUpgradeEffect
 {
@@ -152,7 +160,7 @@ public:
 	UGSUpgradeEffect_MoveSpeed(const FObjectInitializer& ObjectInitializer);
 };
 
-/** +8% FireRate per stack (GE_Upgrade_FireRate); GA_Fire's refire interval divides by FireRate. */
+/** +8% FireRate per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_FireRate); GA_Fire's refire interval divides by FireRate. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_FireRate : public UGSUpgradeEffect
 {
@@ -162,7 +170,7 @@ public:
 	UGSUpgradeEffect_FireRate(const FObjectInitializer& ObjectInitializer);
 };
 
-/** +15% PickupRadius per stack (GE_Upgrade_Magnet); cash pieces and XP orbs share the magnet radius. */
+/** +15% PickupRadius per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_Magnet); cash pieces and XP orbs share the magnet radius. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_Magnet : public UGSUpgradeEffect
 {
@@ -172,7 +180,7 @@ public:
 	UGSUpgradeEffect_Magnet(const FObjectInitializer& ObjectInitializer);
 };
 
-/** +15% MagazineSizeMultiplier per stack (GE_Upgrade_BiggerMags); magazines are ceil(MagazineSize x it). */
+/** +15% MagazineSizeMultiplier per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_BiggerMags); magazines are ceil(MagazineSize x it). */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_BiggerMags : public UGSUpgradeEffect
 {
@@ -182,7 +190,7 @@ public:
 	UGSUpgradeEffect_BiggerMags(const FObjectInitializer& ObjectInitializer);
 };
 
-/** +1 HealthOnKill per stack (GE_Upgrade_Leech). */
+/** +1 HealthOnKill per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_Leech). */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_Leech : public UGSUpgradeEffect
 {
@@ -192,7 +200,7 @@ public:
 	UGSUpgradeEffect_Leech(const FObjectInitializer& ObjectInitializer);
 };
 
-/** +1 PowderKeg per stack (GE_Upgrade_PowderKeg): each stack adds DA_CombatSettings ChancePerStack that a kill explodes. */
+/** +1 PowderKeg per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_PowderKeg): each stack adds DA_CombatSettings ChancePerStack that a kill explodes. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_PowderKeg : public UGSUpgradeEffect
 {
@@ -202,7 +210,7 @@ public:
 	UGSUpgradeEffect_PowderKeg(const FObjectInitializer& ObjectInitializer);
 };
 
-/** +1 Shields per stack (GE_Upgrade_FloatingShield): one more floating shield that blocks a hit, then recharges. */
+/** +1 Shields per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_FloatingShield): one more floating shield that blocks a hit, then recharges. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_FloatingShield : public UGSUpgradeEffect
 {
@@ -212,7 +220,10 @@ public:
 	UGSUpgradeEffect_FloatingShield(const FObjectInitializer& ObjectInitializer);
 };
 
-/** +1 FloatingGunLevel per stack (GE_Upgrade_FloatingGun): level 1 = a gun over the right shoulder. */
+/**
+ * GE_Upgrade_FloatingGun: FloatingGunLevel = the number of picks (1 = a gun over the right shoulder, 2+ = and one over
+ * the left) and FloatingGunPower = the total value (the guns' +damage / +fire rate steps).
+ */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_FloatingGun : public UGSUpgradeEffect
 {
@@ -222,7 +233,7 @@ public:
 	UGSUpgradeEffect_FloatingGun(const FObjectInitializer& ObjectInitializer);
 };
 
-/** +1 SecondWinds per stack (GE_Upgrade_SecondWind): survive one more killing blow. Using one removes a stack. */
+/** +1 SecondWinds per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_SecondWind): survive one more killing blow. Using one removes one pick. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_SecondWind : public UGSUpgradeEffect
 {
@@ -245,7 +256,7 @@ public:
 	UGSTimedInvulnerabilityEffect(const FObjectInitializer& ObjectInitializer);
 };
 
-/** +1 Pierce per stack (GE_Upgrade_PiercingRounds): each shot passes through one more target. */
+/** +1 Pierce per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_PiercingRounds): each shot passes through one more target. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_PiercingRounds : public UGSUpgradeEffect
 {
@@ -255,7 +266,7 @@ public:
 	UGSUpgradeEffect_PiercingRounds(const FObjectInitializer& ObjectInitializer);
 };
 
-/** +0.05 CritChance per stack (GE_Upgrade_LoadedDice); 20 stacks = every hit critical. */
+/** +0.05 CritChance per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_LoadedDice); 20 Common picks = every hit critical. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_LoadedDice : public UGSUpgradeEffect
 {

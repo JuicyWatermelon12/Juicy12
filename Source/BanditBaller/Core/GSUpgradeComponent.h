@@ -5,13 +5,27 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "ActiveGameplayEffectHandle.h"
+#include "GSUpgradeData.h"
 #include "GSUpgradeComponent.generated.h"
 
+class UAbilitySystemComponent;
 class UGameplayEffect;
-class UGSUpgradeData;
 class UGSUpgradePool;
 
-/** How many times one upgrade was picked this run. */
+/** One pick of an upgrade: its rarity and the value it added. */
+USTRUCT(BlueprintType)
+struct FGSUpgradePick
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Upgrades")
+	EGSUpgradeRarity Rarity = EGSUpgradeRarity::Common;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Upgrades")
+	float Value = 0.f;
+};
+
+/** One upgrade picked this run: how many times (Stacks = picks) and the total value of those picks. */
 USTRUCT(BlueprintType)
 struct FGSUpgradeStack
 {
@@ -20,10 +34,19 @@ struct FGSUpgradeStack
 	UPROPERTY(BlueprintReadOnly, Category = "Upgrades")
 	TObjectPtr<const UGSUpgradeData> Upgrade;
 
+	/** Picks of the upgrade (the HUD icon's "xN", the card's "Owned: N"). */
 	UPROPERTY(BlueprintReadOnly, Category = "Upgrades")
 	int32 Stacks = 0;
 
-	/** The upgrade's stacking effect on the owner's ASC. */
+	/** Sum of every pick's value: what the attribute gets (Data.UpgradeValue / Data.UpgradeMultiplier = 1 + it). */
+	UPROPERTY(BlueprintReadOnly, Category = "Upgrades")
+	float TotalValue = 0.f;
+
+	/** Every pick in order. */
+	UPROPERTY(BlueprintReadOnly, Category = "Upgrades")
+	TArray<FGSUpgradePick> Picks;
+
+	/** The upgrade's effect on the owner's ASC (applied once, updated on every pick). */
 	FActiveGameplayEffectHandle EffectHandle;
 };
 
@@ -48,7 +71,9 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FGSOnRerollsLeftChangedNative, int32);
 /**
  * Level-up upgrades this run, on AGSPlayerState (run state: AGSGameMode::StartRun calls ResetUpgrades).
  *
- * - Stacks: GrantUpgrade adds one stack of an upgrade's infinite, stacking GE and counts it.
+ * - Picks: GrantUpgrade adds one pick of an upgrade at a rarity. The pick's value comes from UGSUpgradePool::GetPickValue;
+ *   the values of every pick add up, and the upgrade's one infinite GE gets the total (and the pick count) as SetByCaller
+ *   values: applied on the first pick, updated in place after that.
  * - Offers: every level-up (the sibling UGSProgressionComponent's OnLevelUp, which fires after the level-up rewards
  *   and heal) queues one offer. The front offer is rolled from UGSUpgradePool with the run stream when it opens, so a
  *   queued offer already respects what was picked in the offer before it. ChooseUpgrade takes one choice (there is no
@@ -72,21 +97,40 @@ public:
 	// --- Stacks ---
 
 	/**
-	 * Add one stack of Upgrade (applies its Effect). Fails without authority, an ASC or an Effect, or when the
-	 * upgrade's MaxStacks is reached. Source is logged ("Debug", "LevelUp").
+	 * Add one pick of Upgrade at Rarity: its value (UGSUpgradePool::GetPickValue) joins the total that the upgrade's
+	 * Effect applies. Fails without authority, an ASC or an Effect, when the upgrade has no such rarity (a whole-unit
+	 * upgrade has no Rare) or when its MaxStacks is reached. Source is logged ("Debug", "LevelUp").
 	 */
-	bool GrantUpgrade(const UGSUpgradeData* Upgrade, const TCHAR* Source = TEXT("Code"));
+	bool GrantUpgrade(const UGSUpgradeData* Upgrade, EGSUpgradeRarity Rarity, const TCHAR* Source = TEXT("Code"));
+
+	/** One Common pick (what every offered pick is until the per-card rarity roll, Prompt 42). */
+	bool GrantUpgrade(const UGSUpgradeData* Upgrade, const TCHAR* Source = TEXT("Code"))
+	{
+		return GrantUpgrade(Upgrade, EGSUpgradeRarity::Common, Source);
+	}
 
 	/**
-	 * Remove one stack of the picked upgrade whose Effect is (a child of) EffectClass: one stack of its GE comes off and
-	 * the count drops (the entry goes at 0, so the HUD icon and the card's "Owned" follow). Used when an upgrade is used
-	 * up (Second Wind). Returns the upgrade, or nullptr if no picked upgrade has that effect. Authority only.
+	 * Take back the last pick of the picked upgrade whose Effect is (a child of) EffectClass: its value comes off the
+	 * total and the pick count drops (the entry and its GE go at 0 picks, so the HUD icon and the card's "Owned"
+	 * follow). Used when an upgrade is used up (a Second Wind charge). Returns the upgrade, or nullptr if no picked
+	 * upgrade has that effect. Authority only.
 	 */
 	const UGSUpgradeData* RemoveStackByEffect(TSubclassOf<UGameplayEffect> EffectClass, const TCHAR* Reason = TEXT("Code"));
 
-	/** Stacks of Upgrade picked this run (0 if never). */
+	/** Picks of Upgrade this run (0 if never). */
 	UFUNCTION(BlueprintPure, Category = "Upgrades")
 	int32 GetStacks(const UGSUpgradeData* Upgrade) const;
+
+	/** Same as GetStacks. */
+	UFUNCTION(BlueprintPure, Category = "Upgrades")
+	int32 GetPicks(const UGSUpgradeData* Upgrade) const { return GetStacks(Upgrade); }
+
+	/** Total value of Upgrade's picks this run (0 if never), in the effect's units (0.25 = +25% on a percent upgrade). */
+	UFUNCTION(BlueprintPure, Category = "Upgrades")
+	float GetTotalValue(const UGSUpgradeData* Upgrade) const;
+
+	/** Upgrade's entry (picks, total, every pick), or nullptr if it wasn't picked this run. */
+	const FGSUpgradeStack* FindEntry(const UGSUpgradeData* Upgrade) const;
 
 	/** Every upgrade picked this run, in pick order of first pick. */
 	const TArray<FGSUpgradeStack>& GetUpgradeStacks() const { return Stacks; }
@@ -157,6 +201,12 @@ private:
 	void HandleLevelUp(int32 NewLevel);
 
 	const UGSUpgradePool* GetPool() const;
+
+	/** GetPool(), else the class defaults (pick values work without a GameMode, e.g. in tests). */
+	const UGSUpgradePool* GetPoolOrDefault() const;
+
+	/** Apply Entry's effect with its totals, or update the active one in place. False if applying failed. */
+	bool ApplyEntryEffect(UAbilitySystemComponent* ASC, FGSUpgradeStack& Entry) const;
 	TArray<UGSUpgradeData*> RollChoices() const;
 
 	/** Roll queued offers until one has choices (an offer with nothing available is dropped). */

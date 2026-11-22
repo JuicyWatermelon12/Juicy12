@@ -171,7 +171,7 @@ TArray<FString> UGSDebugLibrary::GetUpgradeDataNames()
 	return GSDebug::GetAssetNames(UGSUpgradeData::StaticClass());
 }
 
-int32 UGSDebugLibrary::GrantUpgradeTo(AGSPlayerController* PC, const FString& UpgradeName, int32 Count)
+int32 UGSDebugLibrary::GrantUpgradeTo(AGSPlayerController* PC, const FString& UpgradeName, int32 Count, EGSUpgradeRarity Rarity)
 {
 #if !UE_BUILD_SHIPPING
 	const AGSPlayerState* PS = PC ? PC->GetPlayerState<AGSPlayerState>() : nullptr;
@@ -189,15 +189,16 @@ int32 UGSDebugLibrary::GrantUpgradeTo(AGSPlayerController* PC, const FString& Up
 	int32 Granted = 0;
 	for (int32 Index = 0; Index < FMath::Max(Count, 1); ++Index)
 	{
-		if (!Upgrades->GrantUpgrade(Upgrade, TEXT("Debug")))
+		if (!Upgrades->GrantUpgrade(Upgrade, Rarity, TEXT("Debug")))
 		{
-			break; // at MaxStacks
+			break; // at MaxStacks, or no such rarity (whole units have no Rare)
 		}
 		++Granted;
 	}
-	if (Count > 1)
+	if (Count > 1 || Rarity != EGSUpgradeRarity::Common)
 	{
-		UE_LOG(LogBanditBaller, Log, TEXT("gs.Upgrade.Grant: %s x%d granted (now %d stacks)."), *Upgrade->GetName(), Granted, Upgrades->GetStacks(Upgrade));
+		UE_LOG(LogBanditBaller, Log, TEXT("gs.Upgrade.Grant: %s x%d %s granted (now %d pick(s), total %s)."), *Upgrade->GetName(), Granted,
+			*UGSUpgradeData::GetRarityName(Rarity), Upgrades->GetStacks(Upgrade), *Upgrade->FormatValue(Upgrades->GetTotalValue(Upgrade)));
 	}
 	return Granted;
 #else
@@ -213,20 +214,57 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 	const UAbilitySystemComponent* ASC = GSDebug::GetPlayerASC(PC);
 
 	FString Text = FString::Printf(TEXT("Upgrades this run: %d pick(s)"), Upgrades ? Upgrades->GetTotalPicks() : 0);
+
+	// Grouped by category: Stat Boosts, Abilities, Legendary abilities, Weapons.
+	TArray<const UGSUpgradeData*> All;
 	for (const FString& Name : GetUpgradeDataNames())
 	{
-		const UGSUpgradeData* Upgrade = FindUpgradeData(Name);
-		if (!Upgrade)
+		if (const UGSUpgradeData* Upgrade = FindUpgradeData(Name))
 		{
-			continue;
+			All.Add(Upgrade);
 		}
-		const int32 Stacks = Upgrades ? Upgrades->GetStacks(Upgrade) : 0;
-		Text += FString::Printf(TEXT("\n  %s [%s] x%d/%s: %s"), *Name, *UGSUpgradeData::GetRarityName(Upgrade->Rarity), Stacks,
-			Upgrade->MaxStacks > 0 ? *FString::FromInt(Upgrade->MaxStacks) : TEXT("inf"), *Upgrade->GetFormattedDescription(Stacks).ToString());
+	}
+	auto GroupOf = [](const UGSUpgradeData* Upgrade)
+	{
+		switch (Upgrade->Category)
+		{
+		case EGSUpgradeCategory::StatBoost: return 0;
+		case EGSUpgradeCategory::Ability: return Upgrade->bLegendaryAbility ? 2 : 1;
+		default: return 3;
+		}
+	};
+	const TCHAR* GroupNames[] = { TEXT("Stat Boosts"), TEXT("Abilities"), TEXT("Legendary abilities"), TEXT("Weapons") };
+	for (int32 Group = 0; Group < UE_ARRAY_COUNT(GroupNames); ++Group)
+	{
+		Text += FString::Printf(TEXT("\n  %s:"), GroupNames[Group]);
+		for (const UGSUpgradeData* Upgrade : All)
+		{
+			if (GroupOf(Upgrade) != Group)
+			{
+				continue;
+			}
+			const FGSUpgradeStack* Entry = Upgrades ? Upgrades->FindEntry(Upgrade) : nullptr;
+			const int32 Picks = Entry ? Entry->Stacks : 0;
+			FString PickRarities;
+			for (const EGSUpgradeRarity Rarity : UGSUpgradePool::GetAllRarities())
+			{
+				const int32 Count = Entry ? Entry->Picks.FilterByPredicate([Rarity](const FGSUpgradePick& P) { return P.Rarity == Rarity; }).Num() : 0;
+				if (Count > 0)
+				{
+					PickRarities += FString::Printf(TEXT("%s%d %s"), PickRarities.IsEmpty() ? TEXT("") : TEXT(", "), Count, *UGSUpgradeData::GetRarityName(Rarity));
+				}
+			}
+			Text += FString::Printf(TEXT("\n    %s: %d pick(s)%s, total %s (Common pick %s%s%s): %s"), *Upgrade->GetName(), Picks,
+				PickRarities.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" (%s)"), *PickRarities),
+				*Upgrade->FormatValue(Entry ? Entry->TotalValue : 0.f), *Upgrade->FormatValue(Upgrade->BaseValue),
+				Upgrade->bWholeUnits ? TEXT(", whole units") : TEXT(""),
+				Upgrade->MaxStacks > 0 ? *FString::Printf(TEXT(", cap %d"), Upgrade->MaxStacks) : TEXT(""),
+				*Upgrade->GetFormattedDescription(Picks).ToString());
+		}
 	}
 	if (ASC)
 	{
-		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, FireRate %.2f, MoveSpeed %.0f, PickupRadius %.0f, ExtraJumps %.0f, MagazineSizeMultiplier %.2f, HealthOnKill %.0f, CritChance %.2f, Pierce %.0f, PowderKeg %.0f, Shields %.0f, SecondWinds %.0f, FloatingGunLevel %.0f"),
+		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, FireRate %.2f, MoveSpeed %.0f, PickupRadius %.0f, ExtraJumps %.0f, MagazineSizeMultiplier %.3f, HealthOnKill %.0f, CritChance %.3f, Pierce %.0f, PowderKeg %g, Shields %.0f, SecondWinds %.0f, FloatingGunLevel %.0f, FloatingGunPower %g"),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetReloadSpeedAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetFireRateAttribute()),
@@ -240,7 +278,8 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 			ASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetShieldsAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetSecondWindsAttribute()),
-			ASC->GetNumericAttribute(UGSAttributeSet::GetFloatingGunLevelAttribute()));
+			ASC->GetNumericAttribute(UGSAttributeSet::GetFloatingGunLevelAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetFloatingGunPowerAttribute()));
 		if (const AGSCharacter* Character = Cast<AGSCharacter>(PC->GetPawn()))
 		{
 			if (const UGSWeaponComponent* Weapons = Character->GetWeaponComponent())
@@ -283,7 +322,7 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 				const AGSFloatingGun* FirstGun = Guns->GetGun(0);
 				const FString Rate = FirstGun ? FString::Printf(TEXT(", x%.2f damage, %.2f shots/s each"), FirstGun->GetDamageMultiplier(),
 					FirstGun->GetShotInterval() > 0.0 ? 1.0 / FirstGun->GetShotInterval() : 0.0) : FString();
-				Text += FString::Printf(TEXT("\n  Floating Gun: level %d, %d gun(s)%s%s%s"), Guns->GetLevel(), Guns->GetGuns().Num(), *Rate,
+				Text += FString::Printf(TEXT("\n  Floating Gun: %d pick(s), power %g, %d gun(s)%s%s%s"), Guns->GetLevel(), Guns->GetPower(), Guns->GetGuns().Num(), *Rate,
 					GunText.IsEmpty() ? TEXT("") : TEXT(": "), *GunText);
 			}
 		}
@@ -294,7 +333,7 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 		if (const AGSGameMode* GameMode = PC->GetWorld()->GetAuthGameMode<AGSGameMode>())
 		{
 			const UGSCombatSettings* Combat = GameMode->GetCombatSettings() ? GameMode->GetCombatSettings() : GetDefault<UGSCombatSettings>();
-			Text += FString::Printf(TEXT("\n  Powder Keg: %.0f stack(s), %.0f%% chance per kill (%.0f%% per stack), blast %.0f damage x Damage %.2f in %.1f m"),
+			Text += FString::Printf(TEXT("\n  Powder Keg: %g stack(s), %.1f%% chance per kill (%.0f%% per stack), blast %.0f damage x Damage %.2f in %.1f m"),
 				ASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute()), GameMode->GetPowderKegChance(PS) * 100.f,
 				Combat->ChancePerStack * 100.f, Combat->BlastDamage, ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute()),
 				Combat->BlastRadius / 100.f);
@@ -729,11 +768,25 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 	{
 		if (Args.Num() < 1)
 		{
-			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.Upgrade.Grant <UpgradeName>. Upgrades: %s"), *FString::Join(GetUpgradeDataNames(), TEXT(", ")));
+			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.Upgrade.Grant <UpgradeName> [Count=1] [Rarity=Common]. Upgrades: %s"), *FString::Join(GetUpgradeDataNames(), TEXT(", ")));
 			return;
 		}
-		const int32 Count = (Args.Num() > 1 && Args[1].IsNumeric()) ? FCString::Atoi(*Args[1]) : 1;
-		GrantUpgradeTo(PC, Args[0], Count);
+		// [Count] and [Rarity] are both optional: "Damage 3 Epic", "Damage Epic", "Damage 3".
+		int32 Count = 1;
+		EGSUpgradeRarity Rarity = EGSUpgradeRarity::Common;
+		for (int32 Index = 1; Index < Args.Num(); ++Index)
+		{
+			if (Args[Index].IsNumeric())
+			{
+				Count = FCString::Atoi(*Args[Index]);
+			}
+			else if (!UGSUpgradeData::ParseRarity(Args[Index], Rarity))
+			{
+				UE_LOG(LogBanditBaller, Warning, TEXT("gs.Upgrade.Grant: '%s' is no rarity (Common, Rare, Epic, Legendary)."), *Args[Index]);
+				return;
+			}
+		}
+		GrantUpgradeTo(PC, Args[0], Count, Rarity);
 	}
 	else if (Command == TEXT("UpgradeList"))
 	{

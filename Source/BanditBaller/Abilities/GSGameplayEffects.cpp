@@ -83,106 +83,134 @@ UGSLevelUpMaxHealthEffect::UGSLevelUpMaxHealthEffect(const FObjectInitializer& O
 UGSUpgradeEffect::UGSUpgradeEffect(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
+	// Applied once per upgrade (no stacking); UGSUpgradeComponent updates its SetByCaller values on every pick.
 	DurationPolicy = EGameplayEffectDurationType::Infinite;
-
-	PRAGMA_DISABLE_DEPRECATION_WARNINGS
-	StackingType = EGameplayEffectStackingType::AggregateByTarget;
-	PRAGMA_ENABLE_DEPRECATION_WARNINGS
-	StackLimitCount = 0; // no limit here; UGSUpgradeData::MaxStacks caps picks
 }
 
-void UGSUpgradeEffect::AddMultiplierModifier(const FGameplayAttribute& Attribute, float PerStackBonus)
+namespace
+{
+	FGameplayEffectModifierMagnitude MakeSetByCaller(const FGameplayTag& Tag)
+	{
+		FSetByCallerFloat SetByCaller;
+		SetByCaller.DataTag = Tag;
+		return FGameplayEffectModifierMagnitude(SetByCaller);
+	}
+}
+
+bool UGSUpgradeEffect::IsPercentUpgrade() const
+{
+	for (const FGameplayModifierInfo& Modifier : Modifiers)
+	{
+		if (Modifier.ModifierMagnitude.GetMagnitudeCalculationType() == EGameplayEffectMagnitudeCalculation::SetByCaller
+			&& Modifier.ModifierMagnitude.GetSetByCallerFloat().DataTag == GSGameplayTags::Data_UpgradeMultiplier)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void UGSUpgradeEffect::AddMultiplierModifier(const FGameplayAttribute& Attribute)
 {
 	FGameplayModifierInfo& Modifier = Modifiers.AddDefaulted_GetRef();
 	Modifier.Attribute = Attribute;
 	Modifier.ModifierOp = EGameplayModOp::MultiplyAdditive;
-	Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(1.f + PerStackBonus));
+	Modifier.ModifierMagnitude = MakeSetByCaller(GSGameplayTags::Data_UpgradeMultiplier);
 }
 
-void UGSUpgradeEffect::AddAdditiveModifier(const FGameplayAttribute& Attribute, float PerStackAmount)
+void UGSUpgradeEffect::AddAdditiveModifier(const FGameplayAttribute& Attribute)
 {
 	FGameplayModifierInfo& Modifier = Modifiers.AddDefaulted_GetRef();
 	Modifier.Attribute = Attribute;
 	Modifier.ModifierOp = EGameplayModOp::Additive;
-	Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(PerStackAmount));
+	Modifier.ModifierMagnitude = MakeSetByCaller(GSGameplayTags::Data_UpgradeValue);
+}
+
+void UGSUpgradeEffect::AddPicksModifier(const FGameplayAttribute& Attribute)
+{
+	FGameplayModifierInfo& Modifier = Modifiers.AddDefaulted_GetRef();
+	Modifier.Attribute = Attribute;
+	Modifier.ModifierOp = EGameplayModOp::Additive;
+	Modifier.ModifierMagnitude = MakeSetByCaller(GSGameplayTags::Data_UpgradePicks);
 }
 
 UGSUpgradeEffect_ExtraJump::UGSUpgradeEffect_ExtraJump(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AddAdditiveModifier(UGSAttributeSet::GetExtraJumpsAttribute(), 1.f);
+	AddAdditiveModifier(UGSAttributeSet::GetExtraJumpsAttribute());
 }
 
 UGSUpgradeEffect_DashCharge::UGSUpgradeEffect_DashCharge(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AddAdditiveModifier(UGSAttributeSet::GetExtraDashChargesAttribute(), 1.f);
+	AddAdditiveModifier(UGSAttributeSet::GetExtraDashChargesAttribute());
 }
 
 UGSUpgradeEffect_ReloadSpeed::UGSUpgradeEffect_ReloadSpeed(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AddMultiplierModifier(UGSAttributeSet::GetReloadSpeedAttribute(), 0.10f);
+	AddMultiplierModifier(UGSAttributeSet::GetReloadSpeedAttribute());
 }
 
 UGSUpgradeEffect_Damage::UGSUpgradeEffect_Damage(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AddMultiplierModifier(UGSAttributeSet::GetDamageAttribute(), 0.10f);
+	AddMultiplierModifier(UGSAttributeSet::GetDamageAttribute());
 }
 
 UGSUpgradeEffect_MoveSpeed::UGSUpgradeEffect_MoveSpeed(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AddMultiplierModifier(UGSAttributeSet::GetMoveSpeedAttribute(), 0.08f);
+	AddMultiplierModifier(UGSAttributeSet::GetMoveSpeedAttribute());
 }
 
 UGSUpgradeEffect_FireRate::UGSUpgradeEffect_FireRate(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AddMultiplierModifier(UGSAttributeSet::GetFireRateAttribute(), 0.08f);
+	AddMultiplierModifier(UGSAttributeSet::GetFireRateAttribute());
 }
 
 UGSUpgradeEffect_Magnet::UGSUpgradeEffect_Magnet(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AddMultiplierModifier(UGSAttributeSet::GetPickupRadiusAttribute(), 0.15f);
+	AddMultiplierModifier(UGSAttributeSet::GetPickupRadiusAttribute());
 }
 
 UGSUpgradeEffect_BiggerMags::UGSUpgradeEffect_BiggerMags(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AddMultiplierModifier(UGSAttributeSet::GetMagazineSizeMultiplierAttribute(), 0.15f);
+	AddMultiplierModifier(UGSAttributeSet::GetMagazineSizeMultiplierAttribute());
 }
 
 UGSUpgradeEffect_Leech::UGSUpgradeEffect_Leech(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AddAdditiveModifier(UGSAttributeSet::GetHealthOnKillAttribute(), 1.f);
+	AddAdditiveModifier(UGSAttributeSet::GetHealthOnKillAttribute());
 }
 
 UGSUpgradeEffect_PowderKeg::UGSUpgradeEffect_PowderKeg(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AddAdditiveModifier(UGSAttributeSet::GetPowderKegAttribute(), 1.f);
+	AddAdditiveModifier(UGSAttributeSet::GetPowderKegAttribute());
 }
 
 UGSUpgradeEffect_FloatingShield::UGSUpgradeEffect_FloatingShield(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AddAdditiveModifier(UGSAttributeSet::GetShieldsAttribute(), 1.f);
+	AddAdditiveModifier(UGSAttributeSet::GetShieldsAttribute());
 }
 
 UGSUpgradeEffect_FloatingGun::UGSUpgradeEffect_FloatingGun(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AddAdditiveModifier(UGSAttributeSet::GetFloatingGunLevelAttribute(), 1.f);
+	AddPicksModifier(UGSAttributeSet::GetFloatingGunLevelAttribute()); // guns
+	AddAdditiveModifier(UGSAttributeSet::GetFloatingGunPowerAttribute()); // +damage / fire rate steps
 }
 
 UGSUpgradeEffect_SecondWind::UGSUpgradeEffect_SecondWind(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AddAdditiveModifier(UGSAttributeSet::GetSecondWindsAttribute(), 1.f);
+	AddAdditiveModifier(UGSAttributeSet::GetSecondWindsAttribute());
 }
 
 UGSTimedInvulnerabilityEffect::UGSTimedInvulnerabilityEffect(const FObjectInitializer& ObjectInitializer)
@@ -204,13 +232,13 @@ UGSTimedInvulnerabilityEffect::UGSTimedInvulnerabilityEffect(const FObjectInitia
 UGSUpgradeEffect_PiercingRounds::UGSUpgradeEffect_PiercingRounds(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AddAdditiveModifier(UGSAttributeSet::GetPierceAttribute(), 1.f);
+	AddAdditiveModifier(UGSAttributeSet::GetPierceAttribute());
 }
 
 UGSUpgradeEffect_LoadedDice::UGSUpgradeEffect_LoadedDice(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
-	AddAdditiveModifier(UGSAttributeSet::GetCritChanceAttribute(), 0.05f);
+	AddAdditiveModifier(UGSAttributeSet::GetCritChanceAttribute());
 }
 
 UGSHealthOnKillEffect::UGSHealthOnKillEffect(const FObjectInitializer& ObjectInitializer)

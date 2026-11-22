@@ -5,6 +5,7 @@
 #include "AbilitySystemGlobals.h"
 #include "BanditBaller.h"
 #include "GameplayEffect.h"
+#include "GSGameplayTags.h"
 #include "GSGameMode.h"
 #include "GSPlayerState.h"
 #include "GSProgressionComponent.h"
@@ -47,7 +48,40 @@ void UGSUpgradeComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 // Stacks
 // ---------------------------------------------------------------------------
 
-bool UGSUpgradeComponent::GrantUpgrade(const UGSUpgradeData* Upgrade, const TCHAR* Source)
+const UGSUpgradePool* UGSUpgradeComponent::GetPoolOrDefault() const
+{
+	const UGSUpgradePool* Pool = GetPool();
+	return Pool ? Pool : GetDefault<UGSUpgradePool>();
+}
+
+bool UGSUpgradeComponent::ApplyEntryEffect(UAbilitySystemComponent* ASC, FGSUpgradeStack& Entry) const
+{
+	TMap<FGameplayTag, float> Values;
+	Values.Add(GSGameplayTags::Data_UpgradeValue, Entry.TotalValue);
+	Values.Add(GSGameplayTags::Data_UpgradeMultiplier, 1.f + Entry.TotalValue);
+	Values.Add(GSGameplayTags::Data_UpgradePicks, static_cast<float>(Entry.Stacks));
+
+	if (Entry.EffectHandle.IsValid() && ASC->GetActiveGameplayEffect(Entry.EffectHandle))
+	{
+		// Later picks: the same active effect, new totals. The attribute goes straight to the new value (it never dips,
+		// so shields, dash charges and the guns keep their state).
+		ASC->UpdateActiveGameplayEffectSetByCallerMagnitudes(Entry.EffectHandle, Values);
+		return true;
+	}
+	const FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(Entry.Upgrade->Effect, 1.f, ASC->MakeEffectContext());
+	if (!Spec.IsValid())
+	{
+		return false;
+	}
+	for (const TPair<FGameplayTag, float>& Value : Values)
+	{
+		Spec.Data->SetSetByCallerMagnitude(Value.Key, Value.Value);
+	}
+	Entry.EffectHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data);
+	return Entry.EffectHandle.IsValid();
+}
+
+bool UGSUpgradeComponent::GrantUpgrade(const UGSUpgradeData* Upgrade, EGSUpgradeRarity Rarity, const TCHAR* Source)
 {
 	AActor* Owner = GetOwner();
 	if (!Upgrade || !Owner || !Owner->HasAuthority())
@@ -60,34 +94,47 @@ bool UGSUpgradeComponent::GrantUpgrade(const UGSUpgradeData* Upgrade, const TCHA
 		UE_LOG(LogBanditBaller, Warning, TEXT("[upgrade] %s: can't grant %s (no ASC or no Effect on the upgrade)."), *GetNameSafe(Owner), *GetNameSafe(Upgrade));
 		return false;
 	}
+	const UGSUpgradePool* Pool = GetPoolOrDefault();
+	if (!Pool->HasRarity(Upgrade, Rarity))
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("[upgrade] %s: %s has no %s version (whole units: Common, Epic, Legendary); not granted."),
+			*GetNameSafe(Owner), *Upgrade->GetName(), *UGSUpgradeData::GetRarityName(Rarity));
+		return false;
+	}
 
-	FGSUpgradeStack* Entry = Stacks.FindByPredicate([Upgrade](const FGSUpgradeStack& S) { return S.Upgrade == Upgrade; });
-	const int32 Current = Entry ? Entry->Stacks : 0;
+	const int32 EntryIndex = Stacks.IndexOfByPredicate([Upgrade](const FGSUpgradeStack& S) { return S.Upgrade == Upgrade; });
+	const int32 Current = EntryIndex != INDEX_NONE ? Stacks[EntryIndex].Stacks : 0;
 	if (!Upgrade->CanAddStack(Current))
 	{
 		UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: %s is at its cap (%d/%d); not granted."), *GetNameSafe(Owner), *Upgrade->GetName(), Current, Upgrade->MaxStacks);
 		return false;
 	}
 
-	const FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(Upgrade->Effect, 1.f, ASC->MakeEffectContext());
-	const FActiveGameplayEffectHandle Handle = Spec.IsValid() ? ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data) : FActiveGameplayEffectHandle();
-	if (!Handle.IsValid())
+	FGSUpgradeStack NewEntry;
+	FGSUpgradeStack& Entry = EntryIndex != INDEX_NONE ? Stacks[EntryIndex] : NewEntry;
+	Entry.Upgrade = Upgrade;
+	const FGSUpgradePick Pick{ Rarity, Pool->GetPickValue(Upgrade, Rarity, Current) };
+	Entry.Picks.Add(Pick);
+	Entry.Stacks = Current + 1;
+	Entry.TotalValue += Pick.Value;
+	if (!ApplyEntryEffect(ASC, Entry))
 	{
+		Entry.Picks.Pop();
+		Entry.Stacks = Current;
+		Entry.TotalValue -= Pick.Value;
 		UE_LOG(LogBanditBaller, Warning, TEXT("[upgrade] %s: applying %s failed."), *GetNameSafe(Owner), *GetNameSafe(Upgrade->Effect));
 		return false;
 	}
-
-	if (!Entry)
+	if (EntryIndex == INDEX_NONE)
 	{
-		Entry = &Stacks.AddDefaulted_GetRef();
-		Entry->Upgrade = Upgrade;
+		Stacks.Add(MoveTemp(NewEntry));
 	}
-	Entry->Stacks = Current + 1;
-	Entry->EffectHandle = Handle; // stacking by target: every pick lands on the same active effect
+	const FGSUpgradeStack& Added = EntryIndex != INDEX_NONE ? Stacks[EntryIndex] : Stacks.Last();
 
-	UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: %s x%d (%s) -> %s"), *GetNameSafe(Owner), *Upgrade->GetName(), Entry->Stacks,
-		Source, *Upgrade->GetFormattedDescription(Current).ToString()); // the text of the pick just made
-	OnUpgradeStacksChanged.Broadcast(Upgrade, Entry->Stacks);
+	UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: %s x%d (%s, %s %s, total %s) -> %s"), *GetNameSafe(Owner), *Upgrade->GetName(), Added.Stacks,
+		Source, *UGSUpgradeData::GetRarityName(Rarity), *Upgrade->FormatValue(Pick.Value), *Upgrade->FormatValue(Added.TotalValue),
+		*Upgrade->GetFormattedDescription(Current).ToString()); // the text of the pick just made
+	OnUpgradeStacksChanged.Broadcast(Upgrade, Added.Stacks);
 	return true;
 }
 
@@ -108,24 +155,42 @@ const UGSUpgradeData* UGSUpgradeComponent::RemoveStackByEffect(TSubclassOf<UGame
 	}
 	FGSUpgradeStack& Entry = Stacks[Index];
 	const UGSUpgradeData* Upgrade = Entry.Upgrade;
-	if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner))
-	{
-		ASC->RemoveActiveGameplayEffect(Entry.EffectHandle, /*StacksToRemove*/ 1);
-	}
+	const FGSUpgradePick Removed = Entry.Picks.Num() > 0 ? Entry.Picks.Pop() : FGSUpgradePick();
+	Entry.TotalValue = FMath::Max(Entry.TotalValue - Removed.Value, 0.f);
 	const int32 Left = --Entry.Stacks;
+	UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner);
 	if (Left <= 0)
 	{
+		if (ASC)
+		{
+			ASC->RemoveActiveGameplayEffect(Entry.EffectHandle);
+		}
 		Stacks.RemoveAt(Index);
+	}
+	else if (ASC)
+	{
+		ApplyEntryEffect(ASC, Entry); // the same effect, one pick less
 	}
 	UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: %s used up (%s), %d left"), *GetNameSafe(Owner), *GetNameSafe(Upgrade), Reason, Left);
 	OnUpgradeStacksChanged.Broadcast(Upgrade, Left);
 	return Upgrade;
 }
 
+const FGSUpgradeStack* UGSUpgradeComponent::FindEntry(const UGSUpgradeData* Upgrade) const
+{
+	return Stacks.FindByPredicate([Upgrade](const FGSUpgradeStack& S) { return S.Upgrade == Upgrade; });
+}
+
 int32 UGSUpgradeComponent::GetStacks(const UGSUpgradeData* Upgrade) const
 {
-	const FGSUpgradeStack* Entry = Stacks.FindByPredicate([Upgrade](const FGSUpgradeStack& S) { return S.Upgrade == Upgrade; });
+	const FGSUpgradeStack* Entry = FindEntry(Upgrade);
 	return Entry ? Entry->Stacks : 0;
+}
+
+float UGSUpgradeComponent::GetTotalValue(const UGSUpgradeData* Upgrade) const
+{
+	const FGSUpgradeStack* Entry = FindEntry(Upgrade);
+	return Entry ? Entry->TotalValue : 0.f;
 }
 
 int32 UGSUpgradeComponent::GetTotalPicks() const
@@ -322,7 +387,7 @@ void UGSUpgradeComponent::ResetUpgrades()
 	{
 		for (const FGSUpgradeStack& Entry : Stacks)
 		{
-			ASC->RemoveActiveGameplayEffect(Entry.EffectHandle, /*StacksToRemove*/ -1);
+			ASC->RemoveActiveGameplayEffect(Entry.EffectHandle);
 		}
 	}
 	const TArray<FGSUpgradeStack> Removed = MoveTemp(Stacks);

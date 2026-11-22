@@ -51,7 +51,7 @@ held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds
 M2b + M2c checkpoint (48), which replaces the old M2b checkpoint). Four more weapons and a weapons checkpoint follow
 (49–53). **Then M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Docs: upgrade rework (M2c)" (Prompt 40, docs only), not pushed. The code is as of Prompt 39: the build is clean and all 47 automation tests pass in about 113 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Upgrade picks with rarity and value" (Prompt 41), not pushed. The build is clean and all 48 automation tests pass in about 113 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -106,7 +106,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2b 37 | Second Wind: a killing blow uses one instead (30% Health, 2 s invulnerable, one stack gone); flash, sound, banner | 5adacd1, aa887b5 |
 | M2b 38 | Floating Gun part 1: level 1 = a gun over the right shoulder that shoots the nearest enemy with pooled projectiles (8 × Damage, crits, 1.5 / s on an exact schedule, 20 m); kept off the crosshair | c7f3d6f |
 | M2b 39 | Floating Gun part 2: level 2 = a second gun over the left shoulder (never more than two), the guns prefer different targets, level 3+ = +10% damage and fire rate each; card text per next level | 062273f |
-| M2c 40 | Design update: upgrade rework (categories, rarity per card, weapons with 3 slots, no pick caps, endless levels); Prompts 41–53 planned (docs only) | see git log |
+| M2c 40 | Design update: upgrade rework (categories, rarity per card, weapons with 3 slots, no pick caps, endless levels); Prompts 41–53 planned (docs only) | fc5bcd2 |
+| M2c 41 | Upgrade picks: category, BaseValue, rarity multipliers in DA_UpgradePool, one GE per upgrade with the total (SetByCaller), FloatingGunPower, `gs.Upgrade.Grant <Name> [Count] [Rarity]`; offered picks still Common | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -2321,6 +2322,83 @@ picked. Icon only.
 - This file: the game summary, the intro and the step table, this entry, a note on **Design update — M2b upgrades**,
   the M2b heading, a known issue, **Next up** (Prompts 40–53) and **Decided (user)**.
 
+## M2c — Upgrade rework (Prompts 40–48)
+
+Prompt 40 is the design update above.
+
+### Prompt 41 — Upgrade data and per-pick values
+How a pick is stored and applied. The offer roll and the cards are unchanged until Prompt 42, so **every offered pick
+is still granted as Common**, and a Common pick gives exactly what a pick gave before.
+- **`UGSUpgradeData`** (new fields, set on all 15 `DA_Upgrade_*` with MCP):
+  - `Category` (`EGSUpgradeCategory`: StatBoost, Ability, Weapon), `bLegendaryAbility`, `AppearanceWeight` (1, used
+    from Prompt 42), `BaseValue` (the value of one Common pick, in the effect's units) and `bWholeUnits`.
+  - `WeaponGivingPicks` (weapons only): how many first picks give the weapon itself. Floating Gun 2 (its two guns),
+    default 1.
+  - The fixed `Rarity` and `MaxStacks` stay for now: the offer roll still uses the rarity (42), and MaxStacks still
+    caps picks (44).
+  - `IsPercentUpgrade()`, `ToDisplayValue`, `FormatValue` ("+25%", "+3"), `GetCategoryName`, `ParseRarity`.
+    `GetPerStackValue()` now shows BaseValue (×100 for percent upgrades), so every card text is unchanged.
+
+  | Category | Upgrades | BaseValue |
+  |---|---|---|
+  | Stat Boost | Damage, Reload Speed (0.10); Fire Rate, Move Speed (0.08); Magnet, Bigger Mags (0.15) — all percent; Loaded Dice (0.05 crit chance) | as listed |
+  | Ability, whole units | Extra Jump, Dash Charge, Floating Shield, Piercing Rounds, Leech | 1 |
+  | Ability | Powder Keg (1 stack = 3%; not whole units, so a Rare pick is 1.5 stacks = 4.5%) | 1 |
+  | Legendary ability | Second Wind | 1 (one charge per pick, whatever the rarity) |
+  | Weapon | Floating Gun | 1 point of power |
+- **Pick values** (`UGSUpgradePool`, DA_UpgradePool; class defaults, so the asset didn't change):
+  `RarityValueMultipliers` 1 / 1.5 / 2 / 3 and `WholeUnitValues` Common 1, Epic 2, Legendary 3 (no Rare).
+  `GetPickValue(Upgrade, Rarity, PicksBefore)`:
+  - Legendary ability: BaseValue; whole units: BaseValue × WholeUnitValues (a Rare pick is refused, `HasRarity`);
+  - weapon: BaseValue × (multiplier − 1) for the first `WeaponGivingPicks` picks, then BaseValue × multiplier;
+  - otherwise BaseValue × multiplier.
+- **`UGSUpgradeComponent`:**
+  - `GrantUpgrade(Upgrade, Rarity, Source)`; the old `GrantUpgrade(Upgrade, Source)` is a Common pick. Offered picks
+    (`ChooseUpgrade`) use it.
+  - Each entry (`FGSUpgradeStack`) keeps `Stacks` (= picks), `TotalValue` and every pick (`FGSUpgradePick`: rarity,
+    value). New `GetTotalValue`, `GetPicks`, `FindEntry`.
+  - **One active effect per upgrade:** the first pick applies the upgrade's GE, later picks update its SetByCaller
+    values in place (`UpdateActiveGameplayEffectSetByCallerMagnitudes`). The attribute goes straight to the new
+    total and never dips, so shield cooldowns, dash charges and the guns keep their state.
+  - `RemoveStackByEffect` (a used Second Wind) takes back the last pick: its value comes off the total, and at 0 picks
+    the effect and the entry go.
+  - Log: `[upgrade] <PS>: DA_Upgrade_Damage x2 (Debug, Epic +20%, total +40%) -> <card text>`.
+- **Upgrade effects** (`UGSUpgradeEffect`): no static magnitudes and no stacking any more. New SetByCaller tags:
+  - `Data.UpgradeMultiplier` = 1 + total (the Multiply (Additive) modifier of percent upgrades: base × (1 + total));
+  - `Data.UpgradeValue` = total (Additive modifiers);
+  - `Data.UpgradePicks` = the number of picks.
+  - The `GE_Upgrade_*` Blueprints inherit the new modifiers (checked on GE_Upgrade_Damage); no asset change.
+- **Floating Gun:**
+  - `FloatingGunLevel` is now the number of picks (Data.UpgradePicks): picks 1 and 2 give the two guns.
+  - New attribute **`FloatingGunPower`** (total value; not replicated, `TODO(co-op)`) gives the +damage / +fire rate
+    steps: picks 1 and 2 add multiplier − 1, later picks the multiplier. Fractions count (power 1.5 = +15%).
+  - `DA_FloatingGunSettings`: `DamageBonusPerLevel` / `FireRateBonusPerLevel` renamed to `DamageBonusPerPower` /
+    `FireRateBonusPerPower` (the asset used the class defaults). `GetDamageMultiplier(Power)`,
+    `GetFireRateMultiplier(Power)`, `GetShotInterval(Power)`; `GetBonusLevels` is gone. Common picks give the same
+    numbers as before (5 picks = power 3 = ×1.3, 1.95 shots a second).
+  - `UGSFloatingGunComponent::GetPower`, `AGSFloatingGun::GetPower`; the `[gun]` line logs each power change.
+- **Powder Keg:** the stacks aren't rounded any more (`GetExplodeChance(float)`), so a Rare pick (1.5) adds 4.5%.
+  The `[blast]` line prints fractional stacks.
+- **Console:**
+  - `gs.Upgrade.Grant <Name> [Count] [Rarity]` (both optional, any order: `Damage 2 Epic`, `Damage Epic`, `L` for
+    Legendary). A whole-unit upgrade at Rare is refused with a warning.
+  - `gs.Upgrade.List` groups the upgrades by category (Stat Boosts, Abilities, Legendary abilities, Weapons). Each line
+    shows the picks by rarity, the total value, the Common pick's value, "whole units" and a cap when there is one.
+    The Stats line adds FloatingGunPower, the Floating Gun line shows picks and power.
+- **Tests:**
+  - New `Upgrades.PickValues` (all 15 upgrades).
+  - `Upgrades.StatUpgrades`: one active GE per upgrade instead of N stacks; total value; the capped test upgrade
+    gets a BaseValue.
+  - `Upgrades.FloatingGunLevels`: power instead of levels (power 0 / 1 / 1.5 / 3), and power 0 after two Common picks,
+    3 after five.
+  - `Upgrades.Offers`' test upgrades get a BaseValue. Every other test passed unchanged (Common = the old pick).
+- **PIE check** (town, god mode, round paused): `gs.Upgrade.Grant Damage 2 Epic` → Damage 1.40;
+  `ExtraJump Legendary` → ExtraJumps 3; `DashCharge Rare` → refused ("has no Rare version"); `FloatingGun 1 Rare` then
+  `FloatingGun Legendary` → two guns, power 2.5, ×1.25 damage, 1.88 shots a second; `Magnet` (Common) → PickupRadius
+  345. `gs.Upgrade.List` showed the four groups and the per-rarity picks.
+- **Known issue (cosmetic):** after a refused grant, `gs.Upgrade.Grant` also prints "x0 Rare granted (now 0 pick(s))".
+- **Full suite:** 48 tests, all passing, in 113.0 s.
+
 ---
 
 ## Console commands and CVars
@@ -2334,8 +2412,8 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.God [0\|1]` | Toggle/set damage immunity (one `State.Invulnerable` count). |
 | `gs.GiveWeapon <Weapon>` | Equip `Rifle` / `Pistol` / `BanditCarbine` with a full mag (replaces the equipped one if both slots are full). |
 | `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain, ReloadSpeed). |
-| `gs.Upgrade.Grant <Name> [Count=1]` | Add stacks of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed`, `FireRate`, `Magnet`, `BiggerMags`, `ExtraJump`, `DashCharge`, `Leech`, `LoadedDice`, `PiercingRounds`, `PowderKeg`, `FloatingShield`, `SecondWind`, `FloatingGun` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`. |
-| `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps / MagazineSizeMultiplier / HealthOnKill / CritChance / Pierce / PowderKeg / Shields / SecondWinds / FloatingGunLevel, the magazine (ammo / size), the dash charges (max = base + ExtraDashCharges, ready now), the floating shields (ready / each recharge / hits blocked), the Floating Gun (level, guns, shots and target), Second Wind (left / used this run) and Powder Keg (stacks, chance per kill, blast damage and radius). |
+| `gs.Upgrade.Grant <Name> [Count=1] [Rarity=Common]` | Add picks of an upgrade at a rarity (Common, Rare, Epic, Legendary or C / R / E / L; Count and Rarity in any order; whole-unit upgrades have no Rare) (`ReloadSpeed`, `Damage`, `MoveSpeed`, `FireRate`, `Magnet`, `BiggerMags`, `ExtraJump`, `DashCharge`, `Leech`, `LoadedDice`, `PiercingRounds`, `PowderKeg`, `FloatingShield`, `SecondWind`, `FloatingGun` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`, `gs.Upgrade.Grant Damage 2 Epic`. |
+| `gs.Upgrade.List` | List every upgrade by category (Stat Boosts, Abilities, Legendary abilities, Weapons) with this run's picks by rarity, total value, Common pick value, cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps / MagazineSizeMultiplier / HealthOnKill / CritChance / Pierce / PowderKeg / Shields / SecondWinds / FloatingGunLevel / FloatingGunPower, the magazine (ammo / size), the dash charges (max = base + ExtraDashCharges, ready now), the floating shields (ready / each recharge / hits blocked), the Floating Gun (picks, power, guns, shots and target), Second Wind (left / used this run) and Powder Keg (stacks, chance per kill, blast damage and radius). |
 | `gs.Upgrade.Offer` | Queue a level-up offer without the level (opens at once if none is open) and print the open offer. Refused in GameOver. |
 | `gs.Upgrade.Choose <0-2>` | Take a choice of the open offer; the next queued offer opens. |
 | `gs.Upgrade.Reroll` | Reroll the open offer for one of this run's rerolls (refused with none left or no offer). |
@@ -2397,7 +2475,8 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | SecondWinds | Second Winds left: a hit that would take Health to 0 uses one instead (UGSSecondWindComponent on the PlayerState): Health goes to 30% of MaxHealth (whole points), 2 s of State.Invulnerable, one stack of the upgrade removed. Constructor default 0, min 0, rounded. Raised by Second Wind. Not replicated yet. |
 | Shields | Floating shields: each blocks one whole hit in the damage path, then recharges for DA_CombatSettings ShieldCooldown (UGSShieldComponent on the PlayerState; drawn by AGSCharacter's UGSFloatingShieldsComponent). Constructor default 0, min 0, rounded. Raised by Floating Shield. Not replicated yet. |
 | PowderKeg | Powder Keg stacks: each of the player's enemy kills explodes with chance stacks × DA_CombatSettings ChancePerStack (3%, max 100%; run stream; AGSGameMode::RollPowderKegChance / ExplodePowderKeg). The blast is fixed: BlastDamage × Damage in BlastRadius. Constructor default 0, min 0, rounded. Not replicated yet. |
-| FloatingGunLevel | Floating Gun level: 1 = a gun over the right shoulder, 2+ = a second over the left (never more than two), each shooting the nearest enemy (preferring different ones) with pooled projectiles; 3+ = +10% damage and fire rate per level (UGSFloatingGunComponent on the character, AGSFloatingGun, DA_FloatingGunSettings). Constructor default 0, min 0. Raised by Floating Gun. Not replicated yet. |
+| FloatingGunLevel | Floating Gun picks: 1 = a gun over the right shoulder, 2+ = a second over the left (never more than two), each shooting the nearest enemy (preferring different ones) with pooled projectiles (UGSFloatingGunComponent on the character, AGSFloatingGun, DA_FloatingGunSettings). Constructor default 0, min 0. Raised by Floating Gun. Not replicated yet. |
+| FloatingGunPower | Floating Gun weapon power (the total value of the Floating Gun picks: picks 1 and 2 add the rarity multiplier − 1, later picks the multiplier): each point adds DA_FloatingGunSettings DamageBonusPerPower / FireRateBonusPerPower (+10%) to both guns; fractions count. Constructor default 0, min 0. Not replicated yet. |
 | IncomingDamage | Meta attribute: GE_Damage writes it, the set converts it to Health loss and records the instigator. |
 
 **Gameplay tags** (native, `Abilities/GSGameplayTags.*`; none in config):
@@ -2406,7 +2485,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Ability: `Ability.Fire`, `Ability.Reload`, `Ability.Slide`, `Ability.Dash`, `Ability.SwapWeapon`,
   `Ability.Attack.Melee`, `Ability.Attack.Ranged`
 - Cooldown: `Cooldown.Slide`, `Cooldown.Dash`
-- SetByCaller data: `Data.Damage`, `Data.Critical` (1 on a critical hit's damage spec), `Data.Heal` (health orbs), `Data.Duration` (timed state effects: Second Wind invulnerability), `Data.Cooldown`,
+- SetByCaller data: `Data.UpgradeValue` / `Data.UpgradeMultiplier` / `Data.UpgradePicks` (level-up upgrade effects: total value, 1 + total, picks), `Data.Damage`, `Data.Critical` (1 on a critical hit's damage spec), `Data.Heal` (health orbs), `Data.Duration` (timed state effects: Second Wind invulnerability), `Data.Cooldown`,
   `Data.HealthMultiplier`, `Data.DamageMultiplier`
 
 **Gameplay Effects** (`Content/BanditBaller/Abilities/`):
@@ -2421,22 +2500,22 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | `GE_EnemyRoundScaling` | `UGSEnemyRoundScalingEffect` | Infinite; MultiplyCompound MaxHealth / Damage from `Data.HealthMultiplier` / `Data.DamageMultiplier`. |
 | `GE_LevelUp_MaxHealth` | `UGSLevelUpMaxHealthEffect` | Infinite, stacking (no limit); +10 MaxHealth per stack, one stack per level-up (DA_LevelRewards). |
 | `GE_FullHeal` | `UGSFullHealEffect` | Instant; Health = target's current MaxHealth (attribute-based). Applied after level-up rewards. |
-| `GE_Upgrade_ReloadSpeed` | `UGSUpgradeEffect_ReloadSpeed` | Infinite, stacking; Multiply (Additive) 1.10 on ReloadSpeed → +10% of base per stack. |
-| `GE_Upgrade_Damage` | `UGSUpgradeEffect_Damage` | Infinite, stacking; Multiply (Additive) 1.10 on Damage → +10% of base per stack. |
-| `GE_Upgrade_MoveSpeed` | `UGSUpgradeEffect_MoveSpeed` | Infinite, stacking; Multiply (Additive) 1.08 on MoveSpeed → +8% of base per stack. |
-| `GE_Upgrade_ExtraJump` | `UGSUpgradeEffect_ExtraJump` | Infinite, stacking; Additive +1 ExtraJumps per stack. |
-| `GE_Upgrade_DashCharge` | `UGSUpgradeEffect_DashCharge` | Infinite, stacking; Additive +1 ExtraDashCharges per stack. |
-| `GE_Upgrade_FireRate` | `UGSUpgradeEffect_FireRate` | Infinite, stacking; Multiply (Additive) 1.08 on FireRate → +8% of base per stack. |
-| `GE_Upgrade_Magnet` | `UGSUpgradeEffect_Magnet` | Infinite, stacking; Multiply (Additive) 1.15 on PickupRadius → +15% of base per stack. |
-| `GE_Upgrade_BiggerMags` | `UGSUpgradeEffect_BiggerMags` | Infinite, stacking; Multiply (Additive) 1.15 on MagazineSizeMultiplier → +15% per stack. |
-| `GE_Upgrade_Leech` | `UGSUpgradeEffect_Leech` | Infinite, stacking; Additive +1 HealthOnKill per stack. |
-| `GE_Upgrade_PiercingRounds` | `UGSUpgradeEffect_PiercingRounds` | Infinite, stacking; Additive +1 Pierce per stack. |
-| `GE_Upgrade_PowderKeg` | `UGSUpgradeEffect_PowderKeg` | Infinite, stacking; Additive +1 PowderKeg per stack. |
-| `GE_Upgrade_FloatingShield` | `UGSUpgradeEffect_FloatingShield` | Infinite, stacking; Additive +1 Shields per stack. |
-| `GE_Upgrade_SecondWind` | `UGSUpgradeEffect_SecondWind` | Infinite, stacking; Additive +1 SecondWinds per stack. A used Second Wind removes one stack. |
-| `GE_Upgrade_FloatingGun` | `UGSUpgradeEffect_FloatingGun` | Infinite, stacking; Additive +1 FloatingGunLevel per stack. |
+| `GE_Upgrade_ReloadSpeed` | `UGSUpgradeEffect_ReloadSpeed` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Multiply (Additive) 1 + total on ReloadSpeed (Data.UpgradeMultiplier) → +10% of base per Common pick (BaseValue on the DA_Upgrade_*). |
+| `GE_Upgrade_Damage` | `UGSUpgradeEffect_Damage` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Multiply (Additive) 1 + total on Damage (Data.UpgradeMultiplier) → +10% of base per Common pick (BaseValue on the DA_Upgrade_*). |
+| `GE_Upgrade_MoveSpeed` | `UGSUpgradeEffect_MoveSpeed` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Multiply (Additive) 1 + total on MoveSpeed (Data.UpgradeMultiplier) → +8% of base per Common pick (BaseValue on the DA_Upgrade_*). |
+| `GE_Upgrade_ExtraJump` | `UGSUpgradeEffect_ExtraJump` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Additive total on ExtraJumps (Data.UpgradeValue; +1 per Common pick). |
+| `GE_Upgrade_DashCharge` | `UGSUpgradeEffect_DashCharge` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Additive total on ExtraDashCharges (Data.UpgradeValue; +1 per Common pick). |
+| `GE_Upgrade_FireRate` | `UGSUpgradeEffect_FireRate` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Multiply (Additive) 1 + total on FireRate (Data.UpgradeMultiplier) → +8% of base per Common pick (BaseValue on the DA_Upgrade_*). |
+| `GE_Upgrade_Magnet` | `UGSUpgradeEffect_Magnet` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Multiply (Additive) 1 + total on PickupRadius (Data.UpgradeMultiplier) → +15% of base per Common pick (BaseValue on the DA_Upgrade_*). |
+| `GE_Upgrade_BiggerMags` | `UGSUpgradeEffect_BiggerMags` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Multiply (Additive) 1 + total on MagazineSizeMultiplier → +15% per Common pick. |
+| `GE_Upgrade_Leech` | `UGSUpgradeEffect_Leech` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Additive total on HealthOnKill (Data.UpgradeValue; +1 per Common pick). |
+| `GE_Upgrade_PiercingRounds` | `UGSUpgradeEffect_PiercingRounds` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Additive total on Pierce (Data.UpgradeValue; +1 per Common pick). |
+| `GE_Upgrade_PowderKeg` | `UGSUpgradeEffect_PowderKeg` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Additive total on PowderKeg (Data.UpgradeValue; +1 per Common pick). |
+| `GE_Upgrade_FloatingShield` | `UGSUpgradeEffect_FloatingShield` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Additive total on Shields (Data.UpgradeValue; +1 per Common pick). |
+| `GE_Upgrade_SecondWind` | `UGSUpgradeEffect_SecondWind` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Additive total on SecondWinds (Data.UpgradeValue; +1 per Common pick). A used Second Wind takes one pick back. |
+| `GE_Upgrade_FloatingGun` | `UGSUpgradeEffect_FloatingGun` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Additive picks on FloatingGunLevel (Data.UpgradePicks) and total on FloatingGunPower (Data.UpgradeValue). |
 | (native, no asset) | `UGSTimedInvulnerabilityEffect` | Has duration (SetByCaller `Data.Duration`); grants `State.Invulnerable`. Second Wind applies it for 2 s (DA_CombatSettings `SecondWindInvulnerableEffect` can replace it). |
-| `GE_Upgrade_LoadedDice` | `UGSUpgradeEffect_LoadedDice` | Infinite, stacking; Additive +0.05 CritChance per stack (MaxStacks 20 on the upgrade). |
+| `GE_Upgrade_LoadedDice` | `UGSUpgradeEffect_LoadedDice` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Additive total on CritChance (Data.UpgradeValue; +0.05 per Common pick) (MaxStacks 20 on the upgrade). |
 | (native, no asset) | `UGSHealEffect` | Instant; Health + SetByCaller `Data.Heal`, clamped to MaxHealth. AGSGameMode::AwardHealthPickup applies it when a health orb is collected (DA_CashSettings `HealthOrbHealEffect` can replace it). |
 | (native, no asset) | `UGSHealthOnKillEffect` | Instant; Health + the target's HealthOnKill (captured live). AGSGameMode applies it to the killer per enemy kill (`HealthOnKillEffect`). |
 
@@ -2444,7 +2523,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (47, all passing, about 113 s)
+## Automation tests (48, all passing, about 113 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
@@ -2502,6 +2581,7 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Upgrades.FloatingGun` | DA_Upgrade_FloatingGun (Epic, no cap, "+1", GE class, in the pool); DA_FloatingGunSettings on the GameMode (8 damage, 1.5 / s, 20 m, 60 m/s, GE_Damage, meshes); level 0: no gun; `gs.Upgrade.Grant FloatingGun` → level 1, one gun on the right: to the right of the player and above the top of the head in the camera's frame, no collision; a frozen bandit 10 m ahead: 4 s of shooting with every frame on the exact schedule (shots = 1 + floor(elapsed / interval)), at least 6 shots, every hit 8; Damage ×1.5 and Loaded Dice 20 → a critical "24"; a bandit at 25 m isn't targeted; one behind a wall isn't; the nearest of two is; hand-fired projectiles pass through the player and hit a bandit behind (7 × Damage 2 = 14), stop at a wall, expire in open air; the pool reuses projectiles (created = prewarm); a safe zone stops it; its kill is the player's (kills, combo 1, XP orb, health orb at chance 1, cash, Leech +1, a Powder Keg blast at 100%); paused: no shots; 24 camera views (shoulder ×2, hip / ADS, pitch −70 to +50): the gun at least 0.9 × the clear radius from the crosshair (logged per view); dead: no shots; a new run → level 0, no projectiles, no gun. Health orbs off except where noted. Game time ×4. |
 | `Upgrades.FloatingGunLevels` | DA_FloatingGunSettings +10% damage and fire rate per level; guns per level 0–6: 0, 1, 2, 2, 2, 2, 2; multipliers x1 at level 2, x1.1 at 3, x1.3 at 5 (added up), 1.95 shots/s at 5; DA_Upgrade_FloatingGun has 3 card texts: "Adds a floating gun…", "Adds a second floating gun…", "+10% floating gun damage and fire rate" (the number matches the settings, damage and fire rate bonus equal), 9 owned repeats the last; the real WBP_UpgradeCard shows the text for 0–3 owned; level 1: one gun; level 2: two guns, the first still right, the second left, mirrored at the same height above the head, no collision, no bonus; one bandit in range: both shoot it; a second bandit: different targets, each takes one gun's damage (about 12 a second over 4 s); one dies: both go to the other; the level 5 pick mid-burst: every frame of both guns on schedule before and after, the schedule switches to the level 5 interval; level 5: still two guns (and two gun actors), 1.95 shots/s and x1.3 each, every hit 10.4, about 40.6 a second from both; logs one gun's DPS next to the rifle's; a new run → level 0, no guns, no gun actors left. Health orbs off. Game time ×4. |
 | `Upgrades.Offers` | DA_UpgradePool on the GameMode (15 upgrades, 100/20/6/1, 3 choices, 3 rerolls), 4 rarities; roll rules: 3000 offers all 3 different, Rare in ~40.2% (exact for these weights with 3 Epics and 1 Legendary), same seed same offers, 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer; simulator deterministic, no short offers, Epic and Legendary choices appear, run stream untouched. |
+| `Upgrades.PickValues` | DA_UpgradePool multipliers 1 / 1.5 / 2 / 3 and whole-unit values 1 / – / 2 / 3; all 15 DA_Upgrade_*: category, Legendary ability, whole units, BaseValue (= the old per-pick value), AppearanceWeight 1, percent or not, in the pool; Floating Gun WeaponGivingPicks 2; card number and FormatValue; ParseRarity; for every stat boost and ability one pick of each rarity: the attribute = base × (1 + total) or base + total after each, a Common pick = exactly the old pick, whole units refuse Rare, picks and total tracked, one active effect; 6 shields, JumpMaxCount 7, Powder Keg 7.5 stacks = 22.5%, crit 37.5%; `gs.Upgrade.Grant Damage 2 Epic` / `Damage Legendary`, ExtraJump Rare refused; Floating Gun Rare → Legendary → Common → Epic: power 0.5 / 2.5 / 3.5 / 5.5, 4 picks, two guns, ×1.55; Second Wind Common / Legendary / Rare = 3 charges, a killing blow uses one (2 picks, total 2, one effect); a new run removes all. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
@@ -2623,8 +2703,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 ## Known issues, TODOs and deviations
 
 **Not built yet / stubs**
-- The M2c upgrade rework (Prompt 40, docs only) isn't built. Until Prompts 41–45 the code keeps one rarity and a
-  MaxStacks per upgrade, the Floating Gun as an Epic upgrade with levels, MaxLevel 50 and +25% XP per level.
+- The M2c upgrade rework is built up to Prompt 41 (picks with a rarity and a value). Until Prompts 42–45 the code keeps one rarity and a
+  MaxStacks per upgrade for the offer roll, every offered pick is Common, MaxLevel 50 and +25% XP per level stay.
 - Floating Shield (Prompt 36):
   - The shields are flat placeholder discs, and the block and return sounds are editor sounds that may not cook.
   - There is no HUD readout of ready shields or their recharge (only the discs, and `gs.Upgrade.List`).
@@ -2885,9 +2965,10 @@ The M2b checkpoint (planned as Prompt 40) moved to Prompt 48, after the rework.
 questions). Each prompt updates the tests that assume the old design.
 
 40. ~~**M2c docs.**~~ Done (see **Design update — upgrade rework (M2c)**; docs only).
-41. **Upgrade data and per-pick values:** the three categories (and Legendary abilities), the rarity multipliers
+41. ~~**Upgrade data and per-pick values:** the three categories (and Legendary abilities), the rarity multipliers
     (×1 / ×1.5 / ×2 / ×3) and whole-unit values (+1 / +2 / +3, no Rare) in data; a pick of a given rarity applies that
-    much; weapon power and the per-weapon steps (the Floating Gun's levels become steps); Second Wind as charges.
+    much; weapon power and the per-weapon steps (the Floating Gun's levels become steps); Second Wind as charges.~~
+    Done (see Prompt 41): offered picks stay Common until 42; picks 1 and 2 of the Floating Gun give its guns.
 42. **Offer roll and cards:** a rarity rolled per card on the run stream with the category weights (100 / 20 / 6 / 1;
     Abilities 100 / 10 / 3 / 0.5); the 0.8% Legendary ability chance; MaxWeapons 3 and owned-only weapons after that;
     a weapon card in the first level-up of a run; cards show the rolled rarity and the pick's value; the simulator.

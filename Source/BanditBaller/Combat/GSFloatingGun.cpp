@@ -205,14 +205,21 @@ int32 AGSFloatingGun::GetLevel() const
 	return Guns ? Guns->GetLevel() : 0;
 }
 
+float AGSFloatingGun::GetPower() const
+{
+	const AGSCharacter* Character = OwnerCharacter.Get();
+	const UGSFloatingGunComponent* Guns = Character ? Character->GetFloatingGuns() : nullptr;
+	return Guns ? Guns->GetPower() : 0.f;
+}
+
 double AGSFloatingGun::GetShotInterval() const
 {
-	return Settings ? Settings->GetShotInterval(GetLevel()) : 0.0;
+	return Settings ? Settings->GetShotInterval(GetPower()) : 0.0;
 }
 
 float AGSFloatingGun::GetDamageMultiplier() const
 {
-	return Settings ? Settings->GetDamageMultiplier(GetLevel()) : 1.f;
+	return Settings ? Settings->GetDamageMultiplier(GetPower()) : 1.f;
 }
 
 AGSFloatingGun* AGSFloatingGun::FindOtherGun() const
@@ -281,7 +288,7 @@ void AGSFloatingGun::UpdateShooting(float DeltaSeconds)
 		return;
 	}
 	const double Now = GetWorld()->GetTimeSeconds();
-	const double Interval = GetShotInterval(); // the level's fire rate bonus included
+	const double Interval = GetShotInterval(); // the power's fire rate bonus included
 
 	auto StopShooting = [this, Now]()
 	{

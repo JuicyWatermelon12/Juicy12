@@ -18,7 +18,7 @@
 //   gs.Run.Stats                                        print run stats (local replicated copy)
 //   gs.XP.Add <N> / gs.XP.SetLevel <N>                  grant raw XP / jump to a level (UGSProgressionComponent)
 //   gs.HealthOrb.Spawn [N]                              drop health orbs around the player (AGSGameMode)
-//   gs.Upgrade.Grant <Name> [N] / gs.Upgrade.List       add upgrade stacks / list upgrades (UGSUpgradeComponent)
+//   gs.Upgrade.Grant <Name> [N] [Rarity] / gs.Upgrade.List  add upgrade picks / list upgrades (UGSUpgradeComponent)
 //   gs.Debug.Boundary 1                                 draw the map boundary (AGSMapBoundary)
 //   gs.Upgrade.Offer / Choose <0-2> / Reroll            queue, pick from and reroll level-up offers (AGSGameMode)
 //   gs.Profile.AddCash <N> / Reset / Save / Print       permanent cash (UGSProfileSubsystem; local, not forwarded)
@@ -160,13 +160,13 @@ namespace GSCheats
 
 	FAutoConsoleCommandWithWorldAndArgs UpgradeGrantCommand(
 		TEXT("gs.Upgrade.Grant"),
-		TEXT("Add stacks of an upgrade to the local player (stops at MaxStacks). Usage: gs.Upgrade.Grant <UpgradeName> [Count=1], e.g. gs.Upgrade.Grant Damage, gs.Upgrade.Grant ExtraJump 45"),
+		TEXT("Add picks of an upgrade to the local player (stops at MaxStacks). Usage: gs.Upgrade.Grant <UpgradeName> [Count=1] [Rarity=Common], e.g. gs.Upgrade.Grant Damage, gs.Upgrade.Grant ExtraJump 45, gs.Upgrade.Grant Damage 2 Epic (whole-unit upgrades have no Rare)"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("UpgradeGrant"), Args, World); }),
 		ECVF_Cheat);
 
 	FAutoConsoleCommandWithWorldAndArgs UpgradeListCommand(
 		TEXT("gs.Upgrade.List"),
-		TEXT("List every upgrade with rarity, this run's stacks / cap and description, plus the stats they change."),
+		TEXT("List every upgrade by category (Stat Boosts, Abilities, Legendary abilities, Weapons) with this run's picks by rarity, total value and description, plus the stats they change."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("UpgradeList"), Args, World); }),
 		ECVF_Cheat);
 

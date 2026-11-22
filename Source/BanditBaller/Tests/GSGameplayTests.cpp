@@ -2901,23 +2901,11 @@ namespace GSTests
 		return ASC ? ASC->GetNumericAttribute(Attribute) : -1.f;
 	}
 
-	/** Stack count of Upgrade's active effect on the player (0 if not active). */
-	int32 GetActiveUpgradeEffectStacks(const UGSUpgradeData* Upgrade)
+	/** Active effects of Upgrade's GE on the player (one per picked upgrade, whatever the number of picks). */
+	int32 GetActiveUpgradeEffectCount(const UGSUpgradeData* Upgrade)
 	{
-		const UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
 		const UGSAbilitySystemComponent* ASC = GetPlayerASC();
-		if (!Upgrades || !ASC)
-		{
-			return 0;
-		}
-		for (const FGSUpgradeStack& Entry : Upgrades->GetUpgradeStacks())
-		{
-			if (Entry.Upgrade == Upgrade)
-			{
-				return ASC->GetActiveGameplayEffect(Entry.EffectHandle) ? ASC->GetCurrentStackCount(Entry.EffectHandle) : 0;
-			}
-		}
-		return 0;
+		return ASC && Upgrade && Upgrade->Effect ? ASC->GetGameplayEffectCount(Upgrade->Effect, nullptr) : 0;
 	}
 }
 
@@ -2971,7 +2959,8 @@ bool FGSStatUpgradesTest::RunTest(const FString& Parameters)
 		}
 		const UGSUpgradeData* Reload = UGSDebugLibrary::FindUpgradeData(TEXT("ReloadSpeed"));
 		TestEqual(TEXT("ReloadSpeed stacks tracked"), GetPlayerUpgrades()->GetStacks(Reload), 5);
-		TestEqual(TEXT("ReloadSpeed GE has 5 stacks"), GetActiveUpgradeEffectStacks(Reload), 5);
+		TestEqual(TEXT("ReloadSpeed: one active GE for all 5 picks"), GetActiveUpgradeEffectCount(Reload), 1);
+		TestEqual(TEXT("ReloadSpeed total value 5 x 0.1"), GetPlayerUpgrades()->GetTotalValue(Reload), 0.5f, 0.0001f);
 		TestEqual(TEXT("ReloadSpeed = 1 + 5 x 10%"), GetAttr(UGSAttributeSet::GetReloadSpeedAttribute()), 1.5f, 0.001f);
 
 		UGSWeaponComponent* Weapons = GetPlayer()->GetWeaponComponent();
@@ -3012,7 +3001,7 @@ bool FGSStatUpgradesTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("Damage granted"), Upgrades->GrantUpgrade(Damage, TEXT("Test")));
 		}
 		TestEqual(TEXT("Damage = 1 + 3 x 10%"), GetAttr(UGSAttributeSet::GetDamageAttribute()), 1.3f, 0.001f);
-		TestEqual(TEXT("Damage GE has 3 stacks"), GetActiveUpgradeEffectStacks(Damage), 3);
+		TestEqual(TEXT("Damage: one active GE for all 3 picks"), GetActiveUpgradeEffectCount(Damage), 1);
 
 		// Move Speed x2 -> base x 1.16, and the movement component follows.
 		const UGSUpgradeData* Move = UGSDebugLibrary::FindUpgradeData(TEXT("MoveSpeed"));
@@ -3029,6 +3018,7 @@ bool FGSStatUpgradesTest::RunTest(const FString& Parameters)
 		UGSUpgradeData* Capped = NewObject<UGSUpgradeData>(GetTransientPackage(),
 			MakeUniqueObjectName(GetTransientPackage(), UGSUpgradeData::StaticClass(), TEXT("DA_Upgrade_TestCapped")), RF_Transient);
 		Capped->Effect = UGSUpgradeEffect_Damage::StaticClass();
+		Capped->BaseValue = 0.1f;
 		Capped->MaxStacks = 1;
 		TestTrue(TEXT("Capped upgrade: first pick"), Upgrades->GrantUpgrade(Capped, TEXT("Test")));
 		TestFalse(TEXT("Capped upgrade: second pick refused"), Upgrades->GrantUpgrade(Capped, TEXT("Test")));
@@ -4547,6 +4537,7 @@ namespace GSTests
 		UGSUpgradeData* Upgrade = NewObject<UGSUpgradeData>(GetTransientPackage(),
 			MakeUniqueObjectName(GetTransientPackage(), UGSUpgradeData::StaticClass(), FName(Name)), RF_Transient);
 		Upgrade->Effect = UGSUpgradeEffect_Damage::StaticClass();
+		Upgrade->BaseValue = 0.1f;
 		Upgrade->Rarity = Rarity;
 		Upgrade->MaxStacks = MaxStacks;
 		return Upgrade;
@@ -8056,18 +8047,19 @@ bool FGSFloatingGunLevelsTest::RunTest(const FString& Parameters)
 		{
 			return;
 		}
-		TestEqual(TEXT("+10% damage per level from level 3"), Settings->DamageBonusPerLevel, 0.1f, 0.0001f);
-		TestEqual(TEXT("+10% fire rate per level from level 3"), Settings->FireRateBonusPerLevel, 0.1f, 0.0001f);
+		TestEqual(TEXT("+10% damage per point of power"), Settings->DamageBonusPerPower, 0.1f, 0.0001f);
+		TestEqual(TEXT("+10% fire rate per point of power"), Settings->FireRateBonusPerPower, 0.1f, 0.0001f);
 		const int32 Guns[] = { 0, 1, 2, 2, 2, 2, 2 };
-		for (int32 Level = 0; Level <= 6; ++Level)
+		for (int32 Picks = 0; Picks <= 6; ++Picks)
 		{
-			TestEqual(FString::Printf(TEXT("Level %d: %d gun(s)"), Level, Guns[Level]), UGSFloatingGunSettings::GetGunCount(Level), Guns[Level]);
+			TestEqual(FString::Printf(TEXT("%d pick(s): %d gun(s)"), Picks, Guns[Picks]), UGSFloatingGunSettings::GetGunCount(Picks), Guns[Picks]);
 		}
-		TestEqual(TEXT("Level 2: no bonus"), Settings->GetDamageMultiplier(2), 1.f, 0.0001f);
-		TestEqual(TEXT("Level 3: x1.1 damage"), Settings->GetDamageMultiplier(3), 1.1f, 0.0001f);
-		TestEqual(TEXT("Level 5: x1.3 damage (added up, not compounded)"), Settings->GetDamageMultiplier(5), 1.3f, 0.0001f);
-		TestEqual(TEXT("Level 5: x1.3 fire rate"), Settings->GetFireRateMultiplier(5), 1.3f, 0.0001f);
-		TestEqual(TEXT("Level 5: 1.95 shots a second"), 1.0 / Settings->GetShotInterval(5), 1.95, 0.0001);
+		TestEqual(TEXT("Power 0: no bonus"), Settings->GetDamageMultiplier(0.f), 1.f, 0.0001f);
+		TestEqual(TEXT("Power 1: x1.1 damage"), Settings->GetDamageMultiplier(1.f), 1.1f, 0.0001f);
+		TestEqual(TEXT("Power 1.5 (a Rare pick): x1.15 damage"), Settings->GetDamageMultiplier(1.5f), 1.15f, 0.0001f);
+		TestEqual(TEXT("Power 3: x1.3 damage (added up, not compounded)"), Settings->GetDamageMultiplier(3.f), 1.3f, 0.0001f);
+		TestEqual(TEXT("Power 3: x1.3 fire rate"), Settings->GetFireRateMultiplier(3.f), 1.3f, 0.0001f);
+		TestEqual(TEXT("Power 3: 1.95 shots a second"), 1.0 / Settings->GetShotInterval(3.f), 1.95, 0.0001);
 
 		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
 		if (!TestNotNull(TEXT("DA_Upgrade_FloatingGun"), Upgrade))
@@ -8082,9 +8074,9 @@ bool FGSFloatingGunLevelsTest::RunTest(const FString& Parameters)
 		AddInfo(FString::Printf(TEXT("[gun] cards: \"%s\" / \"%s\" / \"%s\""), *Text0, *Text1, *Text2));
 		TestTrue(TEXT("None owned: \"Adds a floating gun\""), Text0.StartsWith(TEXT("Adds a floating gun")));
 		TestTrue(TEXT("One owned: \"Adds a second floating gun\""), Text1.StartsWith(TEXT("Adds a second floating gun")));
-		const FString Bonus = FString::Printf(TEXT("+%.0f%% floating gun damage and fire rate"), Settings->DamageBonusPerLevel * 100.f);
+		const FString Bonus = FString::Printf(TEXT("+%.0f%% floating gun damage and fire rate"), Settings->DamageBonusPerPower * 100.f);
 		TestTrue(FString::Printf(TEXT("Two owned: \"%s\" (matches DA_FloatingGunSettings)"), *Bonus), Text2.StartsWith(Bonus));
-		TestEqual(TEXT("Damage and fire rate bonus are the same (one number on the card)"), Settings->FireRateBonusPerLevel, Settings->DamageBonusPerLevel, 0.0001f);
+		TestEqual(TEXT("Damage and fire rate bonus are the same (one number on the card)"), Settings->FireRateBonusPerPower, Settings->DamageBonusPerPower, 0.0001f);
 		TestEqual(TEXT("Nine owned: the last text again"), Text9, Text2);
 
 		// The real card shows the text for the next pick.
@@ -8133,6 +8125,7 @@ bool FGSFloatingGunLevelsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Left gun: mirrored (same distance out)"), Left->GetRestLocation().Y - Center.Y, -(Right->GetRestLocation().Y - Center.Y), 0.5);
 		TestEqual(TEXT("Left gun: no collision"), static_cast<int32>(Left->GetMesh()->GetCollisionEnabled()), static_cast<int32>(ECollisionEnabled::NoCollision));
 		TestEqual(TEXT("Level 2: no bonus yet"), Left->GetDamageMultiplier(), 1.f, 0.0001f);
+		TestEqual(TEXT("Two Common picks give the two guns and no power"), GetAttr(UGSAttributeSet::GetFloatingGunPowerAttribute()), 0.f, 0.0001f);
 
 		// One enemy in range: both guns shoot it.
 		S->A = SpawnToughBandit(FVector(1000.f, 0.f, 0.f));
@@ -8201,7 +8194,7 @@ bool FGSFloatingGunLevelsTest::RunTest(const FString& Parameters)
 				AddError(FString::Printf(TEXT("Gun %d schedule: %d shots at %.3f s into the burst (interval %.4f), expected %d"), Index,
 					Gun->GetBurstShots(), Now() - Gun->GetBurstStartTime(), Gun->GetBurstInterval(), Expected));
 			}
-			if (S->bGranted && FMath::IsNearlyEqual(Gun->GetBurstInterval(), GetGameMode()->GetFloatingGunSettings()->GetShotInterval(5), 1e-9))
+			if (S->bGranted && FMath::IsNearlyEqual(Gun->GetBurstInterval(), GetGameMode()->GetFloatingGunSettings()->GetShotInterval(3.f), 1e-9))
 			{
 				S->bRetimed[Index] = true;
 			}
@@ -8216,6 +8209,7 @@ bool FGSFloatingGunLevelsTest::RunTest(const FString& Parameters)
 	Step([this, S, Now, Health]()
 	{
 		TestEqual(TEXT("Level 5"), GetAttr(UGSAttributeSet::GetFloatingGunLevelAttribute()), 5.f, 0.001f);
+		TestEqual(TEXT("Level 5: power 3 (three Common picks after the guns)"), GetAttr(UGSAttributeSet::GetFloatingGunPowerAttribute()), 3.f, 0.0001f);
 		TestEqual(TEXT("Level 5: still two guns (never more)"), GetPlayer()->GetFloatingGuns()->GetGuns().Num(), 2);
 		TestEqual(TEXT("Level 5: two gun actors in the world"), CountLiveFloatingGuns(), 2);
 		TestEqual(TEXT("Every frame on schedule, before and after the pick"), S->ScheduleMisses, 0);
@@ -8252,7 +8246,7 @@ bool FGSFloatingGunLevelsTest::RunTest(const FString& Parameters)
 			const float RifleSustained = Rifle->Damage * Rifle->MagazineSize / (Rifle->MagazineSize * Rifle->GetRefireInterval(1.f) + Rifle->ReloadTime);
 			const UGSFloatingGunSettings* Settings = GetGameMode()->GetFloatingGunSettings();
 			AddInfo(FString::Printf(TEXT("[gun] damage per second at Damage 1, no crits: one gun level 1 %.1f, level 5 %.1f (measured %.1f per gun over %.2f s, %d hits); rifle %.0f while firing, %.0f with reloads"),
-				Settings->Damage / Settings->GetShotInterval(1), Settings->Damage * Settings->GetDamageMultiplier(5) / Settings->GetShotInterval(5),
+				Settings->Damage / Settings->GetShotInterval(0.f), Settings->Damage * Settings->GetDamageMultiplier(3.f) / Settings->GetShotInterval(3.f),
 				Dps * 0.5f, Seconds, Hits, RifleBurst, RifleSustained));
 		}
 
@@ -8272,4 +8266,233 @@ bool FGSFloatingGunLevelsTest::RunTest(const FString& Parameters)
 	EndPIE();
 	return true;
 }
+// ---------------------------------------------------------------------------
+// Upgrade picks (M2c, Prompt 41): category data, a value per pick by rarity, totals on one effect, the weapon-pick rule
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	/** What one upgrade's data says, and what a Common pick gave before Prompt 41 (one GE stack of BaseValue). */
+	struct FPickExpect
+	{
+		const TCHAR* Name;
+		EGSUpgradeCategory Category;
+		bool bLegendary;
+		bool bWhole;
+		float BaseValue; // = the old per-stack value
+		bool bPercent;
+		FGameplayAttribute Attribute;
+	};
+
+	TArray<FPickExpect> GetPickExpectations()
+	{
+		using A = UGSAttributeSet;
+		const EGSUpgradeCategory Stat = EGSUpgradeCategory::StatBoost;
+		const EGSUpgradeCategory Ability = EGSUpgradeCategory::Ability;
+		return {
+			{ TEXT("Damage"), Stat, false, false, 0.10f, true, A::GetDamageAttribute() },
+			{ TEXT("FireRate"), Stat, false, false, 0.08f, true, A::GetFireRateAttribute() },
+			{ TEXT("ReloadSpeed"), Stat, false, false, 0.10f, true, A::GetReloadSpeedAttribute() },
+			{ TEXT("MoveSpeed"), Stat, false, false, 0.08f, true, A::GetMoveSpeedAttribute() },
+			{ TEXT("Magnet"), Stat, false, false, 0.15f, true, A::GetPickupRadiusAttribute() },
+			{ TEXT("BiggerMags"), Stat, false, false, 0.15f, true, A::GetMagazineSizeMultiplierAttribute() },
+			{ TEXT("LoadedDice"), Stat, false, false, 0.05f, false, A::GetCritChanceAttribute() },
+			{ TEXT("ExtraJump"), Ability, false, true, 1.f, false, A::GetExtraJumpsAttribute() },
+			{ TEXT("DashCharge"), Ability, false, true, 1.f, false, A::GetExtraDashChargesAttribute() },
+			{ TEXT("FloatingShield"), Ability, false, true, 1.f, false, A::GetShieldsAttribute() },
+			{ TEXT("PiercingRounds"), Ability, false, true, 1.f, false, A::GetPierceAttribute() },
+			{ TEXT("Leech"), Ability, false, true, 1.f, false, A::GetHealthOnKillAttribute() },
+			{ TEXT("PowderKeg"), Ability, false, false, 1.f, false, A::GetPowderKegAttribute() },
+			{ TEXT("SecondWind"), Ability, true, false, 1.f, false, A::GetSecondWindsAttribute() },
+			{ TEXT("FloatingGun"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetFloatingGunPowerAttribute() },
+		};
+	}
+
+	/** The attribute after a total value: base x (1 + total) for percent upgrades, base + total otherwise. */
+	float ExpectedAfter(const FPickExpect& E, float Base, float Total)
+	{
+		return E.bPercent ? Base * (1.f + Total) : Base + Total;
+	}
+
+	const float PickMultipliers[] = { 1.f, 1.5f, 2.f, 3.f };
+	const float PickWholeUnits[] = { 1.f, 0.f, 2.f, 3.f };
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSUpgradePickValuesTest, "BanditBaller.Upgrades.PickValues", GSTests::TestFlags)
+bool FGSUpgradePickValuesTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	// Data: the pool's multipliers, every upgrade's category and Common value.
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->SetHealthOrbDropChanceOverride(0.f);
+		const UGSUpgradePool* Pool = GameMode->GetUpgradePool();
+		if (!TestNotNull(TEXT("DA_UpgradePool"), Pool))
+		{
+			return;
+		}
+		for (const EGSUpgradeRarity Rarity : UGSUpgradePool::GetAllRarities())
+		{
+			const int32 R = static_cast<int32>(Rarity);
+			TestEqual(FString::Printf(TEXT("%s multiplier"), *UGSUpgradeData::GetRarityName(Rarity)), Pool->GetRarityValueMultiplier(Rarity), PickMultipliers[R], 0.0001f);
+			const float* Whole = Pool->WholeUnitValues.Find(Rarity);
+			TestEqual(FString::Printf(TEXT("%s whole-unit value"), *UGSUpgradeData::GetRarityName(Rarity)), Whole ? *Whole : 0.f, PickWholeUnits[R], 0.0001f);
+		}
+
+		TArray<const UGSUpgradeData*> Seen;
+		for (const GSTests::FPickExpect& E : GSTests::GetPickExpectations())
+		{
+			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(E.Name);
+			if (!TestNotNull(FString::Printf(TEXT("DA_Upgrade_%s"), E.Name), Upgrade))
+			{
+				continue;
+			}
+			Seen.Add(Upgrade);
+			TestTrue(FString::Printf(TEXT("%s: category"), E.Name), Upgrade->Category == E.Category);
+			TestEqual(FString::Printf(TEXT("%s: Legendary ability"), E.Name), Upgrade->bLegendaryAbility, E.bLegendary);
+			TestEqual(FString::Printf(TEXT("%s: whole units"), E.Name), Upgrade->bWholeUnits, E.bWhole);
+			TestEqual(FString::Printf(TEXT("%s: BaseValue (one Common pick = one pick before Prompt 41)"), E.Name), Upgrade->BaseValue, E.BaseValue, 0.0001f);
+			TestEqual(FString::Printf(TEXT("%s: AppearanceWeight 1"), E.Name), Upgrade->AppearanceWeight, 1.f, 0.0001f);
+			TestEqual(FString::Printf(TEXT("%s: percent upgrade"), E.Name), Upgrade->IsPercentUpgrade(), E.bPercent);
+			TestTrue(FString::Printf(TEXT("%s: in DA_UpgradePool"), E.Name), Pool->Upgrades.Contains(Upgrade));
+		}
+		TestEqual(TEXT("All 15 upgrades checked"), Seen.Num(), 15);
+		TestEqual(TEXT("Every pool upgrade checked"), Pool->Upgrades.Num(), Seen.Num());
+		const UGSUpgradeData* Gun = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
+		TestEqual(TEXT("Floating Gun: its first two picks give the guns"), Gun ? Gun->WeaponGivingPicks : 0, 2);
+
+		// Card numbers are unchanged (they show BaseValue).
+		const UGSUpgradeData* Damage = UGSDebugLibrary::FindUpgradeData(TEXT("Damage"));
+		TestEqual(TEXT("Damage card: 10 per pick"), Damage ? Damage->GetPerStackValue() : 0.f, 10.f, 0.001f);
+		TestEqual(TEXT("FormatValue: +25%"), Damage ? Damage->FormatValue(0.25f) : FString(), FString(TEXT("+25%")));
+		EGSUpgradeRarity Parsed = EGSUpgradeRarity::Common;
+		TestTrue(TEXT("ParseRarity epic"), UGSUpgradeData::ParseRarity(TEXT("epic"), Parsed) && Parsed == EGSUpgradeRarity::Epic);
+		TestTrue(TEXT("ParseRarity L"), UGSUpgradeData::ParseRarity(TEXT("L"), Parsed) && Parsed == EGSUpgradeRarity::Legendary);
+		TestFalse(TEXT("ParseRarity Mythic"), UGSUpgradeData::ParseRarity(TEXT("Mythic"), Parsed));
+	});
+
+	// One pick of every rarity for each stat boost and ability: the values add up on one effect.
+	Step([this]()
+	{
+		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		for (const GSTests::FPickExpect& E : GSTests::GetPickExpectations())
+		{
+			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(E.Name);
+			if (!Upgrade || E.bLegendary || E.Category == EGSUpgradeCategory::Weapon)
+			{
+				continue;
+			}
+			const float Base = GetAttr(E.Attribute);
+			const float Tolerance = FMath::Max(0.001f, Base * 0.0001f);
+			float Total = 0.f;
+			int32 Picks = 0;
+			for (const EGSUpgradeRarity Rarity : UGSUpgradePool::GetAllRarities())
+			{
+				const int32 R = static_cast<int32>(Rarity);
+				const FString What = FString::Printf(TEXT("%s %s pick"), E.Name, *UGSUpgradeData::GetRarityName(Rarity));
+				if (E.bWhole && Rarity == EGSUpgradeRarity::Rare)
+				{
+					AddExpectedMessage(TEXT("has no Rare version"), EAutomationExpectedErrorFlags::Contains, 1);
+					TestFalse(What + TEXT(": refused (whole units have no Rare)"), Upgrades->GrantUpgrade(Upgrade, Rarity, TEXT("Test")));
+					TestEqual(What + TEXT(": attribute unchanged"), GetAttr(E.Attribute), ExpectedAfter(E, Base, Total), Tolerance);
+					continue;
+				}
+				const float Value = E.BaseValue * (E.bWhole ? PickWholeUnits[R] : PickMultipliers[R]);
+				TestTrue(What + TEXT(": granted"), Upgrades->GrantUpgrade(Upgrade, Rarity, TEXT("Test")));
+				Total += Value;
+				++Picks;
+				TestEqual(What + TEXT(": attribute"), GetAttr(E.Attribute), ExpectedAfter(E, Base, Total), Tolerance);
+				if (Rarity == EGSUpgradeRarity::Common)
+				{
+					// The rule for this prompt: a Common pick gives exactly what a pick gave before.
+					TestEqual(What + TEXT(": the same as one pick before Prompt 41"), GetAttr(E.Attribute),
+						E.bPercent ? Base * (1.f + E.BaseValue) : Base + E.BaseValue, Tolerance);
+				}
+			}
+			TestEqual(FString::Printf(TEXT("%s: picks"), E.Name), Upgrades->GetStacks(Upgrade), Picks);
+			TestEqual(FString::Printf(TEXT("%s: total value"), E.Name), Upgrades->GetTotalValue(Upgrade), Total, 0.0001f);
+			TestEqual(FString::Printf(TEXT("%s: one active effect"), E.Name), GetActiveUpgradeEffectCount(Upgrade), 1);
+			const FGSUpgradeStack* Entry = Upgrades->FindEntry(Upgrade);
+			TestEqual(FString::Printf(TEXT("%s: every pick recorded"), E.Name), Entry ? Entry->Picks.Num() : -1, Picks);
+		}
+
+		// What the totals mean in play.
+		const AGSPlayerState* PS = GetPC()->GetPlayerState<AGSPlayerState>();
+		TestEqual(TEXT("Floating shields follow (1 + 2 + 3)"), PS->GetShieldComponent()->GetNumShields(), 6);
+		TestEqual(TEXT("Air jumps follow"), GetPlayer()->JumpMaxCount, 7);
+		TestEqual(TEXT("Powder Keg 7.5 stacks: 22.5% chance"), GetGameMode()->GetPowderKegChance(PS), 0.225f, 0.0001f);
+		TestEqual(TEXT("Loaded Dice: 5 + 7.5 + 10 + 15 = 37.5%"), GetAttr(UGSAttributeSet::GetCritChanceAttribute()), 0.375f, 0.0001f);
+
+		// The console: gs.Upgrade.Grant <Name> [Count] [Rarity].
+		const UGSUpgradeData* Damage = UGSDebugLibrary::FindUpgradeData(TEXT("Damage"));
+		const float DamageBefore = GetAttr(UGSAttributeSet::GetDamageAttribute());
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Damage"), TEXT("2"), TEXT("Epic") });
+		TestEqual(TEXT("gs.Upgrade.Grant Damage 2 Epic: +40%"), GetAttr(UGSAttributeSet::GetDamageAttribute()), DamageBefore + 0.4f, 0.0001f);
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Damage"), TEXT("Legendary") });
+		TestEqual(TEXT("gs.Upgrade.Grant Damage Legendary: +30% more"), GetAttr(UGSAttributeSet::GetDamageAttribute()), DamageBefore + 0.7f, 0.0001f);
+		TestEqual(TEXT("Damage picks"), Upgrades->GetStacks(Damage), 7);
+		AddExpectedMessage(TEXT("has no Rare version"), EAutomationExpectedErrorFlags::Contains, 1);
+		TestEqual(TEXT("gs.Upgrade.Grant ExtraJump 1 Rare: refused"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("ExtraJump"), 1, EGSUpgradeRarity::Rare), 0);
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeList"), {});
+	});
+
+	// Floating Gun: picks 1 and 2 give the guns (multiplier - 1 power each), later picks the multiplier.
+	Step([this]()
+	{
+		const UGSUpgradeData* Gun = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
+		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		TestTrue(TEXT("Floating Gun Rare first pick"), Upgrades->GrantUpgrade(Gun, EGSUpgradeRarity::Rare, TEXT("Test")));
+		TestEqual(TEXT("Rare first pick: one pick"), GetAttr(UGSAttributeSet::GetFloatingGunLevelAttribute()), 1.f, 0.0001f);
+		TestEqual(TEXT("Rare first pick: power 0.5"), GetAttr(UGSAttributeSet::GetFloatingGunPowerAttribute()), 0.5f, 0.0001f);
+		TestTrue(TEXT("Floating Gun Legendary second pick"), Upgrades->GrantUpgrade(Gun, EGSUpgradeRarity::Legendary, TEXT("Test")));
+		TestEqual(TEXT("Legendary second pick (the second gun): power 0.5 + 2"), GetAttr(UGSAttributeSet::GetFloatingGunPowerAttribute()), 2.5f, 0.0001f);
+		TestTrue(TEXT("Floating Gun Common third pick"), Upgrades->GrantUpgrade(Gun, EGSUpgradeRarity::Common, TEXT("Test")));
+		TestEqual(TEXT("Common third pick: +1 power"), GetAttr(UGSAttributeSet::GetFloatingGunPowerAttribute()), 3.5f, 0.0001f);
+		TestTrue(TEXT("Floating Gun Epic fourth pick"), Upgrades->GrantUpgrade(Gun, EGSUpgradeRarity::Epic, TEXT("Test")));
+		TestEqual(TEXT("Epic fourth pick: +2 power"), GetAttr(UGSAttributeSet::GetFloatingGunPowerAttribute()), 5.5f, 0.0001f);
+		TestEqual(TEXT("Four picks"), GetAttr(UGSAttributeSet::GetFloatingGunLevelAttribute()), 4.f, 0.0001f);
+		TestEqual(TEXT("Floating Gun total value = power"), Upgrades->GetTotalValue(Gun), 5.5f, 0.0001f);
+	});
+	WaitFrames(this, 2);
+	Step([this]()
+	{
+		TestEqual(TEXT("Two guns"), GetPlayer()->GetFloatingGuns()->GetGuns().Num(), 2);
+		const AGSFloatingGun* Right = GetFloatingGunAt(0);
+		if (TestNotNull(TEXT("A gun"), Right))
+		{
+			TestEqual(TEXT("Power 5.5: x1.55 damage"), Right->GetDamageMultiplier(), 1.55f, 0.0001f);
+			TestEqual(TEXT("Power 5.5: 1.5 x 1.55 shots a second"), 1.0 / Right->GetShotInterval(), 1.5 * 1.55, 0.0001);
+		}
+
+		// Second Wind: no rarities, one charge per pick, and a used one takes one pick back. Ready shields would block
+		// the killing blow first, so this runs in a fresh run.
+		GetGameMode()->RestartRunWithSeed(41);
+		const UGSUpgradeData* SecondWind = UGSDebugLibrary::FindUpgradeData(TEXT("SecondWind"));
+		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		TestTrue(TEXT("Second Wind Common pick"), Upgrades->GrantUpgrade(SecondWind, EGSUpgradeRarity::Common, TEXT("Test")));
+		TestTrue(TEXT("Second Wind Legendary pick"), Upgrades->GrantUpgrade(SecondWind, EGSUpgradeRarity::Legendary, TEXT("Test")));
+		TestTrue(TEXT("Second Wind Rare pick (no rarities: allowed)"), Upgrades->GrantUpgrade(SecondWind, EGSUpgradeRarity::Rare, TEXT("Test")));
+		TestEqual(TEXT("Three picks = three charges, whatever the rarity"), GetAttr(UGSAttributeSet::GetSecondWindsAttribute()), 3.f, 0.0001f);
+		ApplyDamage(GetPlayerASC(), 99999.f);
+		TestFalse(TEXT("The killing blow used a Second Wind"), GetPlayer()->GetHealthComponent()->IsDead());
+		TestEqual(TEXT("One charge used: 2 left"), GetAttr(UGSAttributeSet::GetSecondWindsAttribute()), 2.f, 0.0001f);
+		TestEqual(TEXT("One pick taken back"), Upgrades->GetStacks(SecondWind), 2);
+		TestEqual(TEXT("Total value 2"), Upgrades->GetTotalValue(SecondWind), 2.f, 0.0001f);
+		TestEqual(TEXT("Still one active effect"), GetActiveUpgradeEffectCount(SecondWind), 1);
+
+		// A new run removes everything.
+		GetGameMode()->RestartRunWithSeed(42);
+		TestEqual(TEXT("New run: no picks"), Upgrades->GetTotalPicks(), 0);
+		TestEqual(TEXT("New run: no Second Winds"), GetAttr(UGSAttributeSet::GetSecondWindsAttribute()), 0.f, 0.0001f);
+		TestEqual(TEXT("New run: no effects left"), GetActiveUpgradeEffectCount(SecondWind), 0);
+		TestEqual(TEXT("New run: Floating Gun power 0"), GetAttr(UGSAttributeSet::GetFloatingGunPowerAttribute()), 0.f, 0.0001f);
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+	});
+	EndPIE();
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR

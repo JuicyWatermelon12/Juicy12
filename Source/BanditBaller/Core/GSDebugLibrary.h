@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
+#include "GSUpgradeData.h"
 #include "GSDebugLibrary.generated.h"
 
 class AGSEnemyCharacter;
@@ -111,10 +112,10 @@ public:
 	/** Names of all upgrade data assets. */
 	static TArray<FString> GetUpgradeDataNames();
 
-	/** gs.Upgrade.Grant: add Count stacks of the named upgrade to PC's player (stops at MaxStacks). Returns how many. */
-	static int32 GrantUpgradeTo(AGSPlayerController* PC, const FString& UpgradeName, int32 Count = 1);
+	/** gs.Upgrade.Grant: add Count picks of the named upgrade at Rarity to PC's player (stops at MaxStacks). Returns how many. */
+	static int32 GrantUpgradeTo(AGSPlayerController* PC, const FString& UpgradeName, int32 Count = 1, EGSUpgradeRarity Rarity = EGSUpgradeRarity::Common);
 
-	/** gs.Upgrade.List: log + screen every upgrade with this run's stacks, and the stats they change. */
+	/** gs.Upgrade.List: log + screen every upgrade by category with this run's picks and total value, and the stats they change. */
 	static void ListUpgrades(AGSPlayerController* PC);
 
 	/** Log + screen PC's open offer, queued offers and rerolls left (gs.Upgrade.Offer / Choose / Reroll). */

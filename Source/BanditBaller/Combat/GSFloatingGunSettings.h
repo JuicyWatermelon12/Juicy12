@@ -44,15 +44,16 @@ public:
 	bool bLeadTargets = true;
 
 	/**
-	 * From FloatingGunLevel 3 on, each level adds this much damage and fire rate to both guns (0.1 = +10% of the base per
-	 * level, added up, not compounded: level 5 = x1.3). The upgrade card's "+10%" text is typed by hand; the Floating Gun
+	 * Each point of weapon power (the FloatingGunPower attribute: Common picks after the two guns add 1, a Rare one
+	 * 1.5, ...) adds this much damage and fire rate to both guns (0.1 = +10% of the base per point, added up, not
+	 * compounded: power 3 = x1.3; fractions count). The upgrade card's "+10%" text is typed by hand; the Floating Gun
 	 * test checks that it matches these.
 	 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Shooting|Levels", meta = (ClampMin = "0"))
-	float DamageBonusPerLevel = 0.1f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Shooting|Power", meta = (ClampMin = "0"))
+	float DamageBonusPerPower = 0.1f;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Shooting|Levels", meta = (ClampMin = "0"))
-	float FireRateBonusPerLevel = 0.1f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Shooting|Power", meta = (ClampMin = "0"))
+	float FireRateBonusPerPower = 0.1f;
 
 	/** The damage effect (GE_Damage: SetByCaller Data.Damage). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Shooting")
@@ -142,19 +143,16 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Look")
 	FVector ImpactEffectScale = FVector(0.25f);
 
-	/** The rule (not tuning): level 1 = one gun (right shoulder), level 2 and up = two guns, never more. */
+	/** The rule (not tuning): the first pick = one gun (right shoulder), the second and later = two guns, never more. */
 	static constexpr int32 MaxGuns = 2;
-	static int32 GetGunCount(int32 Level) { return FMath::Clamp(Level, 0, MaxGuns); }
+	static int32 GetGunCount(int32 Picks) { return FMath::Clamp(Picks, 0, MaxGuns); }
 
-	/** Levels that add the per-level bonus: every level past the two that add a gun (level 5 -> 3). */
-	static int32 GetBonusLevels(int32 Level) { return FMath::Max(0, Level - MaxGuns); }
+	float GetDamageMultiplier(float Power) const { return 1.f + DamageBonusPerPower * FMath::Max(Power, 0.f); }
+	float GetFireRateMultiplier(float Power) const { return 1.f + FireRateBonusPerPower * FMath::Max(Power, 0.f); }
 
-	float GetDamageMultiplier(int32 Level) const { return 1.f + DamageBonusPerLevel * GetBonusLevels(Level); }
-	float GetFireRateMultiplier(int32 Level) const { return 1.f + FireRateBonusPerLevel * GetBonusLevels(Level); }
-
-	/** Seconds between one gun's shots at Level. */
-	double GetShotInterval(int32 Level = 1) const
+	/** Seconds between one gun's shots at weapon power Power. */
+	double GetShotInterval(float Power = 0.f) const
 	{
-		return 1.0 / FMath::Max(static_cast<double>(ShotsPerSecond) * GetFireRateMultiplier(Level), 0.01);
+		return 1.0 / FMath::Max(static_cast<double>(ShotsPerSecond) * GetFireRateMultiplier(Power), 0.01);
 	}
 };

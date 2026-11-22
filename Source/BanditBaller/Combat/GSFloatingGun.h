@@ -20,8 +20,8 @@ class UStaticMeshComponent;
  * - Targeting (server): the nearest living enemy within Range of the gun with a clear line (world geometry blocks it),
  *   refreshed every TargetRefreshInterval and checked again before each shot. With two guns each picks on its own and
  *   skips the other gun's target unless it is the only one. It turns to face it.
- * - Level (FloatingGunLevel): from level 3 on, DA_FloatingGunSettings' per-level damage and fire rate bonus.
- * - Shooting (server): ShotsPerSecond (x the level bonus) on an exact schedule like GA_Fire's held burst (Prompt 31b): each shot is due one
+ * - Power (FloatingGunPower, weapon power): DA_FloatingGunSettings' damage and fire rate bonus per point.
+ * - Shooting (server): ShotsPerSecond (x the power bonus) on an exact schedule like GA_Fire's held burst (Prompt 31b): each shot is due one
  *   interval after the previous shot's scheduled time, never after the frame it happened to fire on; a long frame fires
  *   every shot it owes, and a late shot starts that much further along its path. While it can't shoot, nothing is
  *   banked: the next target is shot at once, but never sooner than one interval after the last shot.
@@ -59,7 +59,10 @@ public:
 	/** The owner's FloatingGunLevel (0 without an owner). */
 	int32 GetLevel() const;
 
-	/** Seconds between shots and the damage multiplier at the current level (DA_FloatingGunSettings level bonus). */
+	/** The owner's FloatingGunPower (0 without an owner). */
+	float GetPower() const;
+
+	/** Seconds between shots and the damage multiplier at the current power (DA_FloatingGunSettings power bonus). */
 	double GetShotInterval() const;
 	float GetDamageMultiplier() const;
 

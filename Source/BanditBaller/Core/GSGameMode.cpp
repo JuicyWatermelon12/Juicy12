@@ -182,7 +182,7 @@ void AGSGameMode::HandleEnemyKilled(AActor* Enemy, AActor* Killer)
 float AGSGameMode::GetPowderKegChance(const AGSPlayerState* Player) const
 {
 	const UAbilitySystemComponent* ASC = Player ? Player->GetAbilitySystemComponent() : nullptr;
-	const int32 Stacks = ASC ? FMath::RoundToInt(ASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute())) : 0;
+	const float Stacks = ASC ? ASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute()) : 0.f;
 	const UGSCombatSettings* Settings = CombatSettings ? CombatSettings.Get() : GetDefault<UGSCombatSettings>();
 	return Settings->GetExplodeChance(Stacks);
 }
@@ -237,7 +237,7 @@ int32 AGSGameMode::GetPendingPowderKegs() const
 int32 AGSGameMode::ExplodePowderKeg(const FVector& Location, const AGSPlayerState* Player)
 {
 	UAbilitySystemComponent* SourceASC = Player ? Player->GetAbilitySystemComponent() : nullptr;
-	const int32 Stacks = SourceASC ? FMath::RoundToInt(SourceASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute())) : 0;
+	const float Stacks = SourceASC ? SourceASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute()) : 0.f;
 	if (Stacks <= 0)
 	{
 		return 0;
@@ -296,7 +296,7 @@ int32 AGSGameMode::ExplodePowderKeg(const FVector& Location, const AGSPlayerStat
 		DrawDebugSphere(GetWorld(), Location, Radius, 16, FColor::Orange, false, GSWeaponDebug::DrawDuration);
 	}
 
-	UE_LOG(LogBanditBaller, Log, TEXT("[blast] Powder Keg x%d (%.0f%% chance per kill) at %s: radius %.0f, damage %.0f, %d enemies hit, %d killed (blast %d this run)"),
+	UE_LOG(LogBanditBaller, Log, TEXT("[blast] Powder Keg x%g (%.1f%% chance per kill) at %s: radius %.0f, damage %.0f, %d enemies hit, %d killed (blast %d this run)"),
 		Stacks, Settings->GetExplodeChance(Stacks) * 100.f, *Location.ToCompactString(), Radius, Damage, Targets.Num(), Killed, PowderKegBlasts);
 	return Targets.Num();
 }

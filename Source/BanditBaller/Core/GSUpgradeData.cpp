@@ -2,6 +2,7 @@
 
 #include "GSUpgradeData.h"
 #include "GameplayEffect.h"
+#include "GSGameplayEffects.h"
 
 const FPrimaryAssetType UGSUpgradeData::PrimaryAssetType(TEXT("Upgrade"));
 
@@ -10,30 +11,17 @@ FPrimaryAssetId UGSUpgradeData::GetPrimaryAssetId() const
 	return FPrimaryAssetId(PrimaryAssetType, GetFName());
 }
 
-float UGSUpgradeData::GetPerStackValue() const
+bool UGSUpgradeData::IsPercentUpgrade() const
 {
-	const UGameplayEffect* GE = Effect ? Effect->GetDefaultObject<UGameplayEffect>() : nullptr;
-	if (!GE)
-	{
-		return 0.f;
-	}
-	for (const FGameplayModifierInfo& Modifier : GE->Modifiers)
-	{
-		float Magnitude = 0.f;
-		if (!Modifier.ModifierMagnitude.GetStaticMagnitudeIfPossible(1.f, Magnitude))
-		{
-			continue;
-		}
-		switch (Modifier.ModifierOp)
-		{
-		case EGameplayModOp::MultiplyAdditive:
-		case EGameplayModOp::MultiplyCompound:
-			return (Magnitude - 1.f) * 100.f;
-		default:
-			return Magnitude;
-		}
-	}
-	return 0.f;
+	const UGSUpgradeEffect* GE = Effect ? Cast<UGSUpgradeEffect>(Effect->GetDefaultObject()) : nullptr;
+	return GE && GE->IsPercentUpgrade();
+}
+
+FString UGSUpgradeData::FormatValue(float Value) const
+{
+	const float Shown = ToDisplayValue(Value);
+	FString Number = FString::SanitizeFloat(FMath::RoundToDouble(Shown * 1000.0) / 1000.0, 0);
+	return FString::Printf(TEXT("%s%s%s"), Shown >= 0.f ? TEXT("+") : TEXT(""), *Number, IsPercentUpgrade() ? TEXT("%") : TEXT(""));
 }
 
 FText UGSUpgradeData::GetFormattedDescription(int32 OwnedStacks) const
@@ -52,4 +40,30 @@ FText UGSUpgradeData::GetFormattedDescription(int32 OwnedStacks) const
 FString UGSUpgradeData::GetRarityName(EGSUpgradeRarity InRarity)
 {
 	return StaticEnum<EGSUpgradeRarity>()->GetNameStringByValue(static_cast<int64>(InRarity));
+}
+
+FString UGSUpgradeData::GetCategoryName() const
+{
+	switch (Category)
+	{
+	case EGSUpgradeCategory::StatBoost: return TEXT("Stat Boost");
+	case EGSUpgradeCategory::Ability: return bLegendaryAbility ? TEXT("Legendary ability") : TEXT("Ability");
+	case EGSUpgradeCategory::Weapon: return TEXT("Weapon");
+	}
+	return TEXT("?");
+}
+
+bool UGSUpgradeData::ParseRarity(const FString& Text, EGSUpgradeRarity& OutRarity)
+{
+	const UEnum* Enum = StaticEnum<EGSUpgradeRarity>();
+	for (int32 Index = 0; Index < Enum->NumEnums() - 1; ++Index) // last entry is the generated _MAX
+	{
+		const FString Name = Enum->GetNameStringByIndex(Index);
+		if (Name.Equals(Text, ESearchCase::IgnoreCase) || (Text.Len() == 1 && Name.StartsWith(Text, ESearchCase::IgnoreCase)))
+		{
+			OutRarity = static_cast<EGSUpgradeRarity>(Enum->GetValueByIndex(Index));
+			return true;
+		}
+	}
+	return false;
 }
