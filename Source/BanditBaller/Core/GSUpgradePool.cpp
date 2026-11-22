@@ -204,7 +204,7 @@ TArray<FGSUpgradeChoice> UGSUpgradePool::RollOffer(FRandomStream& Stream, TFunct
 	TArray<UGSUpgradeData*> Normal;
 	for (UGSUpgradeData* Upgrade : Upgrades)
 	{
-		if (!Upgrade || !Upgrade->Effect || Legendary.Contains(Upgrade) || Normal.Contains(Upgrade) || !Upgrade->CanAddStack(GetStacks(Upgrade)))
+		if (!Upgrade || !Upgrade->Effect || Legendary.Contains(Upgrade) || Normal.Contains(Upgrade))
 		{
 			continue;
 		}

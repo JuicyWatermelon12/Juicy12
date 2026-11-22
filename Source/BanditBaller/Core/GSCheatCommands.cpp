@@ -160,7 +160,7 @@ namespace GSCheats
 
 	FAutoConsoleCommandWithWorldAndArgs UpgradeGrantCommand(
 		TEXT("gs.Upgrade.Grant"),
-		TEXT("Add picks of an upgrade to the local player (stops at MaxStacks). Usage: gs.Upgrade.Grant <UpgradeName> [Count=1] [Rarity=Common], e.g. gs.Upgrade.Grant Damage, gs.Upgrade.Grant ExtraJump 45, gs.Upgrade.Grant Damage 2 Epic (whole-unit upgrades have no Rare)"),
+		TEXT("Add picks of an upgrade to the local player. Usage: gs.Upgrade.Grant <UpgradeName> [Count=1] [Rarity=Common], e.g. gs.Upgrade.Grant Damage, gs.Upgrade.Grant ExtraJump 45, gs.Upgrade.Grant Damage 2 Epic (whole-unit upgrades have no Rare)"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("UpgradeGrant"), Args, World); }),
 		ECVF_Cheat);
 

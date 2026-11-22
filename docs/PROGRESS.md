@@ -51,7 +51,7 @@ held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds
 M2b + M2c checkpoint (48), which replaces the old M2b checkpoint). Four more weapons and a weapons checkpoint follow
 (49–53). **Then M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Weapon slots" (Prompt 43), not pushed. The build is clean and all 49 automation tests pass in about 114 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "No pick caps; triple crits and double blasts" (Prompt 44), not pushed. The build is clean and all 49 automation tests pass in about 114 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -109,7 +109,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2c 40 | Design update: upgrade rework (categories, rarity per card, weapons with 3 slots, no pick caps, endless levels); Prompts 41–53 planned (docs only) | fc5bcd2 |
 | M2c 41 | Upgrade picks: category, BaseValue, rarity multipliers in DA_UpgradePool, one GE per upgrade with the total (SetByCaller), FloatingGunPower, `gs.Upgrade.Grant <Name> [Count] [Rarity]`; offered picks still Common | f1dbf24 |
 | M2c 42 | Per-card roll: Legendary ability chance 0.8%, then an upgrade by AppearanceWeight and a rarity from its category's weights (whole units: Rare → Common); cards show category, rolled rarity, pick line and "Now:"; simulator by category | 8602397 |
-| M2c 43 | Weapon slots: MaxWeapons 3 in DA_UpgradePool, a weapon card in the first offer (kept by its rerolls), "NEW WEAPON" / "WEAPON UPGRADE" cards, three HUD weapon slots (icon only), weapons line in the run summary | see git log |
+| M2c 43 | Weapon slots: MaxWeapons 3 in DA_UpgradePool, a weapon card in the first offer (kept by its rerolls), "NEW WEAPON" / "WEAPON UPGRADE" cards, three HUD weapon slots (icon only), weapons line in the run summary | e20b92f |
+| M2c 44 | No pick caps (MaxStacks removed); Loaded Dice past 100% = triple-hit chance (x3, own damage number), Powder Keg past 100% = double-size blast chance (6 m); overflow on cards and gs.Upgrade.List; high-value stat check | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -2507,6 +2508,67 @@ is still granted as Common**, and a Common pick gives exactly what a pick gave b
   slots 2 and 3 stayed empty, and Damage stayed in the upgrade row.
 - **Full suite:** 49 tests, all passing, in 114.3 s.
 
+### Prompt 44 — Overflow effects and no pick caps
+- **No pick caps.** `UGSUpgradeData::MaxStacks` and `CanAddStack` are removed, along with their checks in the roll and in
+  `GrantUpgrade`. Loaded Dice (was 20) and Powder Keg (was 34) were the only capped upgrades; their assets were
+  re-saved.
+- **Loaded Dice past 100%** (`GSCombat::RollCriticalHit`; `CritChance` is now only clamped to >= 0):
+  - From 100% every hit crits. `CritChance − 1` is the chance that the crit is a **triple hit**
+    (`DA_CombatSettings.TripleCritMultiplier` 3, new) instead of double: 130% = every hit crits, 30% of them triple.
+    From 200% every hit is triple.
+  - The triple roll is a second roll on the run stream, only when a crit chance is past 100%, and none from 200%. Runs
+    below 100% use the stream exactly as before.
+  - `FGSCritRoll::bTriple` / `GetLevel()` (0 / 1 / 2). Damage specs carry `Data.Critical` = 1 (crit) or 2 (triple).
+    The attacker's damage-dealt client call now passes that level instead of a bool (`ClientNotifyDamageDealt(…,
+    uint8 CritLevel, …)`: a changed parameter on an existing call, no new RPC).
+  - **Triple damage numbers:** "60!!", size 36 (crit 28, normal 20), orange-red (1, 0.35, 0.08) (`TripleCritFontSize`
+    / `TripleCritColor` on WBP_HUD). Test hooks: `GetTripleDamageNumbersAdded`, `GetLastDamageNumberCritLevel`.
+- **Powder Keg past 100%:** every kill explodes, and the chance past 100% is rolled per blast
+  (`AGSGameMode::RollPowderKegDoubleSize`, run stream; no roll below 100% or from 200%) for a **double-size blast**:
+  `BlastRadius × DoubleBlastRadiusMultiplier` (2, new; 6 m), the same damage, the explosion effect at scale 2.
+  - `UGSCombatSettings::GetRawExplodeChance` / `GetDoubleBlastChance`.
+  - The `[blast]` line says "DOUBLE SIZE, radius 600".
+  - `GetDoublePowderKegBlasts` / `GetLastPowderKegRadius` (reset on a new run).
+  - Note: 34 stacks is 102% (34 × 3%), so the old "MaxStacks 34" already had a 2% double-size chance.
+- **Chances snap to 0 and 1** within 0.0001 (`GSCombat::SnapChance`): 20 × 0.05 sums to 1.0000001 in float, which would
+  otherwise roll a 0.00001% triple. Exactly 100% (and 200%) stay sure things that need no dice.
+- **Cards and `gs.Upgrade.List` show the overflow** (`UGSUpgradeData::OverflowText` + `FormatNowText`, data):
+  - Loaded Dice: "Now: +130% critical hit chance (30% of crits deal triple damage)".
+  - Powder Keg: "Now: +120% chance that a kill explodes (20% of blasts are double size)".
+  - `gs.Upgrade.List` prints the same totals, and new lines: "Loaded Dice: 130.0% crit chance (x2.0); past 100%:
+    every hit crits, 30.0% of them triple (x3.0)" and "Powder Keg: … past 100%: every kill explodes, 20.0% of blasts
+    double size (6.0 m), N so far".
+  - Their descriptions mention it without numbers ("Once every hit is critical, crits can deal triple damage.").
+- **WBP_UpgradeCard:** the Now line wraps (it ran across the next cards in the PIE check), description 14 and pick line
+  20 pt, the card 540 px tall.
+- **`AGSGameMode::SetCombatSettingsOverride`** (tests; new). The GameMode's own reads go through `GetCombatSettings()`.
+- **Very high stat values** (no limits added). Checked in code and in PIE (`gs.SetAttr`, god mode):
+
+  | Stat | Value tried | Result |
+  |---|---|---|
+  | Fire Rate | ×100 (rifle 60,000 rounds a minute) | Works: 85 shots in 6 frames (0.094 s), about 900 a second, frame avg 8.9 ms at 112 fps (one 51 ms spike). The burst fires several shots per frame on the exact schedule (`Weapons.HeldFire` covers that). Limits: at most 256 shots per frame (`MaxShotsPerUpdate`), so the rate tops out at 256 × fps (rifle FireRate ~2,500 at 60 fps); recoil is applied per shot, so at high rates the view climbs fast; every shot traces and plays its impact effect and sound, so the cost grows with the rate. A 30-round magazine is gone in 0.03 s. |
+  | Reload Speed | ×1000 | Works: the reload ends the next frame (1.8 ms). Only the attribute's minimum (0.1) is clamped. |
+  | Move Speed | ×33 (30,000 cm/s) | MaxWalkSpeed follows. A 300 m/s launch into the east wall stopped at x = 14,956.75 (wall face minus the capsule radius): no tunnelling through the boundary. **Design snags:** the slide starts at most at `DA_SlideSettings.MaxSpeed` 1,600 cm/s, so once walking is faster (after about 11 Common Move Speed picks: 900 × 1.88 = 1,692) a slide slows the player down; the dash (fixed 4,000 cm/s, then `ExitSpeed`) does too, past about 44 picks. Acceleration stays 6,000 cm/s², so top speed takes v / 6,000 s to reach (5 s at 30,000). |
+  | Magnet | 100,000 cm (1 km) | Works: a 10-kill wave's drops all came in within about 2 s; the check is one distance test per pickup per tick. **Quirk:** a pickup more than `MaxMagnetDistance` 100 m from its target is paid at once (a rule for teleports), so with a radius over 100 m, far drops pay out instantly instead of flying. |
+  | Bigger Mags | ×1000 | Works: a 30,000-round magazine, the reload filled it, the HUD read "29,705 / 30,000". The int magazine size would only overflow past a ×70,000,000 multiplier (hundreds of millions of picks). |
+
+  - Also seen: MCP's `Input.+key` releases itself after a few frames, so held-input checks from MCP read short bursts.
+- **Tests:**
+  - `Upgrades.LoadedDice`: 100% every hit crits, never triple, no dice; 21+ picks granted; 150%: every hit crits,
+    ~50% triple (×3, level 2), replayable from the stream; 200%: every hit triple, no dice; the overflow text; a real
+    rifle hit at 200% deals 60 with a triple number.
+  - `Upgrades.PowderKeg`: raw and double-size chances; overflow text; the chain part runs on a settings copy with a
+    same-size double blast (34 stacks = 102%); 67 stacks → a 6 m blast with the same damage, no dice; 40 stacks →
+    ~20% of 1,000 size rolls double, replayable.
+  - `Upgrades.StatUpgrades`: 50 more Damage picks are all granted (Damage 6.3). `Upgrades.Offers`: an upgrade with
+    1,000 picks is still offered. Every "has no cap" check is gone, and the card test reads the Now line with overflow.
+  - First run: `Upgrades.LoadedDice` missed its first rifle shot right after an editor start (passed on the next runs;
+    like the known first-shot flake in `Balance.TimeToKill`).
+- **PIE check** (town, god mode): Loaded Dice ×26 and Powder Keg ×40 → `gs.Upgrade.List` printed both overflow lines.
+  Two `gs.KillAll` waves: 14 blasts with no double one (P ≈ 4%), then 3 DOUBLE SIZE blasts of 6 m in the next 20. A
+  rerolled offer showed the Powder Keg card's wrapped Now line (above), next to a Legendary Second Wind.
+- **Full suite:** 49 tests, all passing, in 114.0 s.
+
 ---
 
 ## Console commands and CVars
@@ -2578,11 +2640,11 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | ExtraDashCharges | Dash charges on top of DA_DashSettings MaxCharges; GA_Dash reads it live (constructor default 0, min 0). Not replicated yet. |
 | MagazineSizeMultiplier | Magazine = ceil(weapon MagazineSize × it) for every player weapon, read live by UGSWeaponComponent (constructor default 1, min 0.1). Raised by Bigger Mags. Not replicated yet. |
 | HealthOnKill | Health healed per enemy kill credited to the player (UGSHealthOnKillEffect, never above MaxHealth; constructor default 0, min 0). Raised by Leech. Not replicated yet. |
-| CritChance | Chance (0..1) that a hit from the player's weapons is critical (GSCombat::RollCriticalHit, run stream; damage × DA_CombatSettings CritMultiplier 2). Constructor default 0, clamped 0..1. Raised by Loaded Dice. Not replicated yet. |
+| CritChance | Chance that a hit from the player's weapons is critical; past 1 every hit crits and the rest is the triple-hit chance (TripleCritMultiplier 3) (GSCombat::RollCriticalHit, run stream; damage × DA_CombatSettings CritMultiplier 2). Constructor default 0, clamped to >= 0 (no upper clamp since Prompt 44). Raised by Loaded Dice. Not replicated yet. |
 | Pierce | Targets a player shot passes through (UGSGameplayAbility_Fire::TraceShot): up to 1 + Pierce targets, each once, full damage; walls stop it. Constructor default 0, min 0, rounded. Raised by Piercing Rounds. Not replicated yet. |
 | SecondWinds | Second Winds left: a hit that would take Health to 0 uses one instead (UGSSecondWindComponent on the PlayerState): Health goes to 30% of MaxHealth (whole points), 2 s of State.Invulnerable, one stack of the upgrade removed. Constructor default 0, min 0, rounded. Raised by Second Wind. Not replicated yet. |
 | Shields | Floating shields: each blocks one whole hit in the damage path, then recharges for DA_CombatSettings ShieldCooldown (UGSShieldComponent on the PlayerState; drawn by AGSCharacter's UGSFloatingShieldsComponent). Constructor default 0, min 0, rounded. Raised by Floating Shield. Not replicated yet. |
-| PowderKeg | Powder Keg stacks: each of the player's enemy kills explodes with chance stacks × DA_CombatSettings ChancePerStack (3%, max 100%; run stream; AGSGameMode::RollPowderKegChance / ExplodePowderKeg). The blast is fixed: BlastDamage × Damage in BlastRadius. Constructor default 0, min 0, rounded. Not replicated yet. |
+| PowderKeg | Powder Keg stacks: each of the player's enemy kills explodes with chance stacks × DA_CombatSettings ChancePerStack (3%; past 100% the rest is the chance of a double-size blast, 6 m; run stream; AGSGameMode::RollPowderKegChance / ExplodePowderKeg). The blast is fixed: BlastDamage × Damage in BlastRadius. Constructor default 0, min 0, rounded. Not replicated yet. |
 | FloatingGunLevel | Floating Gun picks: 1 = a gun over the right shoulder, 2+ = a second over the left (never more than two), each shooting the nearest enemy (preferring different ones) with pooled projectiles (UGSFloatingGunComponent on the character, AGSFloatingGun, DA_FloatingGunSettings). Constructor default 0, min 0. Raised by Floating Gun. Not replicated yet. |
 | FloatingGunPower | Floating Gun weapon power (the total value of the Floating Gun picks: picks 1 and 2 add the rarity multiplier − 1, later picks the multiplier): each point adds DA_FloatingGunSettings DamageBonusPerPower / FireRateBonusPerPower (+10%) to both guns; fractions count. Constructor default 0, min 0. Not replicated yet. |
 | IncomingDamage | Meta attribute: GE_Damage writes it, the set converts it to Health loss and records the instigator. |
@@ -2593,7 +2655,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Ability: `Ability.Fire`, `Ability.Reload`, `Ability.Slide`, `Ability.Dash`, `Ability.SwapWeapon`,
   `Ability.Attack.Melee`, `Ability.Attack.Ranged`
 - Cooldown: `Cooldown.Slide`, `Cooldown.Dash`
-- SetByCaller data: `Data.UpgradeValue` / `Data.UpgradeMultiplier` / `Data.UpgradePicks` (level-up upgrade effects: total value, 1 + total, picks), `Data.Damage`, `Data.Critical` (1 on a critical hit's damage spec), `Data.Heal` (health orbs), `Data.Duration` (timed state effects: Second Wind invulnerability), `Data.Cooldown`,
+- SetByCaller data: `Data.UpgradeValue` / `Data.UpgradeMultiplier` / `Data.UpgradePicks` (level-up upgrade effects: total value, 1 + total, picks), `Data.Damage`, `Data.Critical` (1 on a critical hit's damage spec, 2 on a triple hit), `Data.Heal` (health orbs), `Data.Duration` (timed state effects: Second Wind invulnerability), `Data.Cooldown`,
   `Data.HealthMultiplier`, `Data.DamageMultiplier`
 
 **Gameplay Effects** (`Content/BanditBaller/Abilities/`):
@@ -2775,7 +2837,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   Piercing Rounds +1 enemy
   pierced, Powder Keg +3% chance that a kill explodes, Floating Gun +1 level (1: a gun, 2: a second gun, 3+: +10%
   gun damage and fire rate) (Epic); Second Wind +1 (Legendary, used up when it saves the
-  player). Loaded Dice (20 stacks = 100%) and Powder Keg (34 stacks = 100%) are capped.
+  player). Nothing is capped since Prompt 44: Loaded Dice past 100% (20 Common picks) gives triple hits, Powder Keg past
+  100% (34 Common picks = 102%) double-size blasts.
 - **Second Wind** (DA_CombatSettings): back at `SecondWindHealthFraction` 30% of MaxHealth (rounded to whole points),
   `SecondWindInvulnerableTime` 2 s. HUD (WBP_HUD, HUD|Second Wind): full-screen flash (1, 0.85, 0.4) from 0.85 alpha
   over 0.7 s, `SecondWindSound` = `/Engine/VREditor/Sounds/UI/Teleport_Committed` (editor content), banner color
@@ -2790,8 +2853,9 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Levels: 1 gun at level 1, 2 from level 2 (mirrored over the left shoulder; never more). From level 3,
     `DamageBonusPerLevel` and `FireRateBonusPerLevel` +10% each per level, added up: level 5 = 10.4 per hit at 1.95
     shots/s, 20.3 DPS per gun, 40.6 for both. The rifle does 200 while firing, 125 with reloads.
-- **Critical hits** (DA_CombatSettings): CritMultiplier 2.0. Crit damage numbers: size 28 (normal 20), gold, "N!".
-- **Powder Keg** (DA_CombatSettings): `ChancePerStack` 3% that a player kill explodes (10 stacks 30%, 34 stacks 100%),
+- **Critical hits** (DA_CombatSettings): CritMultiplier 2.0, TripleCritMultiplier 3.0 (crit chance past 100%: the rest is
+  the triple-hit chance). Damage numbers: normal 20 white, crit 28 gold "N!", triple 36 orange-red "N!!".
+- **Powder Keg** (DA_CombatSettings): `ChancePerStack` 3% that a player kill explodes (10 stacks 30%, 34 stacks 102%; past 100% the rest is the chance of a double-size blast: 6 m, the same damage),
   rolled per kill on the run stream. The blast is always 30 damage × the player's Damage in 3 m, at any stack count;
   chain kills roll again and explode 0.1 s later; no line of sight; never hurts the player; no crits.
 - **Floating Shield** (DA_CombatSettings): `ShieldCooldown` 10 s per shield, each on its own world timer (pauses with
@@ -2857,8 +2921,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Effect and sound play only on the server (`TODO(co-op)`).
   - A blast that kills many enemies drops their cash and XP orbs together. In the PIE chain the orbs leveled the
     player up twice at once (the upgrade screen paused the game).
-  - Since Prompt 35c the 3% in the card text is typed by hand. Retuning ChancePerStack needs the card text and
-    MaxStacks (34 = 100% at 3%) changed too; `Upgrades.PowderKeg` fails until they match.
+  - The card shows stacks x `DisplayScale` 3 (Prompt 42), set by hand to match ChancePerStack; `Upgrades.PowderKeg`
+    fails until they match. No pick cap since Prompt 44.
 - Piercing Rounds (Prompt 34): there is no tracer effect, so the shot's line through the targets is only visible with
   `gs.Debug.Weapons 1`. Target dummies count as targets (they have an ASC), so shots pierce them too.
 - Bigger Mags (Prompt 32): after a run restart in the same map (`gs.Run.Seed`, debug) the magazine can hold more
@@ -3086,8 +3150,8 @@ questions). Each prompt updates the tests that assume the old design.
 43. ~~**Weapon slots and HUD:** three weapon slots in the top left, like the upgrade icons, filled in pick order (icon
     only); MaxWeapons 3 and owned-only weapons after that; a weapon card in the first level-up of a run (moved from 42).~~
     Done (see Prompt 43).
-44. **Overflow effects and no pick caps:** every MaxStacks removed; Loaded Dice past 100% gives a chance of a
-    triple-damage hit, Powder Keg past 100% a chance of a double-size blast.
+44. ~~**Overflow effects and no pick caps:** every MaxStacks removed; Loaded Dice past 100% gives a chance of a
+    triple-damage hit, Powder Keg past 100% a chance of a double-size blast.~~ Done (see Prompt 44).
 45. **Endless levels:** no level cap; the XP needed per level grows by a fixed amount.
 46. **Razor Cards** (weapon).
 47. **Barbed Wire** (weapon).

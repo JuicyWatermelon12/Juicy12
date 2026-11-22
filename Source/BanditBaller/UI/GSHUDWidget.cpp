@@ -1252,18 +1252,20 @@ UGSHUDWidget::FDamageNumber& UGSHUDWidget::AllocateFloatingNumber()
 	return Entry;
 }
 
-void UGSHUDWidget::AddDamageNumber(const FVector& WorldLocation, float Damage, bool bCritical)
+void UGSHUDWidget::AddDamageNumber(const FVector& WorldLocation, float Damage, uint8 CritLevel)
 {
 	FDamageNumber& Entry = AllocateFloatingNumber();
 	Entry.WorldLocation = WorldLocation;
 	Entry.Damage = Damage;
 	Entry.Lifetime = DamageNumberLifetime;
-	Entry.bCritical = bCritical;
+	Entry.CritLevel = CritLevel;
 
 	++DamageNumbersAdded;
-	CriticalDamageNumbersAdded += bCritical ? 1 : 0;
+	CriticalDamageNumbersAdded += CritLevel > 0 ? 1 : 0; // triple hits are critical too
+	TripleDamageNumbersAdded += CritLevel >= 2 ? 1 : 0;
 	LastDamageNumber = Damage;
-	bLastDamageNumberCritical = bCritical;
+	bLastDamageNumberCritical = CritLevel > 0;
+	LastDamageNumberCritLevel = CritLevel;
 }
 
 void UGSHUDWidget::AddCashPopup(const FVector& WorldLocation, int32 Amount)
@@ -1543,7 +1545,13 @@ void UGSHUDWidget::PaintDamageNumbers(const FGeometry& Geometry, FSlateWindowEle
 			FontSize = HealthPopupFontSize;
 			Color = HealthPopupColor;
 		}
-		else if (Entry.bCritical)
+		else if (Entry.CritLevel >= 2)
+		{
+			Text = FString::Printf(TEXT("%.0f!!"), Entry.Damage);
+			FontSize = TripleCritFontSize;
+			Color = TripleCritColor;
+		}
+		else if (Entry.CritLevel == 1)
 		{
 			Text = FString::Printf(TEXT("%.0f!"), Entry.Damage);
 			FontSize = CritFontSize;

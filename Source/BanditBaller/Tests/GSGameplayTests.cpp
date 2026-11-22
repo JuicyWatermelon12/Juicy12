@@ -2936,7 +2936,6 @@ bool FGSStatUpgradesTest::RunTest(const FString& Parameters)
 				continue;
 			}
 			TestTrue(FString::Printf(TEXT("%s is a Stat Boost"), E.Name), Upgrade->Category == EGSUpgradeCategory::StatBoost);
-			TestEqual(FString::Printf(TEXT("%s has no cap"), E.Name), Upgrade->MaxStacks, 0);
 			TestFalse(FString::Printf(TEXT("%s has a display name"), E.Name), Upgrade->DisplayName.IsEmpty());
 			TestTrue(FString::Printf(TEXT("%s effect is an upgrade effect"), E.Name), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect::StaticClass()));
 			const FString Description = Upgrade->FormatValueText(Upgrade->BaseValue).ToString(); // a Common pick's card line
@@ -3014,16 +3013,13 @@ bool FGSStatUpgradesTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Total picks"), Upgrades->GetTotalPicks(), 10);
 		TestEqual(TEXT("Three upgrades tracked"), Upgrades->GetUpgradeStacks().Num(), 3);
 
-		// Cap: MaxStacks 1 allows one pick only.
-		UGSUpgradeData* Capped = NewObject<UGSUpgradeData>(GetTransientPackage(),
-			MakeUniqueObjectName(GetTransientPackage(), UGSUpgradeData::StaticClass(), TEXT("DA_Upgrade_TestCapped")), RF_Transient);
-		Capped->Effect = UGSUpgradeEffect_Damage::StaticClass();
-		Capped->BaseValue = 0.1f;
-		Capped->MaxStacks = 1;
-		TestTrue(TEXT("Capped upgrade: first pick"), Upgrades->GrantUpgrade(Capped, TEXT("Test")));
-		TestFalse(TEXT("Capped upgrade: second pick refused"), Upgrades->GrantUpgrade(Capped, TEXT("Test")));
-		TestEqual(TEXT("Capped upgrade stays at 1"), Upgrades->GetStacks(Capped), 1);
-		TestEqual(TEXT("Damage +10% from the capped upgrade"), GetAttr(UGSAttributeSet::GetDamageAttribute()), 1.4f, 0.001f);
+		// No pick cap: 50 more Damage picks are all granted and keep adding.
+		for (int32 i = 0; i < 50; ++i)
+		{
+			Upgrades->GrantUpgrade(Damage, TEXT("Test"));
+		}
+		TestEqual(TEXT("No cap: 53 Damage picks"), Upgrades->GetStacks(Damage), 53);
+		TestEqual(TEXT("Damage = 1 + 53 x 10%"), GetAttr(UGSAttributeSet::GetDamageAttribute()), 6.3f, 0.001f);
 
 		TestEqual(TEXT("Unknown upgrade name is refused"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("NoSuchUpgrade")), 0);
 
@@ -3082,7 +3078,6 @@ bool FGSFireRateAndMagnetTest::RunTest(const FString& Parameters)
 				continue;
 			}
 			TestTrue(FString::Printf(TEXT("%s is a Stat Boost"), E.Name), Upgrade->Category == EGSUpgradeCategory::StatBoost);
-			TestEqual(FString::Printf(TEXT("%s has no cap"), E.Name), Upgrade->MaxStacks, 0);
 			TestFalse(FString::Printf(TEXT("%s has a display name"), E.Name), Upgrade->DisplayName.IsEmpty());
 			TestTrue(FString::Printf(TEXT("%s effect is GE_Upgrade_%s"), E.Name, E.Name), Upgrade->Effect && Upgrade->Effect->IsChildOf(E.EffectClass));
 			const FString Description = Upgrade->FormatValueText(Upgrade->BaseValue).ToString(); // a Common pick's card line
@@ -3245,7 +3240,6 @@ bool FGSBiggerMagsAndLeechTest::RunTest(const FString& Parameters)
 				continue;
 			}
 			TestTrue(FString::Printf(TEXT("%s category"), E.Name), Upgrade->Category == E.Category);
-			TestEqual(FString::Printf(TEXT("%s has no cap"), E.Name), Upgrade->MaxStacks, 0);
 			TestFalse(FString::Printf(TEXT("%s has a display name"), E.Name), Upgrade->DisplayName.IsEmpty());
 			TestTrue(FString::Printf(TEXT("%s effect is GE_Upgrade_%s"), E.Name, E.Name), Upgrade->Effect && Upgrade->Effect->IsChildOf(E.EffectClass));
 			const FString Description = Upgrade->FormatValueText(Upgrade->BaseValue).ToString(); // a Common pick's card line
@@ -3404,7 +3398,9 @@ bool FGSLoadedDiceTest::RunTest(const FString& Parameters)
 		if (TestNotNull(TEXT("DA_Upgrade_LoadedDice exists"), Upgrade))
 		{
 			TestTrue(TEXT("Loaded Dice is a Stat Boost"), Upgrade->Category == EGSUpgradeCategory::StatBoost);
-			TestEqual(TEXT("Loaded Dice: MaxStacks 20"), Upgrade->MaxStacks, 20);
+			TestEqual(TEXT("Overflow: 30% of crits deal triple damage at 130%"), Upgrade->FormatNowText(1.3f).ToString(),
+				FString(TEXT("+130% critical hit chance (30% of crits deal triple damage)")));
+			TestEqual(TEXT("No overflow at 100%"), Upgrade->FormatNowText(1.f).ToString(), FString(TEXT("+100% critical hit chance")));
 			TestTrue(TEXT("Loaded Dice effect is GE_Upgrade_LoadedDice"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_LoadedDice::StaticClass()));
 			const FString Description = Upgrade->FormatValueText(Upgrade->BaseValue).ToString(); // a Common pick's card line
 			TestTrue(FString::Printf(TEXT("Description '%s' shows +5%%"), *Description), Description.Contains(TEXT("+5%")));
@@ -3415,7 +3411,11 @@ bool FGSLoadedDiceTest::RunTest(const FString& Parameters)
 		if (TestNotNull(TEXT("CombatSettings (DA_CombatSettings) set on the GameMode"), Combat))
 		{
 			TestEqual(TEXT("CritMultiplier 2"), Combat->CritMultiplier, 2.f);
+			TestEqual(TEXT("TripleCritMultiplier 3"), Combat->TripleCritMultiplier, 3.f);
 		}
+		TestEqual(TEXT("Triple chance at 100%"), GSCombat::GetTripleCritChance(1.f), 0.f);
+		TestEqual(TEXT("Triple chance at 130%"), GSCombat::GetTripleCritChance(1.3f), 0.3f, 0.0001f);
+		TestEqual(TEXT("Triple chance at 250%: all"), GSCombat::GetTripleCritChance(2.5f), 1.f);
 
 		UGSAbilitySystemComponent* ASC = GetPlayerASC();
 		FRandomStream& Stream = GetGameMode()->GetRunStream();
@@ -3455,22 +3455,60 @@ bool FGSLoadedDiceTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("CritChance 0.5: about half the rolls crit"), FMath::Abs(Crits / 2000.0 - 0.5) < 0.04);
 		TestTrue(TEXT("A crit multiplies damage by 2, a normal hit by 1"), bMultiplierRight);
 
-		// 20 stacks: 100%, always a crit without dice; MaxStacks stops a 21st.
+		// 20 stacks: 100%, always a crit without dice and never a triple.
 		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("LoadedDice"), TEXT("10") });
 		TestEqual(TEXT("20 stacks: CritChance 1"), GetAttr(UGSAttributeSet::GetCritChanceAttribute()), 1.f, 0.0001f);
-		TestEqual(TEXT("A 21st stack is refused (MaxStacks 20)"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("LoadedDice")), 0);
 		const int32 SeedAtFull = Stream.GetCurrentSeed();
-		bool bAllCrit = true;
+		bool bAllCrit = true, bNoTriple = true;
 		for (int32 i = 0; i < 100; ++i)
 		{
-			bAllCrit &= GSCombat::RollCriticalHit(ASC).bCritical;
+			const FGSCritRoll Roll = GSCombat::RollCriticalHit(ASC);
+			bAllCrit &= Roll.bCritical && Roll.DamageMultiplier == 2.f;
+			bNoTriple &= !Roll.bTriple;
 		}
-		TestTrue(TEXT("CritChance 1: every hit is a crit"), bAllCrit);
+		TestTrue(TEXT("CritChance 1: every hit is a double-damage crit"), bAllCrit);
+		TestTrue(TEXT("CritChance 1: no triple hit"), bNoTriple);
 		TestEqual(TEXT("CritChance 1: the run stream is untouched"), Stream.GetCurrentSeed(), SeedAtFull);
 
-		// The attribute is clamped to 0..1.
-		UGSDebugLibrary::SetAttributeOn(GetPC(), TEXT("CritChance"), 1.5f);
-		TestTrue(TEXT("CritChance clamped to at most 1"), GetAttr(UGSAttributeSet::GetCritChanceAttribute()) <= 1.f + 0.0001f);
+		// No cap: 30 stacks = 150%. Every hit crits, half of them triple (x3), on the run stream; replayable.
+		TestEqual(TEXT("A 21st stack is granted (no cap)"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("LoadedDice"), 10), 10);
+		TestEqual(TEXT("30 stacks: CritChance 1.5 (no clamp)"), GetAttr(UGSAttributeSet::GetCritChanceAttribute()), 1.5f, 0.0001f);
+		const FRandomStream SavedTriple = Stream;
+		TArray<bool> FirstTriples, SecondTriples;
+		int32 Triples = 0;
+		bool bCritAlways = true, bTripleMultiplier = true;
+		for (int32 i = 0; i < 2000; ++i)
+		{
+			const FGSCritRoll Roll = GSCombat::RollCriticalHit(ASC);
+			bCritAlways &= Roll.bCritical;
+			Triples += Roll.bTriple ? 1 : 0;
+			FirstTriples.Add(Roll.bTriple);
+			bTripleMultiplier &= Roll.DamageMultiplier == (Roll.bTriple ? 3.f : 2.f) && Roll.GetLevel() == (Roll.bTriple ? 2 : 1);
+		}
+		TestTrue(TEXT("150%: every hit crits"), bCritAlways);
+		AddInfo(FString::Printf(TEXT("CritChance 1.5: %d triple hits in 2000 rolls"), Triples));
+		TestTrue(TEXT("150%: about half the crits are triple"), FMath::Abs(Triples / 2000.0 - 0.5) < 0.04);
+		TestTrue(TEXT("A triple hit multiplies damage by 3 (level 2), a crit by 2 (level 1)"), bTripleMultiplier);
+		TestTrue(TEXT("150%: the triple roll used the run stream"), Stream.GetCurrentSeed() != SavedTriple.GetCurrentSeed());
+		Stream = SavedTriple;
+		for (int32 i = 0; i < 2000; ++i)
+		{
+			SecondTriples.Add(GSCombat::RollCriticalHit(ASC).bTriple);
+		}
+		TestTrue(TEXT("Same run stream state -> same triple hits"), FirstTriples == SecondTriples);
+
+		// 40 stacks = 200%: every hit triple, no dice at all.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("LoadedDice"), TEXT("10") });
+		const int32 SeedAtDouble = Stream.GetCurrentSeed();
+		bool bAllTriple = true;
+		for (int32 i = 0; i < 100; ++i)
+		{
+			bAllTriple &= GSCombat::RollCriticalHit(ASC).bTriple;
+		}
+		TestTrue(TEXT("200%: every hit is a triple"), bAllTriple);
+		TestEqual(TEXT("200%: the run stream is untouched"), Stream.GetCurrentSeed(), SeedAtDouble);
+
+		// The attribute has no upper clamp, only >= 0.
 		UGSDebugLibrary::SetAttributeOn(GetPC(), TEXT("CritChance"), -3.f);
 		TestTrue(TEXT("CritChance clamped to at least 0"), GetAttr(UGSAttributeSet::GetCritChanceAttribute()) >= -0.0001f);
 
@@ -3540,7 +3578,45 @@ bool FGSLoadedDiceTest::RunTest(const FString& Parameters)
 		{
 			TestEqual(TEXT("Damage number 40"), HUD->GetLastDamageNumber(), 40.f, 0.01f);
 			TestTrue(TEXT("A critical damage number"), HUD->WasLastDamageNumberCritical());
+			TestEqual(TEXT("Crit level 1"), static_cast<int32>(HUD->GetLastDamageNumberCritLevel()), 1);
 			TestEqual(TEXT("One more critical number"), HUD->GetCriticalDamageNumbersAdded(), S->CritNumbersBefore + 1);
+			S->CritNumbersBefore = HUD->GetTripleDamageNumbersAdded();
+			TestTrue(TEXT("Triple numbers are bigger than critical ones"), HUD->GetTripleCritFontSize() > HUD->GetCritFontSize());
+			TestFalse(TEXT("Triple numbers have their own colour"), HUD->GetTripleCritColor().Equals(HUD->GetCritColor()));
+		}
+		// 40 stacks (200%): every hit is a triple hit.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("LoadedDice"), TEXT("20") });
+		S->Target = SpawnFrozenBandit(FVector(400.f, 0.f, 0.f));
+	});
+	WaitUntil(this, TEXT("firing to end before the triple shot"), []() { return !IsPlayerFiring(); });
+	TSharedRef<int32> TripleAimFrames = MakeShared<int32>(0);
+	WaitUntil(this, TEXT("aim at the second bandit"), [S, TripleAimFrames]()
+	{
+		if (!S->Target.IsValid())
+		{
+			return true;
+		}
+		AimAt(*S->Target);
+		return ++(*TripleAimFrames) >= 6;
+	});
+	Step([this, S]()
+	{
+		if (!S->Target.IsValid())
+		{
+			AddError(TEXT("The second bandit is gone"));
+			return;
+		}
+		S->HealthBefore = GetHealth(S->Target->GetAbilitySystemComponent());
+		AimAt(*S->Target);
+		TapInput(GSGameplayTags::Ability_Fire);
+		const float Dealt = S->HealthBefore - GetHealth(S->Target->GetAbilitySystemComponent());
+		TestEqual(TEXT("Loaded Dice x40 (200%): the hit is a triple and deals 60"), Dealt, 60.f, 0.01f);
+		const UGSHUDWidget* HUD = GetHUD();
+		if (HUD)
+		{
+			TestEqual(TEXT("Damage number 60"), HUD->GetLastDamageNumber(), 60.f, 0.01f);
+			TestEqual(TEXT("Crit level 2 (triple)"), static_cast<int32>(HUD->GetLastDamageNumberCritLevel()), 2);
+			TestEqual(TEXT("One more triple number"), HUD->GetTripleDamageNumbersAdded(), S->CritNumbersBefore + 1);
 		}
 	});
 	EndPIE();
@@ -3597,7 +3673,6 @@ bool FGSPiercingRoundsTest::RunTest(const FString& Parameters)
 		if (TestNotNull(TEXT("DA_Upgrade_PiercingRounds exists"), Upgrade))
 		{
 			TestTrue(TEXT("Piercing Rounds is an Ability"), Upgrade->Category == EGSUpgradeCategory::Ability);
-			TestEqual(TEXT("Piercing Rounds has no cap"), Upgrade->MaxStacks, 0);
 			TestTrue(TEXT("Effect is GE_Upgrade_PiercingRounds"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_PiercingRounds::StaticClass()));
 			const FString Description = Upgrade->FormatValueText(Upgrade->BaseValue).ToString(); // a Common pick's card line
 			TestTrue(FString::Printf(TEXT("Description '%s' shows +1"), *Description), Description.Contains(TEXT("+1")));
@@ -3802,6 +3877,7 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 		int32 CashPickupsBefore = 0;
 		int32 OrbsBefore = 0;
 		int32 KillsBefore = 0;
+		TStrongObjectPtr<UGSCombatSettings> SettingsCopy;
 	};
 	TSharedRef<FState> S = MakeShared<FState>();
 	auto Health = [](const TWeakObjectPtr<AGSEnemyCharacter>& Bandit) { return Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f; };
@@ -3830,7 +3906,13 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Chance at 10 stacks"), Combat->GetExplodeChance(10), 0.3f, 0.0001f);
 		TestEqual(TEXT("Chance at 33 stacks"), Combat->GetExplodeChance(33), 0.99f, 0.0001f);
 		TestEqual(TEXT("Chance at 34 stacks: 100%"), Combat->GetExplodeChance(34), 1.f);
-		TestEqual(TEXT("Chance clamped to 100%"), Combat->GetExplodeChance(50), 1.f);
+		TestEqual(TEXT("Explode chance clamped to 100%"), Combat->GetExplodeChance(50), 1.f);
+		TestEqual(TEXT("The raw chance isn't (50 stacks: 150%)"), Combat->GetRawExplodeChance(50), 1.5f, 0.0001f);
+		TestEqual(TEXT("Double-size chance at 34 stacks (34 x 3% = 102%): 2%"), Combat->GetDoubleBlastChance(34), 0.02f, 0.0001f);
+		TestEqual(TEXT("Double-size chance at 33 stacks (99%): 0"), Combat->GetDoubleBlastChance(33), 0.f);
+		TestEqual(TEXT("Double-size chance at 40 stacks (120%): 20%"), Combat->GetDoubleBlastChance(40), 0.2f, 0.0001f);
+		TestEqual(TEXT("Double-size chance at 67 stacks (201%): all"), Combat->GetDoubleBlastChance(67), 1.f);
+		TestEqual(TEXT("A double-size blast has twice the radius"), Combat->DoubleBlastRadiusMultiplier, 2.f);
 		TestNotNull(TEXT("Blast damage effect set"), Combat->BlastDamageEffect.Get());
 		TestNotNull(TEXT("Placeholder blast effect set"), Combat->BlastEffect.Get());
 		TestNotNull(TEXT("Placeholder blast sound set"), Combat->BlastSound.Get());
@@ -3839,9 +3921,9 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 		if (TestNotNull(TEXT("DA_Upgrade_PowderKeg exists"), Upgrade))
 		{
 			TestTrue(TEXT("Powder Keg is an Ability"), Upgrade->Category == EGSUpgradeCategory::Ability);
-			TestEqual(TEXT("MaxStacks 34 (the chance reaches 100%)"), Upgrade->MaxStacks, 34);
-			TestTrue(TEXT("MaxStacks is the first stack count at 100%"),
-				Combat->GetExplodeChance(Upgrade->MaxStacks) >= 1.f && Combat->GetExplodeChance(Upgrade->MaxStacks - 1) < 1.f);
+			TestEqual(TEXT("Overflow shown past 100% (40 stacks)"), Upgrade->FormatNowText(40.f).ToString(),
+				FString(TEXT("+120% chance that a kill explodes (20% of blasts are double size)")));
+			TestEqual(TEXT("No overflow at 99%"), Upgrade->FormatNowText(33.f).ToString(), FString(TEXT("+99% chance that a kill explodes")));
 			// The card shows stacks x DisplayScale as the chance, so DisplayScale must be ChancePerStack in percent.
 			TestEqual(TEXT("DisplayScale = ChancePerStack in percent"), Upgrade->GetDisplayScale(), Combat->ChancePerStack * 100.f, 0.0001f);
 			const FString Card = Upgrade->FormatValueText(Upgrade->BaseValue).ToString();
@@ -3887,7 +3969,12 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("PowderKeg"), TEXT("34") });
 		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Leech") });
 		TestEqual(TEXT("PowderKeg 34"), GetAttr(UGSAttributeSet::GetPowderKegAttribute()), 34.f, 0.001f);
-		TestEqual(TEXT("A 35th stack is refused (MaxStacks 34)"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("PowderKeg")), 0);
+		// 34 stacks is 102%: a 2% double-size roll per blast. This part checks the normal blast's reach, so it uses a copy of
+		// the settings where a double-size blast has the same size.
+		UGSCombatSettings* SameSize = DuplicateObject<UGSCombatSettings>(GameMode->GetCombatSettings(), GetTransientPackage());
+		SameSize->DoubleBlastRadiusMultiplier = 1.f;
+		S->SettingsCopy.Reset(SameSize);
+		GameMode->SetCombatSettingsOverride(SameSize);
 		TestEqual(TEXT("34 stacks: 100% chance"), GameMode->GetPowderKegChance(GetPS()), 1.f);
 
 		const int32 SeedBefore = GameMode->GetRunStream().GetCurrentSeed();
@@ -3954,6 +4041,7 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 		S->Bandits.Reset();
 
 		// The blast is the same size at 1 and at 20 stacks: 30 damage at 2.9 m, nothing at 3.1 m.
+		GameMode->SetCombatSettingsOverride(nullptr); // the real settings from here on
 		GameMode->RestartRunWithSeed(61);
 		GameMode->SetRoundTimerPaused(true);
 		const FVector Ground(-500.f, 0.f, 0.f);
@@ -3986,6 +4074,53 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 		GameMode->ExplodePowderKeg(Center, GetPS());
 		TestEqual(TEXT("Damage x1.1: 33"), Health(Scaled), 27.f, 0.01f);
 		RemoveAllEnemies(GetPIEWorld());
+		TestEqual(TEXT("Below 100%: no double-size blast"), GameMode->GetDoublePowderKegBlasts(), 0);
+
+		// No cap: 67 stacks (201%). Every blast is double size without a roll: twice the radius (6 m), the same damage.
+		GameMode->RestartRunWithSeed(64);
+		GameMode->SetRoundTimerPaused(true);
+		TestEqual(TEXT("67 picks granted (no cap)"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("PowderKeg"), 67), 67);
+		{
+			const TWeakObjectPtr<AGSEnemyCharacter> Inside = SpawnFrozenBandit(Ground + FVector(0.f, -590.f, 0.f));
+			const TWeakObjectPtr<AGSEnemyCharacter> Outside = SpawnFrozenBandit(Ground + FVector(0.f, 610.f, 0.f));
+			if (!Inside.IsValid() || !Outside.IsValid())
+			{
+				AddError(TEXT("Double-size bandits didn't spawn"));
+				return;
+			}
+			const int32 SeedBefore = GameMode->GetRunStream().GetCurrentSeed(); // after spawning: spawns use the run stream
+			const FVector DoubleCenter = Inside->GetActorLocation() + FVector(0.f, 590.f, 0.f);
+			GameMode->ExplodePowderKeg(DoubleCenter, GetPS());
+			TestEqual(TEXT("201%: a double-size blast"), GameMode->GetDoublePowderKegBlasts(), 1);
+			TestEqual(TEXT("201%: radius 6 m"), GameMode->GetLastPowderKegRadius(), 600.f, 0.01f);
+			TestEqual(TEXT("201%: the same damage, 30 at 5.9 m"), Health(Inside), 30.f, 0.01f);
+			TestEqual(TEXT("201%: nothing at 6.1 m"), Health(Outside), 60.f, 0.01f);
+			TestEqual(TEXT("201%: no dice on the run stream"), GameMode->GetRunStream().GetCurrentSeed(), SeedBefore);
+			RemoveAllEnemies(GetPIEWorld());
+		}
+
+		// 40 stacks (120%): every kill explodes, and 1,000 blasts' size rolls come out close to 20% double, replayable.
+		GameMode->RestartRunWithSeed(65);
+		GameMode->SetRoundTimerPaused(true);
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("PowderKeg"), 40);
+		TestEqual(TEXT("40 stacks: every kill explodes"), GameMode->GetPowderKegChance(GetPS()), 1.f);
+		{
+			const FRandomStream SavedSize = GameMode->GetRunStream();
+			auto CountDoubles = [GameMode, GetPS]()
+			{
+				int32 Count = 0;
+				for (int32 i = 0; i < 1000; ++i)
+				{
+					Count += GameMode->RollPowderKegDoubleSize(GetPS()) ? 1 : 0;
+				}
+				return Count;
+			};
+			const int32 Doubles = CountDoubles();
+			AddInfo(FString::Printf(TEXT("[blast] 40 stacks: %d double-size blasts in 1000 rolls"), Doubles));
+			TestTrue(FString::Printf(TEXT("40 stacks: ~20%% double size (%d)"), Doubles), Doubles >= 160 && Doubles <= 240);
+			GameMode->GetRunStream() = SavedSize;
+			TestEqual(TEXT("The same stream state replays the same sizes"), CountDoubles(), Doubles);
+		}
 
 		// 10 stacks: 1,000 kill rolls on the run stream come out close to 30%, and the same stream state replays them.
 		GameMode->RestartRunWithSeed(62);
@@ -4097,7 +4232,6 @@ bool FGSExtraJumpTest::RunTest(const FString& Parameters)
 		if (TestNotNull(TEXT("DA_Upgrade_ExtraJump exists"), Upgrade))
 		{
 			TestTrue(TEXT("Extra Jump is an Ability"), Upgrade->Category == EGSUpgradeCategory::Ability);
-			TestEqual(TEXT("Extra Jump has no cap"), Upgrade->MaxStacks, 0);
 			TestTrue(TEXT("Extra Jump effect is an upgrade effect"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect::StaticClass()));
 			const FString Description = Upgrade->FormatValueText(Upgrade->BaseValue).ToString(); // a Common pick's card line
 			TestTrue(FString::Printf(TEXT("Description '%s' shows +1"), *Description), Description.Contains(TEXT("+1")));
@@ -4391,7 +4525,6 @@ bool FGSDashChargeTest::RunTest(const FString& Parameters)
 		if (TestNotNull(TEXT("DA_Upgrade_DashCharge exists"), Upgrade))
 		{
 			TestTrue(TEXT("Dash Charge is an Ability"), Upgrade->Category == EGSUpgradeCategory::Ability);
-			TestEqual(TEXT("Dash Charge has no cap"), Upgrade->MaxStacks, 0);
 			TestTrue(TEXT("Dash Charge effect is GE_Upgrade_DashCharge"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_DashCharge::StaticClass()));
 			const FString Description = Upgrade->FormatValueText(Upgrade->BaseValue).ToString(); // a Common pick's card line
 			TestTrue(FString::Printf(TEXT("Description '%s' shows +1"), *Description), Description.Contains(TEXT("+1")));
@@ -4534,7 +4667,7 @@ namespace GSTests
 		return Pool;
 	}
 
-	UGSUpgradeData* MakeTestUpgrade(const TCHAR* Name, int32 MaxStacks = 0, EGSUpgradeCategory Category = EGSUpgradeCategory::StatBoost,
+	UGSUpgradeData* MakeTestUpgrade(const TCHAR* Name, EGSUpgradeCategory Category = EGSUpgradeCategory::StatBoost,
 		bool bWholeUnits = false, bool bLegendaryAbility = false)
 	{
 		// Unique name: a fixed one would collide when the tests run again in the same editor session.
@@ -4545,7 +4678,6 @@ namespace GSTests
 		Upgrade->Category = Category;
 		Upgrade->bWholeUnits = bWholeUnits;
 		Upgrade->bLegendaryAbility = bLegendaryAbility;
-		Upgrade->MaxStacks = MaxStacks;
 		return Upgrade;
 	}
 
@@ -4705,7 +4837,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 
 		// A Legendary ability: at chance 1 the first card is one, the next cards fall back (it is already in the offer);
 		// at chance 0 it only comes up when nothing else is left.
-		UGSUpgradeData* TestLegendary = MakeTestUpgrade(TEXT("TestUp_Legendary"), 0, EGSUpgradeCategory::Ability, false, true);
+		UGSUpgradeData* TestLegendary = MakeTestUpgrade(TEXT("TestUp_Legendary"), EGSUpgradeCategory::Ability, false, true);
 		UGSUpgradePool* WithLegendary = MakeTestPool({ TestLegendary, MakeTestUpgrade(TEXT("TestUp_F")), MakeTestUpgrade(TEXT("TestUp_G")), MakeTestUpgrade(TEXT("TestUp_H")) });
 		WithLegendary->LegendaryAbilityChance = 1.f;
 		const TArray<FGSUpgradeChoice> Forced = WithLegendary->RollOffer(Stream, NoStacks);
@@ -4724,7 +4856,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 
 		// The rarity roll: a pool that only rolls Rare gives Rare to a normal upgrade and Common to a whole-unit one.
 		UGSUpgradeData* Fractional = MakeTestUpgrade(TEXT("TestUp_Fractional"));
-		UGSUpgradeData* Whole = MakeTestUpgrade(TEXT("TestUp_Whole"), 0, EGSUpgradeCategory::StatBoost, true);
+		UGSUpgradeData* Whole = MakeTestUpgrade(TEXT("TestUp_Whole"), EGSUpgradeCategory::StatBoost, true);
 		UGSUpgradePool* OnlyRare = MakeTestPool({ Fractional, Whole });
 		OnlyRare->StatBoostRarityWeights = { { EGSUpgradeRarity::Rare, 1.f } };
 		const TArray<FGSUpgradeChoice> RareOffer = OnlyRare->RollOffer(Stream, NoStacks);
@@ -4749,19 +4881,19 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		}
 		TestTrue(TEXT("AppearanceWeight 0: never offered"), bHiddenNever);
 
-		// An upgrade at MaxStacks is never offered; an empty pool offers nothing.
-		UGSUpgradeData* Capped = MakeTestUpgrade(TEXT("TestUp_Capped"), 1);
-		UGSUpgradePool* WithCapped = MakeTestPool({ Capped, MakeTestUpgrade(TEXT("TestUp_C")),
+		// No pick cap: an upgrade picked a thousand times is still offered; an empty pool offers nothing.
+		UGSUpgradeData* Often = MakeTestUpgrade(TEXT("TestUp_Often"));
+		UGSUpgradePool* WithOften = MakeTestPool({ Often, MakeTestUpgrade(TEXT("TestUp_C")),
 			MakeTestUpgrade(TEXT("TestUp_D")), MakeTestUpgrade(TEXT("TestUp_E")) });
-		bool bCappedSeen = false;
+		bool bOftenSeen = false;
 		for (int32 i = 0; i < 200; ++i)
 		{
-			const TArray<FGSUpgradeChoice> Offer = WithCapped->RollOffer(Stream, [Capped](const UGSUpgradeData* U) { return U == Capped ? 1 : 0; });
-			bCappedSeen |= OfferContains(Offer, Capped);
+			const TArray<FGSUpgradeChoice> Offer = WithOften->RollOffer(Stream, [Often](const UGSUpgradeData* U) { return U == Often ? 1000 : 0; });
+			bOftenSeen |= OfferContains(Offer, Often);
 			bAllFull &= Offer.Num() == 3;
 		}
-		TestFalse(TEXT("Upgrade at MaxStacks is never offered"), bCappedSeen);
-		TestTrue(TEXT("The other 3 still fill the offer"), bAllFull);
+		TestTrue(TEXT("No cap: an upgrade with 1000 picks is still offered"), bOftenSeen);
+		TestTrue(TEXT("Offers stay full"), bAllFull);
 		TestEqual(TEXT("Empty pool -> empty offer"), MakeTestPool({})->RollOffer(Stream, NoStacks).Num(), 0);
 
 		// Listen to the events like the UI will.
@@ -4937,7 +5069,7 @@ namespace GSTests
 				UGSUpgradeCardWidget::GetCategoryLabel(Choice.Upgrade, Picks).ToString(),
 				UGSUpgradeData::GetRarityName(Choice.Rarity).ToUpper(),
 				Value > 0.f ? Choice.Upgrade->FormatValueText(Value).ToString() : FString(),
-				Picks > 0 ? TEXT("Now: ") + Choice.Upgrade->FormatValueText(Upgrades->GetTotalValue(Choice.Upgrade)).ToString() : FString(TEXT("Now: none")) };
+				Picks > 0 ? TEXT("Now: ") + Choice.Upgrade->FormatNowText(Upgrades->GetTotalValue(Choice.Upgrade)).ToString() : FString(TEXT("Now: none")) };
 			const FString Shown[] = { Card->GetCategoryText().ToString(), Card->GetRarityText().ToString(), Card->GetPickText().ToString(), Card->GetNowText().ToString() };
 			const TCHAR* Lines[] = { TEXT("category"), TEXT("rarity"), TEXT("pick"), TEXT("now") };
 			for (int32 Line = 0; Line < 4; ++Line)
@@ -7355,7 +7487,6 @@ bool FGSFloatingShieldTest::RunTest(const FString& Parameters)
 		if (TestNotNull(TEXT("DA_Upgrade_FloatingShield exists"), Upgrade))
 		{
 			TestTrue(TEXT("Floating Shield is an Ability"), Upgrade->Category == EGSUpgradeCategory::Ability);
-			TestEqual(TEXT("Floating Shield has no cap"), Upgrade->MaxStacks, 0);
 			TestTrue(TEXT("Effect is GE_Upgrade_FloatingShield"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_FloatingShield::StaticClass()));
 			TestTrue(FString::Printf(TEXT("Card says +1 shield: %s"), *Upgrade->FormatValueText(Upgrade->BaseValue).ToString()),
 				Upgrade->FormatValueText(Upgrade->BaseValue).ToString().Contains(TEXT("+1")));
@@ -7620,7 +7751,6 @@ bool FGSSecondWindTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestTrue(TEXT("Second Wind is a Legendary ability"), S->Upgrade->Category == EGSUpgradeCategory::Ability && S->Upgrade->bLegendaryAbility);
-		TestEqual(TEXT("Second Wind has no cap"), S->Upgrade->MaxStacks, 0);
 		TestTrue(TEXT("Effect is GE_Upgrade_SecondWind"), S->Upgrade->Effect && S->Upgrade->Effect->IsChildOf(UGSUpgradeEffect_SecondWind::StaticClass()));
 		TestTrue(FString::Printf(TEXT("Card says +1: %s"), *S->Upgrade->FormatValueText(S->Upgrade->BaseValue).ToString()),
 			S->Upgrade->FormatValueText(S->Upgrade->BaseValue).ToString().Contains(TEXT("+1")));
@@ -7830,7 +7960,6 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 		if (TestNotNull(TEXT("DA_Upgrade_FloatingGun exists"), Upgrade))
 		{
 			TestTrue(TEXT("Floating Gun is a Weapon"), Upgrade->Category == EGSUpgradeCategory::Weapon);
-			TestEqual(TEXT("Floating Gun has no cap"), Upgrade->MaxStacks, 0);
 			TestTrue(TEXT("Effect is GE_Upgrade_FloatingGun"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_FloatingGun::StaticClass()));
 			const UGSUpgradePool* Pool = GameMode->GetUpgradePool();
 			TestTrue(TEXT("Floating Gun is in DA_UpgradePool"), Pool && Pool->Upgrades.Contains(Upgrade));
@@ -8766,8 +8895,8 @@ bool FGSWeaponSlotsTest::RunTest(const FString& Parameters)
 		}
 		TestEqual(TEXT("MaxWeapons 3"), Pool->MaxWeapons, 3);
 
-		UGSUpgradeData* W1 = MakeTestUpgrade(TEXT("TestWeapon_1"), 0, EGSUpgradeCategory::Weapon);
-		UGSUpgradeData* W2 = MakeTestUpgrade(TEXT("TestWeapon_2"), 0, EGSUpgradeCategory::Weapon);
+		UGSUpgradeData* W1 = MakeTestUpgrade(TEXT("TestWeapon_1"), EGSUpgradeCategory::Weapon);
+		UGSUpgradeData* W2 = MakeTestUpgrade(TEXT("TestWeapon_2"), EGSUpgradeCategory::Weapon);
 		UGSUpgradePool* Test = MakeTestPool({ W1, W2, MakeTestUpgrade(TEXT("TestStat_1")), MakeTestUpgrade(TEXT("TestStat_2")), MakeTestUpgrade(TEXT("TestStat_3")) });
 		Test->MaxWeapons = 1;
 		auto NoneOwned = [](const UGSUpgradeData*) { return 0; };
@@ -8874,7 +9003,7 @@ bool FGSWeaponSlotsTest::RunTest(const FString& Parameters)
 		AGSPlayerState* PS = GetPS();
 		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
 		S->TestPool.Reset(DuplicateObject<UGSUpgradePool>(GameMode->GetUpgradePool(), GetTransientPackage()));
-		S->TestWeapon.Reset(MakeTestUpgrade(TEXT("TestWeapon_Real"), 0, EGSUpgradeCategory::Weapon));
+		S->TestWeapon.Reset(MakeTestUpgrade(TEXT("TestWeapon_Real"), EGSUpgradeCategory::Weapon));
 		S->TestWeapon->DisplayName = FText::FromString(TEXT("Test Weapon"));
 		S->TestPool->Upgrades.Add(S->TestWeapon.Get());
 		S->TestPool->MaxWeapons = 1;

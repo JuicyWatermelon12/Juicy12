@@ -120,13 +120,6 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Upgrade")
 	TSubclassOf<UGameplayEffect> Effect;
 
-	/** Most picks allowed per run; 0 = no cap. (Removed in Prompt 44.) */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Upgrade", meta = (ClampMin = "0"))
-	int32 MaxStacks = 0;
-
-	/** True if one more pick is allowed on top of CurrentStacks picks. */
-	bool CanAddStack(int32 CurrentStacks) const { return MaxStacks <= 0 || CurrentStacks < MaxStacks; }
-
 	/** True if Effect's values are fractions of the base (Multiply (Additive) on Data.UpgradeMultiplier): 0.1 = +10%. */
 	bool IsPercentUpgrade() const;
 
@@ -139,6 +132,20 @@ public:
 	/** ValueText with Value filled in ("+15% damage", "+2 dash charges"); the raw number if ValueText is empty. */
 	UFUNCTION(BlueprintPure, Category = "Upgrade")
 	FText FormatValueText(float Value) const;
+
+	/**
+	 * What a total past 100% (shown value) also does, for a chance that overflows (Loaded Dice, Powder Keg).
+	 * "{Overflow}" is the part above 100, capped at 100: "{Overflow}% of crits deal triple damage". Empty = none.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Upgrade")
+	FText OverflowText;
+
+	/** The shown value above 100 (0..100) for an upgrade with OverflowText; 0 otherwise. */
+	float GetOverflow(float Total) const;
+
+	/** What the player has: FormatValueText(Total), plus "(30% of crits deal triple damage)" once Total is past 100%. */
+	UFUNCTION(BlueprintPure, Category = "Upgrade")
+	FText FormatNowText(float Total) const;
 
 	/** "+15%", "+2", "+0.075" for logs and the console. */
 	FString FormatValue(float Value) const;

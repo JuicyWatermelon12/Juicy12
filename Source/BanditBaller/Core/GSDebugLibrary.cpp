@@ -16,6 +16,7 @@
 #include "GSEnemyCharacter.h"
 #include "GSEnemyData.h"
 #include "GSCombatSettings.h"
+#include "GSCriticalHit.h"
 #include "GSGameMode.h"
 #include "GSFloatingGun.h"
 #include "GSFloatingGunComponent.h"
@@ -191,7 +192,7 @@ int32 UGSDebugLibrary::GrantUpgradeTo(AGSPlayerController* PC, const FString& Up
 	{
 		if (!Upgrades->GrantUpgrade(Upgrade, Rarity, TEXT("Debug")))
 		{
-			break; // at MaxStacks, or no such rarity (whole units have no Rare)
+			break; // no such rarity (whole units have no Rare)
 		}
 		++Granted;
 	}
@@ -254,11 +255,10 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 					PickRarities += FString::Printf(TEXT("%s%d %s"), PickRarities.IsEmpty() ? TEXT("") : TEXT(", "), Count, *UGSUpgradeData::GetRarityName(Rarity));
 				}
 			}
-			Text += FString::Printf(TEXT("\n    %s: %d pick(s)%s, total %s (Common pick %s%s%s): %s"), *Upgrade->GetName(), Picks,
+			Text += FString::Printf(TEXT("\n    %s: %d pick(s)%s, total %s (Common pick %s%s): %s"), *Upgrade->GetName(), Picks,
 				PickRarities.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" (%s)"), *PickRarities),
-				*Upgrade->FormatValue(Entry ? Entry->TotalValue : 0.f), *Upgrade->FormatValue(Upgrade->BaseValue),
+				*Upgrade->FormatNowText(Entry ? Entry->TotalValue : 0.f).ToString(), *Upgrade->FormatValue(Upgrade->BaseValue),
 				Upgrade->bWholeUnits ? TEXT(", whole units") : TEXT(""),
-				Upgrade->MaxStacks > 0 ? *FString::Printf(TEXT(", cap %d"), Upgrade->MaxStacks) : TEXT(""),
 				*Upgrade->GetFormattedDescription(Picks).ToString());
 		}
 	}
@@ -346,10 +346,23 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 		if (const AGSGameMode* GameMode = PC->GetWorld()->GetAuthGameMode<AGSGameMode>())
 		{
 			const UGSCombatSettings* Combat = GameMode->GetCombatSettings() ? GameMode->GetCombatSettings() : GetDefault<UGSCombatSettings>();
+			const float Kegs = ASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute());
 			Text += FString::Printf(TEXT("\n  Powder Keg: %g stack(s), %.1f%% chance per kill (%.0f%% per stack), blast %.0f damage x Damage %.2f in %.1f m"),
-				ASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute()), GameMode->GetPowderKegChance(PS) * 100.f,
-				Combat->ChancePerStack * 100.f, Combat->BlastDamage, ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute()),
-				Combat->BlastRadius / 100.f);
+				Kegs, Combat->GetRawExplodeChance(Kegs) * 100.f, Combat->ChancePerStack * 100.f, Combat->BlastDamage,
+				ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute()), Combat->BlastRadius / 100.f);
+			if (Combat->GetDoubleBlastChance(Kegs) > 0.f)
+			{
+				Text += FString::Printf(TEXT("; past 100%%: every kill explodes, %.1f%% of blasts double size (%.1f m), %d so far"),
+					Combat->GetDoubleBlastChance(Kegs) * 100.f, Combat->BlastRadius * Combat->DoubleBlastRadiusMultiplier / 100.f,
+					GameMode->GetDoublePowderKegBlasts());
+			}
+			const float Crit = ASC->GetNumericAttribute(UGSAttributeSet::GetCritChanceAttribute());
+			Text += FString::Printf(TEXT("\n  Loaded Dice: %.1f%% crit chance (x%.1f)"), Crit * 100.f, Combat->CritMultiplier);
+			if (GSCombat::GetTripleCritChance(Crit) > 0.f)
+			{
+				Text += FString::Printf(TEXT("; past 100%%: every hit crits, %.1f%% of them triple (x%.1f)"),
+					GSCombat::GetTripleCritChance(Crit) * 100.f, Combat->TripleCritMultiplier);
+			}
 		}
 	}
 

@@ -59,14 +59,21 @@ class BANDITBALLER_API UGSHUDWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	/** Spawn a floating damage number at a world location. A critical one is bigger, gold and ends in "!". */
-	void AddDamageNumber(const FVector& WorldLocation, float Damage, bool bCritical);
+	/**
+	 * Spawn a floating damage number at a world location. CritLevel 1 (critical) is bigger, gold and ends in "!"; 2 (a
+	 * triple hit, Loaded Dice past 100%) is bigger still, orange-red and ends in "!!".
+	 */
+	void AddDamageNumber(const FVector& WorldLocation, float Damage, uint8 CritLevel);
 
 	// --- Damage number test hooks ---
 	int32 GetDamageNumbersAdded() const { return DamageNumbersAdded; }
 	int32 GetCriticalDamageNumbersAdded() const { return CriticalDamageNumbersAdded; }
 	float GetLastDamageNumber() const { return LastDamageNumber; }
 	bool WasLastDamageNumberCritical() const { return bLastDamageNumberCritical; }
+	int32 GetTripleDamageNumbersAdded() const { return TripleDamageNumbersAdded; }
+	uint8 GetLastDamageNumberCritLevel() const { return LastDamageNumberCritLevel; }
+	int32 GetTripleCritFontSize() const { return TripleCritFontSize; }
+	FLinearColor GetTripleCritColor() const { return TripleCritColor; }
 	int32 GetCritFontSize() const { return CritFontSize; }
 	int32 GetDamageNumberFontSize() const { return DamageNumberFontSize; }
 	FLinearColor GetCritColor() const { return CritColor; }
@@ -322,6 +329,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|Damage Numbers")
 	int32 CritFontSize = 28;
 
+	/** A triple hit's number (Loaded Dice past 100%). */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Damage Numbers")
+	int32 TripleCritFontSize = 36;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Damage Numbers")
+	FLinearColor TripleCritColor = FLinearColor(1.f, 0.35f, 0.08f);
+
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|Damage Numbers")
 	FLinearColor DamageNumberColor = FLinearColor::White;
 
@@ -507,7 +521,8 @@ private:
 		float Age = 0.f;
 		float Lifetime = 1.f;
 		float JitterX = 0.f;
-		bool bCritical = false;
+		/** 0 normal, 1 critical, 2 triple. */
+		uint8 CritLevel = 0;
 		bool bCash = false;
 		bool bXP = false;
 		bool bHeal = false;
@@ -644,6 +659,8 @@ private:
 	// Damage number test hooks.
 	int32 DamageNumbersAdded = 0;
 	int32 CriticalDamageNumbersAdded = 0;
+	int32 TripleDamageNumbersAdded = 0;
+	uint8 LastDamageNumberCritLevel = 0;
 	float LastDamageNumber = 0.f;
 	bool bLastDamageNumberCritical = false;
 

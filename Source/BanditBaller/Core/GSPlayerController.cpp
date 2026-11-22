@@ -138,11 +138,11 @@ void AGSPlayerController::ServerRequestReturnToHub_Implementation()
 	}
 }
 
-void AGSPlayerController::ClientNotifyDamageDealt_Implementation(FVector_NetQuantize WorldLocation, float Damage, bool bCritical, bool bKilled)
+void AGSPlayerController::ClientNotifyDamageDealt_Implementation(FVector_NetQuantize WorldLocation, float Damage, uint8 CritLevel, bool bKilled)
 {
 	if (UGSHUDWidget* HUD = GetGSHUD())
 	{
-		HUD->AddDamageNumber(WorldLocation, Damage, bCritical);
+		HUD->AddDamageNumber(WorldLocation, Damage, CritLevel);
 		HUD->ShowHitMarker(bKilled); // kills give no XP themselves (it comes from the dropped orb)
 	}
 }

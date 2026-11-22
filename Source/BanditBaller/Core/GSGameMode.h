@@ -199,14 +199,27 @@ public:
 	 */
 	bool RollPowderKegChance(const AGSPlayerState* Player);
 
+	/**
+	 * One blast's double-size roll for Player on the run stream: the explode chance past 100% (130% -> 30%). False below
+	 * 100% and true from 200%, both without a roll. ExplodePowderKeg calls it once per blast.
+	 */
+	bool RollPowderKegDoubleSize(const AGSPlayerState* Player);
+
 	/** Chain blasts scheduled and not yet fired (tests). */
 	int32 GetPendingPowderKegs() const;
 
 	/** Blasts so far this run (tests / debug). */
 	int32 GetPowderKegBlasts() const { return PowderKegBlasts; }
 
+	/** Double-size blasts so far this run (Powder Keg past 100%), and the radius of the last blast (tests / debug). */
+	int32 GetDoublePowderKegBlasts() const { return DoublePowderKegBlasts; }
+	float GetLastPowderKegRadius() const { return LastPowderKegRadius; }
+
 	/** Tests / debug: use Settings instead of DA_ComboSettings until cleared (nullptr). Lives as long as this world. */
 	void SetComboSettingsOverride(const UGSComboSettings* Settings) { ComboSettingsOverride = Settings; }
+
+	/** Tests: use Settings instead of DA_CombatSettings until cleared (nullptr). */
+	void SetCombatSettingsOverride(const UGSCombatSettings* Settings) { CombatSettingsOverride = Settings; }
 
 	// --- Round-clear bonus (server) ---
 
@@ -375,6 +388,8 @@ private:
 	TArray<FTimerHandle> PendingPowderKegs;
 
 	int32 PowderKegBlasts = 0;
+	int32 DoublePowderKegBlasts = 0;
+	float LastPowderKegRadius = 0.f;
 
 	/** Player killed an enemy at Location: roll the chance; on a hit, blast now, or after ChainDelay if a blast made the kill. */
 	void TriggerPowderKeg(const FVector& Location, const AGSPlayerState* Player);
@@ -382,6 +397,10 @@ private:
 	/** SetComboSettingsOverride (tests). */
 	UPROPERTY(Transient)
 	TObjectPtr<const UGSComboSettings> ComboSettingsOverride;
+
+	/** SetCombatSettingsOverride (tests). */
+	UPROPERTY(Transient)
+	TObjectPtr<const UGSCombatSettings> CombatSettingsOverride;
 
 	/** SetUpgradePoolOverride (tests). */
 	UPROPERTY(Transient)

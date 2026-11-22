@@ -32,7 +32,7 @@ struct FGSUpgradeChoice
  * 1. Roll LegendaryAbilityChance. On a hit the card is a Legendary ability (by AppearanceWeight) not yet in the offer.
  * 2. Otherwise pick a stat boost, ability or weapon not yet in the offer, by AppearanceWeight, then roll its rarity with
  *    its category's weights. A whole-unit upgrade has no Rare: a Rare roll counts as Common.
- * Upgrades at MaxStacks are never offered, and a weapon the player doesn't own only while they own fewer than MaxWeapons
+ * There are no pick caps. A weapon the player doesn't own is only offered while they own fewer than MaxWeapons
  * weapons. A hit with no Legendary ability left falls back to step 2 (and step 2 with nothing left falls back to a
  * Legendary ability). With nothing available at all the offer is shorter. The first offer of a run has a weapon card.
  */
@@ -124,7 +124,7 @@ public:
 
 	/**
 	 * Roll one offer from Stream. GetStacks returns how many picks the player already has of an upgrade (for
-	 * MaxStacks and MaxWeapons). With bWeaponCard (the first offer of a run) one card is a weapon (by AppearanceWeight,
+	 * MaxWeapons). With bWeaponCard (the first offer of a run) one card is a weapon (by AppearanceWeight,
 	 * rarity rolled as usual) at a random position, if any weapon may be offered. Pure apart from Stream: the run
 	 * stream for real offers, a private stream for simulations.
 	 */

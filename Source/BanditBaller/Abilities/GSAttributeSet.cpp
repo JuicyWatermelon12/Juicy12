@@ -81,7 +81,7 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 	}
 	else if (Attribute == GetCritChanceAttribute())
 	{
-		NewValue = FMath::Clamp(NewValue, 0.f, 1.f);
+		NewValue = FMath::Max(NewValue, 0.f); // no cap: past 1, the rest is the triple-hit chance
 	}
 }
 
@@ -150,10 +150,11 @@ void UGSAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 				GameMode->HandleDamageApplied(Data.Target.GetAvatarActor(), LastDamageInstigator.Get(), Applied);
 			}
 
-			// A critical hit carries SetByCaller Data.Critical = 1 (GSCombat::RollCriticalHit; its damage is already doubled).
-			const bool bCritical = Data.EffectSpec.GetSetByCallerMagnitude(GSGameplayTags::Data_Critical, /*WarnIfNotFound*/ false, 0.f) > 0.f;
+			// A critical hit carries SetByCaller Data.Critical = 1, a triple hit 2 (GSCombat::RollCriticalHit; its damage is
+			// already multiplied).
+			const uint8 CritLevel = static_cast<uint8>(FMath::Clamp(FMath::RoundToInt(Data.EffectSpec.GetSetByCallerMagnitude(GSGameplayTags::Data_Critical, /*WarnIfNotFound*/ false, 0.f)), 0, 2));
 			const bool bKilled = OldHealth > 0.f && GetHealth() <= 0.f;
-			NotifyDamageDealt(Data, LocalDamage, bCritical, bKilled);
+			NotifyDamageDealt(Data, LocalDamage, CritLevel, bKilled);
 		}
 	}
 	else if (Data.EvaluatedData.Attribute == GetHealthAttribute())
@@ -163,7 +164,7 @@ void UGSAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 	}
 }
 
-void UGSAttributeSet::NotifyDamageDealt(const FGameplayEffectModCallbackData& Data, float DamageAmount, bool bCritical, bool bKilled) const
+void UGSAttributeSet::NotifyDamageDealt(const FGameplayEffectModCallbackData& Data, float DamageAmount, uint8 CritLevel, bool bKilled) const
 {
 	const FGameplayEffectContextHandle& Context = Data.EffectSpec.GetEffectContext();
 	AActor* TargetAvatar = Data.Target.GetAvatarActor();
@@ -195,7 +196,7 @@ void UGSAttributeSet::NotifyDamageDealt(const FGameplayEffectModCallbackData& Da
 
 	const FHitResult* Hit = Context.GetHitResult();
 	const FVector Location = Hit ? FVector(Hit->ImpactPoint) : TargetAvatar->GetActorLocation() + FVector(0.f, 0.f, 80.f);
-	AttackerPC->ClientNotifyDamageDealt(Location, DamageAmount, bCritical, bKilled);
+	AttackerPC->ClientNotifyDamageDealt(Location, DamageAmount, CritLevel, bKilled);
 }
 
 void UGSAttributeSet::OnRep_Health(const FGameplayAttributeData& OldValue)

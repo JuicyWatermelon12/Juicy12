@@ -143,7 +143,7 @@ bool AGSProjectile::HandleHit(const FHitResult& Hit)
 			Spec.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Damage, Params.Damage * Crit.DamageMultiplier);
 			if (Crit.bCritical)
 			{
-				Spec.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Critical, 1.f);
+				Spec.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Critical, Crit.GetLevel()); // 1 crit, 2 triple
 			}
 			FHitResult ContextHit = Hit;
 			ContextHit.ImpactPoint = Where;

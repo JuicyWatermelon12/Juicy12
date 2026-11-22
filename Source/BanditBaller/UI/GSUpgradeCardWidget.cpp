@@ -59,7 +59,7 @@ void UGSUpgradeCardWidget::SetChoice(const UGSUpgradeData* InUpgrade, EGSUpgrade
 	if (NowText)
 	{
 		NowText->SetText(OwnedPicks > 0
-			? FText::Format(NSLOCTEXT("GSUpgradeCard", "Now", "Now: {0}"), InUpgrade->FormatValueText(OwnedTotal))
+			? FText::Format(NSLOCTEXT("GSUpgradeCard", "Now", "Now: {0}"), InUpgrade->FormatNowText(OwnedTotal)) // with the overflow past 100%
 			: NSLOCTEXT("GSUpgradeCard", "NowNone", "Now: none"));
 	}
 	if (KeyHintText)

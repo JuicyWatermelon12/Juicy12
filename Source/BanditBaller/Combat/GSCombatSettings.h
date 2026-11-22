@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+#include "GSCriticalHit.h"
 #include "GSCombatSettings.generated.h"
 
 class UGameplayEffect;
@@ -21,11 +22,16 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Critical Hits", meta = (ClampMin = "1"))
 	float CritMultiplier = 2.f;
 
+	/** Damage multiplier of a triple hit: a crit chance past 100% is the chance that a crit uses this instead (130% = every hit crits, 30% of them triple). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Critical Hits", meta = (ClampMin = "1"))
+	float TripleCritMultiplier = 3.f;
+
 	// --- Powder Keg: enemies the player kills have a chance to explode ---
 
 	/**
-	 * Chance per PowderKeg stack that an enemy the player kills explodes (rolled on the run stream per kill), clamped to
-	 * 100%. DA_Upgrade_PowderKeg's card text and MaxStacks (34 at 3%) are written to match it by hand.
+	 * Chance per PowderKeg stack that an enemy the player kills explodes (rolled on the run stream per kill). Past 100%
+	 * every kill explodes and the rest is the chance of a double-size blast. DA_Upgrade_PowderKeg's DisplayScale (3) is
+	 * set to match it by hand (Upgrades.PowderKeg checks it).
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Powder Keg", meta = (ClampMin = "0", ClampMax = "1"))
 	float ChancePerStack = 0.03f;
@@ -37,6 +43,10 @@ public:
 	/** Blast radius. The same at every stack count. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Powder Keg", meta = (ClampMin = "0", Units = "cm"))
 	float BlastRadius = 300.f;
+
+	/** A double-size blast (Powder Keg past 100%) has BlastRadius x this; the same damage. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Powder Keg", meta = (ClampMin = "1"))
+	float DoubleBlastRadiusMultiplier = 2.f;
 
 	/** An enemy killed by a blast rolls its own chance; if it explodes, it does this long after (so chains ripple). World time: pauses with the game. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Powder Keg", meta = (ClampMin = "0", Units = "s"))
@@ -73,6 +83,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Second Wind")
 	TSubclassOf<UGameplayEffect> SecondWindInvulnerableEffect;
 
-	/** Chance (0..1) that a kill explodes at Stacks PowderKeg stacks: Stacks x ChancePerStack, clamped. */
-	float GetExplodeChance(float Stacks) const { return Stacks > 0.f ? FMath::Clamp(Stacks * ChancePerStack, 0.f, 1.f) : 0.f; }
+	/** Stacks x ChancePerStack, not clamped (1.3 = 130%). */
+	float GetRawExplodeChance(float Stacks) const { return Stacks > 0.f ? Stacks * ChancePerStack : 0.f; }
+
+	/** Chance (0..1) that a kill explodes at Stacks PowderKeg stacks: Stacks x ChancePerStack, clamped (GSCombat::SnapChance). */
+	float GetExplodeChance(float Stacks) const { return GSCombat::SnapChance(GetRawExplodeChance(Stacks)); }
+
+	/** Chance (0..1) that a blast is double size: the explode chance past 100% (1.3 -> 0.3), clamped. */
+	float GetDoubleBlastChance(float Stacks) const { return GSCombat::SnapChance(GetRawExplodeChance(Stacks) - 1.f); }
 };

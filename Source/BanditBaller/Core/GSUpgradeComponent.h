@@ -111,7 +111,7 @@ public:
 	/**
 	 * Add one pick of Upgrade at Rarity: its value (UGSUpgradePool::GetPickValue) joins the total that the upgrade's
 	 * Effect applies. Fails without authority, an ASC or an Effect, when the upgrade has no such rarity (a whole-unit
-	 * upgrade has no Rare) or when its MaxStacks is reached. Source is logged ("Debug", "LevelUp").
+	 * upgrade has no Rare). There is no pick cap. Source is logged ("Debug", "LevelUp").
 	 */
 	bool GrantUpgrade(const UGSUpgradeData* Upgrade, EGSUpgradeRarity Rarity, const TCHAR* Source = TEXT("Code"));
 

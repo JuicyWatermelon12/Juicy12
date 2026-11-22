@@ -128,7 +128,7 @@ public:
 	/** Names of all upgrade data assets. */
 	static TArray<FString> GetUpgradeDataNames();
 
-	/** gs.Upgrade.Grant: add Count picks of the named upgrade at Rarity to PC's player (stops at MaxStacks). Returns how many. */
+	/** gs.Upgrade.Grant: add Count picks of the named upgrade at Rarity to PC's player. Returns how many. */
 	static int32 GrantUpgradeTo(AGSPlayerController* PC, const FString& UpgradeName, int32 Count = 1, EGSUpgradeRarity Rarity = EGSUpgradeRarity::Common);
 
 	/** gs.Upgrade.List: log + screen every upgrade by category with this run's picks and total value, and the stats they change. */

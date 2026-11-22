@@ -45,6 +45,26 @@ FText UGSUpgradeData::FormatValueText(float Value) const
 	return FText::Format(ValueText, Args);
 }
 
+float UGSUpgradeData::GetOverflow(float Total) const
+{
+	return OverflowText.IsEmpty() ? 0.f : FMath::Clamp(ToDisplayValue(Total) - 100.f, 0.f, 100.f);
+}
+
+FText UGSUpgradeData::FormatNowText(float Total) const
+{
+	const FText Value = FormatValueText(Total);
+	const float Overflow = GetOverflow(Total);
+	if (Overflow <= 0.f)
+	{
+		return Value;
+	}
+	const float Rounded = FMath::RoundToFloat(Overflow * 10.f) / 10.f;
+	const bool bWhole = FMath::IsNearlyEqual(Rounded, FMath::RoundToFloat(Rounded), 0.001f);
+	FFormatNamedArguments Args;
+	Args.Add(TEXT("Overflow"), bWhole ? FFormatArgumentValue(FMath::RoundToInt(Rounded)) : FFormatArgumentValue(Rounded));
+	return FText::Format(NSLOCTEXT("GSUpgradeData", "NowWithOverflow", "{0} ({1})"), Value, FText::Format(OverflowText, Args));
+}
+
 FText UGSUpgradeData::GetFormattedDescription(int32 OwnedStacks) const
 {
 	const FText& Text = DescriptionsByOwnedStacks.IsEmpty() ? Description

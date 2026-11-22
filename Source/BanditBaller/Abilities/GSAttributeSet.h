@@ -105,8 +105,9 @@ public:
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, HealthOnKill)
 
 	/**
-	 * Chance (0..1) that a hit from the player's weapons is critical (GSCombat::RollCriticalHit; damage x CritMultiplier
-	 * from DA_CombatSettings). Default 0, clamped to 0..1. Raised by the Loaded Dice upgrade.
+	 * Chance that a hit from the player's weapons is critical (GSCombat::RollCriticalHit; damage x CritMultiplier
+	 * from DA_CombatSettings). Default 0, clamped to >= 0: past 1 every hit crits and the rest is the chance of a triple hit
+	 * (TripleCritMultiplier). Raised by the Loaded Dice upgrade.
 	 * TODO(co-op): not replicated (single-player first); the server rolls anyway.
 	 */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
@@ -191,7 +192,7 @@ protected:
 	TWeakObjectPtr<AActor> LastDamageInstigator;
 
 	/** Server: tell the attacking player's client about damage they dealt (damage numbers, hit marker). */
-	void NotifyDamageDealt(const struct FGameplayEffectModCallbackData& Data, float DamageAmount, bool bCritical, bool bKilled) const;
+	void NotifyDamageDealt(const struct FGameplayEffectModCallbackData& Data, float DamageAmount, uint8 CritLevel, bool bKilled) const;
 
 	UFUNCTION()
 	void OnRep_Health(const FGameplayAttributeData& OldValue);

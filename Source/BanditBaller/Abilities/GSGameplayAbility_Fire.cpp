@@ -352,7 +352,7 @@ void UGSGameplayAbility_Fire::FireShot(const FGameplayAbilityActorInfo* ActorInf
 				SpecHandle.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Damage, AppliedDamage[Index]);
 				if (Crit.bCritical)
 				{
-					SpecHandle.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Critical, 1.f);
+					SpecHandle.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Critical, Crit.GetLevel()); // 1 crit, 2 triple
 				}
 				SpecHandle.Data->GetContext().AddHitResult(Hit);
 				SourceASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data, TargetASC);

@@ -104,11 +104,6 @@ bool UGSUpgradeComponent::GrantUpgrade(const UGSUpgradeData* Upgrade, EGSUpgrade
 
 	const int32 EntryIndex = Stacks.IndexOfByPredicate([Upgrade](const FGSUpgradeStack& S) { return S.Upgrade == Upgrade; });
 	const int32 Current = EntryIndex != INDEX_NONE ? Stacks[EntryIndex].Stacks : 0;
-	if (!Upgrade->CanAddStack(Current))
-	{
-		UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: %s is at its cap (%d/%d); not granted."), *GetNameSafe(Owner), *Upgrade->GetName(), Current, Upgrade->MaxStacks);
-		return false;
-	}
 
 	FGSUpgradeStack NewEntry;
 	FGSUpgradeStack& Entry = EntryIndex != INDEX_NONE ? Stacks[EntryIndex] : NewEntry;

@@ -25,7 +25,7 @@ namespace GSGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Cooldown_Dash, "Cooldown.Dash", "Dash is on cooldown.");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Damage, "Data.Damage", "SetByCaller magnitude for damage.");
-	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Critical, "Data.Critical", "SetByCaller on a damage spec: 1 = a critical hit (damage numbers show it).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Critical, "Data.Critical", "SetByCaller on a damage spec: 1 = a critical hit, 2 = a triple hit (damage numbers show it).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Heal, "Data.Heal", "SetByCaller magnitude for heals (health orbs).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Duration, "Data.Duration", "SetByCaller duration for timed state effects (Second Wind invulnerability).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Cooldown, "Data.Cooldown", "SetByCaller duration for cooldown effects.");

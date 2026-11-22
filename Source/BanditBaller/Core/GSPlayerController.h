@@ -34,7 +34,7 @@ public:
 
 	/** Server -> attacker's client: damage number + hit marker for damage this player dealt. */
 	UFUNCTION(Client, Unreliable)
-	void ClientNotifyDamageDealt(FVector_NetQuantize WorldLocation, float Damage, bool bCritical, bool bKilled);
+	void ClientNotifyDamageDealt(FVector_NetQuantize WorldLocation, float Damage, uint8 CritLevel, bool bKilled);
 
 	/** Server -> collector's client: floating "+$N" where a cash pickup was collected. */
 	UFUNCTION(Client, Unreliable)
