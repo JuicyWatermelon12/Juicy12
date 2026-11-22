@@ -1089,6 +1089,11 @@ void UGSHUDWidget::AddDamageNumber(const FVector& WorldLocation, float Damage, b
 	Entry.Damage = Damage;
 	Entry.Lifetime = DamageNumberLifetime;
 	Entry.bCritical = bCritical;
+
+	++DamageNumbersAdded;
+	CriticalDamageNumbersAdded += bCritical ? 1 : 0;
+	LastDamageNumber = Damage;
+	bLastDamageNumberCritical = bCritical;
 }
 
 void UGSHUDWidget::AddCashPopup(const FVector& WorldLocation, int32 Amount)

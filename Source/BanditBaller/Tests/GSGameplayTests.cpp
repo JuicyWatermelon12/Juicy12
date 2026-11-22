@@ -72,6 +72,8 @@
 #include "GSGameplayAbility_Dash.h"
 #include "GSGameplayAbility_Reload.h"
 #include "GSAbilityIconWidget.h"
+#include "GSCombatSettings.h"
+#include "GSCriticalHit.h"
 #include "Blueprint/WidgetTree.h"
 #include "GSMovementAbilitySettings.h"
 #include "GSMovementSettings.h"
@@ -3349,6 +3351,200 @@ bool FGSBiggerMagsAndLeechTest::RunTest(const FString& Parameters)
 }
 
 // ---------------------------------------------------------------------------
+// Loaded Dice: CritChance, the crit roll on the run stream, double damage, critical damage numbers
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	/** Spawn a MeleeBandit at Location facing the player, with its AI and movement stopped. */
+	AGSEnemyCharacter* SpawnFrozenBandit(const FVector& Location)
+	{
+		AGSEnemyCharacter* Enemy = AGSEnemyCharacter::SpawnEnemy(GetPIEWorld(), UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit")), Location,
+			GetPlayer()->GetActorLocation());
+		if (!Enemy)
+		{
+			return nullptr;
+		}
+		if (AAIController* AIC = Cast<AAIController>(Enemy->GetController()))
+		{
+			if (UBrainComponent* Brain = AIC->GetBrainComponent())
+			{
+				Brain->StopLogic(TEXT("Crit test"));
+			}
+			AIC->StopMovement();
+		}
+		Enemy->GetCharacterMovement()->DisableMovement();
+		return Enemy;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSLoadedDiceTest, "BanditBaller.Upgrades.LoadedDice", GSTests::TestFlags)
+bool FGSLoadedDiceTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	struct FState
+	{
+		TWeakObjectPtr<AGSEnemyCharacter> Target;
+		float HealthBefore = 0.f;
+		int32 CritNumbersBefore = 0;
+	};
+	TSharedRef<FState> S = MakeShared<FState>();
+
+	// Data, the clamp, and the roll itself (GSCombat::RollCriticalHit) on the run stream.
+	Step([this]()
+	{
+		GetGameMode()->SetRoundTimerPaused(true); // stay in PreRound: no wave
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("LoadedDice"));
+		if (TestNotNull(TEXT("DA_Upgrade_LoadedDice exists"), Upgrade))
+		{
+			TestTrue(TEXT("Loaded Dice is Rare"), Upgrade->Rarity == EGSUpgradeRarity::Rare);
+			TestEqual(TEXT("Loaded Dice: MaxStacks 20"), Upgrade->MaxStacks, 20);
+			TestTrue(TEXT("Loaded Dice effect is GE_Upgrade_LoadedDice"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_LoadedDice::StaticClass()));
+			const FString Description = Upgrade->GetFormattedDescription().ToString();
+			TestTrue(FString::Printf(TEXT("Description '%s' shows +5%%"), *Description), Description.Contains(TEXT("+5%")));
+			const UGSUpgradePool* Pool = GetGameMode()->GetUpgradePool();
+			TestTrue(TEXT("Loaded Dice is in DA_UpgradePool"), Pool && Pool->Upgrades.Contains(Upgrade));
+		}
+		const UGSCombatSettings* Combat = GetGameMode()->GetCombatSettings();
+		if (TestNotNull(TEXT("CombatSettings (DA_CombatSettings) set on the GameMode"), Combat))
+		{
+			TestEqual(TEXT("CritMultiplier 2"), Combat->CritMultiplier, 2.f);
+		}
+
+		UGSAbilitySystemComponent* ASC = GetPlayerASC();
+		FRandomStream& Stream = GetGameMode()->GetRunStream();
+		TestEqual(TEXT("CritChance starts at 0"), GetAttr(UGSAttributeSet::GetCritChanceAttribute()), 0.f, 0.0001f);
+		const int32 SeedBefore = Stream.GetCurrentSeed();
+		bool bAnyCrit = false;
+		for (int32 i = 0; i < 100; ++i)
+		{
+			const FGSCritRoll Roll = GSCombat::RollCriticalHit(ASC);
+			bAnyCrit |= Roll.bCritical || Roll.DamageMultiplier != 1.f;
+		}
+		TestFalse(TEXT("CritChance 0: never a crit"), bAnyCrit);
+		TestEqual(TEXT("CritChance 0: the run stream is untouched"), Stream.GetCurrentSeed(), SeedBefore);
+
+		// 10 stacks: 50%. Rolls use the run stream: the same stream state gives the same crits.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("LoadedDice"), TEXT("10") });
+		TestEqual(TEXT("10 stacks: CritChance 0.5"), GetAttr(UGSAttributeSet::GetCritChanceAttribute()), 0.5f, 0.0001f);
+		const FRandomStream Saved = Stream;
+		TArray<bool> First, Second;
+		int32 Crits = 0;
+		bool bMultiplierRight = true;
+		for (int32 i = 0; i < 2000; ++i)
+		{
+			const FGSCritRoll Roll = GSCombat::RollCriticalHit(ASC);
+			First.Add(Roll.bCritical);
+			Crits += Roll.bCritical ? 1 : 0;
+			bMultiplierRight &= Roll.DamageMultiplier == (Roll.bCritical ? 2.f : 1.f);
+		}
+		TestTrue(TEXT("CritChance 0.5: the rolls used the run stream"), Stream.GetCurrentSeed() != Saved.GetCurrentSeed());
+		Stream = Saved;
+		for (int32 i = 0; i < 2000; ++i)
+		{
+			Second.Add(GSCombat::RollCriticalHit(ASC).bCritical);
+		}
+		TestTrue(TEXT("Same run stream state -> same crits"), First == Second);
+		AddInfo(FString::Printf(TEXT("CritChance 0.5: %d crits in 2000 rolls"), Crits));
+		TestTrue(TEXT("CritChance 0.5: about half the rolls crit"), FMath::Abs(Crits / 2000.0 - 0.5) < 0.04);
+		TestTrue(TEXT("A crit multiplies damage by 2, a normal hit by 1"), bMultiplierRight);
+
+		// 20 stacks: 100%, always a crit without dice; MaxStacks stops a 21st.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("LoadedDice"), TEXT("10") });
+		TestEqual(TEXT("20 stacks: CritChance 1"), GetAttr(UGSAttributeSet::GetCritChanceAttribute()), 1.f, 0.0001f);
+		TestEqual(TEXT("A 21st stack is refused (MaxStacks 20)"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("LoadedDice")), 0);
+		const int32 SeedAtFull = Stream.GetCurrentSeed();
+		bool bAllCrit = true;
+		for (int32 i = 0; i < 100; ++i)
+		{
+			bAllCrit &= GSCombat::RollCriticalHit(ASC).bCritical;
+		}
+		TestTrue(TEXT("CritChance 1: every hit is a crit"), bAllCrit);
+		TestEqual(TEXT("CritChance 1: the run stream is untouched"), Stream.GetCurrentSeed(), SeedAtFull);
+
+		// The attribute is clamped to 0..1.
+		UGSDebugLibrary::SetAttributeOn(GetPC(), TEXT("CritChance"), 1.5f);
+		TestTrue(TEXT("CritChance clamped to at most 1"), GetAttr(UGSAttributeSet::GetCritChanceAttribute()) <= 1.f + 0.0001f);
+		UGSDebugLibrary::SetAttributeOn(GetPC(), TEXT("CritChance"), -3.f);
+		TestTrue(TEXT("CritChance clamped to at least 0"), GetAttr(UGSAttributeSet::GetCritChanceAttribute()) >= -0.0001f);
+
+		// A new run removes the stacks (and the debug base value goes back with the restart's reset below).
+		UGSDebugLibrary::SetAttributeOn(GetPC(), TEXT("CritChance"), 0.f);
+		GetGameMode()->RestartRunWithSeed(23);
+		GetGameMode()->SetRoundTimerPaused(true);
+		TestEqual(TEXT("New run: CritChance 0"), GetAttr(UGSAttributeSet::GetCritChanceAttribute()), 0.f, 0.0001f);
+	});
+
+	// Real rifle shots at a frozen bandit 4 m ahead: a normal hit deals 20 with a plain damage number; with 20 stacks a
+	// hit deals 40 and shows a critical number (bigger, another colour).
+	Step([S]()
+	{
+		GetPlayer()->TeleportTo(FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator);
+		S->Target = SpawnFrozenBandit(FVector(400.f, 0.f, 0.f));
+	});
+	TSharedRef<int32> AimFrames = MakeShared<int32>(0);
+	WaitUntil(this, TEXT("aim at the bandit"), [S, AimFrames]()
+	{
+		if (!S->Target.IsValid())
+		{
+			return true;
+		}
+		AimAt(*S->Target);
+		return ++(*AimFrames) >= 6; // let the camera settle on the new view
+	});
+	Step([this, S]()
+	{
+		if (!TestTrue(TEXT("The bandit is there"), S->Target.IsValid()))
+		{
+			return;
+		}
+		S->HealthBefore = GetHealth(S->Target->GetAbilitySystemComponent());
+		TestEqual(TEXT("Round 1 bandit at 60"), S->HealthBefore, 60.f, 0.01f);
+		AimAt(*S->Target);
+		TapInput(GSGameplayTags::Ability_Fire);
+		const float Dealt = S->HealthBefore - GetHealth(S->Target->GetAbilitySystemComponent());
+		TestEqual(TEXT("No Loaded Dice: a rifle hit deals 20"), Dealt, 20.f, 0.01f);
+		const UGSHUDWidget* HUD = GetHUD();
+		if (TestNotNull(TEXT("HUD"), HUD))
+		{
+			TestEqual(TEXT("Damage number 20"), HUD->GetLastDamageNumber(), 20.f, 0.01f);
+			TestFalse(TEXT("A plain damage number"), HUD->WasLastDamageNumberCritical());
+			S->CritNumbersBefore = HUD->GetCriticalDamageNumbersAdded();
+			TestTrue(TEXT("Critical numbers are bigger"), HUD->GetCritFontSize() > HUD->GetDamageNumberFontSize());
+			TestFalse(TEXT("Critical numbers have another colour"), HUD->GetCritColor().Equals(HUD->GetDamageNumberColor()));
+		}
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("LoadedDice"), TEXT("20") });
+		S->HealthBefore = GetHealth(S->Target->GetAbilitySystemComponent());
+	});
+	WaitUntil(this, TEXT("firing to end"), []() { return !IsPlayerFiring(); });
+	Step([this, S]()
+	{
+		if (!S->Target.IsValid())
+		{
+			AddError(TEXT("The bandit is gone"));
+			return;
+		}
+		AimAt(*S->Target);
+		TapInput(GSGameplayTags::Ability_Fire);
+		const float Dealt = S->HealthBefore - GetHealth(S->Target->GetAbilitySystemComponent());
+		TestEqual(TEXT("Loaded Dice x20: the hit is critical and deals 40"), Dealt, 40.f, 0.01f);
+		TestTrue(TEXT("The crit killed the 40 HP bandit"), S->Target->GetHealthComponent()->IsDead());
+		const UGSHUDWidget* HUD = GetHUD();
+		if (HUD)
+		{
+			TestEqual(TEXT("Damage number 40"), HUD->GetLastDamageNumber(), 40.f, 0.01f);
+			TestTrue(TEXT("A critical damage number"), HUD->WasLastDamageNumberCritical());
+			TestEqual(TEXT("One more critical number"), HUD->GetCriticalDamageNumbersAdded(), S->CritNumbersBefore + 1);
+		}
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
 // Extra Jump: JumpMaxCount sync, consistent air jumps, coyote / slide-hop / dash, landing reset
 // ---------------------------------------------------------------------------
 
@@ -3908,7 +4104,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
-		TestEqual(TEXT("Pool has the 9 upgrades"), Pool->Upgrades.Num(), 9);
+		TestEqual(TEXT("Pool has the 10 upgrades"), Pool->Upgrades.Num(), 10);
 		TestEqual(TEXT("Common weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Common), 100.f);
 		TestEqual(TEXT("Rare weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Rare), 20.f);
 		TestEqual(TEXT("Epic weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Epic), 6.f);
@@ -3927,7 +4123,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		auto NoStacks = [](const UGSUpgradeData*) { return 0; };
 
 		// Real pool: always 3 different upgrades (empty Epic / Legendary tiers never waste a pick), and the Rare tier
-		// (Extra Jump, Dash Charge, Leech) shows up in about 1 - (100/120)^3 = 42% of offers: with 6 Commons and 3 Rares
+		// (Extra Jump, Dash Charge, Leech, Loaded Dice) shows up in about 1 - (100/120)^3 = 42% of offers: with 6 Commons and 4 Rares
 		// neither tier runs out within one offer, so each choice is Rare with 20/120.
 		FRandomStream Stream(7);
 		int32 WithRare = 0;

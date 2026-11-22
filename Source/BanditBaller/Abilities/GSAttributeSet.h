@@ -104,6 +104,15 @@ public:
 	FGameplayAttributeData HealthOnKill;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, HealthOnKill)
 
+	/**
+	 * Chance (0..1) that a hit from the player's weapons is critical (GSCombat::RollCriticalHit; damage x CritMultiplier
+	 * from DA_CombatSettings). Default 0, clamped to 0..1. Raised by the Loaded Dice upgrade.
+	 * TODO(co-op): not replicated (single-player first); the server rolls anyway.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData CritChance;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, CritChance)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;

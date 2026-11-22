@@ -11,6 +11,7 @@
 #include "GSAbilitySystemComponent.h"
 #include "GSAttributeSet.h"
 #include "GSCharacter.h"
+#include "GSCriticalHit.h"
 #include "GSGameplayTags.h"
 #include "GSWeapon.h"
 #include "GSWeaponComponent.h"
@@ -285,13 +286,19 @@ void UGSGameplayAbility_Fire::FireShot(const FGameplayAbilityActorInfo* ActorInf
 
 		if (SourceASC && TargetASC && DamageEffectClass)
 		{
+			// One crit roll per hit (run stream; Loaded Dice). A crit multiplies the damage and marks the spec.
+			const FGSCritRoll Crit = GSCombat::RollCriticalHit(SourceASC);
 			const float DamageMultiplier = SourceASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute());
-			AppliedDamage = WeaponData.Damage * DamageMultiplier;
+			AppliedDamage = WeaponData.Damage * DamageMultiplier * Crit.DamageMultiplier;
 
 			FGameplayEffectSpecHandle SpecHandle = MakeOutgoingGameplayEffectSpec(DamageEffectClass, GetAbilityLevel());
 			if (SpecHandle.IsValid())
 			{
 				SpecHandle.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Damage, AppliedDamage);
+				if (Crit.bCritical)
+				{
+					SpecHandle.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Critical, 1.f);
+				}
 				SpecHandle.Data->GetContext().AddHitResult(Hit);
 				SourceASC->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data, TargetASC);
 			}

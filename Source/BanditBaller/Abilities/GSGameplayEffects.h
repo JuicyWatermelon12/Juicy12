@@ -192,6 +192,16 @@ public:
 	UGSUpgradeEffect_Leech(const FObjectInitializer& ObjectInitializer);
 };
 
+/** +0.05 CritChance per stack (GE_Upgrade_LoadedDice); 20 stacks = every hit critical. */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_LoadedDice : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_LoadedDice(const FObjectInitializer& ObjectInitializer);
+};
+
 /**
  * Instant: adds the target's own HealthOnKill to its Health (captured live, not snapshotted). AGSGameMode applies it to
  * the killer for each enemy kill (Leech). Health's clamp keeps it at or below MaxHealth.

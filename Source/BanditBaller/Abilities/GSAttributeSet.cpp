@@ -4,6 +4,7 @@
 #include "GameFramework/PlayerState.h"
 #include "GameplayEffectExtension.h"
 #include "GSGameMode.h"
+#include "GSGameplayTags.h"
 #include "GSPlayerController.h"
 #include "Net/UnrealNetwork.h"
 
@@ -16,6 +17,7 @@ UGSAttributeSet::UGSAttributeSet()
 	InitExtraDashCharges(0.f);
 	InitMagazineSizeMultiplier(1.f);
 	InitHealthOnKill(0.f);
+	InitCritChance(0.f);
 }
 
 void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -62,6 +64,10 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 	{
 		NewValue = FMath::Max(NewValue, MinMagazineSizeMultiplier);
 	}
+	else if (Attribute == GetCritChanceAttribute())
+	{
+		NewValue = FMath::Clamp(NewValue, 0.f, 1.f);
+	}
 }
 
 void UGSAttributeSet::PostAttributeChange(const FGameplayAttribute& Attribute, float OldValue, float NewValue)
@@ -107,8 +113,8 @@ void UGSAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 				GameMode->HandleDamageApplied(Data.Target.GetAvatarActor(), LastDamageInstigator.Get(), Applied);
 			}
 
-			// TODO(crits): read a crit flag/multiplier from the spec (e.g. SetByCaller Data.Crit) once crits exist.
-			const bool bCritical = false;
+			// A critical hit carries SetByCaller Data.Critical = 1 (GSCombat::RollCriticalHit; its damage is already doubled).
+			const bool bCritical = Data.EffectSpec.GetSetByCallerMagnitude(GSGameplayTags::Data_Critical, /*WarnIfNotFound*/ false, 0.f) > 0.f;
 			const bool bKilled = OldHealth > 0.f && GetHealth() <= 0.f;
 			NotifyDamageDealt(Data, LocalDamage, bCritical, bKilled);
 		}

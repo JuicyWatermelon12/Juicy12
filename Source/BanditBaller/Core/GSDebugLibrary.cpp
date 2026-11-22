@@ -221,7 +221,7 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 	}
 	if (ASC)
 	{
-		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, FireRate %.2f, MoveSpeed %.0f, PickupRadius %.0f, ExtraJumps %.0f, MagazineSizeMultiplier %.2f, HealthOnKill %.0f"),
+		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, FireRate %.2f, MoveSpeed %.0f, PickupRadius %.0f, ExtraJumps %.0f, MagazineSizeMultiplier %.2f, HealthOnKill %.0f, CritChance %.2f"),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetReloadSpeedAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetFireRateAttribute()),
@@ -229,7 +229,8 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 			ASC->GetNumericAttribute(UGSAttributeSet::GetPickupRadiusAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetExtraJumpsAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetMagazineSizeMultiplierAttribute()),
-			ASC->GetNumericAttribute(UGSAttributeSet::GetHealthOnKillAttribute()));
+			ASC->GetNumericAttribute(UGSAttributeSet::GetHealthOnKillAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetCritChanceAttribute()));
 		if (const AGSCharacter* Character = Cast<AGSCharacter>(PC->GetPawn()))
 		{
 			if (const UGSWeaponComponent* Weapons = Character->GetWeaponComponent())

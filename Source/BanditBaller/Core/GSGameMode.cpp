@@ -27,6 +27,7 @@
 #include "GSCashSettings.h"
 #include "GSComboComponent.h"
 #include "GSComboSettings.h"
+#include "GSCombatSettings.h"
 #include "GSDifficultyCurve.h"
 #include "GSGameplayEffects.h"
 #include "GSGameplayTags.h"
@@ -88,6 +89,11 @@ namespace
 		}
 		return Enemy ? Enemy->GetClass()->GetFName() : NAME_None;
 	}
+}
+
+const UGSCombatSettings* AGSGameMode::GetCombatSettings() const
+{
+	return CombatSettings;
 }
 
 void AGSGameMode::HandleEnemyKilled(AActor* Enemy, AActor* Killer)

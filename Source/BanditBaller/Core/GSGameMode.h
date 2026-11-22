@@ -14,6 +14,7 @@ class UGSWaveDirector;
 class UGSDifficultyCurve;
 class UGSCashSettings;
 class UGSComboSettings;
+class UGSCombatSettings;
 class UGSRoundClearSettings;
 class UGSXPCurve;
 class UGSLevelRewards;
@@ -155,6 +156,9 @@ public:
 	/** Combo window, cash multiplier steps, end on damage, XP option (DA_ComboSettings, or the test override). */
 	const UGSComboSettings* GetComboSettings() const;
 
+	/** DA_CombatSettings (crit multiplier); may be null (callers fall back to the class defaults). */
+	const UGSCombatSettings* GetCombatSettings() const;
+
 	/** Tests / debug: use Settings instead of DA_ComboSettings until cleared (nullptr). Lives as long as this world. */
 	void SetComboSettingsOverride(const UGSComboSettings* Settings) { ComboSettingsOverride = Settings; }
 
@@ -248,6 +252,10 @@ protected:
 	/** Kill combo: window, cash multiplier steps, end on damage, XP option (DA_ComboSettings). No combos if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")
 	TObjectPtr<UGSComboSettings> ComboSettings;
+
+	/** Player combat tuning: crit multiplier (DA_CombatSettings). The class defaults apply if unset. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat")
+	TObjectPtr<UGSCombatSettings> CombatSettings;
 
 	/** Round-clear bonus: base, no damage, fast clear (DA_RoundClearSettings). No bonus if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")

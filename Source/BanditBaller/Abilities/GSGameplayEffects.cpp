@@ -161,6 +161,12 @@ UGSUpgradeEffect_Leech::UGSUpgradeEffect_Leech(const FObjectInitializer& ObjectI
 	AddAdditiveModifier(UGSAttributeSet::GetHealthOnKillAttribute(), 1.f);
 }
 
+UGSUpgradeEffect_LoadedDice::UGSUpgradeEffect_LoadedDice(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddAdditiveModifier(UGSAttributeSet::GetCritChanceAttribute(), 0.05f);
+}
+
 UGSHealthOnKillEffect::UGSHealthOnKillEffect(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

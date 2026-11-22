@@ -58,8 +58,18 @@ class BANDITBALLER_API UGSHUDWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	/** Spawn a floating damage number at a world location (crits are stubbed for later). */
+	/** Spawn a floating damage number at a world location. A critical one is bigger, gold and ends in "!". */
 	void AddDamageNumber(const FVector& WorldLocation, float Damage, bool bCritical);
+
+	// --- Damage number test hooks ---
+	int32 GetDamageNumbersAdded() const { return DamageNumbersAdded; }
+	int32 GetCriticalDamageNumbersAdded() const { return CriticalDamageNumbersAdded; }
+	float GetLastDamageNumber() const { return LastDamageNumber; }
+	bool WasLastDamageNumberCritical() const { return bLastDamageNumberCritical; }
+	int32 GetCritFontSize() const { return CritFontSize; }
+	int32 GetDamageNumberFontSize() const { return DamageNumberFontSize; }
+	FLinearColor GetCritColor() const { return CritColor; }
+	FLinearColor GetDamageNumberColor() const { return DamageNumberColor; }
 
 	/** Flash the crosshair hit marker (red on a kill). */
 	void ShowHitMarker(bool bKill);
@@ -553,6 +563,12 @@ private:
 	/** Fixed-size pool, reused round-robin. */
 	TArray<FDamageNumber> DamageNumbers;
 	int32 NextDamageNumber = 0;
+
+	// Damage number test hooks.
+	int32 DamageNumbersAdded = 0;
+	int32 CriticalDamageNumbersAdded = 0;
+	float LastDamageNumber = 0.f;
+	bool bLastDamageNumberCritical = false;
 
 	TWeakObjectPtr<UGSProfileSubsystem> BoundProfile;
 	int32 DisplayedCash = 0;

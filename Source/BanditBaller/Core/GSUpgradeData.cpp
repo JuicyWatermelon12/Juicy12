@@ -42,6 +42,8 @@ FText UGSUpgradeData::GetFormattedDescription() const
 	Options.MaximumFractionalDigits = 1;
 	FFormatNamedArguments Args;
 	Args.Add(TEXT("PerStack"), FText::AsNumber(GetPerStackValue(), &Options));
+	// For additive fractions such as a chance: 0.05 -> "5".
+	Args.Add(TEXT("PerStackPercent"), FText::AsNumber(GetPerStackValue() * 100.f, &Options));
 	return FText::Format(Description, Args);
 }
 
