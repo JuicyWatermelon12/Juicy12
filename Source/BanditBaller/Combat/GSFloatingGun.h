@@ -18,8 +18,10 @@ class UStaticMeshComponent;
  *   camera's yaw frame, followed smoothly. For the local player it slides away from the crosshair when it gets within
  *   CrosshairClearRadius of the screen center.
  * - Targeting (server): the nearest living enemy within Range of the gun with a clear line (world geometry blocks it),
- *   refreshed every TargetRefreshInterval and checked again before each shot. It turns to face it.
- * - Shooting (server): ShotsPerSecond on an exact schedule like GA_Fire's held burst (Prompt 31b): each shot is due one
+ *   refreshed every TargetRefreshInterval and checked again before each shot. With two guns each picks on its own and
+ *   skips the other gun's target unless it is the only one. It turns to face it.
+ * - Level (FloatingGunLevel): from level 3 on, DA_FloatingGunSettings' per-level damage and fire rate bonus.
+ * - Shooting (server): ShotsPerSecond (x the level bonus) on an exact schedule like GA_Fire's held burst (Prompt 31b): each shot is due one
  *   interval after the previous shot's scheduled time, never after the frame it happened to fire on; a long frame fires
  *   every shot it owes, and a late shot starts that much further along its path. While it can't shoot, nothing is
  *   banked: the next target is shot at once, but never sooner than one interval after the last shot.
@@ -45,8 +47,24 @@ public:
 	/** Where projectiles start. */
 	FVector GetMuzzleLocation() const;
 
-	/** The nearest living enemy in range with a clear line, or nullptr (server). */
+	/**
+	 * The nearest living enemy in range with a clear line, preferring one the other gun isn't shooting at (it only takes
+	 * the other gun's target when nothing else qualifies), or nullptr (server).
+	 */
 	AGSEnemyCharacter* FindTarget() const;
+
+	/** FindTarget, avoiding Avoid instead of the other gun's target. */
+	AGSEnemyCharacter* FindTargetAvoiding(const AActor* Avoid) const;
+
+	/** The owner's FloatingGunLevel (0 without an owner). */
+	int32 GetLevel() const;
+
+	/** Seconds between shots and the damage multiplier at the current level (DA_FloatingGunSettings level bonus). */
+	double GetShotInterval() const;
+	float GetDamageMultiplier() const;
+
+	/** The owner's other Floating Gun, if there is one. */
+	AGSFloatingGun* FindOtherGun() const;
 
 	/** The player can't make it shoot now: dead, in a safe zone, or no settings / owner. */
 	bool CanShoot() const;
@@ -57,6 +75,8 @@ public:
 	/** Scheduled time of the first shot of the current burst (shots at one target without a pause), and its shots. */
 	double GetBurstStartTime() const { return BurstStartTime; }
 	int32 GetBurstShots() const { return BurstShots; }
+	/** The interval the current burst's schedule uses (it starts over when the fire rate changes). */
+	double GetBurstInterval() const { return BurstInterval; }
 	/** Where it floats without the crosshair push, and the current push (cm). */
 	FVector GetRestLocation() const { return RestLocation; }
 	FVector GetCrosshairAvoidOffset() const { return AvoidOffset; }
@@ -91,6 +111,8 @@ private:
 	double NextShotTime = 0.0;
 	bool bShooting = false;
 	double BurstStartTime = 0.0;
+	double BurstInterval = 0.0;
+	double LastShotTime = 0.0;
 	int32 BurstShots = 0;
 	int32 ShotsFired = 0;
 };

@@ -41,10 +41,10 @@ the hub map replaces them.
 **M2 — the run loop is complete** (rounds, waves, scaling, economy, progression; Prompts 1–28 and 26b; 11–13 and 17
 were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **Next: M2b**, eleven more
 level-up upgrades (Prompts 29–40; 29 is the docs-only plan, then Dash Charge (30), Fire Rate + Magnet (31) and the
-held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds (34), Powder Keg (35), Floating Shield (36), Second Wind (37) and Floating Gun part 1 (38); all done). **Then M3** (shop, owned items, gear loadout,
+held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds (34), Powder Keg (35), Floating Shield (36), Second Wind (37) and Floating Gun (38, 39); all done; the M2b checkpoint (40) is next). **Then M3** (shop, owned items, gear loadout,
 two-layer save); not planned in detail yet. Health orbs (35b) were added between 35 and 36; they aren't an upgrade. Powder Keg became a chance to explode in 35c.
 
-State at the time of writing: `main` after "Floating Gun upgrade, part 1" (Prompt 38), not pushed. The build is clean and all 46 automation tests pass in about 110 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Floating Gun upgrade, part 2" (Prompt 39), not pushed. The build is clean and all 47 automation tests pass in about 113 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -97,7 +97,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2b 35c | Powder Keg: a 3% chance per stack that a player kill explodes (run stream), fixed blast (30 × Damage, 3 m), MaxStacks 34 | 07a8341 |
 | M2b 36 | Floating Shield: +1 shield per pick; a ready shield cancels a whole hit in the damage path and recharges 10 s on its own; dash i-frames first | 2bbe7d4, ae5d083 |
 | M2b 37 | Second Wind: a killing blow uses one instead (30% Health, 2 s invulnerable, one stack gone); flash, sound, banner | 5adacd1, aa887b5 |
-| M2b 38 | Floating Gun part 1: level 1 = a gun over the right shoulder that shoots the nearest enemy with pooled projectiles (8 × Damage, crits, 1.5 / s on an exact schedule, 20 m); kept off the crosshair | see git log |
+| M2b 38 | Floating Gun part 1: level 1 = a gun over the right shoulder that shoots the nearest enemy with pooled projectiles (8 × Damage, crits, 1.5 / s on an exact schedule, 20 m); kept off the crosshair | c7f3d6f |
+| M2b 39 | Floating Gun part 2: level 2 = a second gun over the left shoulder (never more than two), the guns prefer different targets, level 3+ = +10% damage and fire rate each; card text per next level | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -495,7 +496,8 @@ Prompt 13. Docs only; no code changed.
   - Fields: DisplayName, Description, Icon (soft texture; placeholder `/Engine/EngineResources/DefaultTexture`),
     Rarity (`EGSUpgradeRarity`: Common, Rare; append new ones at the end), Effect, MaxStacks (0 = no cap).
   - The description uses a `{PerStack}` placeholder. `GetFormattedDescription()` fills it from the effect's first
-    static modifier (Multiply magnitude 1.1 → "10"), so the number lives only in the GE.
+    static modifier (Multiply magnitude 1.1 → "10"), so the number lives only in the GE. (Since Prompt 39 an optional
+    `DescriptionsByOwnedStacks` gives a different card text per number of stacks owned.)
 - **Upgrade effects** (`Abilities/GSGameplayEffects.h`): `UGSUpgradeEffect` base (infinite, stacks by target, no GE
   stack limit) with one Multiply (Additive) modifier of 1 + bonus.
   - GAS scales it by the stack count around the bias of 1, so N stacks give base × (1 + bonus × N). Bonuses add up
@@ -2085,6 +2087,70 @@ Level 1 only: one gun over the right shoulder. The second gun and the +10% picks
     gun.
 - **Full suite:** 46 tests, all passing, in 109.4 s.
 
+### Prompt 39 — Floating Gun, part 2
+- **Levels** (`UGSFloatingGunSettings`, rules as static helpers, bonuses in data):
+  - `GetGunCount(Level)`: level 1 → one gun (right shoulder), level 2 and up → two (the second over the left
+    shoulder). `MaxGuns` 2 is a rule, not tuning: there are never more than two.
+  - `GetBonusLevels(Level)` = levels past 2. From level 3 on, each level adds `DamageBonusPerLevel` 0.1 and
+    `FireRateBonusPerLevel` 0.1 (new, DA_FloatingGunSettings; the asset uses the class defaults), added up, not
+    compounded: level 5 = ×1.3 damage and ×1.3 fire rate (1.95 shots a second per gun).
+  - `GetDamageMultiplier(Level)`, `GetFireRateMultiplier(Level)`, `GetShotInterval(Level)`.
+- **`UGSFloatingGunComponent`** keeps `GetGunCount(Level)` guns: the second spawns with Side −1, so it mirrors the
+  first (−45 cm in the camera's yaw frame, the same 115 cm height). Level 0 (a new run) destroys both. A level with a
+  bonus logs `[gun] … Floating Gun level 5 -> both guns x1.30 damage, x1.30 fire rate (1.95 shots/s each)`.
+- **`AGSFloatingGun`:**
+  - Reads its level from the owner's component every shot: `GetLevel`, `GetShotInterval`, `GetDamageMultiplier`.
+    Damage = `Damage` × the level multiplier × the player's Damage.
+  - **A fire rate change mid-burst** (a level pick) re-times like GA_Fire: the next shot is due one new interval after
+    the last shot's scheduled time, and the burst's schedule starts over from that shot (`GetBurstInterval`).
+  - **Targets:** each gun picks on its own, the nearest from where it floats, but skips the other gun's target
+    (`FindOtherGun`, `FindTargetAvoiding`). It takes the other gun's target only when nothing else is in range with a
+    clear line. Both re-pick every 0.1 s, so when a second enemy comes into range they split up, and when one dies
+    both go to the one left.
+- **Card text by level** (`UGSUpgradeData::DescriptionsByOwnedStacks`, new and optional): entry N is the card for
+  the next pick when N stacks are owned; past the end the last entry repeats. `GetFormattedDescription(OwnedStacks)`
+  picks it; the choice card, the `[upgrade]` grant line, `gs.Upgrade.List` and `gs.Upgrade.Offer` pass the stacks.
+  DA_Upgrade_FloatingGun:
+  - none owned: "Adds a floating gun over your right shoulder that shoots the nearest enemy on its own."
+  - one owned: "Adds a second floating gun, over your left shoulder."
+  - two or more: "+10% floating gun damage and fire rate."
+  - Its `Description` (used where there is no stack count) sums up all three levels.
+  - The "10" is typed in the card text, like Powder Keg's "3%". `Upgrades.FloatingGunLevels` fails if it doesn't
+    match DA_FloatingGunSettings, or if the damage and fire rate bonuses differ (the card has one number).
+- **Debug:** `gs.Upgrade.List`'s Floating Gun line adds the multiplier and the rate: "Floating Gun: level 5, 2
+  gun(s), x1.30 damage, 1.95 shots/s each: right shoulder: 34 shot(s), target …; left shoulder: 16 shot(s), target
+  …". UGSUpgradeCardWidget test hook `GetDescriptionText()`.
+- **Damage per second** (Damage 1, no crits; from the settings and measured in the test):
+
+  | Source | DPS |
+  |---|---|
+  | One gun, level 1 or 2 | 12.0 (8 × 1.5 shots/s; measured 12.0 per gun at level 2) |
+  | Both guns, level 2 | 24.0 |
+  | One gun, level 5 | 20.3 (10.4 × 1.95; measured 20.8 over 4 s) |
+  | Both guns, level 5 | 40.6 |
+  | Rifle, while firing | 200 (20 × 10 shots/s) |
+  | Rifle, with reloads | 125 (30 rounds in 3.0 s, then a 1.8 s reload) |
+
+  One gun at level 1 is 6% of the rifle's held-fire damage (10% with reloads). Both guns at level 5 are about 20%
+  (32% with reloads), and they keep shooting while the player reloads, moves or aims elsewhere.
+- **Tests:**
+  - New `Upgrades.FloatingGunLevels`. Measured: right gun rest (−15, 45, 115), left (−15, −45, 115); 182
+    gun-frames on schedule through the level 5 pick; 16 hits of exactly 10.4 at level 5.
+  - `Upgrades.FloatingGun` (Prompt 38) is unchanged and passes: level 1 behaves as before.
+  - `UI.UpgradeChoice` and `Upgrades.Offers` pass with the card change.
+- **PIE check** (town, god mode, round paused, editor throttling off; restored after):
+  - `gs.Upgrade.Grant FloatingGun 1`: one gun; `[dmg]` 8 per hit on the nearest bandit, about every 0.6 s (the
+    bandit walking in shortens the flight).
+  - `gs.Upgrade.Grant FloatingGun 1` (level 2): a second gold gun appeared over the left shoulder, level with the
+    first. Both aimed at the bandit next to the player (two "8" numbers on it). With a level aim, the right gun stayed
+    about 80 px up and left of the crosshair; the left gun is further left. The upgrade log read "Adds a second
+    floating gun, over your left shoulder."
+  - `gs.Upgrade.Grant FloatingGun 3` (level 5): the log printed the three "+10% floating gun damage and fire rate"
+    picks and the x1.30 line. `[dmg]` showed 10.4 per hit, the two guns on two different bandits
+    (GSEnemyCharacter6 and 9), each about 0.5 s apart. The guns' kills then dropped enough XP to level the player up,
+    and the choice screen opened over the two guns and a 7-kill combo (normal game behaviour).
+- **Full suite:** 47 tests, all passing, in 112.6 s.
+
 ---
 
 ## Console commands and CVars
@@ -2161,7 +2227,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | SecondWinds | Second Winds left: a hit that would take Health to 0 uses one instead (UGSSecondWindComponent on the PlayerState): Health goes to 30% of MaxHealth (whole points), 2 s of State.Invulnerable, one stack of the upgrade removed. Constructor default 0, min 0, rounded. Raised by Second Wind. Not replicated yet. |
 | Shields | Floating shields: each blocks one whole hit in the damage path, then recharges for DA_CombatSettings ShieldCooldown (UGSShieldComponent on the PlayerState; drawn by AGSCharacter's UGSFloatingShieldsComponent). Constructor default 0, min 0, rounded. Raised by Floating Shield. Not replicated yet. |
 | PowderKeg | Powder Keg stacks: each of the player's enemy kills explodes with chance stacks × DA_CombatSettings ChancePerStack (3%, max 100%; run stream; AGSGameMode::RollPowderKegChance / ExplodePowderKeg). The blast is fixed: BlastDamage × Damage in BlastRadius. Constructor default 0, min 0, rounded. Not replicated yet. |
-| FloatingGunLevel | Floating Gun level: 1 or more = a gun over the right shoulder (UGSFloatingGunComponent on the character, AGSFloatingGun) that shoots the nearest enemy with pooled projectiles (DA_FloatingGunSettings). Constructor default 0, min 0. Raised by Floating Gun. Not replicated yet. |
+| FloatingGunLevel | Floating Gun level: 1 = a gun over the right shoulder, 2+ = a second over the left (never more than two), each shooting the nearest enemy (preferring different ones) with pooled projectiles; 3+ = +10% damage and fire rate per level (UGSFloatingGunComponent on the character, AGSFloatingGun, DA_FloatingGunSettings). Constructor default 0, min 0. Raised by Floating Gun. Not replicated yet. |
 | IncomingDamage | Meta attribute: GE_Damage writes it, the set converts it to Health loss and records the instigator. |
 
 **Gameplay tags** (native, `Abilities/GSGameplayTags.*`; none in config):
@@ -2208,14 +2274,14 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (46, all passing, about 110 s)
+## Automation tests (47, all passing, about 113 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
 the area's tests; run the full suite once per prompt before the commit (see **Workflow update — faster test runs**).
 `UI.RoundHUD`, `Round.PhaseLoop`, `Round.ClearBonus`, `Map.TownLayout` and `Upgrades.DashCharge` run game time ×4 and
 `Upgrades.ExtraJump` ×3 (`SpeedUpWorld`). `Economy.HealthOrbs` also runs ×4. `Upgrades.FireRateAndMagnet` measures its shots at ×1 (throttling off) and
-runs its magnet part at ×4. `Upgrades.FloatingGun` runs at ×4. `Weapons.HeldFire` runs at ×4, and ×16 for its slow-frame burst. `UI.RoundHUD` also shortens its HUD's banners.
+runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLevels` run at ×4. `Weapons.HeldFire` runs at ×4, and ×16 for its slow-frame burst. `UI.RoundHUD` also shortens its HUD's banners.
 
 | Test | Checks |
 |---|---|
@@ -2264,6 +2330,7 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` runs at ×4. `Weapons.HeldFi
 | `Upgrades.ExtraJump` | DA_Upgrade_ExtraJump (Rare, no cap, "+1"); no air jump without it; ×3 → ExtraJumps 3, JumpMaxCount 4; three air jumps (rising, falling, falling fast) each set AirJumpZVelocity, 4th refused, one puff/sound each; landing resets; coyote jump is the ground jump; late jump after walking off uses an air jump; slide-hop then air jump; jump during an air dash is queued and becomes an air jump at the dash end; jump during a ground dash becomes the ground jump; 25 more stacks (no cap) → ExtraJumps = stacks, JumpMaxCount = 1 + stacks; new run → 0 / 1. |
 | `Upgrades.SecondWind` | DA_Upgrade_SecondWind (Legendary, no cap, "+1", GE class, in the pool); DA_CombatSettings 30% / 2 s; SecondWinds 0, can't save; `gs.Upgrade.Grant SecondWind 2` → 2, Owned 2; with a combo running, a 9999 hit from a bandit: not dead, still in the run, Health = 30 (whole points), invulnerable for exactly 2 s (the effect's duration), SecondWinds 1, Owned 1, used once, damage taken += the old Health, combo ended; HUD: strong flash, one sound, "SECOND WIND / 1 left" banner, Health shown as 30, upgrade icon x1; a second killing blow while invulnerable does nothing; the invulnerability doesn't end early; a hit that doesn't kill uses none; a ready Floating Shield blocks a killing blow first (no Second Wind used); the last Second Wind saves again (Health 30, none left, Owned 0, "THAT WAS YOUR LAST", icon gone, two sounds); picked again → 1; a new run → 0, no uses; with none, a killing blow kills (GameOver). Health orbs off. Game time ×4; the HUD flash shortened on this HUD (it fades in real time). |
 | `Upgrades.FloatingGun` | DA_Upgrade_FloatingGun (Epic, no cap, "+1", GE class, in the pool); DA_FloatingGunSettings on the GameMode (8 damage, 1.5 / s, 20 m, 60 m/s, GE_Damage, meshes); level 0: no gun; `gs.Upgrade.Grant FloatingGun` → level 1, one gun on the right: to the right of the player and above the top of the head in the camera's frame, no collision; a frozen bandit 10 m ahead: 4 s of shooting with every frame on the exact schedule (shots = 1 + floor(elapsed / interval)), at least 6 shots, every hit 8; Damage ×1.5 and Loaded Dice 20 → a critical "24"; a bandit at 25 m isn't targeted; one behind a wall isn't; the nearest of two is; hand-fired projectiles pass through the player and hit a bandit behind (7 × Damage 2 = 14), stop at a wall, expire in open air; the pool reuses projectiles (created = prewarm); a safe zone stops it; its kill is the player's (kills, combo 1, XP orb, health orb at chance 1, cash, Leech +1, a Powder Keg blast at 100%); paused: no shots; 24 camera views (shoulder ×2, hip / ADS, pitch −70 to +50): the gun at least 0.9 × the clear radius from the crosshair (logged per view); dead: no shots; a new run → level 0, no projectiles, no gun. Health orbs off except where noted. Game time ×4. |
+| `Upgrades.FloatingGunLevels` | DA_FloatingGunSettings +10% damage and fire rate per level; guns per level 0–6: 0, 1, 2, 2, 2, 2, 2; multipliers x1 at level 2, x1.1 at 3, x1.3 at 5 (added up), 1.95 shots/s at 5; DA_Upgrade_FloatingGun has 3 card texts: "Adds a floating gun…", "Adds a second floating gun…", "+10% floating gun damage and fire rate" (the number matches the settings, damage and fire rate bonus equal), 9 owned repeats the last; the real WBP_UpgradeCard shows the text for 0–3 owned; level 1: one gun; level 2: two guns, the first still right, the second left, mirrored at the same height above the head, no collision, no bonus; one bandit in range: both shoot it; a second bandit: different targets, each takes one gun's damage (about 12 a second over 4 s); one dies: both go to the other; the level 5 pick mid-burst: every frame of both guns on schedule before and after, the schedule switches to the level 5 interval; level 5: still two guns (and two gun actors), 1.95 shots/s and x1.3 each, every hit 10.4, about 40.6 a second from both; logs one gun's DPS next to the rifle's; a new run → level 0, no guns, no gun actors left. Health orbs off. Game time ×4. |
 | `Upgrades.Offers` | DA_UpgradePool on the GameMode (15 upgrades, 100/20/6/1, 3 choices, 3 rerolls), 4 rarities; roll rules: 3000 offers all 3 different, Rare in ~40.2% (exact for these weights with 3 Epics and 1 Legendary), same seed same offers, 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer; simulator deterministic, no short offers, Epic and Legendary choices appear, run stream untouched. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
@@ -2347,7 +2414,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   +8%, Magnet +15% pickup radius, Bigger Mags +15% magazine size (rounded up) (Common); Extra Jump +1 air jump, Dash
   Charge +1 dash charge, Leech +1 health per kill, Loaded Dice +5% crit chance, Floating Shield +1 shield (Rare);
   Piercing Rounds +1 enemy
-  pierced, Powder Keg +3% chance that a kill explodes, Floating Gun +1 level (level 1: one gun) (Epic); Second Wind +1 (Legendary, used up when it saves the
+  pierced, Powder Keg +3% chance that a kill explodes, Floating Gun +1 level (1: a gun, 2: a second gun, 3+: +10%
+  gun damage and fire rate) (Epic); Second Wind +1 (Legendary, used up when it saves the
   player). Loaded Dice (20 stacks = 100%) and Powder Keg (34 stacks = 100%) are capped.
 - **Second Wind** (DA_CombatSettings): back at `SecondWindHealthFraction` 30% of MaxHealth (rounded to whole points),
   `SecondWindInvulnerableTime` 2 s. HUD (WBP_HUD, HUD|Second Wind): full-screen flash (1, 0.85, 0.4) from 0.85 alpha
@@ -2360,6 +2428,9 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   height, slide 600 cm/s, at most 150 cm. Look: engine cube (0.4, 0.1, 0.12) with M_FloatingGun, engine sphere ×0.12
   with M_FloatingGunProjectile, `VR_click1_Cue` (editor content), RadialBurst ×0.25 on impact. About 12 damage a
   second at Damage 1, so a round-1 melee bandit (60 HP) takes 8 hits, about 5 s.
+  - Levels: 1 gun at level 1, 2 from level 2 (mirrored over the left shoulder; never more). From level 3,
+    `DamageBonusPerLevel` and `FireRateBonusPerLevel` +10% each per level, added up: level 5 = 10.4 per hit at 1.95
+    shots/s, 20.3 DPS per gun, 40.6 for both. The rifle does 200 while firing, 125 with reloads.
 - **Critical hits** (DA_CombatSettings): CritMultiplier 2.0. Crit damage numbers: size 28 (normal 20), gold, "N!".
 - **Powder Keg** (DA_CombatSettings): `ChancePerStack` 3% that a player kill explodes (10 stacks 30%, 34 stacks 100%),
   rolled per kill on the run stream. The blast is always 30 damage × the player's Damage in 3 m, at any stack count;
@@ -2401,9 +2472,14 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Pre-existing, seen here: the `[round] … died` line doesn't include the killing blow's damage, because death fires
     from the Health change before `HandleDamageApplied` records it.
   - Not replicated (`TODO(co-op)`).
-- Floating Gun (Prompt 38):
-  - Level 1 only. Picks after the first raise FloatingGunLevel but change nothing until Prompt 39 (second gun, then
-    +10% damage and fire rate).
+- Floating Gun (Prompts 38–39):
+  - The guns split targets by "not the other gun's", not by side: with two bandits the right gun may shoot the one on
+    the left (seen in the test), so their shots can cross.
+  - Since Prompt 39 the "+10%" in the level 3+ card text is typed by hand; retuning the bonuses needs the card text
+    changed too (`Upgrades.FloatingGunLevels` fails until they match).
+  - The player's Fire Rate upgrade doesn't speed up the guns (still an open question).
+  - At level 2 with the left-shoulder camera, the left gun sits where the right gun sits with the right-shoulder camera
+    (mirrored), so the same crosshair push applies; only the right gun's 24 views are measured in a test.
   - Placeholder look: a gold box for the gun, a glowing sphere for the projectile, an editor click sound that may not
     cook, and the RadialBurst template on impact. There is no muzzle flash or tracer.
   - It targets by distance only. It doesn't prefer the enemy the player is shooting; it picks the nearest again
@@ -2628,7 +2704,8 @@ smaller pool.
     Done (see Prompt 37).
 38. ~~**Floating Gun, part 1** (Epic): the projectile and the first gun (right shoulder). Its kills count as the
     player's.~~ Done (see Prompt 38).
-39. **Floating Gun, part 2:** the second gun (left shoulder) and the +10% damage / fire rate picks from the 3rd on.
+39. ~~**Floating Gun, part 2:** the second gun (left shoulder) and the +10% damage / fire rate picks from the 3rd on.~~
+    Done (see Prompt 39).
 40. **M2b tests + checkpoint:** tests for the M2b rules and a PIE checkpoint, like Prompt 28.
 
 **Then M3** (after M2b; not planned in detail yet; each item needs its own prompt). From the decisions so far:

@@ -39,6 +39,7 @@ public:
 	// --- Shown state (tests) ---
 	const UGSUpgradeData* GetUpgrade() const { return Upgrade.Get(); }
 	FText GetOwnedText() const;
+	FText GetDescriptionText() const;
 	FText GetRarityText() const;
 	FLinearColor GetBorderColor() const;
 

@@ -7990,4 +7990,286 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 	EndPIE();
 	return true;
 }
+
+// ---------------------------------------------------------------------------
+// Floating Gun, part 2 (Prompt 39): the second gun, separate targets, the level 3+ bonus and the card text
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	AGSFloatingGun* GetFloatingGunAt(int32 Index)
+	{
+		const AGSCharacter* Player = GetPlayer();
+		const UGSFloatingGunComponent* Guns = Player ? Player->GetFloatingGuns() : nullptr;
+		return Guns ? Guns->GetGun(Index) : nullptr;
+	}
+
+	int32 CountLiveFloatingGuns()
+	{
+		int32 Count = 0;
+		for (TActorIterator<AGSFloatingGun> It(GetPIEWorld()); It; ++It)
+		{
+			Count += IsValid(*It) ? 1 : 0;
+		}
+		return Count;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSFloatingGunLevelsTest, "BanditBaller.Upgrades.FloatingGunLevels", GSTests::TestFlags)
+bool FGSFloatingGunLevelsTest::RunTest(const FString& Parameters)
+{
+	struct FLevelsState
+	{
+		TWeakObjectPtr<AGSEnemyCharacter> A;
+		TWeakObjectPtr<AGSEnemyCharacter> B;
+		float HealthA = 0.f;
+		float HealthB = 0.f;
+		int32 Shots[2] = { 0, 0 };
+		int32 HitsBefore = 0;
+		double WindowStart = 0.0;
+		double WindowEnd = 0.0;
+		double GrantAt = 0.0;
+		bool bGranted = false;
+		int32 ScheduleChecks = 0;
+		int32 ScheduleMisses = 0;
+		bool bRetimed[2] = { false, false };
+	};
+	TSharedRef<FLevelsState> S = MakeShared<FLevelsState>();
+	auto Now = []() { return GetPIEWorld() ? GetPIEWorld()->GetTimeSeconds() : 0.0; };
+	auto Health = [](const TWeakObjectPtr<AGSEnemyCharacter>& Bandit) { return Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f; };
+	const FVector Home(0.f, 0.f, 100.f);
+
+	BeginPIE(this);
+
+	// Data, the level rules and the card text for each next pick.
+	Step([this, Home]()
+	{
+		SpeedUpWorld(4.f);
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->SetHealthOrbDropChanceOverride(0.f);
+		GetPlayer()->TeleportTo(Home, FRotator::ZeroRotator);
+		GetPC()->SetControlRotation(FRotator::ZeroRotator);
+
+		const UGSFloatingGunSettings* Settings = GameMode->GetFloatingGunSettings();
+		if (!TestNotNull(TEXT("DA_FloatingGunSettings on the GameMode"), Settings))
+		{
+			return;
+		}
+		TestEqual(TEXT("+10% damage per level from level 3"), Settings->DamageBonusPerLevel, 0.1f, 0.0001f);
+		TestEqual(TEXT("+10% fire rate per level from level 3"), Settings->FireRateBonusPerLevel, 0.1f, 0.0001f);
+		const int32 Guns[] = { 0, 1, 2, 2, 2, 2, 2 };
+		for (int32 Level = 0; Level <= 6; ++Level)
+		{
+			TestEqual(FString::Printf(TEXT("Level %d: %d gun(s)"), Level, Guns[Level]), UGSFloatingGunSettings::GetGunCount(Level), Guns[Level]);
+		}
+		TestEqual(TEXT("Level 2: no bonus"), Settings->GetDamageMultiplier(2), 1.f, 0.0001f);
+		TestEqual(TEXT("Level 3: x1.1 damage"), Settings->GetDamageMultiplier(3), 1.1f, 0.0001f);
+		TestEqual(TEXT("Level 5: x1.3 damage (added up, not compounded)"), Settings->GetDamageMultiplier(5), 1.3f, 0.0001f);
+		TestEqual(TEXT("Level 5: x1.3 fire rate"), Settings->GetFireRateMultiplier(5), 1.3f, 0.0001f);
+		TestEqual(TEXT("Level 5: 1.95 shots a second"), 1.0 / Settings->GetShotInterval(5), 1.95, 0.0001);
+
+		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
+		if (!TestNotNull(TEXT("DA_Upgrade_FloatingGun"), Upgrade))
+		{
+			return;
+		}
+		TestEqual(TEXT("Three card texts (the last repeats)"), Upgrade->DescriptionsByOwnedStacks.Num(), 3);
+		const FString Text0 = Upgrade->GetFormattedDescription(0).ToString();
+		const FString Text1 = Upgrade->GetFormattedDescription(1).ToString();
+		const FString Text2 = Upgrade->GetFormattedDescription(2).ToString();
+		const FString Text9 = Upgrade->GetFormattedDescription(9).ToString();
+		AddInfo(FString::Printf(TEXT("[gun] cards: \"%s\" / \"%s\" / \"%s\""), *Text0, *Text1, *Text2));
+		TestTrue(TEXT("None owned: \"Adds a floating gun\""), Text0.StartsWith(TEXT("Adds a floating gun")));
+		TestTrue(TEXT("One owned: \"Adds a second floating gun\""), Text1.StartsWith(TEXT("Adds a second floating gun")));
+		const FString Bonus = FString::Printf(TEXT("+%.0f%% floating gun damage and fire rate"), Settings->DamageBonusPerLevel * 100.f);
+		TestTrue(FString::Printf(TEXT("Two owned: \"%s\" (matches DA_FloatingGunSettings)"), *Bonus), Text2.StartsWith(Bonus));
+		TestEqual(TEXT("Damage and fire rate bonus are the same (one number on the card)"), Settings->FireRateBonusPerLevel, Settings->DamageBonusPerLevel, 0.0001f);
+		TestEqual(TEXT("Nine owned: the last text again"), Text9, Text2);
+
+		// The real card shows the text for the next pick.
+		const TSubclassOf<UGSUpgradeCardWidget> CardClass = LoadClass<UGSUpgradeCardWidget>(nullptr, TEXT("/Game/BanditBaller/UI/WBP_UpgradeCard.WBP_UpgradeCard_C"));
+		UGSUpgradeCardWidget* Card = CardClass ? CreateWidget<UGSUpgradeCardWidget>(GetPC(), CardClass) : nullptr;
+		if (TestNotNull(TEXT("WBP_UpgradeCard"), Card))
+		{
+			const FString Texts[] = { Text0, Text1, Text2, Text2 };
+			for (int32 Owned = 0; Owned < 4; ++Owned)
+			{
+				Card->SetUpgrade(Upgrade, Owned, 0);
+				TestEqual(FString::Printf(TEXT("Card with %d owned"), Owned), Card->GetDescriptionText().ToString(), Texts[Owned]);
+			}
+		}
+
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FloatingGun") });
+	});
+	WaitWorldSeconds(this, 0.5);
+
+	// Level 1: one gun. Level 2: a second one over the left shoulder, at the same height.
+	Step([this]()
+	{
+		TestEqual(TEXT("Level 1: one gun"), GetPlayer()->GetFloatingGuns()->GetGuns().Num(), 1);
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FloatingGun") });
+	});
+	WaitWorldSeconds(this, 0.5);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Level 2"), GetAttr(UGSAttributeSet::GetFloatingGunLevelAttribute()), 2.f, 0.001f);
+		TestEqual(TEXT("Level 2: two guns"), GetPlayer()->GetFloatingGuns()->GetGuns().Num(), 2);
+		const AGSFloatingGun* Right = GetFloatingGunAt(0);
+		const AGSFloatingGun* Left = GetFloatingGunAt(1);
+		if (!TestNotNull(TEXT("Right gun"), Right) || !TestNotNull(TEXT("Left gun"), Left))
+		{
+			return;
+		}
+		TestEqual(TEXT("The first gun stays on the right"), Right->GetSide(), 1.f);
+		TestEqual(TEXT("The second gun is on the left"), Left->GetSide(), -1.f);
+		const FVector Center = GetPlayer()->GetActorLocation();
+		const float HeadTop = Center.Z + GetPlayer()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		AddInfo(FString::Printf(TEXT("[gun] rest offsets: right %s, left %s"), *(Right->GetRestLocation() - Center).ToCompactString(),
+			*(Left->GetRestLocation() - Center).ToCompactString()));
+		TestTrue(TEXT("Left gun: to the left of the player (camera yaw 0: -Y)"), Left->GetRestLocation().Y - Center.Y < -30.f);
+		TestEqual(TEXT("Left gun: at the same height as the right one"), Left->GetRestLocation().Z, Right->GetRestLocation().Z, 0.5);
+		TestTrue(TEXT("Left gun: above the head"), Left->GetRestLocation().Z > HeadTop);
+		TestEqual(TEXT("Left gun: mirrored (same distance out)"), Left->GetRestLocation().Y - Center.Y, -(Right->GetRestLocation().Y - Center.Y), 0.5);
+		TestEqual(TEXT("Left gun: no collision"), static_cast<int32>(Left->GetMesh()->GetCollisionEnabled()), static_cast<int32>(ECollisionEnabled::NoCollision));
+		TestEqual(TEXT("Level 2: no bonus yet"), Left->GetDamageMultiplier(), 1.f, 0.0001f);
+
+		// One enemy in range: both guns shoot it.
+		S->A = SpawnToughBandit(FVector(1000.f, 0.f, 0.f));
+	});
+	WaitUntil(this, TEXT("both guns shooting"), []()
+	{
+		return GetFloatingGunAt(0)->GetShotsFired() > 0 && GetFloatingGunAt(1)->GetShotsFired() > 0;
+	}, 10.0);
+	Step([this, S]()
+	{
+		TestTrue(TEXT("One enemy: the right gun shoots it"), GetFloatingGunAt(0)->GetTarget() == S->A.Get());
+		TestTrue(TEXT("One enemy: the left gun shoots it too"), GetFloatingGunAt(1)->GetTarget() == S->A.Get());
+
+		// A second enemy in range: the guns split up.
+		S->B = SpawnToughBandit(FVector(1000.f, 400.f, 0.f));
+	});
+	WaitWorldSeconds(this, 0.5);
+	Step([this, S, Now, Health]()
+	{
+		const AGSEnemyCharacter* TargetRight = GetFloatingGunAt(0)->GetTarget();
+		const AGSEnemyCharacter* TargetLeft = GetFloatingGunAt(1)->GetTarget();
+		AddInfo(FString::Printf(TEXT("[gun] two enemies: right gun -> %s, left gun -> %s"), *GetNameSafe(TargetRight), *GetNameSafe(TargetLeft)));
+		TestTrue(TEXT("Two enemies: different targets"), TargetRight && TargetLeft && TargetRight != TargetLeft);
+		TestTrue(TEXT("Two enemies: both are shot at"), (TargetRight == S->A.Get() || TargetRight == S->B.Get()) && (TargetLeft == S->A.Get() || TargetLeft == S->B.Get()));
+		// Each gun alone: one gun's damage per second at level 2.
+		S->HealthA = Health(S->A);
+		S->HealthB = Health(S->B);
+		S->Shots[0] = GetFloatingGunAt(0)->GetShotsFired();
+		S->Shots[1] = GetFloatingGunAt(1)->GetShotsFired();
+		S->WindowStart = Now();
+	});
+	WaitWorldSeconds(this, 4.0);
+	Step([this, S, Now, Health]()
+	{
+		const double Seconds = Now() - S->WindowStart;
+		const float DpsA = (S->HealthA - Health(S->A)) / Seconds;
+		const float DpsB = (S->HealthB - Health(S->B)) / Seconds;
+		AddInfo(FString::Printf(TEXT("[gun] level 2, one gun per bandit over %.2f s: %.1f and %.1f damage per second (%d and %d shots); expected 8 x 1.5 = 12"),
+			Seconds, DpsA, DpsB, GetFloatingGunAt(0)->GetShotsFired() - S->Shots[0], GetFloatingGunAt(1)->GetShotsFired() - S->Shots[1]));
+		TestTrue(TEXT("Still on different targets"), GetFloatingGunAt(0)->GetTarget() != GetFloatingGunAt(1)->GetTarget());
+		TestTrue(TEXT("Bandit A takes one gun's damage (about 12 a second)"), DpsA > 8.f && DpsA < 16.f);
+		TestTrue(TEXT("Bandit B takes one gun's damage (about 12 a second)"), DpsB > 8.f && DpsB < 16.f);
+
+		// B dies: both guns go back to A.
+		ApplyDamage(S->B->GetAbilitySystemComponent(), 1000000.f);
+	});
+	WaitWorldSeconds(this, 0.5);
+	Step([this, S, Now]()
+	{
+		TestTrue(TEXT("B dead: the right gun shoots A"), GetFloatingGunAt(0)->GetTarget() == S->A.Get());
+		TestTrue(TEXT("B dead: the left gun shoots A"), GetFloatingGunAt(1)->GetTarget() == S->A.Get());
+		// The schedule through a level pick: 3 more levels (to 5) 1 s into a 3 s window.
+		S->WindowEnd = Now() + 3.0;
+		S->GrantAt = Now() + 1.0;
+	});
+	WaitUntil(this, TEXT("both guns on schedule through the level 5 pick"), [this, S, Now]()
+	{
+		for (int32 Index = 0; Index < 2; ++Index)
+		{
+			const AGSFloatingGun* Gun = GetFloatingGunAt(Index);
+			const int32 Expected = 1 + FMath::FloorToInt((Now() - Gun->GetBurstStartTime()) / Gun->GetBurstInterval() + 1e-6);
+			++S->ScheduleChecks;
+			if (Gun->GetBurstShots() != Expected)
+			{
+				++S->ScheduleMisses;
+				AddError(FString::Printf(TEXT("Gun %d schedule: %d shots at %.3f s into the burst (interval %.4f), expected %d"), Index,
+					Gun->GetBurstShots(), Now() - Gun->GetBurstStartTime(), Gun->GetBurstInterval(), Expected));
+			}
+			if (S->bGranted && FMath::IsNearlyEqual(Gun->GetBurstInterval(), GetGameMode()->GetFloatingGunSettings()->GetShotInterval(5), 1e-9))
+			{
+				S->bRetimed[Index] = true;
+			}
+		}
+		if (!S->bGranted && Now() >= S->GrantAt)
+		{
+			UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FloatingGun"), TEXT("3") });
+			S->bGranted = true;
+		}
+		return Now() >= S->WindowEnd;
+	}, 30.0);
+	Step([this, S, Now, Health]()
+	{
+		TestEqual(TEXT("Level 5"), GetAttr(UGSAttributeSet::GetFloatingGunLevelAttribute()), 5.f, 0.001f);
+		TestEqual(TEXT("Level 5: still two guns (never more)"), GetPlayer()->GetFloatingGuns()->GetGuns().Num(), 2);
+		TestEqual(TEXT("Level 5: two gun actors in the world"), CountLiveFloatingGuns(), 2);
+		TestEqual(TEXT("Every frame on schedule, before and after the pick"), S->ScheduleMisses, 0);
+		AddInfo(FString::Printf(TEXT("[gun] %d gun-frames checked against the schedule"), S->ScheduleChecks));
+		for (int32 Index = 0; Index < 2; ++Index)
+		{
+			const AGSFloatingGun* Gun = GetFloatingGunAt(Index);
+			TestTrue(FString::Printf(TEXT("Gun %d: the schedule switched to the level 5 interval"), Index), S->bRetimed[Index]);
+			TestEqual(FString::Printf(TEXT("Gun %d: 1.95 shots a second"), Index), 1.0 / Gun->GetShotInterval(), 1.95, 0.0001);
+			TestEqual(FString::Printf(TEXT("Gun %d: x1.3 damage"), Index), Gun->GetDamageMultiplier(), 1.3f, 0.0001f);
+		}
+		// Damage at level 5: every hit 8 x 1.3 = 10.4 (Damage 1, no crits).
+		S->HealthA = Health(S->A);
+		S->HitsBefore = GetProjectiles()->GetNumHitTargets();
+		S->WindowStart = Now();
+	});
+	WaitWorldSeconds(this, 4.0);
+	Step([this, S, Now, Health]()
+	{
+		const double Seconds = Now() - S->WindowStart;
+		const int32 Hits = GetProjectiles()->GetNumHitTargets() - S->HitsBefore;
+		const float Dealt = S->HealthA - Health(S->A);
+		const float Dps = Dealt / Seconds;
+		TestTrue(TEXT("Level 5: both guns hit"), Hits >= 12);
+		TestEqual(TEXT("Level 5: 10.4 per hit (8 x 1.3)"), Dealt, Hits * 10.4f, 0.01f * FMath::Max(Hits, 1));
+		TestTrue(TEXT("Level 5: about 40.6 damage a second from both guns"), Dps > 34.f && Dps < 47.f);
+
+		// Next to the rifle (held fire, Damage 1).
+		const UGSWeaponComponent* Weapons = GetPlayer()->GetWeaponComponent();
+		const UGSWeaponData* Rifle = Weapons ? Weapons->GetCurrentWeaponData() : nullptr;
+		if (TestNotNull(TEXT("The rifle"), Rifle))
+		{
+			const float RifleBurst = Rifle->Damage * Rifle->FireRateRPM / 60.f;
+			const float RifleSustained = Rifle->Damage * Rifle->MagazineSize / (Rifle->MagazineSize * Rifle->GetRefireInterval(1.f) + Rifle->ReloadTime);
+			const UGSFloatingGunSettings* Settings = GetGameMode()->GetFloatingGunSettings();
+			AddInfo(FString::Printf(TEXT("[gun] damage per second at Damage 1, no crits: one gun level 1 %.1f, level 5 %.1f (measured %.1f per gun over %.2f s, %d hits); rifle %.0f while firing, %.0f with reloads"),
+				Settings->Damage / Settings->GetShotInterval(1), Settings->Damage * Settings->GetDamageMultiplier(5) / Settings->GetShotInterval(5),
+				Dps * 0.5f, Seconds, Hits, RifleBurst, RifleSustained));
+		}
+
+		// A new run removes the guns.
+		RemoveAllEnemies(GetPIEWorld());
+		GetGameMode()->RestartRunWithSeed(39);
+		TestEqual(TEXT("New run: FloatingGunLevel 0"), GetAttr(UGSAttributeSet::GetFloatingGunLevelAttribute()), 0.f, 0.001f);
+	});
+	WaitFrames(this, 2);
+	Step([this]()
+	{
+		TestEqual(TEXT("New run: no guns"), GetPlayer()->GetFloatingGuns()->GetGuns().Num(), 0);
+		TestEqual(TEXT("New run: no gun actors left"), CountLiveFloatingGuns(), 0);
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
 #endif // WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR

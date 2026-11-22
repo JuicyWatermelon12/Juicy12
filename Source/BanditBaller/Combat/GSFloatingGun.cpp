@@ -12,6 +12,7 @@
 #include "GSAttributeSet.h"
 #include "GSCharacter.h"
 #include "GSEnemyCharacter.h"
+#include "GSFloatingGunComponent.h"
 #include "GSFloatingGunSettings.h"
 #include "GSGameplayTags.h"
 #include "GSHealthComponent.h"
@@ -197,7 +198,47 @@ bool AGSFloatingGun::HasClearLine(const AActor* Candidate) const
 	return !GetWorld()->LineTraceSingleByObjectType(Hit, GetActorLocation(), Candidate->GetActorLocation(), Objects, Params);
 }
 
+int32 AGSFloatingGun::GetLevel() const
+{
+	const AGSCharacter* Character = OwnerCharacter.Get();
+	const UGSFloatingGunComponent* Guns = Character ? Character->GetFloatingGuns() : nullptr;
+	return Guns ? Guns->GetLevel() : 0;
+}
+
+double AGSFloatingGun::GetShotInterval() const
+{
+	return Settings ? Settings->GetShotInterval(GetLevel()) : 0.0;
+}
+
+float AGSFloatingGun::GetDamageMultiplier() const
+{
+	return Settings ? Settings->GetDamageMultiplier(GetLevel()) : 1.f;
+}
+
+AGSFloatingGun* AGSFloatingGun::FindOtherGun() const
+{
+	const AGSCharacter* Character = OwnerCharacter.Get();
+	const UGSFloatingGunComponent* Guns = Character ? Character->GetFloatingGuns() : nullptr;
+	if (Guns)
+	{
+		for (AGSFloatingGun* Gun : Guns->GetGuns())
+		{
+			if (Gun && Gun != this)
+			{
+				return Gun;
+			}
+		}
+	}
+	return nullptr;
+}
+
 AGSEnemyCharacter* AGSFloatingGun::FindTarget() const
+{
+	const AGSFloatingGun* Other = FindOtherGun();
+	return FindTargetAvoiding(Other ? Other->GetTarget() : nullptr);
+}
+
+AGSEnemyCharacter* AGSFloatingGun::FindTargetAvoiding(const AActor* Avoid) const
 {
 	if (!Settings)
 	{
@@ -216,14 +257,21 @@ AGSEnemyCharacter* AGSFloatingGun::FindTarget() const
 		}
 	}
 	Candidates.Sort([](const TPair<float, AGSEnemyCharacter*>& A, const TPair<float, AGSEnemyCharacter*>& B) { return A.Key < B.Key; });
+	// The nearest it can see that the other gun isn't shooting at; only that one if there is no other.
+	AGSEnemyCharacter* Fallback = nullptr;
 	for (const TPair<float, AGSEnemyCharacter*>& Candidate : Candidates)
 	{
-		if (HasClearLine(Candidate.Value))
+		if (!HasClearLine(Candidate.Value))
+		{
+			continue;
+		}
+		if (Candidate.Value != Avoid)
 		{
 			return Candidate.Value;
 		}
+		Fallback = Candidate.Value;
 	}
-	return nullptr;
+	return Fallback;
 }
 
 void AGSFloatingGun::UpdateShooting(float DeltaSeconds)
@@ -233,7 +281,7 @@ void AGSFloatingGun::UpdateShooting(float DeltaSeconds)
 		return;
 	}
 	const double Now = GetWorld()->GetTimeSeconds();
-	const double Interval = Settings->GetShotInterval();
+	const double Interval = GetShotInterval(); // the level's fire rate bonus included
 
 	auto StopShooting = [this, Now]()
 	{
@@ -259,7 +307,7 @@ void AGSFloatingGun::UpdateShooting(float DeltaSeconds)
 	TargetRefreshRemaining -= DeltaSeconds;
 	if (TargetRefreshRemaining <= 0.f || !IsValidTarget(Target.Get()))
 	{
-		Target = FindTarget(); // the nearest one
+		Target = FindTarget(); // the nearest one, preferring one the other gun isn't shooting at
 		TargetRefreshRemaining = Settings->TargetRefreshInterval;
 	}
 	if (!Target.IsValid())
@@ -274,6 +322,16 @@ void AGSFloatingGun::UpdateShooting(float DeltaSeconds)
 		NextShotTime = FMath::Max(NextShotTime, Now);
 		BurstStartTime = NextShotTime;
 		BurstShots = 0;
+		BurstInterval = Interval;
+	}
+	else if (BurstShots > 0 && !FMath::IsNearlyEqual(Interval, BurstInterval))
+	{
+		// The fire rate changed mid-burst (a level pick): like GA_Fire, the next shot is due one new interval after the
+		// last shot's scheduled time, and the schedule starts over from that shot.
+		NextShotTime = LastShotTime + Interval;
+		BurstStartTime = LastShotTime;
+		BurstShots = 1;
+		BurstInterval = Interval;
 	}
 	// Every shot due by now, each on its own scheduled time (a long frame fires all it owes).
 	for (int32 Guard = 0; NextShotTime <= Now && Guard < MaxShotsPerFrame; ++Guard)
@@ -288,6 +346,7 @@ void AGSFloatingGun::UpdateShooting(float DeltaSeconds)
 			}
 		}
 		FireAt(Target.Get(), static_cast<float>(Now - NextShotTime));
+		LastShotTime = NextShotTime;
 		NextShotTime += Interval;
 		++BurstShots;
 	}
@@ -320,7 +379,7 @@ void AGSFloatingGun::FireAt(AGSEnemyCharacter* AtTarget, float Lateness)
 	Launch.Speed = Settings->ProjectileSpeed;
 	Launch.Lifetime = FMath::Max(Settings->ProjectileLifetime - Late, 0.01f);
 	Launch.Radius = Settings->ProjectileRadius;
-	Launch.Damage = Settings->Damage * SourceASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute());
+	Launch.Damage = Settings->Damage * GetDamageMultiplier() * SourceASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute());
 	Launch.SourceASC = SourceASC;
 	Launch.DamageEffect = Settings->DamageEffect;
 	Launch.Mesh = Settings->ProjectileMesh;

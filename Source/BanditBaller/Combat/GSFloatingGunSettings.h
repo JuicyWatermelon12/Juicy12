@@ -24,7 +24,7 @@ class BANDITBALLER_API UGSFloatingGunSettings : public UPrimaryDataAsset
 public:
 	// --- Shooting ---
 
-	/** Damage per hit, before the player's Damage attribute and a critical hit (Loaded Dice). */
+	/** Damage per hit, before the level bonus, the player's Damage attribute and a critical hit (Loaded Dice). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Shooting", meta = (ClampMin = "0"))
 	float Damage = 8.f;
 
@@ -42,6 +42,17 @@ public:
 	/** Aim where a moving target will be when the projectile arrives (one step of lead). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Shooting")
 	bool bLeadTargets = true;
+
+	/**
+	 * From FloatingGunLevel 3 on, each level adds this much damage and fire rate to both guns (0.1 = +10% of the base per
+	 * level, added up, not compounded: level 5 = x1.3). The upgrade card's "+10%" text is typed by hand; the Floating Gun
+	 * test checks that it matches these.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Shooting|Levels", meta = (ClampMin = "0"))
+	float DamageBonusPerLevel = 0.1f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Shooting|Levels", meta = (ClampMin = "0"))
+	float FireRateBonusPerLevel = 0.1f;
 
 	/** The damage effect (GE_Damage: SetByCaller Data.Damage). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Shooting")
@@ -131,5 +142,19 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Look")
 	FVector ImpactEffectScale = FVector(0.25f);
 
-	float GetShotInterval() const { return 1.f / FMath::Max(ShotsPerSecond, 0.01f); }
+	/** The rule (not tuning): level 1 = one gun (right shoulder), level 2 and up = two guns, never more. */
+	static constexpr int32 MaxGuns = 2;
+	static int32 GetGunCount(int32 Level) { return FMath::Clamp(Level, 0, MaxGuns); }
+
+	/** Levels that add the per-level bonus: every level past the two that add a gun (level 5 -> 3). */
+	static int32 GetBonusLevels(int32 Level) { return FMath::Max(0, Level - MaxGuns); }
+
+	float GetDamageMultiplier(int32 Level) const { return 1.f + DamageBonusPerLevel * GetBonusLevels(Level); }
+	float GetFireRateMultiplier(int32 Level) const { return 1.f + FireRateBonusPerLevel * GetBonusLevels(Level); }
+
+	/** Seconds between one gun's shots at Level. */
+	double GetShotInterval(int32 Level = 1) const
+	{
+		return 1.0 / FMath::Max(static_cast<double>(ShotsPerSecond) * GetFireRateMultiplier(Level), 0.01);
+	}
 };

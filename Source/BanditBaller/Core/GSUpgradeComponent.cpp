@@ -86,7 +86,7 @@ bool UGSUpgradeComponent::GrantUpgrade(const UGSUpgradeData* Upgrade, const TCHA
 	Entry->EffectHandle = Handle; // stacking by target: every pick lands on the same active effect
 
 	UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: %s x%d (%s) -> %s"), *GetNameSafe(Owner), *Upgrade->GetName(), Entry->Stacks,
-		Source, *Upgrade->GetFormattedDescription().ToString());
+		Source, *Upgrade->GetFormattedDescription(Current).ToString()); // the text of the pick just made
 	OnUpgradeStacksChanged.Broadcast(Upgrade, Entry->Stacks);
 	return true;
 }

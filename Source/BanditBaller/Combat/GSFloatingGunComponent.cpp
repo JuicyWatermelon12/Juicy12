@@ -7,6 +7,7 @@
 #include "GSAttributeSet.h"
 #include "GSCharacter.h"
 #include "GSFloatingGun.h"
+#include "GSFloatingGunSettings.h"
 #include "GSGameMode.h"
 
 UGSFloatingGunComponent::UGSFloatingGunComponent()
@@ -35,8 +36,22 @@ void UGSFloatingGunComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	{
 		return;
 	}
-	// Level 1+: the right-shoulder gun. (Level 2's left gun comes in Prompt 39.)
-	SyncGuns((GetLevel() >= 1 && GetSettings()) ? 1 : 0);
+	// Level 1: the right-shoulder gun; level 2+: and the left one (never more than two).
+	const UGSFloatingGunSettings* Settings = GetSettings();
+	const int32 Level = GetLevel();
+	SyncGuns(Settings ? UGSFloatingGunSettings::GetGunCount(Level) : 0);
+
+	// Level 3+: the guns read the bonus themselves each shot; just log it when it changes.
+	if (Settings && Level != LoggedLevel)
+	{
+		if (UGSFloatingGunSettings::GetBonusLevels(Level) > 0)
+		{
+			UE_LOG(LogBanditBaller, Log, TEXT("[gun] %s: Floating Gun level %d -> both guns x%.2f damage, x%.2f fire rate (%.2f shots/s each)"),
+				*GetNameSafe(GetOwner()), Level, Settings->GetDamageMultiplier(Level), Settings->GetFireRateMultiplier(Level),
+				1.0 / Settings->GetShotInterval(Level));
+		}
+		LoggedLevel = Level;
+	}
 }
 
 void UGSFloatingGunComponent::SyncGuns(int32 Wanted)

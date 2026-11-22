@@ -41,6 +41,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Upgrade", meta = (MultiLine = true))
 	FText Description;
 
+	/**
+	 * Optional card text for the next pick, by how many stacks the player already owns: entry 0 with none, entry 1 with
+	 * one, ...; past the end, the last entry. Empty = Description for every pick. The same placeholders work.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Upgrade", meta = (MultiLine = true))
+	TArray<FText> DescriptionsByOwnedStacks;
+
 	/** Placeholder art for now. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Upgrade")
 	TSoftObjectPtr<UTexture2D> Icon;
@@ -66,9 +73,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Upgrade")
 	float GetPerStackValue() const;
 
-	/** Description with {PerStack} filled in ("+10% Reload Speed"). */
+	/**
+	 * The card text for the next pick when the player owns OwnedStacks (DescriptionsByOwnedStacks, else Description),
+	 * with {PerStack} filled in ("+10% Reload Speed").
+	 */
 	UFUNCTION(BlueprintPure, Category = "Upgrade")
-	FText GetFormattedDescription() const;
+	FText GetFormattedDescription(int32 OwnedStacks = 0) const;
 
 	/** "Common" / "Rare". */
 	static FString GetRarityName(EGSUpgradeRarity InRarity);

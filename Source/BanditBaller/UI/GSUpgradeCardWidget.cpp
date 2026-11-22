@@ -41,7 +41,7 @@ void UGSUpgradeCardWidget::SetUpgrade(const UGSUpgradeData* InUpgrade, int32 Own
 	}
 	if (DescriptionText)
 	{
-		DescriptionText->SetText(InUpgrade->GetFormattedDescription());
+		DescriptionText->SetText(InUpgrade->GetFormattedDescription(OwnedStacks)); // the text for the next pick
 	}
 	if (OwnedText)
 	{
@@ -75,6 +75,11 @@ FLinearColor UGSUpgradeCardWidget::GetRarityColor(EGSUpgradeRarity Rarity) const
 FText UGSUpgradeCardWidget::GetOwnedText() const
 {
 	return OwnedText ? OwnedText->GetText() : FText::GetEmpty();
+}
+
+FText UGSUpgradeCardWidget::GetDescriptionText() const
+{
+	return DescriptionText ? DescriptionText->GetText() : FText::GetEmpty();
 }
 
 FText UGSUpgradeCardWidget::GetRarityText() const

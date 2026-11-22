@@ -36,15 +36,17 @@ float UGSUpgradeData::GetPerStackValue() const
 	return 0.f;
 }
 
-FText UGSUpgradeData::GetFormattedDescription() const
+FText UGSUpgradeData::GetFormattedDescription(int32 OwnedStacks) const
 {
+	const FText& Text = DescriptionsByOwnedStacks.IsEmpty() ? Description
+		: DescriptionsByOwnedStacks[FMath::Clamp(OwnedStacks, 0, DescriptionsByOwnedStacks.Num() - 1)];
 	FNumberFormattingOptions Options;
 	Options.MaximumFractionalDigits = 1;
 	FFormatNamedArguments Args;
 	Args.Add(TEXT("PerStack"), FText::AsNumber(GetPerStackValue(), &Options));
 	// For additive fractions such as a chance: 0.05 -> "5".
 	Args.Add(TEXT("PerStackPercent"), FText::AsNumber(GetPerStackValue() * 100.f, &Options));
-	return FText::Format(Description, Args);
+	return FText::Format(Text, Args);
 }
 
 FString UGSUpgradeData::GetRarityName(EGSUpgradeRarity InRarity)

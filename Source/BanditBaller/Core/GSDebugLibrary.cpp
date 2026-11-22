@@ -222,7 +222,7 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 		}
 		const int32 Stacks = Upgrades ? Upgrades->GetStacks(Upgrade) : 0;
 		Text += FString::Printf(TEXT("\n  %s [%s] x%d/%s: %s"), *Name, *UGSUpgradeData::GetRarityName(Upgrade->Rarity), Stacks,
-			Upgrade->MaxStacks > 0 ? *FString::FromInt(Upgrade->MaxStacks) : TEXT("inf"), *Upgrade->GetFormattedDescription().ToString());
+			Upgrade->MaxStacks > 0 ? *FString::FromInt(Upgrade->MaxStacks) : TEXT("inf"), *Upgrade->GetFormattedDescription(Stacks).ToString());
 	}
 	if (ASC)
 	{
@@ -280,7 +280,10 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 							Gun->GetSide() > 0.f ? TEXT("right") : TEXT("left"), Gun->GetShotsFired(), *GetNameSafe(Gun->GetTarget()));
 					}
 				}
-				Text += FString::Printf(TEXT("\n  Floating Gun: level %d, %d gun(s)%s%s"), Guns->GetLevel(), Guns->GetGuns().Num(),
+				const AGSFloatingGun* FirstGun = Guns->GetGun(0);
+				const FString Rate = FirstGun ? FString::Printf(TEXT(", x%.2f damage, %.2f shots/s each"), FirstGun->GetDamageMultiplier(),
+					FirstGun->GetShotInterval() > 0.0 ? 1.0 / FirstGun->GetShotInterval() : 0.0) : FString();
+				Text += FString::Printf(TEXT("\n  Floating Gun: level %d, %d gun(s)%s%s%s"), Guns->GetLevel(), Guns->GetGuns().Num(), *Rate,
 					GunText.IsEmpty() ? TEXT("") : TEXT(": "), *GunText);
 			}
 		}
@@ -324,7 +327,8 @@ void UGSDebugLibrary::PrintUpgradeOffer(AGSPlayerController* PC)
 	const TArray<UGSUpgradeData*> Choices = Upgrades->GetCurrentChoices();
 	for (int32 Index = 0; Index < Choices.Num(); ++Index)
 	{
-		Text += FString::Printf(TEXT("\n  [%d] %s: %s"), Index, *Choices[Index]->DisplayName.ToString(), *Choices[Index]->GetFormattedDescription().ToString());
+		Text += FString::Printf(TEXT("\n  [%d] %s: %s"), Index, *Choices[Index]->DisplayName.ToString(),
+			*Choices[Index]->GetFormattedDescription(Upgrades->GetStacks(Choices[Index])).ToString());
 	}
 	TArray<FString> Lines;
 	Text.ParseIntoArrayLines(Lines);
