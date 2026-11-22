@@ -60,6 +60,8 @@ void AGSProjectile::Deactivate()
 	SetActorHiddenInGame(true);
 	SetActorTickEnabled(false);
 	Params.SourceASC.Reset();
+	Params.OnFinished = nullptr; // released by a new run: no callback
+	Params.IgnoredTargets.Reset();
 }
 
 void AGSProjectile::Tick(float DeltaSeconds)
@@ -175,6 +177,10 @@ bool AGSProjectile::HandleHit(const FHitResult& Hit)
 	{
 		return false; // corpses don't stop it
 	}
+	if (Params.IgnoredTargets.Contains(Actor))
+	{
+		return false; // already hit by this throw (a Lucky Coin flip): fly through
+	}
 
 	// A living target: its own critical roll (Loaded Dice), GE_Damage from the shooter (kills are the player's).
 	LastHitActor = Actor;
@@ -215,6 +221,10 @@ void AGSProjectile::Finish(EGSProjectileEnd Reason, const FVector& Where)
 	{
 		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), Params.ImpactEffect, Where, FRotator::ZeroRotator, Params.ImpactEffectScale);
 	}
+	// Back to the pool first, then the owner's callback (it may launch another projectile from the pool: a bounce).
+	TFunction<void(EGSProjectileEnd, AActor*, const FVector&)> OnFinished = MoveTemp(Params.OnFinished);
+	Params.OnFinished = nullptr;
+	AActor* HitActor = Reason == EGSProjectileEnd::HitTarget ? LastHitActor.Get() : nullptr;
 	if (UGSProjectileSubsystem* Projectiles = GetWorld()->GetSubsystem<UGSProjectileSubsystem>())
 	{
 		Projectiles->ReleaseProjectile(this, Reason);
@@ -222,5 +232,9 @@ void AGSProjectile::Finish(EGSProjectileEnd Reason, const FVector& Where)
 	else
 	{
 		Deactivate();
+	}
+	if (OnFinished && Reason != EGSProjectileEnd::Released)
+	{
+		OnFinished(Reason, HitActor, Where);
 	}
 }

@@ -13,6 +13,7 @@ EGSDamageSource GSDamageSource::FromTags(const FGameplayTagContainer& Tags)
 	if (Tags.HasTagExact(GSGameplayTags::Damage_Source_BarbedWire)) { return EGSDamageSource::BarbedWire; }
 	if (Tags.HasTagExact(GSGameplayTags::Damage_Source_PowderKeg)) { return EGSDamageSource::PowderKeg; }
 	if (Tags.HasTagExact(GSGameplayTags::Damage_Source_Dynamite)) { return EGSDamageSource::Dynamite; }
+	if (Tags.HasTagExact(GSGameplayTags::Damage_Source_LuckyCoin)) { return EGSDamageSource::LuckyCoin; }
 	return EGSDamageSource::Other;
 }
 
@@ -26,6 +27,7 @@ const TCHAR* GSDamageSource::GetName(EGSDamageSource Source)
 	case EGSDamageSource::BarbedWire: return TEXT("Barbed Wire");
 	case EGSDamageSource::PowderKeg: return TEXT("Powder Keg");
 	case EGSDamageSource::Dynamite: return TEXT("Dynamite");
+	case EGSDamageSource::LuckyCoin: return TEXT("Lucky Coin");
 	default: return TEXT("other");
 	}
 }

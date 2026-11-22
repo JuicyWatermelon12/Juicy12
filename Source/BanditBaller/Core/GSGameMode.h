@@ -18,6 +18,7 @@ class UGSFloatingGunSettings;
 class UGSRazorCardsSettings;
 class UGSBarbedWireSettings;
 class UGSDynamiteSettings;
+class UGSLuckyCoinSettings;
 class UGSComboSettings;
 class UGSCombatSettings;
 class UGSRoundClearSettings;
@@ -193,6 +194,9 @@ public:
 	/** Dynamite tuning (DA_DynamiteSettings); nothing is thrown if unset. */
 	const UGSDynamiteSettings* GetDynamiteSettings() const { return DynamiteSettings; }
 
+	/** Lucky Coin tuning (DA_LuckyCoinSettings); nothing is flipped if unset. */
+	const UGSLuckyCoinSettings* GetLuckyCoinSettings() const { return LuckyCoinSettings; }
+
 	// --- Powder Keg (server) ---
 
 	/**
@@ -347,6 +351,10 @@ protected:
 	/** Dynamite: damage, blast radius, throw interval, range, the lobbed stick, power bonuses, look (DA_DynamiteSettings). */
 	UPROPERTY(EditDefaultsOnly, Category = "Combat")
 	TObjectPtr<UGSDynamiteSettings> DynamiteSettings;
+
+	/** Lucky Coin: damage, flip interval, range, bounces, the homing coin, power bonuses, look (DA_LuckyCoinSettings). */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat")
+	TObjectPtr<UGSLuckyCoinSettings> LuckyCoinSettings;
 
 	/** Round-clear bonus: base, no damage, fast clear (DA_RoundClearSettings). No bonus if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")

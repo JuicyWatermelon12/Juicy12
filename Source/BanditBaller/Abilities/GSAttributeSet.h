@@ -229,6 +229,24 @@ public:
 	FGameplayAttributeData DynamitePower;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, DynamitePower)
 
+	/**
+	 * Lucky Coin picks: 1 or more = the player flips a coin that bounces from enemy to enemy (UGSLuckyCoinComponent on the
+	 * character, DA_LuckyCoinSettings). Default 0, clamped to >= 0, rounded when read.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData LuckyCoinLevel;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, LuckyCoinLevel)
+
+	/**
+	 * Lucky Coin weapon power: each point adds DA_LuckyCoinSettings' damage bonus, and every PowerPerBounce (2) full points
+	 * add a bounce. The first pick adds the rarity multiplier - 1, later picks the multiplier. Default 0, clamped to >= 0.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData LuckyCoinPower;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, LuckyCoinPower)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;

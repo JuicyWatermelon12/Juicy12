@@ -33,6 +33,8 @@ UGSAttributeSet::UGSAttributeSet()
 	InitBarbedWirePower(0.f);
 	InitDynamiteLevel(0.f);
 	InitDynamitePower(0.f);
+	InitLuckyCoinLevel(0.f);
+	InitLuckyCoinPower(0.f);
 }
 
 void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -79,7 +81,9 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 		|| Attribute == GetBarbedWireLevelAttribute()
 		|| Attribute == GetBarbedWirePowerAttribute()
 		|| Attribute == GetDynamiteLevelAttribute()
-		|| Attribute == GetDynamitePowerAttribute())
+		|| Attribute == GetDynamitePowerAttribute()
+		|| Attribute == GetLuckyCoinLevelAttribute()
+		|| Attribute == GetLuckyCoinPowerAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}

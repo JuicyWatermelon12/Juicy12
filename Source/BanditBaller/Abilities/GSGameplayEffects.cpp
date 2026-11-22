@@ -228,6 +228,13 @@ UGSUpgradeEffect_Dynamite::UGSUpgradeEffect_Dynamite(const FObjectInitializer& O
 	AddAdditiveModifier(UGSAttributeSet::GetDynamitePowerAttribute()); // +damage / blast radius steps
 }
 
+UGSUpgradeEffect_LuckyCoin::UGSUpgradeEffect_LuckyCoin(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddPicksModifier(UGSAttributeSet::GetLuckyCoinLevelAttribute()); // owned
+	AddAdditiveModifier(UGSAttributeSet::GetLuckyCoinPowerAttribute()); // +damage steps, bounces
+}
+
 UGSUpgradeEffect_SecondWind::UGSUpgradeEffect_SecondWind(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

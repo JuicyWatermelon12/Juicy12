@@ -28,6 +28,8 @@
 #include "GSBarbedWireSettings.h"
 #include "GSDynamiteComponent.h"
 #include "GSDynamiteSettings.h"
+#include "GSLuckyCoinComponent.h"
+#include "GSLuckyCoinSettings.h"
 #include "GSSecondWindComponent.h"
 #include "GSShieldComponent.h"
 #include "GSGameplayAbility_Dash.h"
@@ -306,9 +308,11 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 			ASC->GetNumericAttribute(UGSAttributeSet::GetRazorCardsPowerAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetBarbedWireLevelAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetBarbedWirePowerAttribute()));
-		Text += FString::Printf(TEXT(", DynamiteLevel %.0f, DynamitePower %g"),
+		Text += FString::Printf(TEXT(", DynamiteLevel %.0f, DynamitePower %g, LuckyCoinLevel %.0f, LuckyCoinPower %g"),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetDynamiteLevelAttribute()),
-			ASC->GetNumericAttribute(UGSAttributeSet::GetDynamitePowerAttribute()));
+			ASC->GetNumericAttribute(UGSAttributeSet::GetDynamitePowerAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetLuckyCoinLevelAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetLuckyCoinPowerAttribute()));
 		if (const AGSCharacter* Character = Cast<AGSCharacter>(PC->GetPawn()))
 		{
 			// Slide and dash scale with Move Speed (at least x1); a slide or dash keeps the ratio it started with.
@@ -386,6 +390,13 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 					Dynamite->GetLevel(), Dynamite->GetPower(), Dynamite->GetDamageMultiplier(),
 					Dynamite->GetSettings() ? Dynamite->GetSettings()->Damage * Dynamite->GetDamageMultiplier() : 0.f, Dynamite->GetBlastRadius(),
 					Dynamite->GetThrowInterval(), Dynamite->GetThrows(), Dynamite->GetBlasts(), Dynamite->GetHitsDealt(), Dynamite->GetLastBlastHits());
+			}
+			if (const UGSLuckyCoinComponent* Coin = GunOwner->GetLuckyCoin())
+			{
+				Text += FString::Printf(TEXT("\n  Lucky Coin: %d pick(s), power %g, x%.2f damage (%.1f per hit x Damage), %d bounce(s) (up to %d hits a flip), every %.2f s, %d flip(s), %d hit(s), %d hit by the last flip, target %s"),
+					Coin->GetLevel(), Coin->GetPower(), Coin->GetDamageMultiplier(),
+					Coin->GetSettings() ? Coin->GetSettings()->Damage * Coin->GetDamageMultiplier() : 0.f, Coin->GetBounces(), 1 + Coin->GetBounces(),
+					Coin->GetFlipInterval(), Coin->GetFlips(), Coin->GetHitsDealt(), Coin->GetLastFlipHits().Num(), *GetNameSafe(Coin->GetTarget()));
 			}
 		}
 		if (const UGSSecondWindComponent* SecondWind = PS ? PS->GetSecondWindComponent() : nullptr)

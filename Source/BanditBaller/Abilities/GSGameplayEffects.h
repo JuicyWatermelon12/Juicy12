@@ -272,6 +272,19 @@ public:
 	UGSUpgradeEffect_Dynamite(const FObjectInitializer& ObjectInitializer);
 };
 
+/**
+ * GE_Upgrade_LuckyCoin: LuckyCoinLevel = the number of picks (1+ = the weapon) and LuckyCoinPower = the total value
+ * (the coin's +damage steps and, every 2 full points, a bounce).
+ */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_LuckyCoin : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_LuckyCoin(const FObjectInitializer& ObjectInitializer);
+};
+
 /** +1 SecondWinds per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_SecondWind): survive one more killing blow. Using one removes one pick. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_SecondWind : public UGSUpgradeEffect

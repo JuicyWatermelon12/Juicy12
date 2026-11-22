@@ -94,6 +94,8 @@
 #include "GSDynamiteComponent.h"
 #include "GSDynamiteSettings.h"
 #include "GSLobbedThrow.h"
+#include "GSLuckyCoinComponent.h"
+#include "GSLuckyCoinSettings.h"
 #include "GSThrownSubsystem.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "GSFloatingShieldsComponent.h"
@@ -4755,7 +4757,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
-		TestEqual(TEXT("Pool has the 18 upgrades"), Pool->Upgrades.Num(), 18);
+		TestEqual(TEXT("Pool has the 19 upgrades"), Pool->Upgrades.Num(), 19);
 		const float StatWeights[] = { 100.f, 20.f, 6.f, 1.f };
 		const float AbilityWeights[] = { 100.f, 10.f, 3.f, 0.5f };
 		for (const EGSUpgradeRarity Rarity : UGSUpgradePool::GetAllRarities())
@@ -4819,12 +4821,12 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		const double LegendaryShare = static_cast<double>(LegendaryCards) / Cards;
 		AddInfo(FString::Printf(TEXT("Legendary ability cards: %d of %d (%.3f%%, chance 0.8%% per card)"), LegendaryCards, Cards, 100.0 * LegendaryShare));
 		TestTrue(TEXT("Legendary ability cards at about 0.8% of cards"), FMath::Abs(LegendaryShare - 0.008) < 0.0015);
-		bool bEven = PerUpgrade.Num() == 17;
+		bool bEven = PerUpgrade.Num() == 18;
 		for (const TPair<const UGSUpgradeData*, int32>& Entry : PerUpgrade)
 		{
-			bEven &= FMath::Abs(static_cast<double>(Entry.Value) / NormalCards - 1.0 / 17.0) < 0.01;
+			bEven &= FMath::Abs(static_cast<double>(Entry.Value) / NormalCards - 1.0 / 18.0) < 0.01;
 		}
-		TestTrue(TEXT("The 17 other upgrades come up evenly (AppearanceWeight 1 each)"), bEven);
+		TestTrue(TEXT("The 18 other upgrades come up evenly (AppearanceWeight 1 each)"), bEven);
 		auto Share = [&Split](int32 Kind, EGSUpgradeRarity Rarity)
 		{
 			const int32 Total = Split[Kind][0] + Split[Kind][1] + Split[Kind][2] + Split[Kind][3];
@@ -8661,6 +8663,7 @@ namespace GSTests
 			{ TEXT("RazorCards"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetRazorCardsPowerAttribute() },
 			{ TEXT("BarbedWire"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetBarbedWirePowerAttribute() },
 			{ TEXT("Dynamite"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetDynamitePowerAttribute() },
+			{ TEXT("LuckyCoin"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetLuckyCoinPowerAttribute() },
 		};
 	}
 
@@ -8715,7 +8718,7 @@ bool FGSUpgradePickValuesTest::RunTest(const FString& Parameters)
 			TestEqual(FString::Printf(TEXT("%s: percent upgrade"), E.Name), Upgrade->IsPercentUpgrade(), E.bPercent);
 			TestTrue(FString::Printf(TEXT("%s: in DA_UpgradePool"), E.Name), Pool->Upgrades.Contains(Upgrade));
 		}
-		TestEqual(TEXT("All 18 upgrades checked"), Seen.Num(), 18);
+		TestEqual(TEXT("All 19 upgrades checked"), Seen.Num(), 19);
 		TestEqual(TEXT("Every pool upgrade checked"), Pool->Upgrades.Num(), Seen.Num());
 		const UGSUpgradeData* Gun = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
 		TestEqual(TEXT("Floating Gun: its first two picks give the guns"), Gun ? Gun->WeaponGivingPicks : 0, 2);
@@ -8745,7 +8748,8 @@ bool FGSUpgradePickValuesTest::RunTest(const FString& Parameters)
 			FText2{ TEXT("FloatingGun"), TEXT("+10% floating gun damage and fire rate"), TEXT("+30% floating gun damage and fire rate") },
 			FText2{ TEXT("RazorCards"), TEXT("+10% Razor Cards damage and fire rate"), TEXT("+30% Razor Cards damage and fire rate") },
 			FText2{ TEXT("BarbedWire"), TEXT("+10% Barbed Wire damage, +5% size"), TEXT("+30% Barbed Wire damage, +15% size") },
-			FText2{ TEXT("Dynamite"), TEXT("+10% Dynamite damage, +5% blast size"), TEXT("+30% Dynamite damage, +15% blast size") } })
+			FText2{ TEXT("Dynamite"), TEXT("+10% Dynamite damage, +5% blast size"), TEXT("+30% Dynamite damage, +15% blast size") },
+			FText2{ TEXT("LuckyCoin"), TEXT("+10% Lucky Coin damage"), TEXT("+30% Lucky Coin damage") } })
 		{
 			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(E.Name);
 			if (!Upgrade)
@@ -9062,6 +9066,7 @@ bool FGSWeaponSlotsTest::RunTest(const FString& Parameters)
 		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("RazorCards")));
 		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("BarbedWire")));
 		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("Dynamite")));
+		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("LuckyCoin")));
 		S->TestPool->Upgrades.Add(S->TestWeapon.Get());
 		S->TestPool->MaxWeapons = 1;
 		GameMode->SetUpgradePoolOverride(S->TestPool.Get());
@@ -10231,6 +10236,12 @@ namespace GSTests
 		return Player ? Player->GetDynamite() : nullptr;
 	}
 
+	UGSLuckyCoinComponent* GetLuckyCoin()
+	{
+		const AGSCharacter* Player = GetPlayer();
+		return Player ? Player->GetLuckyCoin() : nullptr;
+	}
+
 	struct FWireState
 	{
 		FVector PlayerSpot = FVector::ZeroVector;
@@ -10545,6 +10556,7 @@ bool FGSCheckpointPicksAndNewRunTest::RunTest(const FString& Parameters)
 			{ TEXT("FloatingGun"), UGSAttributeSet::GetFloatingGunPowerAttribute(), { 0.f, 0.5f, 2.5f, 5.5f } }, // two giving picks
 			{ TEXT("RazorCards"), UGSAttributeSet::GetRazorCardsPowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
 			{ TEXT("Dynamite"), UGSAttributeSet::GetDynamitePowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
+			{ TEXT("LuckyCoin"), UGSAttributeSet::GetLuckyCoinPowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
 			{ TEXT("BarbedWire"), UGSAttributeSet::GetBarbedWirePowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
 		};
 		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
@@ -10610,6 +10622,7 @@ bool FGSCheckpointPicksAndNewRunTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Before the new run: the Barbed Wire ring"), GetBarbedWire()->IsRingShown());
 		TestTrue(TEXT("Before the new run: Razor Cards owned"), GetRazorCards()->GetLevel() > 0);
 		TestTrue(TEXT("Before the new run: Dynamite owned"), GetDynamite()->GetLevel() > 0);
+		TestTrue(TEXT("Before the new run: Lucky Coin owned"), GetLuckyCoin()->GetLevel() > 0);
 		TestTrue(TEXT("Before the new run: shields"), GetPC()->GetPlayerState<AGSPlayerState>()->GetShieldComponent()->GetNumShields() > 0);
 		GetGameMode()->RestartRunWithSeed(4811);
 		GetGameMode()->SetRoundTimerPaused(true);
@@ -10639,6 +10652,7 @@ bool FGSCheckpointPicksAndNewRunTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("New run: no ring"), GetBarbedWire()->IsRingShown());
 		TestEqual(TEXT("New run: Razor Cards gone"), GetRazorCards()->GetLevel(), 0);
 		TestEqual(TEXT("New run: Dynamite gone"), GetDynamite()->GetLevel(), 0);
+		TestEqual(TEXT("New run: Lucky Coin gone"), GetLuckyCoin()->GetLevel(), 0);
 		TestEqual(TEXT("New run: nothing thrown is left in play"), GetPIEWorld()->GetSubsystem<UGSThrownSubsystem>()->GetActive().Num(), 0);
 		TestEqual(TEXT("New run: no combo"), PS->GetComboComponent()->GetComboCount(), 0);
 		TestEqual(TEXT("New run: no Powder Keg blasts"), GetGameMode()->GetPowderKegBlasts(), 0);
@@ -11495,6 +11509,343 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 	{
 		TestFalse(TEXT("Dead: it can't throw"), GetDynamite()->CanThrow());
 		TestEqual(TEXT("Dead: no throws in 9 s"), GetDynamite()->GetThrows(), S->ThrowsBefore);
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Lucky Coin (Prompt 50): a coin that bounces from enemy to enemy, each once per flip
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	struct FCoinState
+	{
+		FVector PlayerSpot = FVector::ZeroVector;
+		FVector Ground = FVector::ZeroVector;
+		FVector Dir = FVector::ForwardVector;
+		FVector Side = FVector::RightVector;
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits;
+		TArray<float> HealthBefore;
+		int32 FlipsBefore = 0;
+		int32 DoneBefore = 0;
+		float SourceDamageBefore = 0.f;
+		double SpawnedAt = 0.0;
+		bool bScheduleOk = true;
+		int32 Frames = 0;
+		TWeakObjectPtr<AGSEnemyCharacter> Weak;
+		float PlayerHealthBefore = 0.f;
+		int32 KillsBefore = 0;
+		int32 XPOrbsBefore = 0;
+		int32 HealthOrbsBefore = 0;
+	};
+
+	bool LuckyCoinOnSchedule()
+	{
+		const UGSLuckyCoinComponent* Coin = GetLuckyCoin();
+		if (!Coin || Coin->GetBurstShots() == 0)
+		{
+			return true;
+		}
+		const double Elapsed = GetPIEWorld()->GetTimeSeconds() - Coin->GetBurstStartTime();
+		return Coin->GetBurstShots() == 1 + FMath::FloorToInt(Elapsed / Coin->GetFlipInterval() + 1e-6);
+	}
+
+	void RecordCoin(FCoinState& S)
+	{
+		S.HealthBefore.Reset();
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S.Bandits)
+		{
+			S.HealthBefore.Add(Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : 0.f);
+		}
+		S.FlipsBefore = GetLuckyCoin()->GetFlips();
+		S.DoneBefore = GetLuckyCoin()->GetFlipsDone();
+		S.SourceDamageBefore = GetGameState()->GetRunStats()->GetDamageDealtBy(EGSDamageSource::LuckyCoin);
+	}
+
+	float CoinLost(const FCoinState& S, int32 Index)
+	{
+		const TWeakObjectPtr<AGSEnemyCharacter>& Bandit = S.Bandits[Index];
+		return Bandit.IsValid() ? S.HealthBefore[Index] - GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f;
+	}
+
+	/** The last finished flip hit exactly these bandits (by index into S.Bandits), in this order, each once. */
+	bool LastFlipHitExactly(const FCoinState& S, std::initializer_list<int32> Indices)
+	{
+		const TArray<TWeakObjectPtr<AActor>>& Hits = GetLuckyCoin()->GetLastFlipHits();
+		if (Hits.Num() != static_cast<int32>(Indices.size()))
+		{
+			return false;
+		}
+		int32 Slot = 0;
+		for (const int32 Index : Indices)
+		{
+			if (Hits[Slot++].Get() != S.Bandits[Index].Get())
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/** Enqueue: wait until no coin is in the air, then record. */
+	void WaitCoinsDownAndRecord(FAutomationTestBase* Test, TSharedRef<FCoinState> S)
+	{
+		WaitUntil(Test, TEXT("no coin in the air"), []() { return GetLuckyCoin()->GetFlipsInAir() == 0; }, 10.0);
+		Step([S]() { RecordCoin(*S); });
+	}
+
+	/** Enqueue: wait for Count more finished flips after the last RecordCoin. */
+	void WaitFlipsDone(FAutomationTestBase* Test, TSharedRef<FCoinState> S, int32 Count, bool bCheckSchedule = false)
+	{
+		WaitUntil(Test, FString::Printf(TEXT("%d finished flip(s)"), Count), [S, Count, bCheckSchedule]()
+		{
+			if (bCheckSchedule)
+			{
+				S->bScheduleOk &= LuckyCoinOnSchedule();
+				++S->Frames;
+			}
+			return GetLuckyCoin()->GetFlipsDone() >= S->DoneBefore + Count;
+		}, 20.0);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSLuckyCoinTest, "BanditBaller.Upgrades.LuckyCoin", GSTests::TestFlags)
+bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	TSharedRef<FCoinState> S = MakeShared<FCoinState>();
+
+	// Data, a clear lane, the player near its start. Game time x4.
+	Step([this, S]()
+	{
+		SpeedUpWorld(4.f);
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->SetHealthOrbDropChanceOverride(0.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		const UGSLuckyCoinSettings* Settings = GameMode->GetLuckyCoinSettings();
+		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("LuckyCoin"));
+		if (!TestNotNull(TEXT("DA_LuckyCoinSettings on BP_GSGameMode"), Settings) || !TestNotNull(TEXT("DA_Upgrade_LuckyCoin"), Upgrade)
+			|| !TestNotNull(TEXT("Lucky Coin component on the character"), GetLuckyCoin()))
+		{
+			return;
+		}
+		TestEqual(TEXT("10 damage per hit"), Settings->Damage, 10.f);
+		TestEqual(TEXT("A flip every 1.5 s"), Settings->FlipInterval, 1.5f);
+		TestEqual(TEXT("20 m range"), Settings->Range, 2000.f);
+		TestEqual(TEXT("8 m bounce range"), Settings->BounceRange, 800.f);
+		TestEqual(TEXT("3 bounces"), Settings->BaseBounces, 3);
+		TestEqual(TEXT("+1 bounce per 2 full power"), Settings->PowerPerBounce, 2.f);
+		TestEqual(TEXT("+10% damage per power"), Settings->DamageBonusPerPower, 0.1f);
+		TestEqual(TEXT("Bounces at power 0 / 1 / 1.9 / 2 / 3.5 / 4"), FString::Printf(TEXT("%d %d %d %d %d %d"), Settings->GetBounces(0.f), Settings->GetBounces(1.f),
+			Settings->GetBounces(1.9f), Settings->GetBounces(2.f), Settings->GetBounces(3.5f), Settings->GetBounces(4.f)), FString(TEXT("3 3 3 4 4 5")));
+		TestNotNull(TEXT("Damage effect (GE_Damage)"), Settings->DamageEffect.Get());
+		TestTrue(TEXT("Coin mesh and material"), Settings->CoinMesh && Settings->CoinMaterial);
+		TestTrue(TEXT("Category Weapon"), Upgrade->Category == EGSUpgradeCategory::Weapon);
+		TestEqual(TEXT("The first pick gives the weapon"), Upgrade->WeaponGivingPicks, 1);
+		TestTrue(TEXT("Effect GE_Upgrade_LuckyCoin"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_LuckyCoin::StaticClass()));
+		TestTrue(TEXT("In DA_UpgradePool"), GameMode->GetUpgradePool() && GameMode->GetUpgradePool()->Upgrades.Contains(Upgrade));
+		TestEqual(TEXT("Card text, none owned"), Upgrade->GetFormattedDescription(0).ToString(), FString(TEXT("New weapon: flips a coin that bounces from enemy to enemy.")));
+		TestEqual(TEXT("Card text, owned"), Upgrade->GetFormattedDescription(1).ToString(), FString(TEXT("Makes the Lucky Coin stronger and, in time, adds bounces.")));
+		TestEqual(TEXT("Card line of a later Common pick"), Upgrade->FormatValueText(GameMode->GetUpgradePool()->GetPickValue(Upgrade, EGSUpgradeRarity::Common, 1)).ToString(),
+			FString(TEXT("+10% Lucky Coin damage")));
+		TestEqual(TEXT("The card's +10% matches the settings"), Upgrade->GetDisplayScale() / 100.f, Settings->DamageBonusPerPower, 0.0001f);
+
+		FVector Lane;
+		if (!TestTrue(TEXT("A clear lane in the town"), FindClearLane(2600.f, Lane, S->Dir)))
+		{
+			return;
+		}
+		S->Side = FVector(-S->Dir.Y, S->Dir.X, 0.f);
+		S->PlayerSpot = Lane + S->Dir * 100.f;
+		S->Ground = FVector(S->PlayerSpot.X, S->PlayerSpot.Y, 0.f);
+		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
+		RemoveAllEnemies(GetPIEWorld());
+		TestEqual(TEXT("gs.Upgrade.Grant LuckyCoin"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("LuckyCoin"), 1), 1);
+		TestEqual(TEXT("Owned: level 1"), GetLuckyCoin()->GetLevel(), 1);
+		TestEqual(TEXT("Power 0: 3 bounces"), GetLuckyCoin()->GetBounces(), 3);
+		TestEqual(TEXT("Power 0: 10 per hit"), GetLuckyCoin()->GetHitDamage(), 10.f, 0.0001f);
+		S->Bandits.Reset();
+		RecordCoin(*S);
+	});
+	// No enemy: nothing is flipped and nothing banked.
+	WaitWorldSeconds(this, 2.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("No target: no flips in 2 s"), GetLuckyCoin()->GetFlips(), S->FlipsBefore);
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
+		S->SpawnedAt = GetPIEWorld()->GetTimeSeconds();
+		RecordCoin(*S);
+	});
+	WaitUntil(this, TEXT("the first flip"), [S]() { return GetLuckyCoin()->GetFlips() > S->FlipsBefore; }, 10.0);
+	Step([this, S]()
+	{
+		const double Delay = GetPIEWorld()->GetTimeSeconds() - S->SpawnedAt;
+		TestEqual(TEXT("One flip (nothing banked)"), GetLuckyCoin()->GetFlips(), S->FlipsBefore + 1);
+		TestTrue(FString::Printf(TEXT("The first flip comes at once (%.3f s)"), Delay), Delay < 0.3);
+	});
+
+	// One bandit: one hit per flip (nobody to bounce to). DPS against one enemy.
+	WaitCoinsDownAndRecord(this, S);
+	WaitFlipsDone(this, S, 3);
+	Step([this, S]()
+	{
+		const int32 Done = GetLuckyCoin()->GetFlipsDone() - S->DoneBefore;
+		TestTrue(TEXT("One bandit: the flip hit it once"), LastFlipHitExactly(*S, { 0 }));
+		TestEqual(TEXT("One bandit: 10 per flip"), CoinLost(*S, 0), 10.f * Done, 0.01f);
+		AddInfo(FString::Printf(TEXT("DPS vs one enemy: %.1f (%.0f in %d flips, one every %.1f s)"), CoinLost(*S, 0) / (Done * GetLuckyCoin()->GetFlipInterval()),
+			CoinLost(*S, 0), Done, GetLuckyCoin()->GetFlipInterval()));
+
+		// Five in a row, 4 m apart: a flip hits the first four in order, each once; the fifth is left (3 bounces).
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		for (int32 Index = 0; Index < 5; ++Index)
+		{
+			S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * (600.f + 400.f * Index)));
+		}
+	});
+	WaitCoinsDownAndRecord(this, S);
+	Step([S]() { S->bScheduleOk = true; S->Frames = 0; });
+	WaitFlipsDone(this, S, 3, true);
+	Step([this, S]()
+	{
+		UGSLuckyCoinComponent* Coin = GetLuckyCoin();
+		const int32 Done = Coin->GetFlipsDone() - S->DoneBefore;
+		TestTrue(FString::Printf(TEXT("Every frame on the exact 1.5 s schedule (%d frames)"), S->Frames), S->bScheduleOk);
+		TestTrue(TEXT("Five in a row: the flip hit the first four, in order, each once"), LastFlipHitExactly(*S, { 0, 1, 2, 3 }));
+		float Lost = 0.f;
+		for (int32 Index = 0; Index < 4; ++Index)
+		{
+			TestEqual(FString::Printf(TEXT("Five in a row: bandit %d took 10 per flip (once each)"), Index), CoinLost(*S, Index), 10.f * Done, 0.01f);
+			Lost += CoinLost(*S, Index);
+		}
+		TestEqual(TEXT("Five in a row: the fifth is out of bounces"), CoinLost(*S, 4), 0.f, 0.01f);
+		TestEqual(TEXT("Run stats count it as Lucky Coin damage"), GetGameState()->GetRunStats()->GetDamageDealtBy(EGSDamageSource::LuckyCoin) - S->SourceDamageBefore, Lost, 0.01f);
+		AddInfo(FString::Printf(TEXT("DPS vs a group of five (4 m apart): %.1f (%.0f in %d flips)"), Lost / (Done * Coin->GetFlipInterval()), Lost, Done));
+
+		// Power 1: x1.1, still 3 bounces.
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("LuckyCoin"), 1);
+		TestEqual(TEXT("Power 1"), Coin->GetPower(), 1.f);
+		TestEqual(TEXT("Power 1: 11 per hit"), Coin->GetHitDamage(), 11.f, 0.0001f);
+		TestEqual(TEXT("Power 1: still 3 bounces"), Coin->GetBounces(), 3);
+	});
+	WaitCoinsDownAndRecord(this, S);
+	WaitFlipsDone(this, S, 1);
+	Step([this, S]()
+	{
+		UGSLuckyCoinComponent* Coin = GetLuckyCoin();
+		TestTrue(TEXT("Power 1: four hit"), LastFlipHitExactly(*S, { 0, 1, 2, 3 }));
+		TestEqual(TEXT("Power 1: 11 per hit"), Coin->GetLastFlipDamage(), 11.f, 0.0001f);
+		TestEqual(TEXT("Power 1: the first took 11"), CoinLost(*S, 0), 11.f, 0.01f);
+
+		// Power 2: 4 bounces, all five hit.
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("LuckyCoin"), 1);
+		TestEqual(TEXT("Power 2: 4 bounces"), Coin->GetBounces(), 4);
+	});
+	WaitCoinsDownAndRecord(this, S);
+	WaitFlipsDone(this, S, 1);
+	Step([this, S]()
+	{
+		UGSLuckyCoinComponent* Coin = GetLuckyCoin();
+		TestTrue(TEXT("Power 2: all five hit, each once"), LastFlipHitExactly(*S, { 0, 1, 2, 3, 4 }));
+		TestEqual(TEXT("Power 2: the fifth took 12"), CoinLost(*S, 4), 12.f, 0.01f);
+
+		// A Rare pick (+1.5): power 3.5, x1.35, still 4 bounces (only full 2-point steps count).
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("LuckyCoin"), 1, EGSUpgradeRarity::Rare);
+		TestEqual(TEXT("Power 3.5"), Coin->GetPower(), 3.5f);
+		TestEqual(TEXT("Power 3.5: 13.5 per hit"), Coin->GetHitDamage(), 13.5f, 0.0001f);
+		TestEqual(TEXT("Power 3.5: 4 bounces"), Coin->GetBounces(), 4);
+	});
+	WaitCoinsDownAndRecord(this, S);
+	WaitFlipsDone(this, S, 1);
+	Step([this, S]()
+	{
+		TestTrue(TEXT("Power 3.5: five hit"), LastFlipHitExactly(*S, { 0, 1, 2, 3, 4 }));
+		TestEqual(TEXT("Power 3.5: 13.5 each"), CoinLost(*S, 2), 13.5f, 0.01f);
+
+		// Out of bounce range: two bandits 12 m apart: each flip stops after the first.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 1800.f));
+	});
+	WaitCoinsDownAndRecord(this, S);
+	WaitFlipsDone(this, S, 2);
+	Step([this, S]()
+	{
+		TestTrue(TEXT("12 m apart: the flip stops after the first"), LastFlipHitExactly(*S, { 0 }));
+		TestEqual(TEXT("12 m apart: the far one is never hit"), CoinLost(*S, 1), 0.f, 0.01f);
+
+		// Its kill is the player's: a weak bandit, Leech, a sure health orb.
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Leech"), 1);
+		GetGameMode()->SetHealthOrbDropChanceOverride(1.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		ApplyDamage(GetPlayerASC(), 10.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		S->PlayerHealthBefore = GetHealth(GetPlayerASC());
+		GetPlayerCombo()->EndCombo(EGSComboEndReason::Reset);
+		S->KillsBefore = GetGameState()->GetRunStats()->GetTotalKills();
+		S->XPOrbsBefore = GetCashSubsystem()->GetNumXPOrbsDropped();
+		S->HealthOrbsBefore = GetCashSubsystem()->GetNumHealthOrbsDropped();
+		S->Weak = SpawnFrozenBandit(S->Ground + S->Dir * 600.f);
+		if (S->Weak.IsValid())
+		{
+			S->Weak->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
+		}
+	});
+	WaitUntil(this, TEXT("a coin to kill the bandit"), [S]() { return !S->Weak.IsValid() || S->Weak->GetHealthComponent()->IsDead(); }, 10.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Coin kill: counted in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), S->KillsBefore + 1);
+		TestEqual(TEXT("Coin kill: counts for the combo"), GetPlayerCombo()->GetComboCount(), 1);
+		TestEqual(TEXT("Coin kill: an XP orb"), GetCashSubsystem()->GetNumXPOrbsDropped(), S->XPOrbsBefore + 1);
+		TestEqual(TEXT("Coin kill: the health orb chance (1: one orb)"), GetCashSubsystem()->GetNumHealthOrbsDropped(), S->HealthOrbsBefore + 1);
+		TestTrue(TEXT("Coin kill: a cash drop"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash) > 0);
+		TestEqual(TEXT("Coin kill: Leech heals"), GetHealth(GetPlayerASC()), S->PlayerHealthBefore + 1.f, 0.01f);
+		GetGameMode()->SetHealthOrbDropChanceOverride(0.f);
+
+		// Paused: no flips.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
+	});
+	WaitCoinsDownAndRecord(this, S);
+	Step([]() { UGameplayStatics::SetGamePaused(GetPIEWorld(), true); });
+	WaitRealSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Paused: no flips"), GetLuckyCoin()->GetFlips(), S->FlipsBefore);
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), false);
+	});
+
+	// A new run with a coin in the air: the coin is gone, the weapon is gone.
+	WaitUntil(this, TEXT("a coin in the air"), []() { return GetLuckyCoin()->GetFlipsInAir() > 0; }, 10.0);
+	Step([this, S]()
+	{
+		GetGameMode()->RestartRunWithSeed(5001);
+		GetGameMode()->SetRoundTimerPaused(true);
+		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
+		TestEqual(TEXT("New run: no coin in the air"), GetPIEWorld()->GetSubsystem<UGSProjectileSubsystem>()->GetNumActive(), 0);
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
+		RecordCoin(*S);
+	});
+	WaitWorldSeconds(this, 2.0);
+	Step([this, S]()
+	{
+		UGSLuckyCoinComponent* Coin = GetLuckyCoin();
+		TestEqual(TEXT("New run: level 0"), Coin->GetLevel(), 0);
+		TestEqual(TEXT("New run: power 0"), Coin->GetPower(), 0.f);
+		TestEqual(TEXT("New run: no flips"), Coin->GetFlips(), S->FlipsBefore);
+		TestEqual(TEXT("New run: nothing in the air"), Coin->GetFlipsInAir(), 0);
+		TestEqual(TEXT("New run: a bandit in range takes nothing"), CoinLost(*S, 0), 0.f, 0.01f);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
 		RestoreWorldSpeed();
 	});

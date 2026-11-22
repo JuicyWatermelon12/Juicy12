@@ -18,6 +18,7 @@ class UGSFloatingGunComponent;
 class UGSRazorCardsComponent;
 class UGSBarbedWireComponent;
 class UGSDynamiteComponent;
+class UGSLuckyCoinComponent;
 class UGSDashSettings;
 class UGSMovementSettings;
 class UGSSlideSettings;
@@ -75,6 +76,9 @@ public:
 
 	/** Dynamite (lobs sticks while the DynamiteLevel attribute is 1 or more). */
 	UGSDynamiteComponent* GetDynamite() const { return Dynamite; }
+
+	/** Lucky Coin (flips bouncing coins while the LuckyCoinLevel attribute is 1 or more). */
+	UGSLuckyCoinComponent* GetLuckyCoin() const { return LuckyCoin; }
 
 	// --- Camera debug / tests (local player): the same as the aim and shoulder-swap inputs ---
 	void SetAimingForDebug(bool bAim) { bAim ? OnAimStarted() : OnAimCompleted(); }
@@ -198,6 +202,10 @@ protected:
 	/** Dynamite: lobs sticks at the biggest group for the player's DynamiteLevel (tuning in DA_DynamiteSettings). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
 	TObjectPtr<UGSDynamiteComponent> Dynamite;
+
+	/** Lucky Coin: flips bouncing coins for the player's LuckyCoinLevel (tuning in DA_LuckyCoinSettings). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
+	TObjectPtr<UGSLuckyCoinComponent> LuckyCoin;
 
 	/** Played on the local player's camera when they take damage (CS_PlayerHit). */
 	UPROPERTY(EditDefaultsOnly, Category = "Health")

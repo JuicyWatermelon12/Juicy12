@@ -14,6 +14,15 @@ class UNiagaraSystem;
 class UStaticMesh;
 class UStaticMeshComponent;
 
+/** Why a projectile went back to the pool. */
+enum class EGSProjectileEnd : uint8
+{
+	HitTarget,
+	HitWorld,
+	Expired,
+	Released
+};
+
 /** Everything one shot needs (UGSProjectileSubsystem::FireProjectile). */
 struct FGSProjectileLaunch
 {
@@ -46,15 +55,16 @@ struct FGSProjectileLaunch
 
 	/** Cosmetic spin around the projectile's own up axis (degrees a second; a thrown card). */
 	float SpinRate = 0.f;
-};
 
-/** Why a projectile went back to the pool. */
-enum class EGSProjectileEnd : uint8
-{
-	HitTarget,
-	HitWorld,
-	Expired,
-	Released
+	/** Living targets it passes through without hitting (the Lucky Coin: enemies a flip already hit). Optional. */
+	TArray<TWeakObjectPtr<AActor>> IgnoredTargets;
+
+	/**
+	 * Optional: called once when the flight ends by hitting a target, hitting the world or expiring (not when a new run
+	 * releases it), after the damage and after it went back to the pool. HitActor is the target hit (null otherwise).
+	 * The Lucky Coin bounces from here.
+	 */
+	TFunction<void(EGSProjectileEnd Reason, AActor* HitActor, const FVector& Where)> OnFinished;
 };
 
 /**
