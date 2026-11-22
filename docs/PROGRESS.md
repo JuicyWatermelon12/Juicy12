@@ -1437,7 +1437,7 @@ data.
 **Open questions** (settled in each upgrade's prompt; not decided)
 - ~~Bigger Mags: how the size rounds (rifle 30 × 1.15 = 34.5, pistol 12 × 1.15 = 13.8). Does a pick fill the extra
   rounds at once?~~ Decided in Prompt 32: rounded up; a pick doesn't refill.
-- ~~Floating Shield:~~ Settled in Prompt 36 (defaults; the prompt didn't decide them):
+- ~~Floating Shield:~~ Settled in Prompt 36 and confirmed by the user:
   - ~~Does a hit that a shield takes end the kill combo or cost the no-damage round bonus?~~ No: a blocked hit is no
     health lost, so the combo goes on and the no-damage bonus is kept.
   - ~~Does the 10 s recharge pause with the game, like the combo window?~~ Yes: a world timer.
@@ -1878,7 +1878,7 @@ Changes Prompt 35. Stacks no longer grow the blast; they raise the chance that a
   2. A ready shield.
   3. Health.
   4. (Second Wind on a killing blow comes in Prompt 37.)
-- **Decided here** (the design left them open): a blocked hit is not damage taken. The kill combo goes on, the
+- **Decided here and confirmed by the user** (the design left them open): a blocked hit is not damage taken. The kill combo goes on, the
   no-damage round bonus is kept and run-stats damage taken doesn't change. The recharge pauses with the game.
 - **Visuals** (`Core/GSFloatingShieldsComponent.*`, `UGSFloatingShieldsComponent` on `AGSCharacter`,
   `GetFloatingShields()`):
@@ -2468,6 +2468,8 @@ Decided (user):
     Health → Second Wind on a killing blow. Floating Gun and Powder Keg kills are the player's (cash, XP orb,
     combo, Leech). New rolls use the run stream; all damage goes through GE_Damage. Single-player only,
     co-op-ready.
+- **Floating Shield** (Prompt 36): a hit a shield blocks is not damage taken (the kill combo goes on, the no-damage
+  round bonus is kept, run-stats damage taken doesn't change). The shield recharge pauses with the game.
 - **Upgrade rarities and rerolls:** four tiers (Common, Rare, Epic, Legendary). The 3 choices can be rerolled a
   limited number of times per run (3 to start). There is no skip.
 - **Casino bets** risk cash only, never owned items.
