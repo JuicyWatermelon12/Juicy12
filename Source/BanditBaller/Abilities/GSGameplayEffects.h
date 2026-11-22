@@ -192,6 +192,16 @@ public:
 	UGSUpgradeEffect_Leech(const FObjectInitializer& ObjectInitializer);
 };
 
+/** +1 PowderKeg per stack (GE_Upgrade_PowderKeg): kills explode; each stack makes the blast bigger. */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_PowderKeg : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_PowderKeg(const FObjectInitializer& ObjectInitializer);
+};
+
 /** +1 Pierce per stack (GE_Upgrade_PiercingRounds): each shot passes through one more target. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_PiercingRounds : public UGSUpgradeEffect

@@ -159,6 +159,22 @@ public:
 	/** DA_CombatSettings (crit multiplier); may be null (callers fall back to the class defaults). */
 	const UGSCombatSettings* GetCombatSettings() const;
 
+	// --- Powder Keg (server) ---
+
+	/**
+	 * Blast at Location for Player's Powder Keg: damages every living enemy within the radius (no line of sight, never a
+	 * player) through the blast damage effect, as the player's damage (kills are theirs). Damage and radius come from
+	 * DA_CombatSettings for the player's PowderKeg stacks, damage x their Damage attribute. Enemies it kills explode
+	 * ChainDelay later. Returns how many enemies it damaged. Does nothing without stacks.
+	 */
+	int32 ExplodePowderKeg(const FVector& Location, const AGSPlayerState* Player);
+
+	/** Chain blasts scheduled and not yet fired (tests). */
+	int32 GetPendingPowderKegs() const;
+
+	/** Blasts so far this run (tests / debug). */
+	int32 GetPowderKegBlasts() const { return PowderKegBlasts; }
+
 	/** Tests / debug: use Settings instead of DA_ComboSettings until cleared (nullptr). Lives as long as this world. */
 	void SetComboSettingsOverride(const UGSComboSettings* Settings) { ComboSettingsOverride = Settings; }
 
@@ -308,6 +324,17 @@ private:
 
 	/** This GameMode paused the game for an upgrade choice (so it only unpauses its own pause). */
 	bool bPausedForUpgradeChoice = false;
+
+	/** True while a Powder Keg blast applies its damage: enemies it kills then explode after ChainDelay, not at once. */
+	bool bApplyingPowderKeg = false;
+
+	/** Chain blasts waiting for their ChainDelay (cleared when a run starts). */
+	TArray<FTimerHandle> PendingPowderKegs;
+
+	int32 PowderKegBlasts = 0;
+
+	/** Player killed an enemy at Location: blast now, or after ChainDelay if this kill came from a blast. */
+	void TriggerPowderKeg(const FVector& Location, const AGSPlayerState* Player);
 
 	/** SetComboSettingsOverride (tests). */
 	UPROPERTY(Transient)

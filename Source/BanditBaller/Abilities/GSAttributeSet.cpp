@@ -19,6 +19,7 @@ UGSAttributeSet::UGSAttributeSet()
 	InitHealthOnKill(0.f);
 	InitCritChance(0.f);
 	InitPierce(0.f);
+	InitPowderKeg(0.f);
 }
 
 void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -54,7 +55,8 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 		|| Attribute == GetExtraJumpsAttribute()
 		|| Attribute == GetExtraDashChargesAttribute()
 		|| Attribute == GetHealthOnKillAttribute()
-		|| Attribute == GetPierceAttribute())
+		|| Attribute == GetPierceAttribute()
+		|| Attribute == GetPowderKegAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}

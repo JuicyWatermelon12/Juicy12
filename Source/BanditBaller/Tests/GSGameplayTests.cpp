@@ -3787,6 +3787,148 @@ bool FGSPiercingRoundsTest::RunTest(const FString& Parameters)
 }
 
 // ---------------------------------------------------------------------------
+// Powder Keg: kills explode (radius, damage per stack x Damage), never the player, chains after a delay, kill credit
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSPowderKegTest, "BanditBaller.Upgrades.PowderKeg", GSTests::TestFlags)
+bool FGSPowderKegTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	struct FState
+	{
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits;
+		float PlayerHealth = 0.f;
+		int32 ComboBefore = 0;
+		int32 CashPickupsBefore = 0;
+		int32 OrbsBefore = 0;
+		int32 KillsBefore = 0;
+	};
+	TSharedRef<FState> S = MakeShared<FState>();
+	auto Health = [](const TWeakObjectPtr<AGSEnemyCharacter>& Bandit) { return Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f; };
+
+	// Data, no blast without the upgrade.
+	Step([this, S, Health]()
+	{
+		SpeedUpWorld(4.f);
+		GetGameMode()->SetRoundTimerPaused(true); // stay in PreRound: no wave
+		GetPlayer()->TeleportTo(FVector(-400.f, 0.f, 100.f), FRotator(0.f, 180.f, 0.f));
+
+		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("PowderKeg"));
+		if (TestNotNull(TEXT("DA_Upgrade_PowderKeg exists"), Upgrade))
+		{
+			TestTrue(TEXT("Powder Keg is Epic"), Upgrade->Rarity == EGSUpgradeRarity::Epic);
+			TestEqual(TEXT("Powder Keg has no cap"), Upgrade->MaxStacks, 0);
+			TestTrue(TEXT("Effect is GE_Upgrade_PowderKeg"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_PowderKeg::StaticClass()));
+			const UGSUpgradePool* Pool = GetGameMode()->GetUpgradePool();
+			TestTrue(TEXT("Powder Keg is in DA_UpgradePool"), Pool && Pool->Upgrades.Contains(Upgrade));
+		}
+		const UGSCombatSettings* Combat = GetGameMode()->GetCombatSettings();
+		if (TestNotNull(TEXT("DA_CombatSettings"), Combat))
+		{
+			TestEqual(TEXT("Blast: 30 damage at 1 stack"), Combat->GetBlastDamage(1), 30.f);
+			TestEqual(TEXT("Blast: +10 per extra stack"), Combat->GetBlastDamage(3), 50.f);
+			TestEqual(TEXT("Blast: 3 m at 1 stack"), Combat->GetBlastRadius(1), 300.f);
+			TestEqual(TEXT("Blast: +0.5 m per extra stack"), Combat->GetBlastRadius(3), 400.f);
+			TestEqual(TEXT("Chain delay 0.1 s"), Combat->ChainDelay, 0.1f);
+			TestNotNull(TEXT("Blast damage effect set"), Combat->BlastDamageEffect.Get());
+			TestNotNull(TEXT("Placeholder blast effect set"), Combat->BlastEffect.Get());
+			TestNotNull(TEXT("Placeholder blast sound set"), Combat->BlastSound.Get());
+		}
+		TestEqual(TEXT("PowderKeg starts at 0"), GetAttr(UGSAttributeSet::GetPowderKegAttribute()), 0.f, 0.001f);
+
+		// A (dies) at -500, B 2 m away, C 4.5 m from A and 2.5 m from B, D 4 m from A off the line.
+		for (const FVector& At : { FVector(-500.f, 0.f, 0.f), FVector(-700.f, 0.f, 0.f), FVector(-950.f, 0.f, 0.f), FVector(-500.f, -400.f, 0.f) })
+		{
+			S->Bandits.Add(SpawnFrozenBandit(At));
+		}
+		ApplyDamage(S->Bandits[0]->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
+		TestTrue(TEXT("No Powder Keg: the kill"), S->Bandits[0]->GetHealthComponent()->IsDead());
+		TestEqual(TEXT("No Powder Keg: no blast"), GetGameMode()->GetPowderKegBlasts(), 0);
+		TestEqual(TEXT("No Powder Keg: B untouched"), Health(S->Bandits[1]), 60.f, 0.01f);
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+	});
+
+	// One stack: 30 damage within 3 m, never the player (standing 1 m from the blast, god mode off). B (20 HP) dies in it
+	// and explodes 0.1 s later, which reaches C (out of the first blast's reach). The kills are the player's.
+	Step([this, S, Health]()
+	{
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("PowderKeg") });
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Leech") });
+		TestEqual(TEXT("PowderKeg 1"), GetAttr(UGSAttributeSet::GetPowderKegAttribute()), 1.f, 0.001f);
+		for (const FVector& At : { FVector(-500.f, 0.f, 0.f), FVector(-700.f, 0.f, 0.f), FVector(-950.f, 0.f, 0.f), FVector(-500.f, -400.f, 0.f) })
+		{
+			S->Bandits.Add(SpawnFrozenBandit(At));
+		}
+		for (int32 i = 0; i < S->Bandits.Num(); ++i)
+		{
+			if (!TestTrue(FString::Printf(TEXT("Bandit %d spawned"), i), S->Bandits[i].IsValid()))
+			{
+				return;
+			}
+		}
+		S->Bandits[1]->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 20.f);
+
+		ApplyDamage(GetPlayerASC(), 10.f); // so Leech has room to heal
+		S->PlayerHealth = GetHealth(GetPlayerASC());
+		UGSComboComponent* Combo = GetPlayerCombo();
+		Combo->EndCombo(EGSComboEndReason::Reset);
+		S->ComboBefore = Combo->GetComboCount();
+		S->CashPickupsBefore = GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash);
+		S->OrbsBefore = GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::XP);
+		S->KillsBefore = GetGameState()->GetRunStats()->GetTotalKills();
+
+		// Kill A as the player: it explodes at once.
+		ApplyDamage(S->Bandits[0]->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
+		TestEqual(TEXT("One blast at once"), GetGameMode()->GetPowderKegBlasts(), 1);
+		TestTrue(TEXT("B (20 HP, 2 m) died in the blast"), S->Bandits[1]->GetHealthComponent()->IsDead());
+		TestEqual(TEXT("C (4.5 m) is out of reach"), Health(S->Bandits[2]), 60.f, 0.01f);
+		TestEqual(TEXT("D (4 m) is out of reach"), Health(S->Bandits[3]), 60.f, 0.01f);
+		TestEqual(TEXT("B's blast waits for the chain delay"), GetGameMode()->GetPendingPowderKegs(), 1);
+		// The player is 1 m from A: never hurt by it; Leech healed the two kills (A by the gun, B by the blast).
+		TestEqual(TEXT("The player isn't hurt and Leech healed both kills"), GetHealth(GetPlayerASC()), S->PlayerHealth + 2.f, 0.01f);
+		TestEqual(TEXT("Blast kill counts for the combo (A + B)"), Combo->GetComboCount(), S->ComboBefore + 2);
+		TestEqual(TEXT("Both kills in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), S->KillsBefore + 2);
+		TestTrue(TEXT("The blast kill dropped cash"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash) > S->CashPickupsBefore);
+		TestEqual(TEXT("Two XP orbs (A and B)"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::XP), S->OrbsBefore + 2);
+	});
+	WaitWorldSeconds(this, 0.2);
+	Step([this, S, Health]()
+	{
+		TestEqual(TEXT("B exploded 0.1 s later: two blasts"), GetGameMode()->GetPowderKegBlasts(), 2);
+		TestEqual(TEXT("B's blast hit C (2.5 m from B) for 30"), Health(S->Bandits[2]), 30.f, 0.01f);
+		TestEqual(TEXT("D (4.7 m from B) still untouched"), Health(S->Bandits[3]), 60.f, 0.01f);
+		TestEqual(TEXT("Nothing pending"), GetGameMode()->GetPendingPowderKegs(), 0);
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+
+		// Three stacks: 50 damage and 4 m; Damage x1.1 makes it 55. D at 3.5 m is in reach now.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("PowderKeg"), TEXT("2") });
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Damage") });
+		for (const FVector& At : { FVector(-500.f, 0.f, 0.f), FVector(-500.f, -350.f, 0.f), FVector(-500.f, 450.f, 0.f) })
+		{
+			S->Bandits.Add(SpawnFrozenBandit(At));
+		}
+		ApplyDamage(S->Bandits[0]->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
+		TestEqual(TEXT("3 stacks x Damage 1.1: 55 at 3.5 m"), Health(S->Bandits[1]), 5.f, 0.01f);
+		TestEqual(TEXT("3 stacks: 4.5 m is out of the 4 m radius"), Health(S->Bandits[2]), 60.f, 0.01f);
+
+		// A kill that isn't the player's doesn't explode.
+		const int32 Blasts = GetGameMode()->GetPowderKegBlasts();
+		ApplyDamage(S->Bandits[2]->GetAbilitySystemComponent(), 1000.f);
+		TestEqual(TEXT("A kill by someone else: no blast"), GetGameMode()->GetPowderKegBlasts(), Blasts);
+
+		GetGameMode()->RestartRunWithSeed(61);
+		TestEqual(TEXT("New run: PowderKeg 0"), GetAttr(UGSAttributeSet::GetPowderKegAttribute()), 0.f, 0.001f);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
 // Extra Jump: JumpMaxCount sync, consistent air jumps, coyote / slide-hop / dash, landing reset
 // ---------------------------------------------------------------------------
 
@@ -4346,7 +4488,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
-		TestEqual(TEXT("Pool has the 11 upgrades"), Pool->Upgrades.Num(), 11);
+		TestEqual(TEXT("Pool has the 12 upgrades"), Pool->Upgrades.Num(), 12);
 		TestEqual(TEXT("Common weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Common), 100.f);
 		TestEqual(TEXT("Rare weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Rare), 20.f);
 		TestEqual(TEXT("Epic weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Epic), 6.f);
@@ -4365,8 +4507,8 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		auto NoStacks = [](const UGSUpgradeData*) { return 0; };
 
 		// Real pool: always 3 different upgrades (the empty Legendary tier never wastes a pick). Weights Common 100, Rare 20,
-		// Epic 6 (the lone Epic, Piercing Rounds, leaves the weighting once it is in the offer). An offer has no Rare with
-		// (100/126)^3 + 3 orderings with the Epic once = 0.5944, so the Rare tier is in about 40.6% of offers.
+		// Epic 6 (two Epics: Piercing Rounds, Powder Keg; the tier leaves the weighting once both are in the offer). An
+		// offer has no Rare with probability 0.5954 (every C/E ordering), so the Rare tier is in about 40.5% of offers.
 		FRandomStream Stream(7);
 		int32 WithRare = 0;
 		bool bAllFull = true, bAllDifferent = true;
@@ -4379,8 +4521,8 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		}
 		TestTrue(TEXT("Every offer has 3 choices"), bAllFull);
 		TestTrue(TEXT("Choices in an offer are different"), bAllDifferent);
-		AddInfo(FString::Printf(TEXT("Rare in %.1f%% of 3000 offers (expected 40.6%%)"), 100.0 * WithRare / 3000.0));
-		TestTrue(TEXT("Rare frequency matches the tier weights"), FMath::Abs(WithRare / 3000.0 - 0.4056) < 0.03);
+		AddInfo(FString::Printf(TEXT("Rare in %.1f%% of 3000 offers (expected 40.5%%)"), 100.0 * WithRare / 3000.0));
+		TestTrue(TEXT("Rare frequency matches the tier weights"), FMath::Abs(WithRare / 3000.0 - 0.4046) < 0.03);
 
 		// Same seed -> same offers.
 		FRandomStream A(99), B(99);

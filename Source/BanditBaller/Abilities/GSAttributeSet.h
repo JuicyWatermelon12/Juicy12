@@ -123,6 +123,15 @@ public:
 	FGameplayAttributeData Pierce;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, Pierce)
 
+	/**
+	 * Powder Keg stacks: while above 0, every enemy this player kills explodes (AGSGameMode; damage and radius grow per
+	 * stack, DA_CombatSettings). Default 0, clamped to >= 0, rounded when read. Raised by the Powder Keg upgrade.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData PowderKeg;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, PowderKeg)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;

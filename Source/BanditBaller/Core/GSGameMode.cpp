@@ -31,6 +31,9 @@
 #include "GSDifficultyCurve.h"
 #include "GSGameplayEffects.h"
 #include "GSGameplayTags.h"
+#include "GSWeaponDebug.h"
+#include "DrawDebugHelpers.h"
+#include "NiagaraFunctionLibrary.h"
 #include "GSProgressionComponent.h"
 #include "GSUpgradeComponent.h"
 #include "Kismet/GameplayStatics.h"
@@ -159,6 +162,116 @@ void AGSGameMode::HandleEnemyKilled(AActor* Enemy, AActor* Killer)
 	}
 
 	OnEnemyKilled.Broadcast(Enemy, Killer);
+
+	// Powder Keg: an enemy the player killed explodes where it died (after the kill is fully counted).
+	if (KillerState && EnemyCharacter)
+	{
+		TriggerPowderKeg(Enemy->GetActorLocation(), KillerState);
+	}
+}
+
+void AGSGameMode::TriggerPowderKeg(const FVector& Location, const AGSPlayerState* Player)
+{
+	const UAbilitySystemComponent* ASC = Player ? Player->GetAbilitySystemComponent() : nullptr;
+	if (!ASC || FMath::RoundToInt(ASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute())) <= 0)
+	{
+		return;
+	}
+	if (!bApplyingPowderKeg)
+	{
+		ExplodePowderKeg(Location, Player);
+		return;
+	}
+
+	// Killed by a blast: explode a moment later, so a chain ripples outwards instead of happening in one frame.
+	const UGSCombatSettings* Settings = CombatSettings ? CombatSettings.Get() : GetDefault<UGSCombatSettings>();
+	PendingPowderKegs.RemoveAll([this](const FTimerHandle& Handle) { return !GetWorldTimerManager().IsTimerActive(Handle); });
+	FTimerHandle& Handle = PendingPowderKegs.AddDefaulted_GetRef();
+	const TWeakObjectPtr<const AGSPlayerState> WeakPlayer(Player);
+	GetWorldTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this, Location, WeakPlayer]()
+	{
+		if (const AGSPlayerState* PlayerState = WeakPlayer.Get())
+		{
+			ExplodePowderKeg(Location, PlayerState);
+		}
+	}), FMath::Max(Settings->ChainDelay, 0.001f), false);
+}
+
+int32 AGSGameMode::GetPendingPowderKegs() const
+{
+	int32 Count = 0;
+	for (const FTimerHandle& Handle : PendingPowderKegs)
+	{
+		Count += GetWorldTimerManager().IsTimerActive(Handle) ? 1 : 0;
+	}
+	return Count;
+}
+
+int32 AGSGameMode::ExplodePowderKeg(const FVector& Location, const AGSPlayerState* Player)
+{
+	UAbilitySystemComponent* SourceASC = Player ? Player->GetAbilitySystemComponent() : nullptr;
+	const int32 Stacks = SourceASC ? FMath::RoundToInt(SourceASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute())) : 0;
+	if (Stacks <= 0)
+	{
+		return 0;
+	}
+	const UGSCombatSettings* Settings = CombatSettings ? CombatSettings.Get() : GetDefault<UGSCombatSettings>();
+	const float Radius = Settings->GetBlastRadius(Stacks);
+	const float Damage = Settings->GetBlastDamage(Stacks) * SourceASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute());
+	++PowderKegBlasts;
+
+	// Every living enemy in the radius (no line of sight); players are never targets.
+	TArray<AGSEnemyCharacter*> Targets;
+	for (TActorIterator<AGSEnemyCharacter> It(GetWorld()); It; ++It)
+	{
+		const UGSHealthComponent* Health = It->GetHealthComponent();
+		if (Health && !Health->IsDead() && FVector::DistSquared(It->GetActorLocation(), Location) <= FMath::Square(Radius))
+		{
+			Targets.Add(*It);
+		}
+	}
+
+	int32 Killed = 0;
+	if (Settings->BlastDamageEffect && Damage > 0.f)
+	{
+		// Enemies this blast kills come back through HandleEnemyKilled as the player's kills and chain after ChainDelay.
+		TGuardValue<bool> ApplyingBlast(bApplyingPowderKeg, true);
+		for (AGSEnemyCharacter* Target : Targets)
+		{
+			UAbilitySystemComponent* TargetASC = Target->GetAbilitySystemComponent();
+			FGameplayEffectSpecHandle Spec = SourceASC->MakeOutgoingSpec(Settings->BlastDamageEffect, 1.f, SourceASC->MakeEffectContext());
+			if (!TargetASC || !Spec.IsValid())
+			{
+				continue;
+			}
+			Spec.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Damage, Damage);
+			SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data, TargetASC);
+			Killed += Target->GetHealthComponent()->IsDead() ? 1 : 0;
+		}
+	}
+	else if (!Settings->BlastDamageEffect)
+	{
+		UE_LOG(LogBanditBaller, Warning, TEXT("[blast] DA_CombatSettings has no BlastDamageEffect; the Powder Keg blast did no damage."));
+	}
+
+	// Placeholder explosion (local: single-player). TODO(co-op): multicast the effect and sound.
+	if (Settings->BlastEffect)
+	{
+		const float Scale = Settings->BlastRadius > 0.f ? Radius / Settings->BlastRadius : 1.f;
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), Settings->BlastEffect, Location, FRotator::ZeroRotator, FVector(Scale));
+	}
+	if (Settings->BlastSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(GetWorld(), Settings->BlastSound, Location);
+	}
+	if (GSWeaponDebug::IsEnabled())
+	{
+		DrawDebugSphere(GetWorld(), Location, Radius, 16, FColor::Orange, false, GSWeaponDebug::DrawDuration);
+	}
+
+	UE_LOG(LogBanditBaller, Log, TEXT("[blast] Powder Keg x%d at %s: radius %.0f, damage %.0f, %d enemies hit, %d killed (blast %d this run)"),
+		Stacks, *Location.ToCompactString(), Radius, Damage, Targets.Num(), Killed, PowderKegBlasts);
+	return Targets.Num();
 }
 
 int32 AGSGameMode::AwardXP(AGSPlayerState* Player, float BaseXP, bool bApplyXPGain)
@@ -425,6 +538,14 @@ void AGSGameMode::StartRun(int32 Seed, const TCHAR* Source)
 {
 	RunSeed = Seed;
 	RunStream.Initialize(Seed);
+
+	// Chain blasts from the last run don't carry into this one.
+	for (FTimerHandle& Handle : PendingPowderKegs)
+	{
+		GetWorldTimerManager().ClearTimer(Handle);
+	}
+	PendingPowderKegs.Reset();
+	PowderKegBlasts = 0;
 
 	// A fresh run starts with no cash on the ground.
 	if (UGSCashPickupSubsystem* Cash = GetWorld()->GetSubsystem<UGSCashPickupSubsystem>())
