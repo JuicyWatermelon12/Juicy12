@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
 #include "GSGameState.h"
+#include "GSRunStats.h"
 #include "GSGameMode.generated.h"
 
 class UGSRoundSettings;
@@ -135,7 +136,7 @@ public:
 	static int32 MakeRandomSeed();
 
 	/** Called by UGSAttributeSet when damage actually removed Health (server): feeds run stats. */
-	void HandleDamageApplied(AActor* Victim, AActor* DamageInstigator, float Amount);
+	void HandleDamageApplied(AActor* Victim, AActor* DamageInstigator, float Amount, EGSDamageSource Source = EGSDamageSource::Other);
 
 	// --- Cash (server) ---
 

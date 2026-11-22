@@ -5,6 +5,8 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
 #include "BanditBaller.h"
+#include "Containers/Ticker.h"
+#include "HAL/IConsoleManager.h"
 #include "Components/CapsuleComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -442,6 +444,114 @@ void UGSDebugLibrary::PrintUpgradeOffer(AGSPlayerController* PC)
 	{
 		GEngine->AddOnScreenDebugMessage(-1, 8.f, FColor::Cyan, Text);
 	}
+#endif
+}
+
+namespace
+{
+	TAutoConsoleVariable<int32> CVarAutoPickUpgrades(
+		TEXT("gs.Debug.AutoPickUpgrades"),
+		0,
+		TEXT("1 = take every upgrade offer automatically a frame after it opens (debug playtests): an unowned weapon while a ")
+		TEXT("slot is free, else an owned weapon, else the rarest card; an all-Common offer without a weapon is rerolled first ")
+		TEXT("while rerolls last."),
+		ECVF_Cheat);
+
+	bool GAutoPickScheduled = false;
+}
+
+int32 UGSDebugLibrary::ChooseUpgradeForAutoPick(const TArray<FGSUpgradeChoice>& Offer, const UGSUpgradeComponent* Upgrades, int32 MaxWeapons, bool bCanReroll)
+{
+	if (Offer.IsEmpty() || !Upgrades)
+	{
+		return INDEX_NONE;
+	}
+	const int32 OwnedWeapons = Upgrades->GetOwnedWeapons().Num();
+	int32 NewWeapon = INDEX_NONE, OwnedWeapon = INDEX_NONE, Rarest = 0;
+	for (int32 Index = 0; Index < Offer.Num(); ++Index)
+	{
+		const FGSUpgradeChoice& Choice = Offer[Index];
+		if (!Choice.Upgrade)
+		{
+			continue;
+		}
+		if (Choice.Upgrade->Category == EGSUpgradeCategory::Weapon)
+		{
+			const bool bOwned = Upgrades->GetStacks(Choice.Upgrade) > 0;
+			if (!bOwned && OwnedWeapons < MaxWeapons && NewWeapon == INDEX_NONE)
+			{
+				NewWeapon = Index;
+			}
+			else if (bOwned && OwnedWeapon == INDEX_NONE)
+			{
+				OwnedWeapon = Index;
+			}
+		}
+		if (static_cast<int32>(Choice.Rarity) > static_cast<int32>(Offer[Rarest].Rarity))
+		{
+			Rarest = Index;
+		}
+	}
+	if (NewWeapon != INDEX_NONE)
+	{
+		return NewWeapon;
+	}
+	if (OwnedWeapon != INDEX_NONE)
+	{
+		return OwnedWeapon;
+	}
+	if (bCanReroll && Offer[Rarest].Rarity == EGSUpgradeRarity::Common)
+	{
+		return INDEX_NONE; // nothing but plain Common cards: try a reroll
+	}
+	return Rarest;
+}
+
+void UGSDebugLibrary::ScheduleAutoPickUpgrades(AGSGameMode* GameMode)
+{
+#if !UE_BUILD_SHIPPING
+	if (CVarAutoPickUpgrades.GetValueOnGameThread() == 0 || !GameMode || GAutoPickScheduled)
+	{
+		return;
+	}
+	// A frame later (the core ticker runs while the game is paused for the choice), outside the offer events.
+	GAutoPickScheduled = true;
+	TWeakObjectPtr<AGSGameMode> WeakGameMode(GameMode);
+	FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([WeakGameMode](float) -> bool
+	{
+		GAutoPickScheduled = false;
+		AGSGameMode* Mode = WeakGameMode.Get();
+		const AGSGameState* GS = Mode ? Mode->GetGameState<AGSGameState>() : nullptr;
+		if (!GS || CVarAutoPickUpgrades.GetValueOnGameThread() == 0)
+		{
+			return false;
+		}
+		const int32 MaxWeapons = Mode->GetUpgradePool() ? Mode->GetUpgradePool()->MaxWeapons : 3;
+		for (APlayerState* BasePS : GS->PlayerArray)
+		{
+			AGSPlayerState* PS = Cast<AGSPlayerState>(BasePS);
+			UGSUpgradeComponent* Upgrades = PS ? PS->GetUpgradeComponent() : nullptr;
+			// Every queued offer in turn (each pick opens the next); at most a few rerolls per offer.
+			for (int32 Guard = 0; Upgrades && Upgrades->HasOpenOffer() && Guard < 1000; ++Guard)
+			{
+				const int32 Index = ChooseUpgradeForAutoPick(Upgrades->GetCurrentOffer(), Upgrades, MaxWeapons, Upgrades->GetRerollsLeft() > 0);
+				if (Index == INDEX_NONE)
+				{
+					UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] auto-pick (debug): reroll (%d left)"), Upgrades->GetRerollsLeft());
+					if (!Mode->RerollUpgradeOffer(PS))
+					{
+						Mode->ChooseUpgrade(PS, 0);
+					}
+					continue;
+				}
+				const FGSUpgradeChoice Choice = Upgrades->GetCurrentOffer()[Index];
+				UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] auto-pick (debug): card %d, %s %s"), Index, *UGSUpgradeData::GetRarityName(Choice.Rarity),
+					*GetNameSafe(Choice.Upgrade));
+				Mode->ChooseUpgrade(PS, Index);
+			}
+		}
+		return false; // one shot
+	}));
 #endif
 }
 

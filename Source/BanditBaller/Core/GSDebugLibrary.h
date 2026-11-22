@@ -8,7 +8,10 @@
 #include "GSDebugLibrary.generated.h"
 
 class AGSEnemyCharacter;
+class AGSGameMode;
 class AGSPlayerController;
+class UGSUpgradeComponent;
+struct FGSUpgradeChoice;
 class UGSEnemyData;
 class UGSUpgradeData;
 class UGSWeaponData;
@@ -144,6 +147,17 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "BanditBaller|Debug")
 	static FGSUpgradeOfferSimulation SimulateUpgradeOffers(int32 Count, int32 Seed);
+
+	/**
+	 * Debug (cvar gs.Debug.AutoPickUpgrades 1): a frame later, take every open upgrade offer by a fixed policy, for
+	 * playtests driven from the console: an unowned weapon while a slot is free, else an owned weapon, else the rarest
+	 * card (the first one on a tie). An offer with no weapon and only Common cards is rerolled first while rerolls last.
+	 * Called by AGSGameMode whenever an offer is open; does nothing while the cvar is 0.
+	 */
+	static void ScheduleAutoPickUpgrades(AGSGameMode* GameMode);
+
+	/** The auto-pick policy for one offer: the card index to take, or INDEX_NONE to reroll (bCanReroll). */
+	static int32 ChooseUpgradeForAutoPick(const TArray<FGSUpgradeChoice>& Offer, const UGSUpgradeComponent* Upgrades, int32 MaxWeapons, bool bCanReroll);
 
 	/** Names of all enemy / weapon data assets (for help text and errors). */
 	static TArray<FString> GetEnemyDataNames();

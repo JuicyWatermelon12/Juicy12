@@ -44,6 +44,7 @@
 #include "GSProfileSubsystem.h"
 #include "GSRoundClearSettings.h"
 #include "GSXPCurve.h"
+#include "GSDebugLibrary.h"
 #include "GSLevelRewards.h"
 
 const TCHAR* AGSGameMode::RunSeedOption = TEXT("GSSeed");
@@ -288,6 +289,7 @@ int32 AGSGameMode::ExplodePowderKeg(const FVector& Location, const AGSPlayerStat
 				continue;
 			}
 			Spec.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Damage, Damage);
+			Spec.Data->AddDynamicAssetTag(GSGameplayTags::Damage_Source_PowderKeg); // run stats by source
 			SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data, TargetASC);
 			Killed += Target->GetHealthComponent()->IsDead() ? 1 : 0;
 		}
@@ -376,6 +378,12 @@ void AGSGameMode::UpdateUpgradeChoicePause()
 			bAnyOfferOpen |= Upgrades && Upgrades->HasOpenOffer();
 		}
 	}
+	// Debug (gs.Debug.AutoPickUpgrades): take the open offers a frame later by a fixed policy (playtest reports).
+	if (bAnyOfferOpen)
+	{
+		UGSDebugLibrary::ScheduleAutoPickUpgrades(this);
+	}
+
 	// TODO(co-op): M6 shows the other players who is choosing while the party is paused.
 	const bool bWantPause = bPauseDuringUpgradeChoice && bAnyOfferOpen;
 	if (bWantPause == bPausedForUpgradeChoice)
@@ -500,9 +508,12 @@ void AGSGameMode::RollHealthOrbDrop(const FVector& Location)
 	{
 		return; // no dice: a 0 chance leaves the run stream untouched
 	}
-	if (Chance >= 1.f || UGSRunRandom::RollChance(this, Chance))
+	if ((Chance >= 1.f || UGSRunRandom::RollChance(this, Chance)) && Pickups->SpawnHealthDrop(CashSettings, Location))
 	{
-		Pickups->SpawnHealthDrop(CashSettings, Location);
+		if (UGSRunStats* Stats = GetRunStats())
+		{
+			Stats->RecordHealthOrbDropped();
+		}
 	}
 }
 
@@ -561,7 +572,7 @@ float AGSGameMode::AwardHealthPickup(APlayerController* Player, int32 HealAmount
 	return Healed;
 }
 
-void AGSGameMode::HandleDamageApplied(AActor* Victim, AActor* DamageInstigator, float Amount)
+void AGSGameMode::HandleDamageApplied(AActor* Victim, AActor* DamageInstigator, float Amount, EGSDamageSource Source)
 {
 	if (Amount <= 0.f)
 	{
@@ -583,7 +594,7 @@ void AGSGameMode::HandleDamageApplied(AActor* Victim, AActor* DamageInstigator, 
 	}
 	else if (Stats && IsPlayerActor(DamageInstigator))
 	{
-		Stats->AddDamageDealt(Amount);
+		Stats->AddDamageDealt(Amount, Source); // by source: the gun, each weapon, Powder Keg, other
 	}
 }
 
@@ -652,9 +663,10 @@ void AGSGameMode::LogRoundSummary(const TCHAR* Ending) const
 	const bool bPaid = Payout.Round == Round.Round && Round.Round > 0;
 	const float CombatTime = bPaid ? Payout.ClearTime
 		: (Round.CombatStartTime >= 0.0 ? static_cast<float>(GS->GetServerWorldTimeSeconds() - Round.CombatStartTime) : 0.f);
-	UE_LOG(LogBanditBaller, Log, TEXT("[round] Round %d %s: combat %.1f s, wave %d, %d kills, $%d collected + $%d bonus, %d XP, %.0f damage taken, level %d, fallback spawns %d"),
+	UE_LOG(LogBanditBaller, Log, TEXT("[round] Round %d %s: combat %.1f s, wave %d, %d kills, $%d collected + $%d bonus, %d XP, %.0f damage taken, level %d, fallback spawns %d, health orbs %d dropped / %d collected / %.0f healed, damage dealt: %s"),
 		Round.Round, Ending, CombatTime, Round.WaveEnemies, Round.Kills, Round.CashCollected, bPaid ? Payout.GetTotal() : 0, Round.XPEarned, Round.DamageTaken,
-		Stats->GetLevelReached(), WaveDirector ? WaveDirector->GetFallbackSpawns() : 0);
+		Stats->GetLevelReached(), WaveDirector ? WaveDirector->GetFallbackSpawns() : 0, Round.HealthOrbsDropped, Round.HealthOrbsCollected, Round.HealthHealedByOrbs,
+		*Stats->DescribeDamageBySource(Round.DamageBySource));
 }
 
 UGSRunStats* AGSGameMode::GetRunStats() const
@@ -779,9 +791,10 @@ void AGSGameMode::HandlePlayerDeath(APawn* Player, AActor* Killer)
 	}
 	if (Stats && GS)
 	{
-		UE_LOG(LogBanditBaller, Log, TEXT("Run over in round %d (seed %d): %d rounds cleared, level %d, %d kills, best combo %d, $%d earned, %.1f s."),
+		UE_LOG(LogBanditBaller, Log, TEXT("Run over in round %d (seed %d): %d rounds cleared, level %d, %d kills, best combo %d, $%d earned, %.1f s; damage dealt %.0f (%s); health orbs %d dropped / %d collected / %.0f healed."),
 			GS->GetRoundNumber(), GS->GetRunSeed(), Stats->GetRoundsCleared(), Stats->GetLevelReached(), Stats->GetTotalKills(), Stats->GetBestCombo(),
-			Stats->GetCashEarned(), Stats->GetRunTime());
+			Stats->GetCashEarned(), Stats->GetRunTime(), Stats->GetDamageDealt(), *Stats->DescribeDamageBySource(Stats->GetDamageDealtBySourceArray()),
+			Stats->GetHealthOrbsDropped(), Stats->GetHealthOrbsCollected(), Stats->GetHealthHealedByOrbs());
 	}
 
 	if (AGSPlayerController* PC = Player ? Cast<AGSPlayerController>(Player->GetController()) : nullptr)

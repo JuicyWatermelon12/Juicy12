@@ -389,6 +389,7 @@ void AGSFloatingGun::FireAt(AGSEnemyCharacter* AtTarget, float Lateness)
 	Launch.Damage = Settings->Damage * GetDamageMultiplier() * SourceASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute());
 	Launch.SourceASC = SourceASC;
 	Launch.DamageEffect = Settings->DamageEffect;
+	Launch.DamageSource = GSGameplayTags::Damage_Source_FloatingGun;
 	Launch.Mesh = Settings->ProjectileMesh;
 	Launch.Material = Settings->ProjectileMaterial;
 	Launch.Scale = Settings->ProjectileScale;

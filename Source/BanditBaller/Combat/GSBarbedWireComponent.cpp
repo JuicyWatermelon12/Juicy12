@@ -291,6 +291,7 @@ void UGSBarbedWireComponent::DamageTick()
 			continue;
 		}
 		Spec.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Damage, Damage * Crit.DamageMultiplier);
+		Spec.Data->AddDynamicAssetTag(GSGameplayTags::Damage_Source_BarbedWire); // run stats by source
 		if (Crit.bCritical)
 		{
 			Spec.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Critical, Crit.GetLevel());

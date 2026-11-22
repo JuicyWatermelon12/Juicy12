@@ -350,6 +350,7 @@ void UGSGameplayAbility_Fire::FireShot(const FGameplayAbilityActorInfo* ActorInf
 			if (SpecHandle.IsValid())
 			{
 				SpecHandle.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Damage, AppliedDamage[Index]);
+				SpecHandle.Data->AddDynamicAssetTag(GSGameplayTags::Damage_Source_Gun); // run stats by source
 				if (Crit.bCritical)
 				{
 					SpecHandle.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Critical, Crit.GetLevel()); // 1 crit, 2 triple

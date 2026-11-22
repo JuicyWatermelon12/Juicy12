@@ -4,7 +4,31 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "GameplayTagContainer.h"
 #include "GSRunStats.generated.h"
+
+/** Where a player's damage came from (the Damage.Source.* tag on the damage spec). */
+enum class EGSDamageSource : uint8
+{
+	/** The player's own guns (GA_Fire: rifle, pistol). */
+	Gun,
+	FloatingGun,
+	RazorCards,
+	BarbedWire,
+	PowderKeg,
+	/** Anything untagged (debug damage such as gs.KillAll). */
+	Other,
+	Count
+};
+
+namespace GSDamageSource
+{
+	constexpr int32 Num = static_cast<int32>(EGSDamageSource::Count);
+	/** The source named by a spec's Damage.Source.* tag (Other if none). */
+	BANDITBALLER_API EGSDamageSource FromTags(const FGameplayTagContainer& Tags);
+	/** "rifle/pistol", "Floating Gun", ... for logs. */
+	BANDITBALLER_API const TCHAR* GetName(EGSDamageSource Source);
+}
 
 /** Kills of one enemy type (TMap doesn't replicate). */
 USTRUCT(BlueprintType)
@@ -53,6 +77,21 @@ struct FGSRoundStats
 	/** Server world time when Combat started; < 0 until it does. */
 	UPROPERTY(BlueprintReadOnly, Category = "Stats")
 	double CombatStartTime = -1.0;
+
+	/** Health orbs enemies dropped, orbs collected, and the health they healed (overheal not counted). */
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	int32 HealthOrbsDropped = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	int32 HealthOrbsCollected = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	float HealthHealedByOrbs = 0.f;
+
+	/** Damage the players dealt this round, by source (EGSDamageSource). */
+	float DamageBySource[GSDamageSource::Num] = {};
+
+	float GetDamageBy(EGSDamageSource Source) const { return DamageBySource[static_cast<int32>(Source)]; }
 };
 
 /** The bonus paid when a round's Combat ended (RoundClear). A bonus that wasn't earned is 0. */
@@ -119,7 +158,10 @@ public:
 	/** Cash from pickups: run CashEarned and this round's CashCollected. */
 	void AddCashEarned(int32 Amount);
 	void AddCashSpent(int32 Amount);
-	void AddDamageDealt(float Amount);
+	/** Health the players removed from enemies, from Source (run total, by source, and this round by source). */
+	void AddDamageDealt(float Amount, EGSDamageSource Source = EGSDamageSource::Other);
+	/** An enemy dropped a health orb (run and round). */
+	void RecordHealthOrbDropped();
 	void AddDamageTaken(float Amount);
 	void AddXPEarned(int32 Amount);
 	/** Highest player level reached this run (keeps the max). */
@@ -159,6 +201,16 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Stats")
 	float GetDamageDealt() const { return DamageDealt; }
+
+	/** Damage dealt this run from one source. */
+	float GetDamageDealtBy(EGSDamageSource Source) const { return DamageDealtBySource[static_cast<int32>(Source)]; }
+	const float* GetDamageDealtBySourceArray() const { return DamageDealtBySource; }
+
+	/** "rifle/pistol 1200, Floating Gun 300, ..." (sources with damage only). */
+	FString DescribeDamageBySource(const float* BySource) const;
+
+	/** Health orbs enemies dropped this run. */
+	int32 GetHealthOrbsDropped() const { return HealthOrbsDropped; }
 
 	UFUNCTION(BlueprintPure, Category = "Stats")
 	float GetDamageTaken() const { return DamageTaken; }
@@ -241,6 +293,13 @@ protected:
 	/** TODO(co-op): not replicated yet (single-player first). */
 	UPROPERTY(VisibleInstanceOnly, Category = "Stats")
 	float HealthHealedByOrbs = 0.f;
+
+	/** TODO(co-op): not replicated yet (single-player first). */
+	UPROPERTY(VisibleInstanceOnly, Category = "Stats")
+	int32 HealthOrbsDropped = 0;
+
+	/** Damage dealt by source (EGSDamageSource). TODO(co-op): not replicated yet (single-player first). */
+	float DamageDealtBySource[GSDamageSource::Num] = {};
 
 	/** TODO(co-op): not replicated yet (single-player first); clients' RoundClear summary needs it in M6. */
 	UPROPERTY(VisibleInstanceOnly, Category = "Stats")

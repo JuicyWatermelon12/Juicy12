@@ -155,7 +155,8 @@ void UGSAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 			const UWorld* World = GetWorld();
 			if (AGSGameMode* GameMode = World ? World->GetAuthGameMode<AGSGameMode>() : nullptr)
 			{
-				GameMode->HandleDamageApplied(Data.Target.GetAvatarActor(), LastDamageInstigator.Get(), Applied);
+				GameMode->HandleDamageApplied(Data.Target.GetAvatarActor(), LastDamageInstigator.Get(), Applied,
+					GSDamageSource::FromTags(Data.EffectSpec.GetDynamicAssetTags()));
 			}
 
 			// A critical hit carries SetByCaller Data.Critical = 1, a triple hit 2 (GSCombat::RollCriticalHit; its damage is

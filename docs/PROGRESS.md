@@ -46,12 +46,13 @@ the hub map replaces them.
 were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **M2b**, eleven more
 level-up upgrades, is built (Prompts 29–39; 29 is the docs-only plan, then Dash Charge (30), Fire Rate + Magnet (31) and the
 held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds (34), Powder Keg (35), Floating Shield (36), Second Wind (37) and Floating Gun (38, 39)). Health orbs (35b) were added between 35 and 36; they aren't an upgrade. Powder Keg became a chance to explode in 35c.
-**Next: M2c**, the upgrade rework (Prompts 40–48; 40 is the docs-only plan, then upgrade data (41), the offer roll
+**M2c**, the upgrade rework, is built (Prompts 40–48; 40 is the docs-only plan, then upgrade data (41), the offer roll
 (42), weapon slots (43), overflow effects (44), the Move Speed fix for the slide and dash (44b), endless levels (45), Razor Cards (46), Barbed Wire (47) and the
-M2b + M2c checkpoint (48), which replaces the old M2b checkpoint). Four more weapons and a weapons checkpoint follow
-(49–53). **Then M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
+M2b + M2c checkpoint (48), which replaced the old M2b checkpoint). See **M2b + M2c checkpoint** under Prompt 48.
+**Next:** four more weapons and a weapons checkpoint (49–53). **Then M3** (shop, owned items, gear loadout, two-layer
+save); not planned in detail yet.
 
-State at the time of writing: `main` after "Barbed Wire" (Prompt 47), not pushed. The build is clean and all 54 automation tests pass in about 130 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "M2b and M2c checkpoint" (Prompt 48), not pushed. The build is clean and all 58 automation tests pass in about 132 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -114,7 +115,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2c 44b | Fix: slide and dash scale with Move Speed (speed ratio = MoveSpeed / base walk speed, at least 1, kept per slide / dash); x33 checked against the boundary and town cover | aaac26b |
 | M2c 45 | Endless levels: no cap; DA_XPCurve BaseXP 100 for level 2, +30 per level after that (replaces +25%); rewards, offers and HUD at any level | a3671e6 |
 | M2c 46 | Razor Cards (weapon): homing cards at the nearest enemy (6 damage, 2 a second, 25 m, 30 m/s); homing on AGSProjectile; DA_RazorCardsSettings, DA_Upgrade_RazorCards, pool of 16 | b2af04e |
-| M2c 47 | Barbed Wire (weapon): a ring on the ground (3.5 m) that hurts every enemy inside every 0.5 s (5 damage); +10% damage, +5% radius per power; `{Value2}` in card text; pool of 17 | see git log |
+| M2c 47 | Barbed Wire (weapon): a ring on the ground (3.5 m) that hurts every enemy inside every 0.5 s (5 damage); +10% damage, +5% radius per power; `{Value2}` in card text; pool of 17 | 96adb88 |
+| M2c 48 | Tests for the M2b + M2c rules (4 new), damage dealt by source and health orbs per round in run stats, auto-pick cvar, two PIE loops, M2b + M2c checkpoint | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -2762,6 +2764,154 @@ every 0.5 s.
   filled the screen, so the hit effect scale was halved to ×0.06 afterwards.
 - **Full suite:** 54 tests, all passing, in 129.5 s.
 
+### Prompt 48 — Tests + M2b and M2c checkpoint
+- **Test audit:** every rule in the prompt's list was checked against the suite. The rule → test map:
+
+  | Rule | Tests |
+  |---|---|
+  | Every upgrade at Common / Rare / Epic / Legendary changes its stat by the right amount; whole units give 1 / 2 / 3 and never roll Rare; a new run resets everything | `Upgrades.PickValues`, `Upgrades.Offers` (no Rare whole-unit card in 30,000 offers), new `Checkpoint.WeaponPicksAndNewRun`, `Run.NewRunResets` |
+  | Offers: three different cards, weights per category, the Legendary ability chance (always Legendary), the same seed gives the same offers and rerolls | `Upgrades.Offers`, `Run.SameSeedSameRun` |
+  | Weapons: the first offer's weapon card, no unowned weapon with MaxWeapons owned (rerolls too), owned weapons still offered, HUD slots | `Upgrades.WeaponSlots`, new `Checkpoint.WeaponLimitAllThree` |
+  | A new run has 1 dash charge; Bigger Mags rounds up; Leech never heals above MaxHealth | `Upgrades.DashCharge`, `Checkpoint.WeaponPicksAndNewRun`, `Upgrades.BiggerMagsAndLeech` |
+  | Loaded Dice and Powder Keg at 0%, 100% and past 100%; the blast hurts enemies, never the player; a chain ends | `Upgrades.LoadedDice`, `Upgrades.PowderKeg`, new `Upgrades.PowderKegChainEnds` |
+  | Piercing Rounds: up to N + 1 enemies in a line, each once, walls stop it | `Upgrades.PiercingRounds` |
+  | Attack order: dash i-frames use no shield; a shield cancels a hit and comes back after its cooldown; Second Wind only on a killing hit, one charge each | `Abilities.DashInvulnerabilityBlocksDamage`, `Upgrades.FloatingShield`, `Upgrades.SecondWind` |
+  | The three weapons: valid targets only, power scaling, kills are the player's | `Upgrades.FloatingGun`, `Upgrades.FloatingGunLevels`, `Upgrades.RazorCards`, `Upgrades.BarbedWire` |
+  | Health orbs from weapon and Powder Keg kills at the same chance as own kills | new `Economy.HealthOrbsAllSources` |
+  | Levels: no cap, a fixed step per level | `Progression.XPAndLevels`, `Progression.EndlessLevels` |
+
+- **New tests (4):** `Checkpoint.WeaponPicksAndNewRun`, `Checkpoint.WeaponLimitAllThree`, `Upgrades.PowderKegChainEnds`
+  and `Economy.HealthOrbsAllSources` (see the test table).
+- **Damage dealt by source** (`UGSRunStats`; run state, reset with the run, not replicated, `TODO(co-op)`):
+  - `EGSDamageSource`: Gun (rifle / pistol), FloatingGun, RazorCards, BarbedWire, PowderKeg, Other (`gs.KillAll`,
+    `gs.Damage`, anything untagged).
+  - Each damage spec carries a native tag `Damage.Source.Gun / FloatingGun / RazorCards / BarbedWire / PowderKeg`
+    (dynamic asset tags; GA_Fire, the projectile through `FGSProjectileLaunch::DamageSource`, Barbed Wire and the Powder
+    Keg blast set it). `UGSAttributeSet` reads it, and `AGSGameMode::HandleDamageApplied` passes it to
+    `AddDamageDealt(Amount, Source)`.
+  - Read access: `GetDamageDealtBy(Source)`, and per round in `FGSRoundStats::GetDamageBy`.
+- **Health orbs per round:** `FGSRoundStats` counts the orbs dropped and collected and the health they healed;
+  `UGSRunStats::GetHealthOrbsDropped()` gives the run total.
+- **Log lines:**
+  - `[round]` now ends with ", health orbs D dropped / C collected / H healed, damage dealt: rifle/pistol N, Floating
+    Gun N, …".
+  - "Run over in round N …" adds the damage dealt by source and the orbs.
+  - `gs.Run.Stats` adds a "Damage by source" line and the orbs dropped.
+- **`gs.Debug.AutoPickUpgrades 1`** (new cheat cvar, `UGSDebugLibrary::ScheduleAutoPickUpgrades` /
+  `ChooseUpgradeForAutoPick`): with offers open, a frame later every open offer is taken by a fixed policy. That lets a
+  playtest run from the console without stopping at the choice screen. The policy: an unowned weapon while a slot is
+  free, else an owned weapon, else the rarest card. An offer with only Common cards and no weapon is rerolled first
+  while rerolls last. `AGSGameMode::UpdateUpgradeChoicePause` schedules it; it does nothing at 0.
+- **Simulation** (`simulate_upgrade_offers(10000, 1)`, the 17-upgrade pool; 30,000 cards, no short offers):
+
+  | Upgrade | Cards | Offers | | Upgrade | Cards | Offers |
+  |---|---|---|---|---|---|---|
+  | Move Speed | 6.41% | 19.2% | | Damage | 6.19% | 18.6% |
+  | Extra Jump | 6.41% | 19.2% | | Bigger Mags | 6.17% | 18.5% |
+  | Powder Keg | 6.39% | 19.2% | | Leech | 6.16% | 18.5% |
+  | Fire Rate | 6.33% | 19.0% | | Dash Charge | 6.14% | 18.4% |
+  | Piercing Rounds | 6.25% | 18.8% | | Reload Speed | 6.13% | 18.4% |
+  | Magnet | 6.24% | 18.7% | | Razor Cards | 6.08% | 18.2% |
+  | Barbed Wire | 6.22% | 18.7% | | Loaded Dice | 5.96% | 17.9% |
+  | Floating Shield | 6.21% | 18.6% | | Floating Gun | 5.94% | 17.8% |
+  | Second Wind | 0.77% | 2.3% | | | | |
+
+  | Category | Cards | Offers with one | Common | Rare | Epic | Legendary |
+  |---|---|---|---|---|---|---|
+  | Stat Boost (7) | 43.4% | 84.6% | 78.5% | 15.9% | 4.6% | 0.90% |
+  | Ability (6) | 37.6% | 78.3% | 95.3% | 1.5% (Powder Keg only) | 2.7% | 0.48% |
+  | Legendary ability (Second Wind) | 0.77% | 2.3% | | | | 100% |
+  | Weapon (3) | 18.2% | 48.1% | 79.3% | 16.0% | 4.2% | 0.53% |
+
+  - The weights work out as planned: Stat Boosts and Weapons at 78.7 / 15.7 / 4.7 / 0.79% (100 / 20 / 6 / 1), Abilities at
+    95.3% Common because a whole unit's Rare counts as Common.
+  - By rarity: Common 84.4% of cards (in 99.6% of offers), Rare 10.4% (28.1% of offers), Epic 3.8% (10.9%), Legendary
+    1.44% (4.3%, Second Wind included).
+
+#### M2b + M2c checkpoint — two full loops in PIE
+Hub → run → death → hub, twice, and then a third Start Run to see it start fresh. The seeds were set in the hub
+(`gs.Run.Seed 4801` / `4802`) and each run started with `gs.Market.Return` (the portal's path). Editor throttling was
+off; the real profile slot was used.
+- **How it was played** (as in Prompt 28, MCP can't react in real time):
+  - Cleared rounds: god mode on. The weapons acted on their own. Each script pass aimed a rifle burst at the nearest
+    enemy, and every second pass sent `gs.KillAll` once the whole wave had spawned. Some rounds the weapons cleared
+    alone before a KillAll pass came.
+  - The death round: god mode off, standing still, no KillAll.
+  - Upgrades: `gs.Debug.AutoPickUpgrades 1` (policy above), so the picks went to weapons whenever one was offered.
+  - Read the numbers with that in mind:
+    - "Combat" is spawn time plus command delay, not kill speed.
+    - `gs.KillAll` damage is "other".
+    - Health stayed full, so the orbs healed nothing.
+    - The rifle numbers are low because `Input.+key` releases fire after a few frames.
+
+**Loop 1 (seed 4801): died in round 5, 1:38 run time**
+
+| Round | Wave | Combat | Cash collected + bonus | XP | Level after | Health orbs (dropped / collected / healed) | Damage dealt | Offer → pick |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 4 melee | 28.1 s | $46 + $35 (missed fast clear) | 40 | 1 | 0 / 0 / 0 | rifle 120, KillAll 240 | — |
+| 2 | 5 melee, 1 ranged | 12.8 s | $79 + $50 | 65 | 2 | 0 / 0 / 0 | KillAll 380 | Damage (Rare) / Barbed Wire (Common) / Loaded Dice (Common) → **Barbed Wire, Common** |
+| 3 | 6 melee, 2 ranged | 8.9 s | $117 + $50 | 90 | 2 | 1 / 1 / 0 | Barbed Wire 155, KillAll 385 | — |
+| 4 | 7 melee, 3 ranged | 11.4 s | $145 + $50 | 115 | 3 | 3 / 3 / 0 | rifle 146, Barbed Wire 240, KillAll 336 | Floating Gun (Common) / Extra Jump (Common) / Move Speed (Epic) → **Floating Gun, Common** |
+| 5 | 9 melee, 4 ranged | died after 6.4 s (120 damage) | — | — | 3 | 0 / 0 / 0 | Floating Gun 72, Barbed Wire 75 | — |
+
+Totals: 4 rounds cleared, level 3, 29 kills, best combo 8, $572 earned (balance $7,309 → $7,881), 0 rerolls used, 0
+fallback spawns. Weapons held: Barbed Wire (power 0), Floating Gun (one gun, power 0). Damage over the run: rifle 266,
+Barbed Wire 470, Floating Gun 72, `gs.KillAll` 1,340 (2,148 in total). Health orbs: 4 dropped, 4 collected, 0 healed.
+The summary showed these numbers ("Weapons: Barbed Wire, Floating Gun"; "Upgrades picked: None", since only weapons
+were taken).
+
+**Loop 2 (seed 4802): died in round 8, 3:13 run time**
+
+| Round | Wave | Combat | Cash collected + bonus | XP | Level after | Health orbs (dropped / collected / healed) | Damage dealt | Offer → pick |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 4 melee | 16.9 s | $43 + $35 (missed fast clear) | 40 | 1 | 0 / 0 / 0 | rifle 60, KillAll 180 | — |
+| 2 | 5 melee, 1 ranged | 13.4 s | $79 + $50 | 65 | 2 | 1 / 1 / 0 | KillAll 380 | Magnet (Common) / Piercing Rounds (Common) / Floating Gun (Common) → **Floating Gun, Common** |
+| 3 | 6 melee, 2 ranged | 7.2 s | $117 + $50 | 90 | 2 | 2 / 2 / 0 | Floating Gun 80, KillAll 460 | — |
+| 4 | 7 melee, 3 ranged | 13.2 s | $165 + $50 | 115 | 3 | 2 / 2 / 0 | Floating Gun 150, KillAll 572 | Leech (Common) / Move Speed (Common) / Floating Gun (Rare) → **Floating Gun, Rare** (second gun, power 0.5) |
+| 5 | 9 melee, 4 ranged | 39.2 s (the guns alone) | $150 + $35 (missed fast clear) | 150 | 4 | 1 / 1 / 0 | Floating Gun 1,045 | Piercing Rounds (Common) / Move Speed (Common) / Floating Gun (Rare) → **Floating Gun, Rare** (power 2: ×1.2, 1.8 shots/s each) |
+| 6 | generated, 12 | 32.2 s (the guns alone) | $168 + $35 (missed fast clear) | 160 | 5 | 2 / 2 / 0 | Floating Gun 922 | Extra Jump / Razor Cards / Floating Shield (all Common) → **Razor Cards, Common** |
+| 7 | generated, 15 | 11.2 s | $259 + $50 | 185 | 6 | 2 / 2 / 0 | Floating Gun 360, Razor Cards 119, KillAll 825 | Floating Shield / Damage / Razor Cards (all Common) → **Razor Cards, Common** (power 1) |
+| 8 | generated, 17 | died after 8.0 s (147 damage) | $20 | 20 | 6 | 0 / 0 / 0 | Floating Gun 265, Razor Cards 101 | — |
+
+Totals: 7 rounds cleared, level 6, 70 kills, best combo 12, $1,306 earned (balance $7,881 → $9,187), 0 rerolls used, 0
+fallback spawns. Weapons held: Floating Gun (two guns, power 2), Razor Cards (power 1). Damage over the run: Floating Gun
+2,821, Razor Cards 220, rifle 60, `gs.KillAll` 2,416 (5,518 in total). Health orbs: 10 dropped, 10 collected, 0 healed.
+The summary matched ("Weapons: Floating Gun, Razor Cards").
+
+- **After loop 2:** "Return to Market" (a Slate button click) opened the hub with $9,187, level 1, 100 / 100 health and
+  no weapons. `gs.Market.Return` then started a third run (random seed) at round 1, level 1, with no weapons, shields or
+  dash charges past the base, and the cash kept.
+- **Spawns:** 0 fallbacks in all 13 waves. In the 11 cleared waves the closest spawn was 12.3–18.5 m (ring 12–25 m),
+  and none was on-screen.
+- **Frame time** (`gs.Perf 5` right after each death, the enemies still alive and running their AI, the weapons idle
+  because the player was dead; 120 fps cap):
+
+  | Loop | Enemies alive | Frame avg | p95 | Max | Game | Render | GPU |
+  |---|---|---|---|---|---|---|---|
+  | 1 (round 5) | 12 | 8.43 ms (119 fps) | 8.33 | 52.28 | 3.49 | 2.77 | 3.42 |
+  | 2 (round 8) | 13 | 8.36 ms (120 fps) | 8.33 | 21.82 | 3.51 | 2.79 | 3.88 |
+
+  The weapons' own cost was measured in their prompts (Barbed Wire with 30 inside: about +2.5 ms game thread).
+- **Observations** (suggestions only, nothing changed):
+  - **The Floating Gun carries a run.** Two guns at power 2 cleared rounds 5 and 6 on their own while the player stood
+    in god mode, and dealt 51% of loop 2's damage (87% of what wasn't `gs.KillAll`). Barbed Wire at power 0 (470 over
+    loop 1) and Razor Cards at power 0–1 (220 over two rounds) did far less. The Floating Gun's second pick doubles it
+    (the second gun) where the others gain 10%. A balance pass should look at that.
+  - **Weapons alone don't keep a still player alive.** Loop 1 died in round 5 in 6.4 s (two weapons at power 0) and
+    loop 2 in round 8 in 8.0 s (four weapon picks), each to 120–147 damage while standing still.
+  - **Levels:** loop 1 levels 1, 2, 2, 3 after rounds 1–4; loop 2 levels 1, 2, 2, 3, 4, 5, 6 after rounds 1–7, about one
+    a round from round 4 (Prompt 45's estimate: a little under one per cleared round).
+  - **Offers:** 7 offers, all with a weapon card (the first is guaranteed; the other six came at the normal 48%, about a
+    1.2% streak). 5 of the 21 cards were not Common: Damage Rare, Move Speed Epic and Floating Gun Rare ×3.
+  - **Health orbs:** 14 dropped from 99 kills (14%; the chance is 20%), all collected, 0 healed, because god mode kept
+    health full and the vacuum at full health heals nothing. The death rounds had too few player kills to drop one.
+    How much they heal in a real fight is still untested.
+  - **Fast clear** was missed in round 1 of both loops (17–28 s against 14 s) and in loop 2's rounds 5–6 (the guns alone
+    took 32–39 s against 26–27.5 s).
+  - **Round 1 of loop 1 counted 5 kills for a wave of 4.** It may have been a target dummy hit by the rifle; not looked
+    into.
+- **Full suite:** 58 tests, all passing, in 131.7 s.
+
 ---
 
 ## Console commands and CVars
@@ -2793,7 +2943,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.Round.Set <N>` | Jump to round N and restart it from PreRound. |
 | `gs.Round.Pause [0\|1]` | Freeze / resume the phase timer. |
 | `gs.Run.Seed [N]` | Town: print the run seed, or restart the run (stream + stats, round 1) with seed N. Hub: print / set the next run's seed (0 = random); the portal passes it on. |
-| `gs.Run.Stats` | Print run stats to log and screen (works on clients), plus this round's stats and the last round-clear bonus. |
+| `gs.Run.Stats` | Print run stats to log and screen (works on clients), plus this round's stats and the last round-clear bonus. Since Prompt 48 also the damage dealt by source (rifle/pistol, Floating Gun, Razor Cards, Barbed Wire, Powder Keg, other) and the health orbs dropped / collected / healed. |
 | `gs.Market.Teleport` / `gs.Market.Return` | Debug shortcuts. Teleport (in a run) opens the hub map (`AGSGameMode::OpenHubMap`). Return (in the hub) starts a run like the portal (`AGSHubGameMode::StartRun`). |
 | `gs.Editor.RemoveSublevel <ShortName>` | Editor only: remove a streaming sublevel from the open map (MCP can't); save the map afterwards. |
 | `gs.Editor.BuildEnemyStateTree [melee\|ranged\|all]` | Editor only: regenerate ST_MeleeBandit / ST_RangedBandit from code. |
@@ -2802,6 +2952,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.Debug.Boundary 1` (cvar) | Draw the map boundary's play area (walls + ceiling) every frame. |
 | `gs.Debug.Weapons 1` (cvar) | Debug-draw shots and log enemy shots (`[shot]`). |
 | `gs.Debug.DamageLog 1` (cvar) | Log every health loss (`[dmg] victim took N from X (health) at t=`). |
+| `gs.Debug.AutoPickUpgrades 1` (cvar) | Playtests from the console: every open upgrade offer is taken a frame later. It picks an unowned weapon while a slot is free, else an owned weapon, else the rarest card. An offer that is all Common with no weapon is rerolled first while rerolls last. Logs `[upgrade] auto-pick (debug): …`. |
 | `gs.Wave.MaxAlive <N>` (cvar) | Override the alive cap (0 = DA_WaveSettings). |
 | `gs.Cash.Lifetime <s>` (cvar) | Lifetime of uncollected cash pieces (0 = DA_CashSettings). |
 | `GSFire`, `GSPress <InputTag>`, `GSAimAt X Y Z`, `GSJump` | Exec on the controller: drive fire, any ability input, the camera, or a jump tap from the console. |
@@ -2892,7 +3043,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (54, all passing, about 130 s)
+## Automation tests (58, all passing, about 132 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
@@ -2957,6 +3108,10 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Upgrades.WeaponSlots` | MaxWeapons 3; the real first offer has a weapon card (any of the three weapons); the limit step uses a pool copy without Razor Cards and Barbed Wire; test pool with two test weapons, MaxWeapons 1: none owned → both offered, one owned → the other never offered (CanOfferWeapon false) and the owned one still offered, MaxWeapons 2 → offered again; the first offer's weapon card in 400 of 400 offers, 3 different cards, at all three positions, Common and Rare both rolled; slots full → it is the owned weapon; MaxWeapons 0 → no weapon card, 3 cards; card labels NEW WEAPON / WEAPON UPGRADE / STAT BOOST; real run: first offer has the Floating Gun, 3 rerolls keep a weapon card, after the first pick not pending and later offers mostly without one, a new run → pending; a copy of the pool with a test weapon and MaxWeapons 1 (`SetUpgradePoolOverride`): one HUD slot, 30 offers + rerolls never offer the test weapon but offer the Floating Gun, the first one includes it; MaxWeapons 3: the test weapon is offered and picked, slots Floating Gun / test weapon / empty, no weapon in the upgrade row; real pool HUD: 3 empty slots without an icon, Damage in the upgrade row, two Epic Floating Gun picks → slot 1 shows it (icon, no count), the others empty, no Floating Gun in the upgrade row; a new run empties the slots; death → summary weapons line "Floating Gun", upgrades "Damage x1", one upgrade icon. |
 | `Upgrades.MoveSpeedSlideDash` | Base Move Speed: ratio exactly 1, the scaled settings getters equal the plain values at 1; half Move Speed → ratio 1 (never below), ×2 → 2; a Move Speed pick raises it, a new run resets it; on a clear 34 m lane of the ring road, a slide from a full run and a dash at ×1 and ×2: each keeps its start ratio; slide start = min(run + SpeedBoost × r, MaxSpeed × r) and faster than running, end = EndSpeed × r; dash = Distance × r in its Duration (±0.02 / +0.06 s), exit = min(ExitSpeed, dash speed) × r = the running speed; ×1 = the old numbers exactly; ×2 = twice the distance in the same time (within 0.05 s), the slide ends at twice EndSpeed; ×33: a dash and a slide into the east boundary wall stop inside. |
 | `Upgrades.MoveSpeedCover` | A crate, a low wall, a shack, a tower and the silo, each with a clear 6 m run-up; at Move Speed ×1, ×5 and ×33, a dash and a slide from a full run into each, the player's location sampled every frame in the piece's own frame: no frame overlaps the piece, the player stays on the ground, and if it ends behind the piece it went round it. Logs each path. Game time ×3. |
+| `Checkpoint.WeaponPicksAndNewRun` | Weapon power after picks of each rarity for all three weapons (e.g. Barbed Wire at power 6.5: ×1.65 damage, radius 463.75); a new run starts with 1 dash charge; every upgrade picked at every rarity it has (63 picks across 17 upgrades), a reroll used, Damage / air jumps / MaxHealth raised, two guns, the ring, Razor Cards and shields present; a new run: no picks, no offer, rerolls refilled, no weapons and the first offer's weapon card pending again, level 1, 1 dash charge, no shields / guns / ring / cards, no combo, no Powder Keg blasts, no damage dealt, HUD weapon slots empty and no upgrade icons. |
+| `Checkpoint.WeaponLimitAllThree` | All three real weapons owned, plus a fourth test weapon in a pool copy: HUD slots in pick order (Barbed Wire, Razor Cards, Floating Gun), no weapon in the upgrade row; slots full: `CanOfferWeapon` refuses the fourth; 60 offers and their rerolls never offer it, and owned weapons are still offered (31 times in the run); still three weapons; with MaxWeapons 4 the fourth is offered; the auto-pick policy (owned weapon with full slots, new weapon with a free slot, reroll when all Common, first without rerolls, else the rarest). |
+| `Upgrades.PowderKegChainEnds` | 34 stacks (102%), 8 frozen 10 HP bandits in a line 2.5 m apart. One kill starts a chain that runs down the line and ends: all 8 die, exactly 8 blasts, nothing pending. The player (no god mode, 6 m from the first) is never hurt. Run stats record the Powder Keg damage. Game time ×4. |
+| `Economy.HealthOrbsAllSources` | For each kind of player kill (own kill, Floating Gun, Razor Cards, Barbed Wire, a Powder Keg blast kill) in a fresh run: at drop chance 1 every kill drops an orb, at 0 none, and the damage is recorded under that source in run stats. Chance 0.3 in bulk: 60 own kills and a crowd killed by one Barbed Wire tick (5 Legendary picks) drop at about the same rate (23 of 60 and 16 of 50 in the run). Game time ×4. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
@@ -3117,8 +3272,20 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 ## Known issues, TODOs and deviations
 
 **Not built yet / stubs**
-- The M2c upgrade rework is built up to Prompt 47 (rarity per card, weapon slots, no pick caps, the 44b fix, endless
-  levels, Razor Cards, Barbed Wire). The M2b + M2c checkpoint (48) is next.
+- The M2c upgrade rework is complete (Prompts 41–48). Dynamite, Lucky Coin, Molotov and Tomahawk (49–52) are next.
+- M2b + M2c checkpoint (Prompt 48), seen in the PIE loops:
+  - The PIE loops cleared rounds with god mode and `gs.KillAll`, as in Prompt 28, so health stayed full: the health
+    orbs (14 dropped, all collected) healed nothing, and the round times aren't real kill speed.
+  - The rifle's numbers in the loops are small because MCP can't hold fire (`Input.+key` releases after a few
+    frames). They don't measure the rifle.
+  - With both guns at power 2 the Floating Gun cleared rounds 5 and 6 (13 and 12 enemies) on its own in 39 s and 32 s,
+    while the player stood still in god mode. It dealt 2,821 of loop 2's 5,518 damage (2,416 were `gs.KillAll`).
+  - All 7 offers in the two loops had a weapon card. Only the first is guaranteed; the other six came at the normal
+    48% chance (about 1.2% for six in a row). `Upgrades.WeaponSlots` checks that later offers are rolled as usual.
+  - Loop 1's round 1 counted 5 kills for a wave of 4. It may have been a target dummy in the plaza hit by the
+    rifle; not looked into.
+  - Damage dealt by source is in `gs.Run.Stats`, the `[round]` line and the "Run over" line, but not in the run
+    summary.
 - Barbed Wire (Prompt 47):
   - Placeholder look: 48 grey cube segments in a circle (no torus in the engine content), no barbs, no animation. The
     hit effect is the RadialBurst template at ×0.06; even halved from ×0.12, 30 of them every 0.5 s are busy on screen.
@@ -3428,8 +3595,8 @@ questions). Each prompt updates the tests that assume the old design.
     level 2, +30 per level after that.
 46. ~~**Razor Cards** (weapon).~~ Done (see Prompt 46): homing playing cards at the nearest enemy.
 47. ~~**Barbed Wire** (weapon).~~ Done (see Prompt 47): a damaging ring around the player.
-48. **M2b + M2c tests + checkpoint:** tests for the M2b and M2c rules and a PIE checkpoint, like Prompt 28. Replaces
-    the old Prompt 40.
+48. ~~**M2b + M2c tests + checkpoint:** tests for the M2b and M2c rules and a PIE checkpoint, like Prompt 28. Replaces
+    the old Prompt 40.~~ Done (see Prompt 48 and **M2b + M2c checkpoint**). **M2b and M2c are complete.**
 
 **Then more weapons** (each follows the rules for every weapon):
 

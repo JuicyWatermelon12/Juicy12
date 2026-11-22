@@ -10466,4 +10466,480 @@ bool FGSBarbedWireTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ---------------------------------------------------------------------------
+// M2b + M2c checkpoint (Prompt 48): the rules the other tests didn't cover yet
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	/** Every attribute of the player's set (IncomingDamage, a meta attribute, left out) and its current value. */
+	TMap<FString, float> SnapshotPlayerAttributes()
+	{
+		TMap<FString, float> Values;
+		TArray<FGameplayAttribute> Attributes;
+		UAttributeSet::GetAttributesFromSetClass(UGSAttributeSet::StaticClass(), Attributes);
+		for (const FGameplayAttribute& Attribute : Attributes)
+		{
+			if (Attribute != UGSAttributeSet::GetIncomingDamageAttribute())
+			{
+				Values.Add(Attribute.GetName(), GetAttr(Attribute));
+			}
+		}
+		return Values;
+	}
+}
+
+// Weapon power for every rarity, then every upgrade at every rarity followed by a new run: everything back to the start.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSCheckpointPicksAndNewRunTest, "BanditBaller.Checkpoint.WeaponPicksAndNewRun", GSTests::TestFlags)
+bool FGSCheckpointPicksAndNewRunTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	struct FState
+	{
+		TMap<FString, float> Base;
+		int32 BaseRerolls = 0;
+		int32 BaseDashCharges = 0;
+	};
+	TSharedRef<FState> S = MakeShared<FState>();
+
+	// Weapon picks: Common, Rare, Epic, Legendary in turn; the giving picks add the multiplier - 1, later ones the multiplier.
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->SetHealthOrbDropChanceOverride(0.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		struct FWeapon { const TCHAR* Name; FGameplayAttribute Power; float Expected[4]; };
+		const FWeapon Weapons[] = {
+			{ TEXT("FloatingGun"), UGSAttributeSet::GetFloatingGunPowerAttribute(), { 0.f, 0.5f, 2.5f, 5.5f } }, // two giving picks
+			{ TEXT("RazorCards"), UGSAttributeSet::GetRazorCardsPowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
+			{ TEXT("BarbedWire"), UGSAttributeSet::GetBarbedWirePowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
+		};
+		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		int32 Seed = 4800;
+		for (const FWeapon& W : Weapons)
+		{
+			GameMode->RestartRunWithSeed(Seed++);
+			GameMode->SetRoundTimerPaused(true);
+			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(W.Name);
+			if (!TestNotNull(W.Name, Upgrade))
+			{
+				continue;
+			}
+			for (const EGSUpgradeRarity Rarity : UGSUpgradePool::GetAllRarities())
+			{
+				const int32 R = static_cast<int32>(Rarity);
+				TestTrue(FString::Printf(TEXT("%s: %s pick granted"), W.Name, *UGSUpgradeData::GetRarityName(Rarity)), Upgrades->GrantUpgrade(Upgrade, Rarity, TEXT("Test")));
+				TestEqual(FString::Printf(TEXT("%s: power after the %s pick"), W.Name, *UGSUpgradeData::GetRarityName(Rarity)), GetAttr(W.Power), W.Expected[R], 0.0001f);
+			}
+		}
+		// The last run holds Barbed Wire at power 6.5: x1.65 damage, radius 350 x 1.325.
+		TestEqual(TEXT("Barbed Wire at power 6.5: x1.65 damage"), GetBarbedWire()->GetDamageMultiplier(), 1.65f, 0.0001f);
+		TestEqual(TEXT("Barbed Wire at power 6.5: radius 463.75"), GetBarbedWire()->GetRadius(), 463.75f, 0.01f);
+	});
+
+	// A fresh run's starting values, then every upgrade at every rarity (whole units skip Rare), level-ups, a reroll.
+	Step([this, S]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->RestartRunWithSeed(4810);
+		GameMode->SetRoundTimerPaused(true);
+		S->Base = SnapshotPlayerAttributes();
+		S->BaseRerolls = GetPlayerUpgrades()->GetRerollsLeft();
+		S->BaseDashCharges = GetDashMaxCharges();
+		TestEqual(TEXT("A new run starts with 1 dash charge"), S->BaseDashCharges, 1);
+
+		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		int32 Granted = 0;
+		for (const UGSUpgradeData* Upgrade : GameMode->GetUpgradePool()->Upgrades)
+		{
+			for (const EGSUpgradeRarity Rarity : UGSUpgradePool::GetAllRarities())
+			{
+				if (Upgrade->bWholeUnits && Rarity == EGSUpgradeRarity::Rare)
+				{
+					continue;
+				}
+				Granted += Upgrades->GrantUpgrade(Upgrade, Rarity, TEXT("Test")) ? 1 : 0;
+			}
+		}
+		AddInfo(FString::Printf(TEXT("%d picks granted across %d upgrades"), Granted, GameMode->GetUpgradePool()->Upgrades.Num()));
+		AGSPlayerState* PS = GetPC()->GetPlayerState<AGSPlayerState>();
+		GameMode->AwardXP(PS, static_cast<float>(GameMode->GetXPCurve()->GetTotalXPToReachLevel(4)), false);
+		TestTrue(TEXT("A reroll used"), GameMode->RerollUpgradeOffer(PS));
+		PickAllUpgradeOffers();
+		TestTrue(TEXT("Damage raised"), GetAttr(UGSAttributeSet::GetDamageAttribute()) > S->Base[TEXT("Damage")]);
+		TestTrue(TEXT("Air jumps"), GetAttr(UGSAttributeSet::GetExtraJumpsAttribute()) > 0.f);
+		TestTrue(TEXT("MaxHealth raised by the level-ups"), GetAttr(UGSAttributeSet::GetMaxHealthAttribute()) > S->Base[TEXT("MaxHealth")]);
+	});
+	WaitFrames(this, 3);
+	Step([this]()
+	{
+		TestEqual(TEXT("Before the new run: two floating guns"), GetPlayer()->GetFloatingGuns()->GetGuns().Num(), 2);
+		TestTrue(TEXT("Before the new run: the Barbed Wire ring"), GetBarbedWire()->IsRingShown());
+		TestTrue(TEXT("Before the new run: Razor Cards owned"), GetRazorCards()->GetLevel() > 0);
+		TestTrue(TEXT("Before the new run: shields"), GetPC()->GetPlayerState<AGSPlayerState>()->GetShieldComponent()->GetNumShields() > 0);
+		GetGameMode()->RestartRunWithSeed(4811);
+		GetGameMode()->SetRoundTimerPaused(true);
+	});
+	WaitFrames(this, 3);
+	Step([this, S]()
+	{
+		// Every attribute back to the fresh run's value.
+		const TMap<FString, float> After = SnapshotPlayerAttributes();
+		for (const TPair<FString, float>& Entry : S->Base)
+		{
+			const float* Now = After.Find(Entry.Key);
+			TestTrue(FString::Printf(TEXT("New run: %s back to %.3f (now %.3f)"), *Entry.Key, Entry.Value, Now ? *Now : -1.f),
+				Now && FMath::IsNearlyEqual(*Now, Entry.Value, 0.001f));
+		}
+		AGSPlayerState* PS = GetPC()->GetPlayerState<AGSPlayerState>();
+		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		TestEqual(TEXT("New run: no picks"), Upgrades->GetTotalPicks(), 0);
+		TestFalse(TEXT("New run: no offer"), Upgrades->HasOpenOffer());
+		TestEqual(TEXT("New run: rerolls refilled"), Upgrades->GetRerollsLeft(), S->BaseRerolls);
+		TestEqual(TEXT("New run: no weapons"), Upgrades->GetOwnedWeapons().Num(), 0);
+		TestTrue(TEXT("New run: the first offer's weapon card is pending again"), Upgrades->IsFirstOfferPending());
+		TestEqual(TEXT("New run: level 1"), PS->GetProgressionComponent()->GetLevel(), 1);
+		TestEqual(TEXT("New run: 1 dash charge"), GetDashMaxCharges(), S->BaseDashCharges);
+		TestEqual(TEXT("New run: no shields"), PS->GetShieldComponent()->GetNumShields(), 0);
+		TestEqual(TEXT("New run: no floating guns"), GetPlayer()->GetFloatingGuns()->GetGuns().Num(), 0);
+		TestFalse(TEXT("New run: no ring"), GetBarbedWire()->IsRingShown());
+		TestEqual(TEXT("New run: Razor Cards gone"), GetRazorCards()->GetLevel(), 0);
+		TestEqual(TEXT("New run: no combo"), PS->GetComboComponent()->GetComboCount(), 0);
+		TestEqual(TEXT("New run: no Powder Keg blasts"), GetGameMode()->GetPowderKegBlasts(), 0);
+		TestEqual(TEXT("New run: no damage dealt"), GetGameState()->GetRunStats()->GetDamageDealt(), 0.f);
+		const UGSHUDWidget* HUD = GetHUD();
+		TestTrue(TEXT("New run: HUD weapon slots empty"), HUD && !HUD->GetWeaponInSlot(0) && !HUD->GetWeaponInSlot(1) && !HUD->GetWeaponInSlot(2));
+		TestEqual(TEXT("New run: no upgrade icons"), HUD ? HUD->GetUpgradeIconCount() : -1, 0);
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+	});
+	EndPIE();
+	return true;
+}
+
+// MaxWeapons with all three real weapons owned (plus a fourth test weapon in a pool copy), the HUD slots, the auto-pick.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSCheckpointWeaponLimitTest, "BanditBaller.Checkpoint.WeaponLimitAllThree", GSTests::TestFlags)
+bool FGSCheckpointWeaponLimitTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	TSharedRef<TStrongObjectPtr<UGSUpgradePool>> Pool = MakeShared<TStrongObjectPtr<UGSUpgradePool>>();
+	TSharedRef<TStrongObjectPtr<UGSUpgradeData>> Extra = MakeShared<TStrongObjectPtr<UGSUpgradeData>>();
+	Step([this, Pool, Extra]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		AGSPlayerState* PS = GetPC()->GetPlayerState<AGSPlayerState>();
+		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		Pool->Reset(DuplicateObject<UGSUpgradePool>(GameMode->GetUpgradePool(), GetTransientPackage()));
+		Extra->Reset(MakeTestUpgrade(TEXT("TestWeapon_Fourth"), EGSUpgradeCategory::Weapon));
+		Pool->Get()->Upgrades.Add(Extra->Get());
+		Pool->Get()->MaxWeapons = 3;
+		GameMode->SetUpgradePoolOverride(Pool->Get());
+		GameMode->RestartRunWithSeed(4820);
+		GameMode->SetRoundTimerPaused(true);
+
+		const UGSUpgradeData* Wire = UGSDebugLibrary::FindUpgradeData(TEXT("BarbedWire"));
+		const UGSUpgradeData* Cards = UGSDebugLibrary::FindUpgradeData(TEXT("RazorCards"));
+		const UGSUpgradeData* Gun = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
+		for (const TCHAR* Name : { TEXT("BarbedWire"), TEXT("RazorCards"), TEXT("FloatingGun") })
+		{
+			UGSDebugLibrary::GrantUpgradeTo(GetPC(), Name, 1);
+		}
+		const UGSHUDWidget* HUD = GetHUD();
+		TestTrue(TEXT("HUD slots in pick order: Barbed Wire, Razor Cards, Floating Gun"),
+			HUD && HUD->GetWeaponInSlot(0) == Wire && HUD->GetWeaponInSlot(1) == Cards && HUD->GetWeaponInSlot(2) == Gun);
+		TestTrue(TEXT("No weapon in the upgrade row"), HUD && !HUD->FindUpgradeIcon(Wire) && !HUD->FindUpgradeIcon(Cards) && !HUD->FindUpgradeIcon(Gun));
+		TestFalse(TEXT("Slots full: the fourth weapon can't be offered"), Pool->Get()->CanOfferWeapon(Extra->Get(), [Upgrades](const UGSUpgradeData* U) { return Upgrades->GetStacks(U); }));
+
+		// 60 offers, each rerolled once: the fourth weapon never; the owned ones still.
+		bool bFourthSeen = false;
+		int32 OwnedSeen = 0;
+		auto Look = [&](const TArray<FGSUpgradeChoice>& Offer)
+		{
+			for (const FGSUpgradeChoice& Choice : Offer)
+			{
+				bFourthSeen |= Choice.Upgrade == Extra->Get();
+				OwnedSeen += (Choice.Upgrade == Wire || Choice.Upgrade == Cards || Choice.Upgrade == Gun) ? 1 : 0;
+			}
+		};
+		for (int32 i = 0; i < 60; ++i)
+		{
+			GameMode->QueueUpgradeOfferForDebug(PS);
+			Look(Upgrades->GetCurrentOffer());
+			if (GameMode->RerollUpgradeOffer(PS))
+			{
+				Look(Upgrades->GetCurrentOffer());
+			}
+			GameMode->ChooseUpgrade(PS, FirstNonWeaponCard(Upgrades->GetCurrentOffer()));
+		}
+		AddInfo(FString::Printf(TEXT("Owned weapon cards in 60 offers + rerolls: %d"), OwnedSeen));
+		TestFalse(TEXT("Three weapons owned: an unowned weapon is never offered (offers and rerolls)"), bFourthSeen);
+		TestTrue(TEXT("The owned weapons are still offered"), OwnedSeen > 0);
+		TestEqual(TEXT("Still three weapons"), Upgrades->GetOwnedWeapons().Num(), 3);
+
+		// The debug auto-pick policy (gs.Debug.AutoPickUpgrades).
+		const UGSUpgradeData* Damage = UGSDebugLibrary::FindUpgradeData(TEXT("Damage"));
+		auto Card = [](const UGSUpgradeData* U, EGSUpgradeRarity R) { FGSUpgradeChoice C; C.Upgrade = const_cast<UGSUpgradeData*>(U); C.Rarity = R; return C; };
+		const TArray<FGSUpgradeChoice> WithWeapons = { Card(Damage, EGSUpgradeRarity::Epic), Card(Extra->Get(), EGSUpgradeRarity::Common), Card(Cards, EGSUpgradeRarity::Common) };
+		TestEqual(TEXT("Auto-pick, slots full: the owned weapon"), UGSDebugLibrary::ChooseUpgradeForAutoPick(WithWeapons, Upgrades, 3, true), 2);
+		TestEqual(TEXT("Auto-pick, a free slot: the new weapon"), UGSDebugLibrary::ChooseUpgradeForAutoPick(WithWeapons, Upgrades, 4, true), 1);
+		const TArray<FGSUpgradeChoice> Plain = { Card(Damage, EGSUpgradeRarity::Common), Card(UGSDebugLibrary::FindUpgradeData(TEXT("Leech")), EGSUpgradeRarity::Common) };
+		TestEqual(TEXT("Auto-pick, all Common: reroll"), UGSDebugLibrary::ChooseUpgradeForAutoPick(Plain, Upgrades, 3, true), INDEX_NONE);
+		TestEqual(TEXT("Auto-pick, all Common, no rerolls: the first"), UGSDebugLibrary::ChooseUpgradeForAutoPick(Plain, Upgrades, 3, false), 0);
+		const TArray<FGSUpgradeChoice> Mixed = { Card(Damage, EGSUpgradeRarity::Common), Card(UGSDebugLibrary::FindUpgradeData(TEXT("Leech")), EGSUpgradeRarity::Legendary) };
+		TestEqual(TEXT("Auto-pick: the rarest"), UGSDebugLibrary::ChooseUpgradeForAutoPick(Mixed, Upgrades, 3, true), 1);
+
+		// One more slot: now the fourth weapon can be offered.
+		Pool->Get()->MaxWeapons = 4;
+		bool bOffered = false;
+		for (int32 i = 0; i < 80 && !bOffered; ++i)
+		{
+			GameMode->QueueUpgradeOfferForDebug(PS);
+			Look(Upgrades->GetCurrentOffer());
+			bOffered = bFourthSeen;
+			GameMode->ChooseUpgrade(PS, FirstNonWeaponCard(Upgrades->GetCurrentOffer()));
+		}
+		TestTrue(TEXT("MaxWeapons 4: the fourth weapon is offered"), bOffered);
+		GameMode->SetUpgradePoolOverride(nullptr);
+	});
+	EndPIE();
+	return true;
+}
+
+// Powder Keg at 100%: a chain along a line of bandits ends once nobody is left in reach; the player is never hurt.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSPowderKegChainEndsTest, "BanditBaller.Upgrades.PowderKegChainEnds", GSTests::TestFlags)
+bool FGSPowderKegChainEndsTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	struct FState
+	{
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits;
+		int32 BlastsBefore = 0;
+		float PlayerHealth = 0.f;
+	};
+	TSharedRef<FState> S = MakeShared<FState>();
+	Step([this, S]()
+	{
+		SpeedUpWorld(4.f);
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->SetHealthOrbDropChanceOverride(0.f);
+		FVector Lane, Dir;
+		if (!TestTrue(TEXT("A clear lane"), FindClearLane(2600.f, Lane, Dir)))
+		{
+			return;
+		}
+		GetPlayer()->TeleportTo(Lane, Dir.Rotation());
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("PowderKeg"), 34); // 102%: every kill explodes
+		const FVector Ground(Lane.X, Lane.Y, 0.f);
+		for (int32 Index = 0; Index < 8; ++Index)
+		{
+			// 2.5 m apart: each blast (3 m) reaches the next bandit only (6 m when one is double size).
+			AGSEnemyCharacter* Bandit = SpawnFrozenBandit(Ground + Dir * (600.f + 250.f * Index));
+			if (Bandit)
+			{
+				Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 10.f);
+			}
+			S->Bandits.Add(Bandit);
+		}
+		S->BlastsBefore = GameMode->GetPowderKegBlasts();
+		S->PlayerHealth = GetHealth(GetPlayerASC());
+	});
+	WaitFrames(this, 2);
+	Step([S]()
+	{
+		if (S->Bandits.Num() > 0 && S->Bandits[0].IsValid())
+		{
+			ApplyDamage(S->Bandits[0]->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
+		}
+	});
+	WaitUntil(this, TEXT("the chain to run down the line and end"), [S]()
+	{
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S->Bandits)
+		{
+			if (Bandit.IsValid() && !Bandit->GetHealthComponent()->IsDead())
+			{
+				return false;
+			}
+		}
+		return GetGameMode()->GetPendingPowderKegs() == 0;
+	}, 10.0);
+	WaitWorldSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		int32 Dead = 0;
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S->Bandits)
+		{
+			Dead += (!Bandit.IsValid() || Bandit->GetHealthComponent()->IsDead()) ? 1 : 0;
+		}
+		TestEqual(TEXT("The chain killed the whole line"), Dead, 8);
+		TestEqual(TEXT("Each death exploded once: 8 blasts"), GetGameMode()->GetPowderKegBlasts() - S->BlastsBefore, 8);
+		TestEqual(TEXT("The chain ended: nothing pending"), GetGameMode()->GetPendingPowderKegs(), 0);
+		TestEqual(TEXT("The blasts never hurt the player (no god mode)"), GetHealth(GetPlayerASC()), S->PlayerHealth, 0.01f);
+		TestTrue(TEXT("Run stats: Powder Keg damage recorded"), GetGameState()->GetRunStats()->GetDamageDealtBy(EGSDamageSource::PowderKeg) > 0.f);
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+// Health orbs from every kind of player kill at the same chance: the player's own kills, each weapon, Powder Keg.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSHealthOrbsAllSourcesTest, "BanditBaller.Economy.HealthOrbsAllSources", GSTests::TestFlags)
+bool FGSHealthOrbsAllSourcesTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	struct FState
+	{
+		FVector Spot = FVector::ZeroVector;
+		FVector Ground = FVector::ZeroVector;
+		FVector Dir = FVector::ForwardVector;
+		FVector Side = FVector::RightVector;
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits;
+		int32 Seed = 4830;
+	};
+	TSharedRef<FState> S = MakeShared<FState>();
+	Step([this, S]()
+	{
+		SpeedUpWorld(4.f);
+		GetGameMode()->SetRoundTimerPaused(true);
+		FVector Lane;
+		if (!TestTrue(TEXT("A clear lane"), FindClearLane(2600.f, Lane, S->Dir)))
+		{
+			return;
+		}
+		S->Side = FVector(-S->Dir.Y, S->Dir.X, 0.f);
+		S->Spot = Lane + S->Dir * 1300.f + S->Side * 200.f;
+		S->Ground = FVector(S->Spot.X, S->Spot.Y, 0.f);
+	});
+
+	enum class ESource : uint8 { Own, FloatingGun, RazorCards, BarbedWire, PowderKeg };
+	const ESource Sources[] = { ESource::Own, ESource::FloatingGun, ESource::RazorCards, ESource::BarbedWire, ESource::PowderKeg };
+	const TCHAR* SourceNames[] = { TEXT("own kill"), TEXT("Floating Gun"), TEXT("Razor Cards"), TEXT("Barbed Wire"), TEXT("Powder Keg") };
+	const EGSDamageSource StatSources[] = { EGSDamageSource::Other, EGSDamageSource::FloatingGun, EGSDamageSource::RazorCards, EGSDamageSource::BarbedWire, EGSDamageSource::PowderKeg };
+	for (const float Chance : { 1.f, 0.f })
+	{
+		for (int32 SourceIndex = 0; SourceIndex < 5; ++SourceIndex)
+		{
+			const ESource Source = Sources[SourceIndex];
+			Step([S, Source, Chance]()
+			{
+				// A fresh run: nothing owned, run stats at 0.
+				AGSGameMode* GameMode = GetGameMode();
+				GameMode->RestartRunWithSeed(S->Seed++);
+				GameMode->SetRoundTimerPaused(true);
+				GameMode->SetHealthOrbDropChanceOverride(Chance);
+				UGSDebugLibrary::SetGodMode(GetPC(), true);
+				RemoveAllEnemies(GetPIEWorld());
+				GetPlayer()->TeleportTo(S->Spot, S->Dir.Rotation());
+				S->Bandits.Reset();
+				const FVector Near = S->Ground - S->Side * 200.f; // inside the ring, in range of everything
+				switch (Source)
+				{
+				case ESource::FloatingGun: UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("FloatingGun"), 1); break;
+				case ESource::RazorCards: UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("RazorCards"), 1); break;
+				case ESource::BarbedWire: UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("BarbedWire"), 1); break;
+				case ESource::PowderKeg: UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("PowderKeg"), 34); break;
+				default: break;
+				}
+				S->Bandits.Add(SpawnFrozenBandit(Near));
+				if (Source == ESource::PowderKeg)
+				{
+					S->Bandits.Add(SpawnFrozenBandit(Near + S->Dir * 150.f)); // the blast's victim
+				}
+				for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S->Bandits)
+				{
+					if (Bandit.IsValid())
+					{
+						Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
+					}
+				}
+				if ((Source == ESource::Own || Source == ESource::PowderKeg) && S->Bandits[0].IsValid())
+				{
+					ApplyDamage(S->Bandits[0]->GetAbilitySystemComponent(), 100.f, GetPlayerASC()); // the player's own kill
+				}
+			});
+			WaitUntil(this, FString::Printf(TEXT("%s kills (chance %.0f)"), SourceNames[SourceIndex], Chance), [S]()
+			{
+				for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S->Bandits)
+				{
+					if (Bandit.IsValid() && !Bandit->GetHealthComponent()->IsDead())
+					{
+						return false;
+					}
+				}
+				return GetGameMode()->GetPendingPowderKegs() == 0;
+			}, 15.0);
+			Step([this, S, SourceIndex, Chance, SourceNames, StatSources]()
+			{
+				const UGSRunStats* Stats = GetGameState()->GetRunStats();
+				const int32 Kills = Stats->GetTotalKills();
+				const FString What = FString::Printf(TEXT("%s, chance %.0f"), SourceNames[SourceIndex], Chance);
+				TestEqual(What + TEXT(": kills"), Kills, S->Bandits.Num());
+				TestEqual(What + TEXT(": health orbs dropped"), Stats->GetHealthOrbsDropped(), Chance >= 1.f ? Kills : 0);
+				TestTrue(What + TEXT(": damage recorded for its source"), Stats->GetDamageDealtBy(StatSources[SourceIndex]) > 0.f);
+			});
+		}
+	}
+
+	// The same chance in bulk: 0.3 for the player's own kills and for one Barbed Wire tick through a crowd.
+	TSharedRef<int32> OwnKills = MakeShared<int32>(0), OwnOrbs = MakeShared<int32>(0);
+	Step([S, OwnKills, OwnOrbs]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->RestartRunWithSeed(4850);
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->SetHealthOrbDropChanceOverride(0.3f);
+		RemoveAllEnemies(GetPIEWorld());
+		GetPlayer()->TeleportTo(S->Spot, S->Dir.Rotation());
+		for (int32 Index = 0; Index < 60; ++Index)
+		{
+			if (AGSEnemyCharacter* Bandit = SpawnFrozenBandit(S->Ground + S->Dir * 3000.f + FVector((Index % 10) * 120.f, (Index / 10) * 120.f, 0.f)))
+			{
+				ApplyDamage(Bandit->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
+			}
+		}
+		*OwnKills = GetGameState()->GetRunStats()->GetTotalKills();
+		*OwnOrbs = GetGameState()->GetRunStats()->GetHealthOrbsDropped();
+		RemoveAllEnemies(GetPIEWorld());
+
+		// A crowd inside a big ring (5 Legendary picks: radius 5.95 m), weak enough for one tick.
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("BarbedWire"), 5, EGSUpgradeRarity::Legendary);
+		S->Bandits.Reset();
+		for (const float Radius : { 150.f, 300.f, 450.f })
+		{
+			const int32 Count = FMath::FloorToInt(2.f * PI * Radius / 110.f);
+			for (int32 Index = 0; Index < Count; ++Index)
+			{
+				const float Angle = 2.f * PI * Index / Count;
+				AGSEnemyCharacter* Bandit = SpawnFrozenBandit(S->Ground + FVector(Radius * FMath::Cos(Angle), Radius * FMath::Sin(Angle), 0.f));
+				if (Bandit)
+				{
+					Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
+				}
+				S->Bandits.Add(Bandit);
+			}
+		}
+	});
+	WaitWorldSeconds(this, 1.2);
+	Step([this, S, OwnKills, OwnOrbs]()
+	{
+		const UGSRunStats* Stats = GetGameState()->GetRunStats();
+		const int32 RingKills = Stats->GetTotalKills() - *OwnKills;
+		const int32 RingOrbs = Stats->GetHealthOrbsDropped() - *OwnOrbs;
+		const double OwnRate = *OwnKills > 0 ? static_cast<double>(*OwnOrbs) / *OwnKills : 0.0;
+		const double RingRate = RingKills > 0 ? static_cast<double>(RingOrbs) / RingKills : 0.0;
+		AddInfo(FString::Printf(TEXT("Chance 0.3: own kills %d orbs in %d (%.2f); Barbed Wire %d orbs in %d (%.2f)"), *OwnOrbs, *OwnKills, OwnRate, RingOrbs, RingKills, RingRate));
+		TestTrue(TEXT("60 own kills"), *OwnKills == 60);
+		TestTrue(TEXT("The ring killed most of the crowd"), RingKills >= S->Bandits.Num() * 3 / 4);
+		TestTrue(TEXT("Own kills drop at about 0.3"), OwnRate > 0.15 && OwnRate < 0.45);
+		TestTrue(TEXT("Ring kills drop at about 0.3"), RingRate > 0.15 && RingRate < 0.45);
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR

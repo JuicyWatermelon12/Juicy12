@@ -186,6 +186,10 @@ bool AGSProjectile::HandleHit(const FHitResult& Hit)
 		if (Spec.IsValid())
 		{
 			Spec.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Damage, Params.Damage * Crit.DamageMultiplier);
+			if (Params.DamageSource.IsValid())
+			{
+				Spec.Data->AddDynamicAssetTag(Params.DamageSource); // run stats by source
+			}
 			if (Crit.bCritical)
 			{
 				Spec.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Critical, Crit.GetLevel()); // 1 crit, 2 triple

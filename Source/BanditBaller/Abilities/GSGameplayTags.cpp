@@ -27,6 +27,11 @@ namespace GSGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Damage, "Data.Damage", "SetByCaller magnitude for damage.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Critical, "Data.Critical", "SetByCaller on a damage spec: 1 = a critical hit, 2 = a triple hit (damage numbers show it).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Heal, "Data.Heal", "SetByCaller magnitude for heals (health orbs).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Damage_Source_Gun, "Damage.Source.Gun", "Damage from the player's own guns (GA_Fire: rifle, pistol).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Damage_Source_FloatingGun, "Damage.Source.FloatingGun", "Damage from the Floating Gun's projectiles.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Damage_Source_RazorCards, "Damage.Source.RazorCards", "Damage from Razor Cards.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Damage_Source_BarbedWire, "Damage.Source.BarbedWire", "Damage from the Barbed Wire ring.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Damage_Source_PowderKeg, "Damage.Source.PowderKeg", "Damage from Powder Keg blasts.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Duration, "Data.Duration", "SetByCaller duration for timed state effects (Second Wind invulnerability).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Cooldown, "Data.Cooldown", "SetByCaller duration for cooldown effects.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_HealthMultiplier, "Data.HealthMultiplier", "SetByCaller MaxHealth multiplier (enemy round scaling).");

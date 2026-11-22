@@ -2,7 +2,44 @@
 
 #include "GSRunStats.h"
 #include "GameFramework/GameStateBase.h"
+#include "GSGameplayTags.h"
 #include "Net/UnrealNetwork.h"
+
+EGSDamageSource GSDamageSource::FromTags(const FGameplayTagContainer& Tags)
+{
+	if (Tags.HasTagExact(GSGameplayTags::Damage_Source_Gun)) { return EGSDamageSource::Gun; }
+	if (Tags.HasTagExact(GSGameplayTags::Damage_Source_FloatingGun)) { return EGSDamageSource::FloatingGun; }
+	if (Tags.HasTagExact(GSGameplayTags::Damage_Source_RazorCards)) { return EGSDamageSource::RazorCards; }
+	if (Tags.HasTagExact(GSGameplayTags::Damage_Source_BarbedWire)) { return EGSDamageSource::BarbedWire; }
+	if (Tags.HasTagExact(GSGameplayTags::Damage_Source_PowderKeg)) { return EGSDamageSource::PowderKeg; }
+	return EGSDamageSource::Other;
+}
+
+const TCHAR* GSDamageSource::GetName(EGSDamageSource Source)
+{
+	switch (Source)
+	{
+	case EGSDamageSource::Gun: return TEXT("rifle/pistol");
+	case EGSDamageSource::FloatingGun: return TEXT("Floating Gun");
+	case EGSDamageSource::RazorCards: return TEXT("Razor Cards");
+	case EGSDamageSource::BarbedWire: return TEXT("Barbed Wire");
+	case EGSDamageSource::PowderKeg: return TEXT("Powder Keg");
+	default: return TEXT("other");
+	}
+}
+
+FString UGSRunStats::DescribeDamageBySource(const float* BySource) const
+{
+	FString Text;
+	for (int32 Index = 0; Index < GSDamageSource::Num; ++Index)
+	{
+		if (BySource[Index] > 0.f)
+		{
+			Text += FString::Printf(TEXT("%s%s %.0f"), Text.IsEmpty() ? TEXT("") : TEXT(", "), GSDamageSource::GetName(static_cast<EGSDamageSource>(Index)), BySource[Index]);
+		}
+	}
+	return Text.IsEmpty() ? FString(TEXT("none")) : Text;
+}
 
 UGSRunStats::UGSRunStats()
 {
@@ -59,6 +96,8 @@ void UGSRunStats::ResetStats(double InRunStartTime)
 	BestCombo = 0;
 	HealthOrbsCollected = 0;
 	HealthHealedByOrbs = 0.f;
+	HealthOrbsDropped = 0;
+	FMemory::Memzero(DamageDealtBySource);
 	CurrentRound = FGSRoundStats();
 	LastRoundClearPayout = FGSRoundClearPayout();
 	RunStartTime = InRunStartTime;
@@ -112,11 +151,24 @@ void UGSRunStats::AddCashSpent(int32 Amount)
 	}
 }
 
-void UGSRunStats::AddDamageDealt(float Amount)
+void UGSRunStats::AddDamageDealt(float Amount, EGSDamageSource Source)
 {
 	if (CanWrite() && Amount > 0.f)
 	{
+		const int32 Index = FMath::Clamp(static_cast<int32>(Source), 0, GSDamageSource::Num - 1);
 		DamageDealt += Amount;
+		DamageDealtBySource[Index] += Amount;
+		CurrentRound.DamageBySource[Index] += Amount;
+		Changed();
+	}
+}
+
+void UGSRunStats::RecordHealthOrbDropped()
+{
+	if (CanWrite())
+	{
+		++HealthOrbsDropped;
+		++CurrentRound.HealthOrbsDropped;
 		Changed();
 	}
 }
@@ -195,6 +247,8 @@ void UGSRunStats::RecordHealthOrbCollected(float Healed)
 	{
 		++HealthOrbsCollected;
 		HealthHealedByOrbs += FMath::Max(Healed, 0.f);
+		++CurrentRound.HealthOrbsCollected;
+		CurrentRound.HealthHealedByOrbs += FMath::Max(Healed, 0.f);
 		Changed();
 	}
 }
@@ -253,8 +307,9 @@ FString UGSRunStats::ToDebugString() const
 		TEXT("XP earned:      %d\n")
 		TEXT("Level reached:  %d\n")
 		TEXT("Best combo:     %d\n")
-		TEXT("Health orbs:    %d collected, %.0f health healed%s"),
+		TEXT("Damage by source: %s\n")
+		TEXT("Health orbs:    %d dropped, %d collected, %.0f health healed%s"),
 		FMath::FloorToInt(Seconds / 60.f), FMath::FloorToInt(FMath::Fmod(Seconds, 60.f)), Seconds, RunEndTime > 0.0 ? TEXT(" [ended]") : TEXT(""),
 		RoundsCleared, TotalKills, Kills.IsEmpty() ? TEXT("none") : *Kills, CashEarned, CashSpent, DamageDealt, DamageTaken, XPEarned, LevelReached,
-		BestCombo, HealthOrbsCollected, HealthHealedByOrbs, *RoundLines);
+		BestCombo, *DescribeDamageBySource(DamageDealtBySource), HealthOrbsDropped, HealthOrbsCollected, HealthHealedByOrbs, *RoundLines);
 }

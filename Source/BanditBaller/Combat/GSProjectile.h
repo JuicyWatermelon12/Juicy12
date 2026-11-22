@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "GameplayTagContainer.h"
 #include "GSProjectile.generated.h"
 
 class UAbilitySystemComponent;
@@ -27,6 +28,8 @@ struct FGSProjectileLaunch
 	/** The player whose damage this is (crit chance, effect context: kills are theirs). */
 	TWeakObjectPtr<UAbilitySystemComponent> SourceASC;
 	TSubclassOf<UGameplayEffect> DamageEffect;
+	/** Damage.Source.* tag added to the damage spec (run stats by source). */
+	FGameplayTag DamageSource;
 	/** Look and impact effect. */
 	TObjectPtr<UStaticMesh> Mesh;
 	TObjectPtr<UMaterialInterface> Material;

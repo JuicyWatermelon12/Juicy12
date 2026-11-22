@@ -270,6 +270,7 @@ void UGSRazorCardsComponent::ThrowAt(AGSEnemyCharacter* AtTarget, float Lateness
 	Launch.Damage = Settings->Damage * Settings->GetDamageMultiplier(GetPower()) * SourceASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute());
 	Launch.SourceASC = SourceASC;
 	Launch.DamageEffect = Settings->DamageEffect;
+	Launch.DamageSource = GSGameplayTags::Damage_Source_RazorCards;
 	Launch.Mesh = Settings->CardMesh;
 	Launch.Material = Settings->CardMaterial;
 	Launch.Scale = Settings->CardScale;
