@@ -54,6 +54,9 @@
 #include "BrainComponent.h"
 #include "NavigationPath.h"
 #include "NavigationSystem.h"
+#include "NavMesh/NavMeshBoundsVolume.h"
+#include "GameFramework/PlayerStart.h"
+#include "GameFramework/WorldSettings.h"
 #include "GSHealthComponent.h"
 #include "GSPlayerController.h"
 #include "GSPlayerState.h"
@@ -4138,6 +4141,192 @@ bool FGSStartRunPortalTest::RunTest(const FString& Parameters)
 			TestTrue(FString::Printf(TEXT("%s on the NavMesh"), *It->GetName()), IsOnNavMesh(GetPIEWorld(), It->GetActorLocation()));
 			TestTrue(FString::Printf(TEXT("%s inside the boundary"), *It->GetName()), Boundary && Boundary->IsInside(It->GetActorLocation()));
 		}
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Town layout (300 x 300 m): ground, boundary, NavMesh coverage and connectivity, landmarks, spawns, edges
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	/** Ground hit straight below (X, Y) from 5 m up (WorldStatic), or false if there is none. */
+	bool TraceGround(const UWorld* World, float X, float Y, FVector& OutHit)
+	{
+		FHitResult Hit;
+		const bool bHit = World->LineTraceSingleByObjectType(Hit, FVector(X, Y, 500.f), FVector(X, Y, -500.f), FCollisionObjectQueryParams(ECC_WorldStatic));
+		OutHit = Hit.ImpactPoint;
+		return bHit;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSTownLayoutTest, "BanditBaller.Map.TownLayout", GSTests::TestFlags)
+bool FGSTownLayoutTest::RunTest(const FString& Parameters)
+{
+	static constexpr float Half = 15000.f; // 300 x 300 m
+	struct FEdgeTarget
+	{
+		FString Name;
+		FVector2D Inside;
+		FVector2D Out; // launch direction (towards the wall)
+	};
+	TSharedRef<TArray<FEdgeTarget>> Targets = MakeShared<TArray<FEdgeTarget>>();
+	for (const FEdgeTarget& Target : {
+		FEdgeTarget{ TEXT("north edge"), FVector2D(2500.f, 14500.f), FVector2D(0.f, 1.f) },
+		FEdgeTarget{ TEXT("south edge"), FVector2D(2500.f, -14500.f), FVector2D(0.f, -1.f) },
+		FEdgeTarget{ TEXT("east edge"), FVector2D(14500.f, 2500.f), FVector2D(1.f, 0.f) },
+		FEdgeTarget{ TEXT("west edge"), FVector2D(-14500.f, 2500.f), FVector2D(-1.f, 0.f) },
+		FEdgeTarget{ TEXT("north-east corner"), FVector2D(14400.f, 14400.f), FVector2D(1.f, 1.f) },
+		FEdgeTarget{ TEXT("north-west corner"), FVector2D(-14400.f, 14400.f), FVector2D(-1.f, 1.f) },
+		FEdgeTarget{ TEXT("south-east corner"), FVector2D(14400.f, -14400.f), FVector2D(1.f, -1.f) },
+		FEdgeTarget{ TEXT("south-west corner"), FVector2D(-14400.f, -14400.f), FVector2D(-1.f, -1.f) } })
+	{
+		Targets->Add(Target);
+	}
+
+	BeginPIE(this);
+	Step([this, Targets]()
+	{
+		UWorld* World = GetPIEWorld();
+		GetGameMode()->SetRoundTimerPaused(true);
+		RemoveAllEnemies(World);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		// Boundary 300 x 300 m, ceiling 75 m, centered on the origin.
+		const AGSMapBoundary* Boundary = AGSMapBoundary::Find(World);
+		if (!TestNotNull(TEXT("Town boundary"), Boundary))
+		{
+			return;
+		}
+		TestEqual(TEXT("PlayAreaSize X 30000"), static_cast<float>(Boundary->PlayAreaSize.X), 2.f * Half);
+		TestEqual(TEXT("PlayAreaSize Y 30000"), static_cast<float>(Boundary->PlayAreaSize.Y), 2.f * Half);
+		TestEqual(TEXT("CeilingHeight 7500"), Boundary->CeilingHeight, 7500.f);
+		TestTrue(TEXT("Boundary centered on the origin"), FVector2D(Boundary->GetActorLocation()).IsNearlyZero(1.f));
+
+		// Ground under the whole area, top at Z 0; Kill Z below it.
+		for (const FVector2D& P : { FVector2D(0.f, 0.f), FVector2D(14900.f, 14900.f), FVector2D(-14900.f, 14900.f), FVector2D(14900.f, -14900.f),
+			FVector2D(-14900.f, -14900.f), FVector2D(14900.f, 0.f), FVector2D(-14900.f, 0.f), FVector2D(0.f, 14900.f), FVector2D(0.f, -14900.f) })
+		{
+			FVector Hit;
+			TestTrue(FString::Printf(TEXT("Ground at (%.0f, %.0f), top at Z 0"), P.X, P.Y), TraceGround(World, P.X, P.Y, Hit) && FMath::IsNearlyEqual(Hit.Z, 0.f, 1.f));
+		}
+		TestTrue(TEXT("Kill Z below the ground"), World->GetWorldSettings()->KillZ < -1000.f);
+
+		// NavMesh bounds cover the ground.
+		bool bNavCovers = false;
+		for (TActorIterator<ANavMeshBoundsVolume> It(World); It; ++It)
+		{
+			const FBox Box = It->GetComponentsBoundingBox(true);
+			bNavCovers |= Box.Min.X <= -Half + 1.f && Box.Min.Y <= -Half + 1.f && Box.Max.X >= Half - 1.f && Box.Max.Y >= Half - 1.f && Box.Min.Z < 0.f;
+		}
+		TestTrue(TEXT("NavMesh bounds cover the 300 m ground"), bNavCovers);
+
+		// A landmark on each side, tall and far out.
+		for (const TPair<const TCHAR*, FVector2D>& Side : { TPair<const TCHAR*, FVector2D>(TEXT("Landmark_North"), FVector2D(0.f, 1.f)),
+			TPair<const TCHAR*, FVector2D>(TEXT("Landmark_East"), FVector2D(1.f, 0.f)), TPair<const TCHAR*, FVector2D>(TEXT("Landmark_South"), FVector2D(0.f, -1.f)),
+			TPair<const TCHAR*, FVector2D>(TEXT("Landmark_West"), FVector2D(-1.f, 0.f)) })
+		{
+			const AActor* Landmark = FindTagged(World, Side.Key);
+			if (TestNotNull(FString::Printf(TEXT("%s placed"), Side.Key), Landmark))
+			{
+				const FBox Box = Landmark->GetComponentsBoundingBox(true);
+				TestTrue(FString::Printf(TEXT("%s is far out on its side"), Side.Key), FVector2D::DotProduct(FVector2D(Landmark->GetActorLocation()), Side.Value) > 11000.f);
+				TestTrue(FString::Printf(TEXT("%s stands at least 15 m tall"), Side.Key), Box.Max.Z >= 1500.f);
+			}
+		}
+
+		// PlayerStart at the center; EnemySpawn fallback points at the new edges, inside, on the NavMesh.
+		const APlayerStart* Start = nullptr;
+		for (TActorIterator<APlayerStart> It(World); It; ++It)
+		{
+			Start = *It;
+		}
+		TestTrue(TEXT("PlayerStart at the center"), Start && FVector2D(Start->GetActorLocation()).Size() < 100.f);
+		TestEqual(TEXT("4 EnemySpawn points"), CountTagged(World, TEXT("EnemySpawn")), 4);
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			if (It->ActorHasTag(TEXT("EnemySpawn")))
+			{
+				const FVector L = It->GetActorLocation();
+				TestTrue(FString::Printf(TEXT("%s near the new edge"), *It->GetActorNameOrLabel()), FMath::Max(FMath::Abs(L.X), FMath::Abs(L.Y)) >= 13000.f);
+				TestTrue(FString::Printf(TEXT("%s inside the boundary"), *It->GetActorNameOrLabel()), Boundary->IsInside(L, 60.f));
+				TestTrue(FString::Printf(TEXT("%s on the NavMesh"), *It->GetActorNameOrLabel()), IsOnNavMesh(World, L));
+			}
+		}
+
+		// No NavMesh islands on the ground: every ground NavMesh sample on a 5 m grid has a path from the PlayerStart.
+		// The grid also probes the inside of closed buildings and the silo (Recast builds a floor inside hollow meshes).
+		UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
+		const ANavigationData* NavData = NavSys ? NavSys->GetDefaultNavDataInstance(FNavigationSystem::DontCreate) : nullptr;
+		FNavLocation StartNav;
+		if (!TestNotNull(TEXT("NavMesh data"), NavData) || !TestTrue(TEXT("PlayerStart on the NavMesh"), Start && NavSys->ProjectPointToNavigation(Start->GetActorLocation(), StartNav, FVector(200.f, 200.f, 300.f))))
+		{
+			return;
+		}
+		int32 Samples = 0;
+		int32 Elevated = 0;
+		TArray<FString> Unreachable;
+		for (float X = -14500.f; X <= 14500.f; X += 500.f)
+		{
+			for (float Y = -14500.f; Y <= 14500.f; Y += 500.f)
+			{
+				FNavLocation P;
+				if (!NavSys->ProjectPointToNavigation(FVector(X, Y, 30.f), P, FVector(60.f, 60.f, 80.f)))
+				{
+					continue; // inside a building or a crate
+				}
+				if (P.Location.Z > 60.f)
+				{
+					++Elevated; // a crate top, not the ground
+					continue;
+				}
+				++Samples;
+				const FPathFindingQuery Query(nullptr, *NavData, StartNav.Location, P.Location, NavData->GetDefaultQueryFilter());
+				if (!NavSys->TestPathSync(Query))
+				{
+					Unreachable.Add(FString::Printf(TEXT("(%.0f, %.0f)"), X, Y));
+				}
+			}
+		}
+		AddInfo(FString::Printf(TEXT("Ground NavMesh: %d samples, %d unreachable, %d elevated skipped"), Samples, Unreachable.Num(), Elevated));
+		TestTrue(TEXT("NavMesh covers most of the 300 m ground"), Samples >= 2800);
+		TestEqual(FString::Printf(TEXT("No ground NavMesh islands %s"), *FString::Join(Unreachable, TEXT(" "))), Unreachable.Num(), 0);
+
+		// Every edge and corner can be walked to from the center.
+		for (const FEdgeTarget& Target : *Targets)
+		{
+			FNavLocation P;
+			const bool bOnNav = NavSys->ProjectPointToNavigation(FVector(Target.Inside, 30.f), P, FVector(300.f, 300.f, 80.f));
+			TestTrue(FString::Printf(TEXT("%s: NavMesh there"), *Target.Name), bOnNav);
+			TestTrue(FString::Printf(TEXT("%s: path from the center"), *Target.Name),
+				bOnNav && NavSys->TestPathSync(FPathFindingQuery(nullptr, *NavData, StartNav.Location, P.Location, NavData->GetDefaultQueryFilter())));
+		}
+	});
+
+	// Stand at each edge and corner and run into the wall: the player stays inside, on the ground.
+	for (int32 Index = 0; Index < Targets->Num(); ++Index)
+	{
+		Step([Targets, Index]()
+		{
+			const FEdgeTarget& Target = (*Targets)[Index];
+			GetPlayer()->TeleportTo(FVector(Target.Inside, 120.f), FRotator::ZeroRotator);
+			GetPlayer()->LaunchCharacter(FVector(Target.Out.GetSafeNormal() * 2500.f, 200.f), true, true);
+		});
+		WaitWorldSeconds(this, 1.2);
+		Step([this, Targets, Index]()
+		{
+			const FEdgeTarget& Target = (*Targets)[Index];
+			const FVector L = GetPlayer()->GetActorLocation();
+			TestTrue(FString::Printf(TEXT("%s: stopped by the boundary"), *Target.Name), AGSMapBoundary::Find(GetPIEWorld())->IsInside(L));
+			TestTrue(FString::Printf(TEXT("%s: still on the ground (Z %.0f)"), *Target.Name, L.Z), L.Z > 0.f && L.Z < 300.f);
+		});
+	}
+	Step([]()
+	{
+		GetGameMode()->SetRoundTimerPaused(false);
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
 	});
 	EndPIE();

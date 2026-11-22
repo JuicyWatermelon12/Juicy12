@@ -35,12 +35,13 @@ see **Design update — market, prestige and economy**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–26 are done
-(11–13 and 17 were design / scope updates and permanent cash).
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–26 and 26b are
+done (11–13 and 17 were design / scope updates and permanent cash).
 
-State at the time of writing: `main` after Prompt 26, not pushed. The build is clean and all 30 automation tests pass.
+State at the time of writing: `main` after Prompt 26b, not pushed. The build is clean and all 31 automation tests pass.
 The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to play a run in
-`L_Town_Graybox`. After death, R on the death screen goes back to the hub. The run summary in between is Prompt 27.
+`L_Town_Graybox` (300 × 300 m since Prompt 26b). After death, R on the death screen goes back to the hub. The run
+summary in between is Prompt 27.
 
 | Step | What | Commit |
 |---|---|---|
@@ -73,7 +74,9 @@ The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start 
 | M2 23 | Round-clear bonus (base + no damage + fast clear, flat) and the RoundClear summary | b04209d |
 | M2 24 | Round HUD: round / phase / countdown / enemies left, upgrade icons, queued round banners | 6be7fe1 |
 | M2 25 | Hub map L_Hub_Graybox + AGSHubGameMode (safe zone, no round loop); startup map | 815b5db |
-| M2 26 | Start Run portal (hub → town, run starts on load, seed hand-off); town cleanup (district sublevel, market travel removed) | see git log |
+| M2 26 | Start Run portal (hub → town, run starts on load, seed hand-off); town cleanup (district sublevel, market travel removed) | 142a81e |
+| Fix | Death screen R returns to the hub instead of restarting the town | 7b10eb2 |
+| M2 26b | Bigger town: 300 × 300 m, streets, outskirts cover, a landmark per side, NavMesh without islands | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -87,7 +90,7 @@ Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBalle
 - **Framework classes** (`Core/`): `AGSGameMode`, `AGSGameState`, `AGSPlayerState` (Cash, `OnCashChanged`,
   `AddCash` / `TrySpendCash`), `AGSPlayerController`, `AGSCharacter`; `Abilities/GSAttributeSet`.
   Blueprints in `Core/`: `BP_GSGameMode`, `BP_GSGameState`, `BP_GSPlayerState`, `BP_GSPlayerController`, `BP_GSCharacter`.
-- **Level** `Maps/L_Town_Graybox`: 150×150 m slab, central plaza, 6 shacks + crates as cover, `EnemySpawn` Target
+- **Level** `Maps/L_Town_Graybox`: 150×150 m slab (300 × 300 m since Prompt 26b), central plaza, 6 shacks + crates as cover, `EnemySpawn` Target
   Points at the edges, PlayerStart, NavMesh. The template `Lvl_ThirdPerson` GameMode override was cleared.
 
 ## M1 — Core combat (done)
@@ -141,7 +144,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–26 done)
+## M2 — The run loop (Prompts 1–26b done)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -803,7 +806,7 @@ Docs only; no code changed. Not a numbered step: **Next up** keeps its 18–28 n
   slab is 150 × 150 m, centered on the origin, top at Z 0.
   - The actor location is the play-area center at ground level.
   - Properties:
-    - `PlayAreaSize` 15000 × 15000 cm (the slab edges).
+    - `PlayAreaSize` 15000 × 15000 cm (the slab edges; 30000 × 30000 since Prompt 26b).
     - `CeilingHeight` 7500 cm.
     - `WallThickness` 200, `WallDepthBelowGround` 500.
   - 4 wall boxes and a ceiling box sit just outside the play area. They are rebuilt in OnConstruction / BeginPlay, so
@@ -1086,6 +1089,68 @@ User report: dying and pressing R started a new run in the town; it should go ba
   - A real R key press led to "Run over … returns to the hub" and the hub, at 100 health with the cash unchanged
     ($1,697).
 
+### Prompt 26b — Bigger town (300 × 300 m)
+Map work only, done with MCP. The only C++ change is the new test.
+- **Ground:** `Ground` now covers 300 × 300 m (±15000), still centered on the origin with its top at Z 0. Kill Z is
+  still below it.
+- **Layout.** The old 150 m town is the center, unchanged: plaza, `Cover_PlazaBuilding`, the 6 shacks and the crates.
+  - **Streets** (`Town/Roads`, flat 2 cm slabs, `MI_Graybox_Road`):
+    - a 12 m ring road at 77–89 m around the old town;
+    - an avenue from the ring out to each landmark plaza;
+    - two side streets per side, at ±50 m, running out to 140 m.
+  - **Landmarks** (`Town/Landmarks/<Side>`, tags `Landmark` + `Landmark_North` / `_East` / `_South` / `_West`). Each
+    stands on a 26 m round plaza 125 m from the center:
+    - North: a red water tower (4 legs, a platform at 15 m, tank and roof up to 25.4 m).
+    - East: a blue grain silo (a 10 m wide, 26 m tall cylinder with a dome up to 31 m).
+    - South: a sand church (hall, a 26 m tower and a red spire up to 32 m).
+    - West: a red-brown mesa with three stepped tiers (6 / 12 / 18 m), climbable with Extra Jump.
+  - **Outskirts** (`Town/Outskirts/<Side>`): cover placed on a 15 m grid with jitter in the bands between the ring road
+    and the edges, skipping streets and plazas. Some cells are left empty as open yards. In total:
+    - 26 shacks (4 m, wood) and 7 houses (8 m, stone);
+    - 13 towers (12 m, stone), whose roofs Extra Jump can reach;
+    - 6 free-standing low walls (1.8 m) and 100 crates (1.5 m, some stacked to 3 m).
+  - Nothing is walled off. Every part of the ground can be walked to (checked by NavMesh paths, below).
+  - **Materials:** new `Materials/Graybox/` instances of the engine `BasicShapeMaterial`: `MI_Graybox_Road`,
+    `MI_Graybox_Wood`, `MI_Graybox_Stone`, `MI_Landmark_Red`, `MI_Landmark_Blue`, `MI_Landmark_Sand`,
+    `MI_Landmark_Rock`.
+- **NavMesh:**
+  - `NavMeshBoundsVolume` covers ±150 m and Z −5 to 35 m, above the 32 m spire. NavMesh rebuilt.
+  - **Islands inside buildings.** Recast voxelizes surfaces only, so a closed mesh taller than the agent got a
+    NavMesh floor inside it. That was an island, and the M0 plaza building and shacks had them too.
+    - Every cover piece now has `bRasterizeAsFilledConvexVolume`. Pieces standing on the ground also have
+      `bFillCollisionUnderneathForNavmesh`.
+    - Pieces taller than the NavMesh bounds (the silo and the church tower, with the old 15 m top) lost their top
+      faces to clipping and still got a floor inside. That is why the bounds now reach 35 m.
+  - **Result:** the ground NavMesh is one connected area. Roofs, crate tops and the landmark tops keep small NavMesh
+    patches that only jumping reaches. Enemies never path there, and the spawn finder rejects them as unreachable.
+- **Boundary:** `MapBoundary` `PlayAreaSize` 30000 × 30000. `CeilingHeight` stays 7500.
+- **Spawns:** the four `EnemySpawn` fallback points moved to 142 m out on the axes (N / E / S / W), facing the center.
+  They are inside the boundary and on the NavMesh. The spawn ring stays 12–25 m.
+- **Unchanged:** the PlayerStart (0, 0, facing north) and the lighting. The movable sun, sky light (real-time
+  capture), sky atmosphere, height fog and volumetric clouds have no bounds, so they cover the bigger map (checked
+  from the corners).
+- **Code:** no gameplay change was needed. No hard-coded town size was found: `AGSMapBoundary`'s class default of
+  15000 is overridden in both maps, and `Map.Boundary` reads the actor's own bounds.
+- **Test** `Map.TownLayout` (new).
+- **Perf** (`gs.Perf 5`; PIE, god mode, round paused in PreRound, standing at the PlayerStart, editor throttling off):
+
+  | | Frame avg | p95 | Max | Game | Render | GPU |
+  |---|---|---|---|---|---|---|
+  | Before (150 m) | 8.35 ms (120 fps) | 8.33 | 20.03 | 2.70 | 2.77 | 3.14 |
+  | After (300 m) | 8.37 ms (119 fps) | 8.33 | 19.81 | 2.81 | 2.76 | 3.10 |
+
+  The frame time sits at the 120 fps cap both times; game, render and GPU time moved within noise. For reference,
+  round 3 Combat with 8 enemies alive: 8.42 ms avg, game 3.48, render 2.89, GPU 3.31.
+- **PIE check:**
+  - Rounds 1–3 played with god mode, `gs.KillAll` once each wave had spawned. The bandits pathed to the player. Spawns:
+    closest 15.4 / 15.2 / 12.2 m, 0 on-screen, 0 fallback. Round 2's XP leveled up and a card was picked.
+  - Every edge and corner: the player was dropped in 5 m from the edge, 3.5 m up, with 2000 cm/s outward speed. Each
+    time they stopped at ±149.57 m (the wall minus the capsule radius) and landed. These were teleports; that each
+    spot can be walked to comes from the NavMesh path checks in `Map.TownLayout`.
+  - From the NE corner, the water tower and the silo stand out over the outskirts. From the SW corner, the church and
+    the mesa do.
+  - The NavMesh bounds height and the silo fix came after this PIE run. The full suite passed after them.
+
 ---
 
 ## Console commands and CVars
@@ -1184,7 +1249,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (30, all passing)
+## Automation tests (31, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running.
@@ -1198,6 +1263,7 @@ starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE b
 | `Abilities.DashInvulnerabilityBlocksDamage` | Dash i-frames block damage. |
 | `Map.Hub` | PIE in L_Hub_Graybox: AGSHubGameMode (no AGSGameMode), area MarketDistrict, round 0 / WaitingToStart; Casino, 4 stalls, MarketArrival, MarketExitPortalSpot; player starts at MarketArrival; no NavMesh; AGSMapBoundary contains the player and the Casino; gs.Spawn refused, no enemies; State.SafeZone (GE_SafeZone) on the player, GE_Damage blocked, the fire input fires nothing (no State.Firing, ammo unchanged); HUD in the safe area hides every combat element and shows the cash (= profile); still no round half a second later. |
 | `Map.Town` | PIE in L_Town_Graybox: AGSGameMode (no hub GameMode), area Town, run started; no sublevels; no TownReturn / MarketPortalSpot / MarketArrival / MarketExitPortalSpot / Casino / MarketStall / Market actors; EnemySpawn points on the NavMesh; NavMesh under the player; boundary; no State.SafeZone; HUD not in a safe area; gs.Market.Teleport opens the hub (AGSHubGameMode, MarketDistrict); gs.Market.Return starts a run and opens the town again (round 1). |
+| `Map.TownLayout` | Town 300 × 300 m: boundary PlayAreaSize 30000 × 30000, centered, ceiling 7500; ground with its top at Z 0 at the center, the edge midpoints and the corners; Kill Z below the ground; NavMesh bounds cover the ground; a tagged landmark on each side, more than 110 m out and at least 15 m tall; PlayerStart at the center; 4 EnemySpawn points at least 130 m out, inside the boundary, on the NavMesh; no ground NavMesh islands (5 m grid, at least 2800 ground samples, every one with a path from the PlayerStart); a path to every edge and corner; launched into the wall at each edge and corner, the player stays inside and on the ground. |
 | `Map.StartRunPortal` | PIE in the hub: a portal at MarketExitPortalSpot ("START RUN"), RunMap = L_Town_Graybox; gs.Run.Seed 4242 in the hub sets the next seed; walking into the trigger starts the run (fade to black, a second start refused); the town loads with seed 4242 (GameMode + GameState), round 1, fresh run stats, area Town, same cash, no safe zone; round 1's first spawns: no fallback points, closest ≥ ring min, farthest ≤ ring max, every enemy on the NavMesh and inside the boundary. |
 | `Map.Boundary` | AGSMapBoundary in the town (ceiling 7500), player inside, cvar exists; 5 boxes: MapBoundary object type, block Pawn, ignore Visibility/Camera/WorldStatic/WorldDynamic/PhysicsBody, no NavMesh effect; player and enemy capsules block MapBoundary; Visibility / Camera / enemy-shot / pickup traces pass through a wall and the ceiling, a pawn sweep doesn't; spawn points near a corner are inside; player and a frozen enemy launched at a wall stay inside; dash and slide into the wall stop inside; a launch up stops at the ceiling (no damage, same XY); gs.Upgrade.Grant ExtraJump 3; an air jump under the ceiling works and is stopped by it. |
 | `Round.PhaseLoop` | PreRound on start, timer → Combat; no market phases in the enum; RoundClear timer → round 2 PreRound; skips round 2 → round 3 PreRound; gs.Round.Set. |
@@ -1245,6 +1311,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   next PreRound.
 - **Spawn ring** (DA_SpawnSettings): 12–25 m, 2 m spacing, 20 attempts, prefer off-screen. The user chose to keep
   12 m.
+- **Town map** (L_Town_Graybox, Prompt 26b): 300 × 300 m, boundary 30000 × 30000 cm with a 75 m ceiling, NavMesh
+  bounds Z −5 to 35 m, EnemySpawn fallback points 142 m out on the axes, landmarks 125 m out.
 - **Wave table** (DT_Waves; interval s / batch):
 
   | Round | Enemies | Interval / batch |
@@ -1318,6 +1386,15 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - Start Run portal (placeholder): a flat glowing ring made of two engine cylinders (no torus in the engine content)
   and a world-space "START RUN" text. There is no sound, no fade-in when the town opens, and no prompt on the HUD.
 - `EGSArea::MarketDistrict` now only means "in the hub map". The in-town district and its travel are gone.
+- Town map (Prompt 26b):
+  - The outskirts, streets and landmarks are plain graybox shapes (no props or detail). The cover density was
+    matched by eye, not measured.
+  - Roofs, crate tops and landmark tops have small NavMesh patches that walking can't reach (only jumping does). This
+    is expected; nothing paths or spawns there.
+  - New cover needs `bRasterizeAsFilledConvexVolume`, and the NavMesh bounds must reach above its top. Otherwise
+    Recast builds an island inside it. `Map.TownLayout` finds those on its 5 m grid.
+  - The edges and corners were visited in PIE by teleport plus a push into the wall, not by a full walk from the
+    center. Walking reachability comes from the NavMesh path checks.
 - No shop or casino logic yet (M3/M4); CashSpent is never used.
 - Crits are stubbed (`TODO(crits)` in `GSAttributeSet.cpp`; damage numbers support them, nothing sets them).
 - The `GameOver` phase exists but is unused. Player death shows the death screen, and R goes straight back to the hub
@@ -1401,6 +1478,11 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
   like `Two`, `R`, `Gamepad_DPad_Right`) sends real key presses to the focused widget, e.g. the choice screen.
 - Level-ups pause the game (upgrade offers). Tests or PIE sessions that need world time after a level-up must pick
   the offers (`gs.Upgrade.Choose 0`, `PickAllUpgradeOffers` in tests).
+- NavMesh from MCP: `RebuildNavigation` in the editor console rebuilds it. `ShowFlag.Navigation` doesn't show up in
+  `CaptureViewport`, so check islands with `Map.TownLayout`. A `NavModifierComponent` uses each collision element's
+  bounding box (a cylinder becomes a square), so it is no good for clearing the inside of round meshes.
+- `CaptureEditorImage` returns about 1 MB of base64. Write it to a file inside the script
+  (`AssetTools.write_file`, `file_path` absolute under `Saved/`) rather than returning it.
 
 ---
 
@@ -1433,6 +1515,8 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
       `AGSGameMode` keeps the round loop as the town map's GameMode.
     - **Tests** open `L_Town_Graybox` explicitly, since the startup map changes (done: `BeginPIE`).
 26. ~~**Start Run portal + town cleanup.**~~ Done (see Prompt 26).
+26b. ~~**Bigger town.**~~ Done (see Prompt 26b): 300 × 300 m with streets, outskirts cover, a landmark on each side,
+    the boundary and spawn points moved out, and a NavMesh without islands.
 27. **Death → summary → hub.**
     - On player death, enter the GameOver phase.
     - Run summary widget (run stats: rounds, kills, cash earned, level), then Continue → `OpenLevel` back to the hub
