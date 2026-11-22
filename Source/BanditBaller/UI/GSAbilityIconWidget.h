@@ -19,6 +19,13 @@ class BANDITBALLER_API UGSAbilityIconWidget : public UUserWidget
 {
 	GENERATED_BODY()
 
+public:
+	// --- Test hooks ---
+	const FGameplayTag& GetAbilityTag() const { return AbilityTag; }
+
+	/** The status line as shown ("READY", "0.6s", "1/2  2.1s"); empty without a StatusText. */
+	FString GetStatusString() const;
+
 protected:
 	virtual void NativePreConstruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;

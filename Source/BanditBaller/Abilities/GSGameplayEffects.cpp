@@ -40,7 +40,7 @@ UGSCooldownEffect_Dash::UGSCooldownEffect_Dash(const FObjectInitializer& ObjectI
 	PRAGMA_DISABLE_DEPRECATION_WARNINGS
 	StackingType = EGameplayEffectStackingType::AggregateByTarget;
 	PRAGMA_ENABLE_DEPRECATION_WARNINGS
-	StackLimitCount = 0; // no limit here; GA_Dash gates on MaxCharges from its settings
+	StackLimitCount = 0; // no limit here; GA_Dash gates on its max charges (settings + ExtraDashCharges)
 	StackDurationRefreshPolicy = EGameplayEffectStackingDurationPolicy::NeverRefresh;
 	StackExpirationPolicy = EGameplayEffectStackingExpirationPolicy::RemoveSingleStackAndRefreshDuration;
 }
@@ -111,6 +111,12 @@ UGSUpgradeEffect_ExtraJump::UGSUpgradeEffect_ExtraJump(const FObjectInitializer&
 	: Super(ObjectInitializer)
 {
 	AddAdditiveModifier(UGSAttributeSet::GetExtraJumpsAttribute(), 1.f);
+}
+
+UGSUpgradeEffect_DashCharge::UGSUpgradeEffect_DashCharge(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddAdditiveModifier(UGSAttributeSet::GetExtraDashChargesAttribute(), 1.f);
 }
 
 UGSUpgradeEffect_ReloadSpeed::UGSUpgradeEffect_ReloadSpeed(const FObjectInitializer& ObjectInitializer)

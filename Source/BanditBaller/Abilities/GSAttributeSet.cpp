@@ -13,6 +13,7 @@ UGSAttributeSet::UGSAttributeSet()
 	InitXPGain(1.f);
 	InitReloadSpeed(1.f);
 	InitExtraJumps(0.f);
+	InitExtraDashCharges(0.f);
 }
 
 void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -45,7 +46,8 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 		|| Attribute == GetFireRateAttribute()
 		|| Attribute == GetPickupRadiusAttribute()
 		|| Attribute == GetXPGainAttribute()
-		|| Attribute == GetExtraJumpsAttribute())
+		|| Attribute == GetExtraJumpsAttribute()
+		|| Attribute == GetExtraDashChargesAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}

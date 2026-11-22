@@ -85,6 +85,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Dash")
 	bool bAllowInAir = true;
 
+	/** Charges the player starts a run with. The Dash Charge upgrade adds the ExtraDashCharges attribute on top. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Charges", meta = (ClampMin = "1"))
 	int32 MaxCharges = 2;
 

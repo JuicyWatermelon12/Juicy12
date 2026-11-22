@@ -17,6 +17,11 @@ void UGSAbilityIconWidget::NativePreConstruct()
 	}
 }
 
+FString UGSAbilityIconWidget::GetStatusString() const
+{
+	return StatusText ? StatusText->GetText().ToString() : FString();
+}
+
 void UGSAbilityIconWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);

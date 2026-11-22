@@ -4,6 +4,7 @@
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GSAttributeSet.h"
 #include "GSCharacter.h"
 #include "GSGameplayEffects.h"
 #include "GSGameplayTags.h"
@@ -35,11 +36,42 @@ int32 UGSGameplayAbility_Dash::GetUsedCharges(const FGameplayAbilityActorInfo* A
 	return ASC->GetAggregatedStackCount(FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(*CooldownTags));
 }
 
+int32 UGSGameplayAbility_Dash::GetMaxCharges(const FGameplayAbilityActorInfo* ActorInfo) const
+{
+	const int32 BaseCharges = Settings ? FMath::Max(Settings->MaxCharges, 1) : 1;
+
+	// Read live (no cached value), so a Dash Charge pick or a new run's reset counts from the next check on.
+	const UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+	const FGameplayAttribute ExtraAttribute = UGSAttributeSet::GetExtraDashChargesAttribute();
+	const float Extra = ASC && ASC->HasAttributeSetForAttribute(ExtraAttribute) ? ASC->GetNumericAttribute(ExtraAttribute) : 0.f;
+	return BaseCharges + FMath::Max(0, FMath::RoundToInt(Extra));
+}
+
+int32 UGSGameplayAbility_Dash::GetAvailableCharges(const FGameplayAbilityActorInfo* ActorInfo) const
+{
+	return FMath::Max(GetMaxCharges(ActorInfo) - GetUsedCharges(ActorInfo), 0);
+}
+
+const UGSGameplayAbility_Dash* UGSGameplayAbility_Dash::FindGrantedDash(const UAbilitySystemComponent* ASC)
+{
+	if (!ASC)
+	{
+		return nullptr;
+	}
+	for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		if (const UGSGameplayAbility_Dash* Dash = Cast<UGSGameplayAbility_Dash>(Spec.Ability))
+		{
+			return Dash;
+		}
+	}
+	return nullptr;
+}
+
 bool UGSGameplayAbility_Dash::CheckCooldown(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 	FGameplayTagContainer* OptionalRelevantTags) const
 {
-	const int32 MaxCharges = Settings ? Settings->MaxCharges : 1;
-	if (GetUsedCharges(ActorInfo) < MaxCharges)
+	if (GetUsedCharges(ActorInfo) < GetMaxCharges(ActorInfo))
 	{
 		return true;
 	}
@@ -158,6 +190,6 @@ void UGSGameplayAbility_Dash::GetCooldownDisplayInfo(const FGameplayAbilityActor
 	// Base gives the remaining time of the charge currently recharging.
 	Super::GetCooldownDisplayInfo(ActorInfo, OutRemaining, OutDuration, OutCharges, OutMaxCharges);
 
-	OutMaxCharges = Settings ? Settings->MaxCharges : 1;
-	OutCharges = FMath::Clamp(OutMaxCharges - GetUsedCharges(ActorInfo), 0, OutMaxCharges);
+	OutMaxCharges = GetMaxCharges(ActorInfo);
+	OutCharges = FMath::Min(GetAvailableCharges(ActorInfo), OutMaxCharges);
 }

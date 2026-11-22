@@ -39,7 +39,7 @@ public:
 
 /**
  * Grants Cooldown.Dash. Each dash adds a stack (one spent charge); stacks expire one at a time,
- * each after the recharge time. GA_Dash allows activation while stacks < MaxCharges.
+ * each after the recharge time. GA_Dash allows activation while stacks < its max charges.
  */
 UCLASS()
 class BANDITBALLER_API UGSCooldownEffect_Dash : public UGSCooldownEffect
@@ -110,6 +110,16 @@ class BANDITBALLER_API UGSUpgradeEffect_ExtraJump : public UGSUpgradeEffect
 
 public:
 	UGSUpgradeEffect_ExtraJump(const FObjectInitializer& ObjectInitializer);
+};
+
+/** +1 ExtraDashCharges per stack (GE_Upgrade_DashCharge); GA_Dash's max charges = DA_DashSettings MaxCharges + it. */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_DashCharge : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_DashCharge(const FObjectInitializer& ObjectInitializer);
 };
 
 /** +10% ReloadSpeed per stack (GE_Upgrade_ReloadSpeed). */

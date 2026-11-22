@@ -16,7 +16,9 @@
 #include "GSEnemyCharacter.h"
 #include "GSEnemyData.h"
 #include "GSGameMode.h"
+#include "GSGameplayAbility_Dash.h"
 #include "GSGameplayTags.h"
+#include "GSMovementAbilitySettings.h"
 #include "GSGameState.h"
 #include "GSHealthComponent.h"
 #include "GSHubGameMode.h"
@@ -219,10 +221,19 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 	}
 	if (ASC)
 	{
-		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, MoveSpeed %.0f"),
+		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, MoveSpeed %.0f, ExtraJumps %.0f"),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetReloadSpeedAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute()),
-			ASC->GetNumericAttribute(UGSAttributeSet::GetMoveSpeedAttribute()));
+			ASC->GetNumericAttribute(UGSAttributeSet::GetMoveSpeedAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetExtraJumpsAttribute()));
+		if (const UGSGameplayAbility_Dash* Dash = UGSGameplayAbility_Dash::FindGrantedDash(ASC))
+		{
+			const UGSDashSettings* DashSettings = Dash->GetSettings();
+			Text += FString::Printf(TEXT("\n  Dash charges: %d (base %d + ExtraDashCharges %.0f), %d ready"),
+				Dash->GetMaxCharges(ASC->AbilityActorInfo.Get()), DashSettings ? DashSettings->MaxCharges : 1,
+				ASC->GetNumericAttribute(UGSAttributeSet::GetExtraDashChargesAttribute()),
+				Dash->GetAvailableCharges(ASC->AbilityActorInfo.Get()));
+		}
 	}
 
 	TArray<FString> Lines;

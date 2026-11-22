@@ -40,10 +40,10 @@ the hub map replaces them.
 
 **M2 — the run loop is complete** (rounds, waves, scaling, economy, progression; Prompts 1–28 and 26b; 11–13 and 17
 were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **Next: M2b**, eleven more
-level-up upgrades (Prompts 29–40; 29 is the docs-only plan, done). **Then M3** (shop, owned items, gear loadout,
+level-up upgrades (Prompts 29–40; 29 is the docs-only plan, 30 is Dash Charge; both done). **Then M3** (shop, owned items, gear loadout,
 two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Docs: M2b upgrade list" (Prompt 29, after "M2 complete"), not pushed. The build is clean and all 35 automation tests pass in about 80 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Dash Charge upgrade" (Prompt 30), not pushed. The build is clean and all 36 automation tests pass in about 82 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -84,7 +84,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2 27 | Run end: GameOver on death (wave stopped), run summary, Return to Market → hub | d2891c4 |
 | M2 28 | Tests for the M2 rules, two PIE loops, M2 checkpoint ("M2 complete") | b3dbae2 |
 | Workflow | Faster test runs: area tests while working, full suite once per prompt, short PIE checks; five slowest tests sped up (suite 118 → 80 s) | 84bc97f |
-| M2b 29 | Design update: the M2b upgrade list (11 upgrades, pool 4 → 15) and its rules; Prompts 30–40 planned (docs only) | see git log |
+| M2b 29 | Design update: the M2b upgrade list (11 upgrades, pool 4 → 15) and its rules; Prompts 30–40 planned (docs only) | 691d54e |
+| M2b 30 | Dash Charge upgrade (ExtraDashCharges → GA_Dash max charges, live); the player starts with 1 dash charge | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -1444,6 +1445,50 @@ data.
   - **Decided (user)** and **Next up** (the M2b block, Prompts 29–40, before M3);
   - the known issue about empty Epic and Legendary tiers.
 
+## M2b — More level-up upgrades (Prompts 29–40)
+
+Prompt 29 is the design update above.
+
+### Prompt 30 — Dash Charge
+- **New attribute `ExtraDashCharges`** (`UGSAttributeSet`, constructor default 0, clamped to ≥ 0; not replicated,
+  `TODO(co-op)`, like ExtraJumps).
+- **GA_Dash** (`UGSGameplayAbility_Dash`): max charges = `DA_DashSettings.MaxCharges` + ExtraDashCharges (rounded).
+  - `GetMaxCharges` reads the attribute live on every check (`CheckCooldown`, `GetCooldownDisplayInfo`), with no
+    cached value. So a pick counts from the next press, and a charge added while every charge is recharging is ready
+    at once.
+  - New `GetAvailableCharges` and the static `FindGrantedDash(ASC)` (debug and tests).
+  - Recharge unchanged: GE_Cooldown_Dash stacks, one per spent charge, come back one after another, 3 s each.
+- **DA_DashSettings `MaxCharges` 2 → 1** (asset value; the class default stays 2): the player starts a run with one
+  dash.
+- **Assets:**
+  - `Abilities/GE_Upgrade_DashCharge` (`UGSUpgradeEffect_DashCharge`, Additive +1 ExtraDashCharges per stack).
+  - `Data/Upgrades/DA_Upgrade_DashCharge`: Rare, MaxStacks 0 (no cap), "+{PerStack} dash charge per stack."
+  - Added to DA_UpgradePool, which now holds 5 upgrades.
+- **Dash icon** (WBP_AbilityIcon): display logic unchanged. With one charge it shows READY or the countdown; from two
+  charges up, the count ("3/4  3.0s"). It reads the ability every frame, so it follows a pick on the next frame.
+  New test hooks `GetAbilityTag()` / `GetStatusString()`.
+- **Debug:**
+  - `gs.Upgrade.Grant DashCharge [N]` (short name from the asset).
+  - `gs.Upgrade.List` adds ExtraJumps to its Stats line and a new line `Dash charges: 4 (base 1 + ExtraDashCharges
+    3), 4 ready`.
+  - `get_player_attributes` and `gs.SetAttr` pick up the new attribute on their own.
+- **Offer odds:** the Rare tier is still in ~42% of offers, but Extra Jump and Dash Charge now share it (each ~24.5%;
+  Extra Jump was 41.7%).
+- **Tests:**
+  - New `Upgrades.DashCharge`.
+  - `Upgrades.Offers` expects 5 upgrades. Its Rare check (~42% of offers) still holds: with 3 Commons and 2 Rares
+    neither tier runs out within one offer.
+  - No other test needed a change: only `Abilities.DashInvulnerabilityBlocksDamage` uses GA_Dash, and it dashes
+    once. `Upgrades.ExtraJump` and `Map.Boundary` call `StartDash` directly (no charges).
+- **PIE check** (town, god mode, round paused):
+  - Before: the dash icon showed READY.
+  - `gs.Upgrade.Grant DashCharge 3` → three `[upgrade]` lines and "x3 granted". The icon showed "4/4" and the
+    "x3 Dash Charge" icon appeared under the XP bar.
+  - `gs.Upgrade.List`: "DA_Upgrade_DashCharge [Rare] x3/inf: +1 dash charge per stack" and "Dash charges: 4 (base 1
+    + ExtraDashCharges 3), 4 ready".
+  - `GSPress Ability.Dash` → the icon showed "3/4  3.0s".
+- **Full suite:** 36 tests, all passing, in 82.5 s.
+
 ---
 
 ## Console commands and CVars
@@ -1457,8 +1502,8 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.God [0\|1]` | Toggle/set damage immunity (one `State.Invulnerable` count). |
 | `gs.GiveWeapon <Weapon>` | Equip `Rifle` / `Pistol` / `BanditCarbine` with a full mag (replaces the equipped one if both slots are full). |
 | `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain, ReloadSpeed). |
-| `gs.Upgrade.Grant <Name> [Count=1]` | Add stacks of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed`, `ExtraJump` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`. |
-| `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / MoveSpeed. |
+| `gs.Upgrade.Grant <Name> [Count=1]` | Add stacks of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed`, `ExtraJump`, `DashCharge` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`. |
+| `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / MoveSpeed / ExtraJumps and the dash charges (max = base + ExtraDashCharges, ready now). |
 | `gs.Upgrade.Offer` | Queue a level-up offer without the level (opens at once if none is open) and print the open offer. Refused in GameOver. |
 | `gs.Upgrade.Choose <0-2>` | Take a choice of the open offer; the next queued offer opens. |
 | `gs.Upgrade.Reroll` | Reroll the open offer for one of this run's rerolls (refused with none left or no offer). |
@@ -1511,6 +1556,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | XPGain | XP multiplier on kill XP (player 1.0; constructor default 1.0). |
 | ReloadSpeed | Reload time divisor for GA_Reload (constructor default 1.0, min 0.1). Not replicated yet. |
 | ExtraJumps | Air jumps; AGSCharacter keeps JumpMaxCount = 1 + ExtraJumps (constructor default 0, min 0). Not replicated yet. |
+| ExtraDashCharges | Dash charges on top of DA_DashSettings MaxCharges; GA_Dash reads it live (constructor default 0, min 0). Not replicated yet. |
 | IncomingDamage | Meta attribute: GE_Damage writes it, the set converts it to Health loss and records the instigator. |
 
 **Gameplay tags** (native, `Abilities/GSGameplayTags.*`; none in config):
@@ -1537,18 +1583,19 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | `GE_Upgrade_Damage` | `UGSUpgradeEffect_Damage` | Infinite, stacking; Multiply (Additive) 1.10 on Damage → +10% of base per stack. |
 | `GE_Upgrade_MoveSpeed` | `UGSUpgradeEffect_MoveSpeed` | Infinite, stacking; Multiply (Additive) 1.08 on MoveSpeed → +8% of base per stack. |
 | `GE_Upgrade_ExtraJump` | `UGSUpgradeEffect_ExtraJump` | Infinite, stacking; Additive +1 ExtraJumps per stack. |
+| `GE_Upgrade_DashCharge` | `UGSUpgradeEffect_DashCharge` | Infinite, stacking; Additive +1 ExtraDashCharges per stack. |
 
 **Abilities:**
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (35, all passing, about 80 s)
+## Automation tests (36, all passing, about 82 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
 the area's tests; run the full suite once per prompt before the commit (see **Workflow update — faster test runs**).
-`UI.RoundHUD`, `Round.PhaseLoop`, `Round.ClearBonus` and `Map.TownLayout` run game time ×4 and `Upgrades.ExtraJump` ×3
-(`SpeedUpWorld`). `UI.RoundHUD` also shortens its HUD's banners.
+`UI.RoundHUD`, `Round.PhaseLoop`, `Round.ClearBonus`, `Map.TownLayout` and `Upgrades.DashCharge` run game time ×4 and
+`Upgrades.ExtraJump` ×3 (`SpeedUpWorld`). `UI.RoundHUD` also shortens its HUD's banners.
 
 | Test | Checks |
 |---|---|
@@ -1585,16 +1632,17 @@ the area's tests; run the full suite once per prompt before the commit (see **Wo
 | `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; Combat → RoundClear pays the round-clear bonus into the profile; save when RoundClear ends includes it (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + return to the hub (the hub's HUD shows it); quitting saves it and the next PIE session (new GameInstance) loads it (HUD too); `gs.Profile.Reset` through the console → 0 and no save file. |
 | `Round.ClearBonus` | DA_RoundClearSettings on the GameMode ($20 / $15 / $15, 8 s + 1.5 s per enemy) and the summary widget on the controller; PreRound starts the round's stats (no payout, no summary); Combat records its start and wave size; round 1 killed fast with no damage → base + no damage + fast clear, kills = wave size, profile += bonus + cash collected; summary shows round, title and each line; after the vacuum cash collected ≥ kills × CashValue, XP = kills × XPValue, profile and CashEarned += cash collected + bonus, summary lines follow; round 2 PreRound hides the summary and starts from zero; damage taken + an impossible time limit (override) → base only, "missed" lines, total = base; RoundClear from PreRound pays nothing and shows nothing; round 10 (skip) pays the same as round 1; gs.Run.Stats shows the last bonus; a new run clears payout and round stats. |
 | `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
+| `Upgrades.DashCharge` | DA_DashSettings MaxCharges 1; DA_Upgrade_DashCharge (Rare, no cap, "+1", GE_Upgrade_DashCharge, in DA_UpgradePool); ExtraDashCharges 0, 1 max charge, icon READY; a dash uses it, a second press inside the recharge is refused, icon shows the countdown with no count; a pick (console) during the recharge: ExtraDashCharges 1, max 2 and one charge ready at once, icon "1/2" a frame later, the second dash works; charges come back one recharge (3 s) after the first dash and one more recharge later; `gs.Upgrade.Grant DashCharge 2` → 3 stacks, 4 charges all ready, icon "4/4", four dashes in a row, the 5th refused, icon "0/4"; a new run → ExtraDashCharges 0, 1 max charge, no stacks. Game time ×4. |
 | `Upgrades.ExtraJump` | DA_Upgrade_ExtraJump (Rare, no cap, "+1"); no air jump without it; ×3 → ExtraJumps 3, JumpMaxCount 4; three air jumps (rising, falling, falling fast) each set AirJumpZVelocity, 4th refused, one puff/sound each; landing resets; coyote jump is the ground jump; late jump after walking off uses an air jump; slide-hop then air jump; jump during an air dash is queued and becomes an air jump at the dash end; jump during a ground dash becomes the ground jump; 25 more stacks (no cap) → ExtraJumps = stacks, JumpMaxCount = 1 + stacks; new run → 0 / 1. |
-| `Upgrades.Offers` | DA_UpgradePool on the GameMode (4 upgrades, 100/20/6/1, 3 choices, 3 rerolls), 4 rarities; roll rules: 3000 offers all 3 different, Rare in ~42%, same seed same offers, 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer; simulator deterministic, no short offers, no Epic / Legendary, run stream untouched. |
+| `Upgrades.Offers` | DA_UpgradePool on the GameMode (5 upgrades, 100/20/6/1, 3 choices, 3 rerolls), 4 rarities; roll rules: 3000 offers all 3 different, Rare in ~42%, same seed same offers, 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer; simulator deterministic, no short offers, no Epic / Legendary, run stream untouched. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
 ## Tuning values (current)
 
 - **Player**: walk 900 cm/s, accel 6000, jump 800, air jump 800 (~1.87 m each), gravity ×1.75, coyote 0.12 s; camera arm 350 / FOV 90, ADS 180 /
-  65. Slide: +600 boost, max 1600, 0.8 s, 1 s cooldown. Dash: 600 cm in 0.15 s, 0.25 s i-frames, 2 charges, 3 s
-  recharge each.
+  65. Slide: +600 boost, max 1600, 0.8 s, 1 s cooldown. Dash: 600 cm in 0.15 s, 0.25 s i-frames, 1 charge (+1 per
+  Dash Charge pick), 3 s recharge each, one after another.
 - **Weapons** (damage / RPM / mag / reload):
   - Rifle: 20 / 600 auto / 30 / 1.8 s, spread hip 2° and ADS 0.5°.
   - Pistol: 45 / 300 semi / 12 / 1.2 s.
@@ -1662,13 +1710,14 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Round 1 pays $40 of drops (more with the combo), so a perfect clear more than doubles it there. The bonus
     matters less as waves grow.
 - **Upgrades** (per stack, additive on the base value): Reload Speed +10%, Damage +10%, Move Speed +8% (Common);
-  Extra Jump +1 air jump (Rare). None has a cap.
-- **Upgrade offers** (DA_UpgradePool, placeholders): rarity weights Common 100 / Rare 20 / Epic 6 / Legendary 1,
-  3 choices, 3 rerolls per run.
-  - `simulate_upgrade_offers(10000, 1)`, fresh run with no picks: Damage in 86.3% of offers, Reload Speed 86.0%,
-    Move Speed 85.9%, Extra Jump 41.7%.
-  - That is expected: the lone Rare is in 1 − (5/6)³ = 42.1% of offers and each Common in ~86.0%.
-  - By choices: Common 86.1%, Rare 13.9%, Epic and Legendary 0 (empty tiers). No short offers.
+  Extra Jump +1 air jump and Dash Charge +1 dash charge (Rare). None has a cap.
+- **Upgrade offers** (DA_UpgradePool, 5 upgrades; placeholders): rarity weights Common 100 / Rare 20 / Epic 6 /
+  Legendary 1, 3 choices, 3 rerolls per run.
+  - `simulate_upgrade_offers(10000, 1)`, fresh run with no picks (Prompt 30): Damage in 83.6% of offers, Move Speed
+    83.6%, Reload Speed 83.6%, Dash Charge 24.6%, Extra Jump 24.5%.
+  - The Rare tier is in 41.7% of offers (1 − (5/6)³ = 42.1%), now shared by two upgrades. Before Prompt 30 the lone
+    Extra Jump was in 41.7% and each Common in ~86%.
+  - By choices: Common 83.6%, Rare 16.4%, Epic and Legendary 0 (empty tiers). No short offers.
 - **Combo curves**: there is no combo system yet.
 
 ## Known issues, TODOs and deviations
@@ -1676,6 +1725,9 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 **Not built yet / stubs**
 - No upgrade is Epic or Legendary yet; those tiers are empty and never offered. M2b adds Floating Gun, Piercing
   Rounds and Powder Keg (Epic) and Second Wind (Legendary).
+- Dash Charge (Prompt 30): charges spent before a run restart in the same map (`gs.Run.Seed`, debug) keep
+  recharging after the Dash Charge stacks are removed. Until enough of them come back the player can have 0 of 1
+  charges for a few seconds. A real run loads a fresh town, so this only happens with the debug restart.
 - **Not yet built for the decisions before M3:**
   - Owned items in `OwnedItems`, item types (usable items, gear) and the gear loadout (M3/M4).
 - Prestige and the two-layer profile (playthrough data + prestige data) are a later milestone; the save layout
@@ -1840,7 +1892,8 @@ rules and the open questions). Each prompt adds its upgrades to DA_UpgradePool a
 smaller pool.
 
 29. ~~**M2b docs.**~~ Done (see **Design update — M2b upgrades**; docs only).
-30. **Dash Charge** (Rare): +1 dash charge per pick; the player starts with 1 charge instead of 2.
+30. ~~**Dash Charge** (Rare): +1 dash charge per pick; the player starts with 1 charge instead of 2.~~ Done (see
+    Prompt 30).
 31. **Fire Rate + Magnet** (Common): +8% FireRate and +15% PickupRadius per pick, on the existing attributes.
 32. **Bigger Mags + Leech** (Common, Rare): +15% magazine size per pick (rounding decided here); heal 1 health per kill
     per pick.

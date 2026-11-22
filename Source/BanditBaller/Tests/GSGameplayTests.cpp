@@ -69,7 +69,10 @@
 #include "GSProfileSubsystem.h"
 #include "Kismet/GameplayStatics.h"
 #include "GSGameplayEffects.h"
+#include "GSGameplayAbility_Dash.h"
 #include "GSGameplayAbility_Reload.h"
+#include "GSAbilityIconWidget.h"
+#include "Blueprint/WidgetTree.h"
 #include "GSMovementAbilitySettings.h"
 #include "GSMovementSettings.h"
 #include "Editor/EditorPerformanceSettings.h"
@@ -2830,6 +2833,242 @@ bool FGSExtraJumpTest::RunTest(const FString& Parameters)
 }
 
 // ---------------------------------------------------------------------------
+// Dash Charge: ExtraDashCharges -> GA_Dash max charges, one charge to start, recharge one after another, HUD icon
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	const UGSUpgradeData* GetDashChargeUpgrade()
+	{
+		return UGSDebugLibrary::FindUpgradeData(TEXT("DashCharge"));
+	}
+
+	const UGSGameplayAbility_Dash* GetPlayerDash()
+	{
+		return UGSGameplayAbility_Dash::FindGrantedDash(GetPlayerASC());
+	}
+
+	int32 GetDashMaxCharges()
+	{
+		const UGSGameplayAbility_Dash* Dash = GetPlayerDash();
+		const UGSAbilitySystemComponent* ASC = GetPlayerASC();
+		return Dash && ASC ? Dash->GetMaxCharges(ASC->AbilityActorInfo.Get()) : -1;
+	}
+
+	int32 GetDashChargesReady()
+	{
+		const UGSGameplayAbility_Dash* Dash = GetPlayerDash();
+		const UGSAbilitySystemComponent* ASC = GetPlayerASC();
+		return Dash && ASC ? Dash->GetAvailableCharges(ASC->AbilityActorInfo.Get()) : -1;
+	}
+
+	bool IsDashActive()
+	{
+		const UGSAbilitySystemComponent* ASC = GetPlayerASC();
+		return ASC && ASC->HasMatchingGameplayTag(GSGameplayTags::State_Dashing);
+	}
+
+	/** Press and release the dash input (the real GA_Dash path, with charges). Returns whether a dash started. */
+	bool TapDash()
+	{
+		UGSAbilitySystemComponent* ASC = GetPlayerASC();
+		if (!ASC || IsDashActive())
+		{
+			return false;
+		}
+		ASC->AbilityInputTagPressed(GSGameplayTags::Ability_Dash);
+		ASC->AbilityInputTagReleased(GSGameplayTags::Ability_Dash);
+		return IsDashActive();
+	}
+
+	/** The HUD's dash icon: the WBP_AbilityIcon whose AbilityTag is Ability.Dash. */
+	const UGSAbilityIconWidget* GetDashIcon()
+	{
+		const UGSHUDWidget* HUD = GetHUD();
+		if (!HUD || !HUD->WidgetTree)
+		{
+			return nullptr;
+		}
+		const UGSAbilityIconWidget* Found = nullptr;
+		HUD->WidgetTree->ForEachWidget([&Found](UWidget* Widget)
+		{
+			const UGSAbilityIconWidget* Icon = Cast<UGSAbilityIconWidget>(Widget);
+			if (!Found && Icon && Icon->GetAbilityTag() == GSGameplayTags::Ability_Dash)
+			{
+				Found = Icon;
+			}
+		});
+		return Found;
+	}
+
+	FString GetDashIconStatus()
+	{
+		const UGSAbilityIconWidget* Icon = GetDashIcon();
+		return Icon ? Icon->GetStatusString() : FString(TEXT("<no dash icon>"));
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSDashChargeTest, "BanditBaller.Upgrades.DashCharge", GSTests::TestFlags)
+bool FGSDashChargeTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	struct FState
+	{
+		double RechargeTime = 0.0;
+		double FirstDashTime = 0.0;
+		double FirstChargeBack = 0.0;
+		double SecondChargeBack = 0.0;
+	};
+	TSharedRef<FState> S = MakeShared<FState>();
+
+	// Data and the one-charge start. Dashes and recharges run in game time, 4x faster.
+	Step([this, S]()
+	{
+		SpeedUpWorld(4.f);
+		GetGameMode()->SetRoundTimerPaused(true); // stay in PreRound: no enemies
+
+		const UGSGameplayAbility_Dash* Dash = GetPlayerDash();
+		if (!TestNotNull(TEXT("GA_Dash granted"), Dash) || !TestNotNull(TEXT("GA_Dash settings"), Dash->GetSettings()))
+		{
+			return;
+		}
+		TestEqual(TEXT("DA_DashSettings: the player starts with 1 charge"), Dash->GetSettings()->MaxCharges, 1);
+		S->RechargeTime = Dash->GetSettings()->RechargeTime;
+		TestTrue(TEXT("Recharge time longer than a few dashes"), S->RechargeTime > 1.5);
+
+		const UGSUpgradeData* Upgrade = GetDashChargeUpgrade();
+		if (TestNotNull(TEXT("DA_Upgrade_DashCharge exists"), Upgrade))
+		{
+			TestTrue(TEXT("Dash Charge is Rare"), Upgrade->Rarity == EGSUpgradeRarity::Rare);
+			TestEqual(TEXT("Dash Charge has no cap"), Upgrade->MaxStacks, 0);
+			TestTrue(TEXT("Dash Charge effect is GE_Upgrade_DashCharge"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_DashCharge::StaticClass()));
+			const FString Description = Upgrade->GetFormattedDescription().ToString();
+			TestTrue(FString::Printf(TEXT("Description '%s' shows +1"), *Description), Description.Contains(TEXT("+1")));
+			const UGSUpgradePool* Pool = GetGameMode()->GetUpgradePool();
+			TestTrue(TEXT("Dash Charge is in DA_UpgradePool"), Pool && Pool->Upgrades.Contains(Upgrade));
+		}
+
+		TestEqual(TEXT("ExtraDashCharges starts at 0"), GetAttr(UGSAttributeSet::GetExtraDashChargesAttribute()), 0.f, 0.001f);
+		TestEqual(TEXT("1 max charge"), GetDashMaxCharges(), 1);
+		TestEqual(TEXT("1 charge ready"), GetDashChargesReady(), 1);
+	});
+	WaitFrames(this, 2);
+	Step([this]() { TestEqual(TEXT("One charge: the icon shows READY"), GetDashIconStatus(), FString(TEXT("READY"))); });
+
+	// One dash uses the only charge; a second press during the recharge is refused.
+	Step([this, S]()
+	{
+		TestTrue(TEXT("Dash 1 starts"), TapDash());
+		S->FirstDashTime = GetPIEWorld()->GetTimeSeconds();
+		TestEqual(TEXT("No charge left after dash 1"), GetDashChargesReady(), 0);
+	});
+	WaitUntil(this, TEXT("dash 1 to end"), []() { return !IsDashActive(); });
+	Step([this, S]()
+	{
+		TestTrue(TEXT("Still inside the recharge"), GetPIEWorld()->GetTimeSeconds() - S->FirstDashTime < S->RechargeTime);
+		TestFalse(TEXT("A second dash within the recharge is refused"), TapDash());
+		TestEqual(TEXT("The refused dash used nothing"), GetDashChargesReady(), 0);
+	});
+	WaitFrames(this, 2);
+	Step([this]()
+	{
+		const FString Status = GetDashIconStatus();
+		TestTrue(FString::Printf(TEXT("One charge recharging: the icon shows the countdown, no count ('%s')"), *Status),
+			Status.EndsWith(TEXT("s"), ESearchCase::CaseSensitive) && !Status.Contains(TEXT("/")));
+	});
+
+	// A pick during the recharge adds a charge at once: it is ready right away, and the icon switches to the count.
+	Step([this]()
+	{
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("DashCharge") });
+		TestEqual(TEXT("ExtraDashCharges = 1"), GetAttr(UGSAttributeSet::GetExtraDashChargesAttribute()), 1.f, 0.001f);
+		TestEqual(TEXT("Max charges = 1 + 1 at once"), GetDashMaxCharges(), 2);
+		TestEqual(TEXT("The new charge is ready at once"), GetDashChargesReady(), 1);
+		TestEqual(TEXT("Stacks tracked"), GetPlayerUpgrades()->GetStacks(GetDashChargeUpgrade()), 1);
+	});
+	WaitFrames(this, 1);
+	Step([this]()
+	{
+		const FString Status = GetDashIconStatus();
+		TestTrue(FString::Printf(TEXT("A frame after the pick the icon shows 1/2 ('%s')"), *Status), Status.StartsWith(TEXT("1/2")));
+		TestTrue(TEXT("Dash 2 starts with the new charge"), TapDash());
+		TestEqual(TEXT("Both charges used"), GetDashChargesReady(), 0);
+	});
+	WaitUntil(this, TEXT("dash 2 to end"), []() { return !IsDashActive(); });
+
+	// Recharge stays one after another: the first charge comes back one recharge after dash 1, the second one recharge
+	// after that.
+	WaitUntil(this, TEXT("first charge back"), [S]()
+	{
+		if (GetDashChargesReady() >= 1)
+		{
+			S->FirstChargeBack = GetPIEWorld()->GetTimeSeconds();
+			return true;
+		}
+		return false;
+	}, 10.0);
+	Step([this]() { TestEqual(TEXT("Charges come back one at a time"), GetDashChargesReady(), 1); });
+	WaitUntil(this, TEXT("second charge back"), [S]()
+	{
+		if (GetDashChargesReady() >= 2)
+		{
+			S->SecondChargeBack = GetPIEWorld()->GetTimeSeconds();
+			return true;
+		}
+		return false;
+	}, 10.0);
+	Step([this, S]()
+	{
+		const double First = S->FirstChargeBack - S->FirstDashTime;
+		const double Second = S->SecondChargeBack - S->FirstChargeBack;
+		AddInfo(FString::Printf(TEXT("Charges back %.2f s after dash 1, then %.2f s later (recharge %.2f s, game time)"), First, Second, S->RechargeTime));
+		TestEqual(TEXT("First charge back one recharge after dash 1"), First, S->RechargeTime, 0.25);
+		TestEqual(TEXT("Second charge back one recharge after the first"), Second, S->RechargeTime, 0.25);
+	});
+
+	// gs.Upgrade.Grant DashCharge 2: 3 stacks, 4 charges, all ready. Four dashes in a row, the fifth refused.
+	Step([this]()
+	{
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("DashCharge"), TEXT("2") });
+		TestEqual(TEXT("3 stacks"), GetPlayerUpgrades()->GetStacks(GetDashChargeUpgrade()), 3);
+		TestEqual(TEXT("ExtraDashCharges = 3"), GetAttr(UGSAttributeSet::GetExtraDashChargesAttribute()), 3.f, 0.001f);
+		TestEqual(TEXT("Max charges = 1 + 3"), GetDashMaxCharges(), 4);
+		TestEqual(TEXT("All 4 ready"), GetDashChargesReady(), 4);
+	});
+	WaitFrames(this, 1);
+	Step([this]() { TestEqual(TEXT("The icon shows 4/4"), GetDashIconStatus(), FString(TEXT("4/4"))); });
+	for (int32 i = 0; i < 4; ++i)
+	{
+		Step([this, i]() { TestTrue(FString::Printf(TEXT("Dash %d of 4 starts"), i + 1), TapDash()); });
+		WaitUntil(this, TEXT("dash to end"), []() { return !IsDashActive(); });
+	}
+	Step([this]()
+	{
+		TestEqual(TEXT("All 4 charges used"), GetDashChargesReady(), 0);
+		TestFalse(TEXT("A 5th dash is refused"), TapDash());
+	});
+	WaitFrames(this, 1);
+	Step([this]()
+	{
+		const FString Status = GetDashIconStatus();
+		TestTrue(FString::Printf(TEXT("All used: the icon shows 0/4 and the countdown ('%s')"), *Status), Status.StartsWith(TEXT("0/4")));
+	});
+
+	// New run: the stacks are removed and the player is back to one charge.
+	Step([this]()
+	{
+		GetGameMode()->RestartRunWithSeed(5);
+		TestEqual(TEXT("New run: ExtraDashCharges 0"), GetAttr(UGSAttributeSet::GetExtraDashChargesAttribute()), 0.f, 0.001f);
+		TestEqual(TEXT("New run: 1 max charge"), GetDashMaxCharges(), 1);
+		TestEqual(TEXT("New run: no Dash Charge stacks"), GetPlayerUpgrades()->GetStacks(GetDashChargeUpgrade()), 0);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
 // Upgrade offers: pool, roll rules, queue, choose, reroll, reset, simulator
 // ---------------------------------------------------------------------------
 
@@ -2889,7 +3128,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
-		TestEqual(TEXT("Pool has the 4 upgrades"), Pool->Upgrades.Num(), 4);
+		TestEqual(TEXT("Pool has the 5 upgrades"), Pool->Upgrades.Num(), 5);
 		TestEqual(TEXT("Common weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Common), 100.f);
 		TestEqual(TEXT("Rare weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Rare), 20.f);
 		TestEqual(TEXT("Epic weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Epic), 6.f);
@@ -2907,8 +3146,9 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 
 		auto NoStacks = [](const UGSUpgradeData*) { return 0; };
 
-		// Real pool: always 3 different upgrades (empty Epic / Legendary tiers never waste a pick), and the lone Rare
-		// shows up in about 1 - (100/120)^3 = 42% of offers.
+		// Real pool: always 3 different upgrades (empty Epic / Legendary tiers never waste a pick), and the Rare tier
+		// (Extra Jump, Dash Charge) shows up in about 1 - (100/120)^3 = 42% of offers: with 3 Commons and 2 Rares neither
+		// tier runs out within one offer, so each choice is Rare with 20/120.
 		FRandomStream Stream(7);
 		int32 WithRare = 0;
 		bool bAllFull = true, bAllDifferent = true;

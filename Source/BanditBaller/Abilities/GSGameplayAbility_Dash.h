@@ -11,7 +11,8 @@ class UGSDashSettings;
 /**
  * Short burst in the movement-input direction (camera forward with no input); works in the air.
  * Owns State.Dashing; adds State.Invulnerable for the i-frame window (GE_Damage is blocked by it).
- * Charges: each dash stacks GE_Cooldown_Dash; usable while stacks < MaxCharges.
+ * Charges: each dash stacks GE_Cooldown_Dash; usable while stacks < max charges = DA_DashSettings MaxCharges + the
+ * owner's ExtraDashCharges attribute (Dash Charge upgrade). The attribute is read live, so a pick counts at once.
  */
 UCLASS()
 class BANDITBALLER_API UGSGameplayAbility_Dash : public UGSGameplayAbility
@@ -32,6 +33,17 @@ public:
 
 	virtual void GetCooldownDisplayInfo(const FGameplayAbilityActorInfo* ActorInfo, float& OutRemaining, float& OutDuration,
 		int32& OutCharges, int32& OutMaxCharges) const override;
+
+	/** DA_DashSettings MaxCharges (at least 1) + the owner's ExtraDashCharges (rounded, never negative). */
+	int32 GetMaxCharges(const FGameplayAbilityActorInfo* ActorInfo) const;
+
+	/** Charges ready to use now: max charges - charges still recharging (never below 0). */
+	int32 GetAvailableCharges(const FGameplayAbilityActorInfo* ActorInfo) const;
+
+	const UGSDashSettings* GetSettings() const { return Settings; }
+
+	/** The GA_Dash granted to ASC (the ability CDO, which GetMaxCharges / GetAvailableCharges are called on), or null. */
+	static const UGSGameplayAbility_Dash* FindGrantedDash(const UAbilitySystemComponent* ASC);
 
 protected:
 	virtual float GetCooldownDuration(const FGameplayAbilityActorInfo* ActorInfo) const override;
