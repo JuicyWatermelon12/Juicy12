@@ -51,7 +51,7 @@ held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds
 M2b + M2c checkpoint (48), which replaces the old M2b checkpoint). Four more weapons and a weapons checkpoint follow
 (49–53). **Then M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Per-card upgrade roll and cards" (Prompt 42), not pushed. The build is clean and all 48 automation tests pass in about 114 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Weapon slots" (Prompt 43), not pushed. The build is clean and all 49 automation tests pass in about 114 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -108,7 +108,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2b 39 | Floating Gun part 2: level 2 = a second gun over the left shoulder (never more than two), the guns prefer different targets, level 3+ = +10% damage and fire rate each; card text per next level | 062273f |
 | M2c 40 | Design update: upgrade rework (categories, rarity per card, weapons with 3 slots, no pick caps, endless levels); Prompts 41–53 planned (docs only) | fc5bcd2 |
 | M2c 41 | Upgrade picks: category, BaseValue, rarity multipliers in DA_UpgradePool, one GE per upgrade with the total (SetByCaller), FloatingGunPower, `gs.Upgrade.Grant <Name> [Count] [Rarity]`; offered picks still Common | f1dbf24 |
-| M2c 42 | Per-card roll: Legendary ability chance 0.8%, then an upgrade by AppearanceWeight and a rarity from its category's weights (whole units: Rare → Common); cards show category, rolled rarity, pick line and "Now:"; simulator by category | see git log |
+| M2c 42 | Per-card roll: Legendary ability chance 0.8%, then an upgrade by AppearanceWeight and a rarity from its category's weights (whole units: Rare → Common); cards show category, rolled rarity, pick line and "Now:"; simulator by category | 8602397 |
+| M2c 43 | Weapon slots: MaxWeapons 3 in DA_UpgradePool, a weapon card in the first offer (kept by its rerolls), "NEW WEAPON" / "WEAPON UPGRADE" cards, three HUD weapon slots (icon only), weapons line in the run summary | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -2471,6 +2472,41 @@ is still granted as Common**, and a Common pick gives exactly what a pick gave b
   0xc0e90002). The user turned it off; see Environment gotchas.
 - **Full suite:** 48 tests, all passing, in 114.1 s.
 
+### Prompt 43 — Weapon slots
+- **`DA_UpgradePool.MaxWeapons` 3** (class default). `UGSUpgradePool::CountOwnedWeapons` / `CanOfferWeapon`: a weapon the
+  player doesn't own is a candidate only while they own fewer than MaxWeapons different weapons; owned weapons always
+  stay candidates (as upgrades). The rule is inside `RollOffer`, so offers and rerolls both follow it. The rifle and
+  pistol aren't upgrades and don't count.
+- **The first offer of a run has a weapon card:** `RollOffer(…, bWeaponCard)` rolls one weapon first (by
+  AppearanceWeight, its rarity from the Weapon weights as usual), fills the other cards as usual (they may hold
+  another weapon) and puts the weapon at a random position. `UGSUpgradeComponent::IsFirstOfferPending()` is set on a
+  new run and cleared by the first pick, so **rerolls of the first offer keep a weapon card** (a reroll can't skip it).
+  With no weapon allowed (e.g. MaxWeapons 0) the offer is normal.
+- **Card label** (`UGSUpgradeCardWidget::GetCategoryLabel`): a weapon card's category line reads "NEW WEAPON" when the
+  player doesn't own it and "WEAPON UPGRADE" when they do.
+- **HUD weapon slots** (WBP_HUD, MCP): a new HorizontalBox `TopLeftIconsRow` at the old spot (40, 128) holds
+  `WeaponSlotsBox` (new binding) and then `UpgradeIconsBox`, 14 px apart.
+  - MaxWeapons slots, built from WBP_UpgradeIcon in a weapon-slot mode (`UGSUpgradeIconWidget::SetWeaponSlot`): icon
+    only (no count, no name), a neutral frame (`WeaponSlotColor` with a weapon, a dim `EmptyWeaponSlotColor` when
+    empty), no rarity colors. The weapons fill the slots in the order they were first picked
+    (`UGSUpgradeComponent::GetOwnedWeapons`).
+  - **Weapons no longer appear in the upgrade icon row.** The slots are hidden in the hub with the other combat
+    elements and empty again on a new run.
+  - Test hooks: `GetWeaponSlotCount`, `GetWeaponInSlot`, `GetWeaponSlot`; icon `IsWeaponSlot`, `IsIconShown`.
+- **Run summary** (WBP_RunSummary, MCP): a "Weapons" row after the seed (`WeaponsValue`: "Floating Gun", or "None");
+  weapons leave the summary's upgrade icons and "Upgrades picked" text (`GetWeaponsText`).
+- **Debug:** `gs.Upgrade.List` adds "Weapon slots (MaxWeapons 3): Floating Gun, -, -; first offer's weapon card done".
+- **Tests** (`AGSGameMode::SetUpgradePoolOverride(Pool)`, new, lets a test use a copy of DA_UpgradePool):
+  - New `Upgrades.WeaponSlots`.
+  - `UI.RoundHUD` picks a non-weapon card from the first offer (it checks the upgrade icon row); `Run.GameOver` expects
+    weapons in the summary's weapons line, not its icons; `UI.UpgradeChoice` and `Upgrades.FloatingGunLevels` expect the
+    new weapon labels.
+- **PIE check** (town, round paused): a Damage pick, then `gs.XP.Add 100`. The first offer showed Leech (Common),
+  Loaded Dice (Epic, "+10% critical hit chance") and "NEW WEAPON · Floating Gun · COMMON". The HUD showed three empty
+  slots before the Damage icon. After `gs.Upgrade.Choose 2` the first slot showed the weapon icon in a light frame,
+  slots 2 and 3 stayed empty, and Damage stayed in the upgrade row.
+- **Full suite:** 49 tests, all passing, in 114.3 s.
+
 ---
 
 ## Console commands and CVars
@@ -2595,7 +2631,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (48, all passing, about 113 s)
+## Automation tests (49, all passing, about 114 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
@@ -2654,6 +2690,7 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Upgrades.FloatingGunLevels` | DA_FloatingGunSettings +10% damage and fire rate per level; guns per level 0–6: 0, 1, 2, 2, 2, 2, 2; multipliers x1 at level 2, x1.1 at 3, x1.3 at 5 (added up), 1.95 shots/s at 5; DA_Upgrade_FloatingGun has 3 card texts: "Adds a floating gun…", "Adds a second floating gun…", "+10% floating gun damage and fire rate" (the number matches the settings, damage and fire rate bonus equal), 9 owned repeats the last; the real WBP_UpgradeCard shows the text for 0–3 owned; level 1: one gun; level 2: two guns, the first still right, the second left, mirrored at the same height above the head, no collision, no bonus; one bandit in range: both shoot it; a second bandit: different targets, each takes one gun's damage (about 12 a second over 4 s); one dies: both go to the other; the level 5 pick mid-burst: every frame of both guns on schedule before and after, the schedule switches to the level 5 interval; level 5: still two guns (and two gun actors), 1.95 shots/s and x1.3 each, every hit 10.4, about 40.6 a second from both; logs one gun's DPS next to the rifle's; a new run → level 0, no guns, no gun actors left. Health orbs off. Game time ×4. |
 | `Upgrades.Offers` | DA_UpgradePool on the GameMode (15 upgrades, weights Stat Boost / Weapon 100/20/6/1, Ability 100/10/3/0.5, Legendary ability chance 0.8%, 3 choices, 3 rerolls), 4 rarities; per-card roll: 30,000 offers all 3 different, Legendary ability cards at ~0.8% and always Legendary, the 14 others even, each category's rarity split, no Rare whole-unit card; chance 1 / 0 for the Legendary ability; Rare-only weights → Rare, but Common for whole units; per-category weights; AppearanceWeight 0 never offered; same seed same offers (with rarities), 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; a pick gets the card's rolled rarity and value; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer (with rarities); simulator deterministic, no short offers, Epic and Legendary cards, every card in a category, no Rare Legendary ability, run stream untouched. |
 | `Upgrades.PickValues` | DA_UpgradePool multipliers 1 / 1.5 / 2 / 3 and whole-unit values 1 / – / 2 / 3; all 15 DA_Upgrade_*: category, Legendary ability, whole units, BaseValue (= the old per-pick value), AppearanceWeight 1, percent or not, in the pool; Floating Gun WeaponGivingPicks 2; card number and FormatValue; ParseRarity; for every stat boost and ability one pick of each rarity: the attribute = base × (1 + total) or base + total after each, a Common pick = exactly the old pick, whole units refuse Rare, picks and total tracked, one active effect; 6 shields, JumpMaxCount 7, Powder Keg 7.5 stacks = 22.5%, crit 37.5%; `gs.Upgrade.Grant Damage 2 Epic` / `Damage Legendary`, ExtraJump Rare refused; Floating Gun Rare → Legendary → Common → Epic: power 0.5 / 2.5 / 3.5 / 5.5, 4 picks, two guns, ×1.55; Second Wind Common / Legendary / Rare = 3 charges, a killing blow uses one (2 picks, total 2, one effect); a new run removes all. |
+| `Upgrades.WeaponSlots` | MaxWeapons 3; test pool with two test weapons, MaxWeapons 1: none owned → both offered, one owned → the other never offered (CanOfferWeapon false) and the owned one still offered, MaxWeapons 2 → offered again; the first offer's weapon card in 400 of 400 offers, 3 different cards, at all three positions, Common and Rare both rolled; slots full → it is the owned weapon; MaxWeapons 0 → no weapon card, 3 cards; card labels NEW WEAPON / WEAPON UPGRADE / STAT BOOST; real run: first offer has the Floating Gun, 3 rerolls keep a weapon card, after the first pick not pending and later offers mostly without one, a new run → pending; a copy of the pool with a test weapon and MaxWeapons 1 (`SetUpgradePoolOverride`): one HUD slot, 30 offers + rerolls never offer the test weapon but offer the Floating Gun, the first one includes it; MaxWeapons 3: the test weapon is offered and picked, slots Floating Gun / test weapon / empty, no weapon in the upgrade row; real pool HUD: 3 empty slots without an icon, Damage in the upgrade row, two Epic Floating Gun picks → slot 1 shows it (icon, no count), the others empty, no Floating Gun in the upgrade row; a new run empties the slots; death → summary weapons line "Floating Gun", upgrades "Damage x1", one upgrade icon. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
@@ -3046,8 +3083,9 @@ questions). Each prompt updates the tests that assume the old design.
 42. ~~**Offer roll and cards:** a rarity rolled per card on the run stream with the category weights (100 / 20 / 6 / 1;
     Abilities 100 / 10 / 3 / 0.5); the 0.8% Legendary ability chance; cards show the rolled rarity and the pick's value;
     the simulator.~~ Done (see Prompt 42). MaxWeapons and the first level-up's weapon card moved to 43.
-43. **Weapon slots and HUD:** three weapon slots in the top left, like the upgrade icons, filled in pick order (icon
-    only); MaxWeapons 3 and owned-only weapons after that; a weapon card in the first level-up of a run (moved from 42).
+43. ~~**Weapon slots and HUD:** three weapon slots in the top left, like the upgrade icons, filled in pick order (icon
+    only); MaxWeapons 3 and owned-only weapons after that; a weapon card in the first level-up of a run (moved from 42).~~
+    Done (see Prompt 43).
 44. **Overflow effects and no pick caps:** every MaxStacks removed; Loaded Dice past 100% gives a chance of a
     triple-damage hit, Powder Keg past 100% a chance of a double-size blast.
 45. **Endless levels:** no level cap; the XP needed per level grows by a fixed amount.

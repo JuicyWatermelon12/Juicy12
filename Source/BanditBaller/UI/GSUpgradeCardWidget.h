@@ -37,6 +37,9 @@ public:
 
 	FLinearColor GetRarityColor(EGSUpgradeRarity InRarity) const;
 
+	/** The card's category line: "STAT BOOST", "ABILITY", "LEGENDARY ABILITY", or for a weapon "NEW WEAPON" (not owned) / "WEAPON UPGRADE". */
+	static FText GetCategoryLabel(const UGSUpgradeData* InUpgrade, int32 OwnedPicks);
+
 	/** Set by the choice screen. */
 	FGSOnUpgradeCardClicked OnCardClicked;
 
@@ -70,7 +73,7 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> RarityText;
 
-	/** "STAT BOOST", "ABILITY", "LEGENDARY ABILITY", "WEAPON". */
+	/** "STAT BOOST", "ABILITY", "LEGENDARY ABILITY", "NEW WEAPON" or "WEAPON UPGRADE" (GetCategoryLabel). */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> CategoryText;
 

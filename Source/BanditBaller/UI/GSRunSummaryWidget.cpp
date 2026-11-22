@@ -163,6 +163,7 @@ void UGSRunSummaryWidget::Refresh()
 	SetText(TotalCashValue, GetTotalCashText());
 	SetText(RunTimeValue, GetRunTimeText());
 	SetText(SeedValue, GetSeedText());
+	SetText(WeaponsValue, GetWeaponsText());
 	RefreshUpgrades();
 }
 
@@ -180,7 +181,7 @@ void UGSRunSummaryWidget::RefreshUpgrades()
 	{
 		for (const FGSUpgradeStack& Stack : Upgrades->GetUpgradeStacks())
 		{
-			if (Stack.Upgrade && Stack.Stacks > 0)
+			if (Stack.Upgrade && Stack.Stacks > 0 && Stack.Upgrade->Category != EGSUpgradeCategory::Weapon) // weapons: WeaponsValue
 			{
 				Picked.Add(&Stack);
 			}
@@ -284,7 +285,7 @@ FText UGSRunSummaryWidget::GetUpgradesText() const
 	{
 		for (const FGSUpgradeStack& Stack : Upgrades->GetUpgradeStacks())
 		{
-			if (Stack.Upgrade && Stack.Stacks > 0)
+			if (Stack.Upgrade && Stack.Stacks > 0 && Stack.Upgrade->Category != EGSUpgradeCategory::Weapon)
 			{
 				Parts.Add(FText::Format(NSLOCTEXT("GSRunSummary", "UpgradeStack", "{0} x{1}"), Stack.Upgrade->DisplayName, FText::AsNumber(Stack.Stacks)));
 			}
@@ -353,4 +354,17 @@ FReply UGSRunSummaryWidget::NativeOnKeyDown(const FGeometry& InGeometry, const F
 		return FReply::Handled();
 	}
 	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
+}
+
+FText UGSRunSummaryWidget::GetWeaponsText() const
+{
+	TArray<FText> Names;
+	if (const UGSUpgradeComponent* Upgrades = GetUpgrades())
+	{
+		for (const UGSUpgradeData* Weapon : Upgrades->GetOwnedWeapons())
+		{
+			Names.Add(Weapon->DisplayName);
+		}
+	}
+	return Names.IsEmpty() ? NSLOCTEXT("GSRunSummary", "NoWeapons", "None") : FText::Join(FText::FromString(TEXT(", ")), Names);
 }

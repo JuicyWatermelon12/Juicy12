@@ -177,21 +177,59 @@ namespace
 	}
 }
 
-TArray<FGSUpgradeChoice> UGSUpgradePool::RollOffer(FRandomStream& Stream, TFunctionRef<int32(const UGSUpgradeData*)> GetStacks) const
+int32 UGSUpgradePool::CountOwnedWeapons(TFunctionRef<int32(const UGSUpgradeData*)> GetStacks) const
 {
-	// Everything that could be offered right now, split into Legendary abilities and the rest.
+	TSet<const UGSUpgradeData*> Owned;
+	for (const UGSUpgradeData* Upgrade : Upgrades)
+	{
+		if (Upgrade && Upgrade->Category == EGSUpgradeCategory::Weapon && GetStacks(Upgrade) > 0)
+		{
+			Owned.Add(Upgrade);
+		}
+	}
+	return Owned.Num();
+}
+
+bool UGSUpgradePool::CanOfferWeapon(const UGSUpgradeData* Weapon, TFunctionRef<int32(const UGSUpgradeData*)> GetStacks) const
+{
+	return GetStacks(Weapon) > 0 || CountOwnedWeapons(GetStacks) < MaxWeapons;
+}
+
+TArray<FGSUpgradeChoice> UGSUpgradePool::RollOffer(FRandomStream& Stream, TFunctionRef<int32(const UGSUpgradeData*)> GetStacks, bool bWeaponCard) const
+{
+	// Everything that could be offered right now, split into Legendary abilities and the rest. A weapon the player
+	// doesn't own is left out once they hold MaxWeapons weapons.
+	const bool bWeaponSlotFree = CountOwnedWeapons(GetStacks) < MaxWeapons;
 	TArray<UGSUpgradeData*> Legendary;
 	TArray<UGSUpgradeData*> Normal;
 	for (UGSUpgradeData* Upgrade : Upgrades)
 	{
-		if (Upgrade && Upgrade->Effect && !Legendary.Contains(Upgrade) && !Normal.Contains(Upgrade) && Upgrade->CanAddStack(GetStacks(Upgrade)))
+		if (!Upgrade || !Upgrade->Effect || Legendary.Contains(Upgrade) || Normal.Contains(Upgrade) || !Upgrade->CanAddStack(GetStacks(Upgrade)))
 		{
-			(Upgrade->bLegendaryAbility ? Legendary : Normal).Add(Upgrade);
+			continue;
 		}
+		if (Upgrade->Category == EGSUpgradeCategory::Weapon && GetStacks(Upgrade) <= 0 && !bWeaponSlotFree)
+		{
+			continue;
+		}
+		(Upgrade->bLegendaryAbility ? Legendary : Normal).Add(Upgrade);
 	}
 
+	// The first offer of a run: one weapon card first, put in at a random position at the end.
+	FGSUpgradeChoice WeaponCard;
+	if (bWeaponCard && ChoicesPerOffer > 0)
+	{
+		const TArray<UGSUpgradeData*> Weapons = Normal.FilterByPredicate([](const UGSUpgradeData* U) { return U->Category == EGSUpgradeCategory::Weapon; });
+		if (UGSUpgradeData* Weapon = PickByWeight(Stream, Weapons))
+		{
+			WeaponCard = FGSUpgradeChoice{ Weapon, ResolveRarity(Weapon, RollRarity(Stream, Weapon->Category)) };
+			Normal.Remove(Weapon);
+		}
+	}
+	const int32 OtherCards = ChoicesPerOffer - (WeaponCard.Upgrade ? 1 : 0);
+
 	TArray<FGSUpgradeChoice> Offer;
-	while (Offer.Num() < ChoicesPerOffer)
+	while (Offer.Num() < OtherCards)
 	{
 		// 1. A Legendary ability (no rarity roll: it always comes as itself).
 		const bool bLegendaryCard = LegendaryAbilityChance > 0.f && Stream.FRand() < LegendaryAbilityChance;
@@ -220,6 +258,10 @@ TArray<FGSUpgradeChoice> UGSUpgradePool::RollOffer(FRandomStream& Stream, TFunct
 		Offer.Add(FGSUpgradeChoice{ Upgrade, Rarity });
 		Legendary.Remove(Upgrade);
 		Normal.Remove(Upgrade);
+	}
+	if (WeaponCard.Upgrade)
+	{
+		Offer.Insert(WeaponCard, Stream.RandRange(0, Offer.Num()));
 	}
 	return Offer;
 }

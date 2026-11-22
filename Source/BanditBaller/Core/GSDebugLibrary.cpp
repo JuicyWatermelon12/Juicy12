@@ -262,6 +262,19 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 				*Upgrade->GetFormattedDescription(Picks).ToString());
 		}
 	}
+	if (Upgrades)
+	{
+		const AGSGameMode* PoolOwner = PC->GetWorld()->GetAuthGameMode<AGSGameMode>();
+		const UGSUpgradePool* Pool = PoolOwner && PoolOwner->GetUpgradePool() ? PoolOwner->GetUpgradePool() : GetDefault<UGSUpgradePool>();
+		const TArray<const UGSUpgradeData*> Weapons = Upgrades->GetOwnedWeapons();
+		FString Slots;
+		for (int32 Index = 0; Index < FMath::Max(Pool->MaxWeapons, Weapons.Num()); ++Index)
+		{
+			Slots += FString::Printf(TEXT("%s%s"), Index > 0 ? TEXT(", ") : TEXT(""), Weapons.IsValidIndex(Index) ? *Weapons[Index]->DisplayName.ToString() : TEXT("-"));
+		}
+		Text += FString::Printf(TEXT("\n  Weapon slots (MaxWeapons %d): %s; first offer's weapon card %s"), Pool->MaxWeapons, *Slots,
+			Upgrades->IsFirstOfferPending() ? TEXT("still pending") : TEXT("done"));
+	}
 	if (ASC)
 	{
 		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, FireRate %.2f, MoveSpeed %.0f, PickupRadius %.0f, ExtraJumps %.0f, MagazineSizeMultiplier %.3f, HealthOnKill %.0f, CritChance %.3f, Pierce %.0f, PowderKeg %g, Shields %.0f, SecondWinds %.0f, FloatingGunLevel %.0f, FloatingGunPower %g"),

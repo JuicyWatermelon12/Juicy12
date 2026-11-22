@@ -4934,7 +4934,7 @@ namespace GSTests
 			const float Value = Upgrades->GetChoiceValue(Choice);
 			const int32 Picks = Upgrades->GetStacks(Choice.Upgrade);
 			const FString Expected[] = {
-				Choice.Upgrade->GetCategoryName().ToUpper(),
+				UGSUpgradeCardWidget::GetCategoryLabel(Choice.Upgrade, Picks).ToString(),
 				UGSUpgradeData::GetRarityName(Choice.Rarity).ToUpper(),
 				Value > 0.f ? Choice.Upgrade->FormatValueText(Value).ToString() : FString(),
 				Picks > 0 ? TEXT("Now: ") + Choice.Upgrade->FormatValueText(Upgrades->GetTotalValue(Choice.Upgrade)).ToString() : FString(TEXT("Now: none")) };
@@ -5898,8 +5898,12 @@ bool FGSRoundHUDTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("LEVEL UP! is over"), HUD->IsLevelUpBannerShowing());
 		TestFalse(TEXT("Round banner still waits for the cards"), HUD->IsRoundBannerShowing());
 		TestEqual(TEXT("Still queued"), HUD->GetQueuedRoundBannerCount(), 1);
-		S->Picked = GetPlayerUpgrades()->GetCurrentChoices()[0];
-		TestEqual(TEXT("Upgrade picked"), PickAllUpgradeOffers(), 1);
+		// The first offer has a weapon card (it goes to the weapon slots, not the icon row): pick another card.
+		const TArray<UGSUpgradeData*> Choices = GetPlayerUpgrades()->GetCurrentChoices();
+		const int32 NonWeapon = Choices.IndexOfByPredicate([](const UGSUpgradeData* U) { return U->Category != EGSUpgradeCategory::Weapon; });
+		S->Picked = Choices[FMath::Max(NonWeapon, 0)];
+		TestTrue(TEXT("Upgrade picked"), GetGameMode()->ChooseUpgrade(GetPC()->GetPlayerState<AGSPlayerState>(), FMath::Max(NonWeapon, 0)));
+		TestFalse(TEXT("No offer left"), GetPlayerUpgrades()->HasOpenOffer());
 		TestTrue(TEXT("Closing the offer replays ROUND 2"), HUD->IsRoundBannerShowing() && HUD->GetRoundBannerTitle().ToString() == TEXT("ROUND 2"));
 		TestEqual(TEXT("One more banner shown"), HUD->GetRoundBannersShown(), S->ShownBefore + 1);
 
@@ -5915,7 +5919,7 @@ bool FGSRoundHUDTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Same upgrade again: x2"), Icon ? Icon->GetStackText().ToString() : FString(), FString(TEXT("x2")));
 		for (const UGSUpgradeData* Upgrade : GetGameMode()->GetUpgradePool()->Upgrades)
 		{
-			if (Upgrade && Upgrade != S->Picked)
+			if (Upgrade && Upgrade != S->Picked && Upgrade->Category != EGSUpgradeCategory::Weapon)
 			{
 				GetPlayerUpgrades()->GrantUpgrade(Upgrade, TEXT("Test"));
 				TestEqual(TEXT("Another upgrade: a second icon"), HUD->GetUpgradeIconCount(), 2);
@@ -6606,14 +6610,23 @@ bool FGSRunGameOverTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("A run seed"), GameState->GetRunSeed() > 0);
 		TestEqual(TEXT("Seed line (no digit grouping)"), Summary->GetSeedText().ToString(), FString::FromInt(GameState->GetRunSeed()));
 
-		// Upgrades: one icon per upgrade in pick order with its stacks, and the same as text.
+		// Upgrades: one icon per upgrade in pick order with its stacks, and the same as text. Weapons are listed apart.
 		const UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
-		const TArray<FGSUpgradeStack>& Stacks = Upgrades->GetUpgradeStacks();
+		const TArray<FGSUpgradeStack> Stacks = Upgrades->GetUpgradeStacks().FilterByPredicate([](const FGSUpgradeStack& S)
+		{
+			return S.Upgrade->Category != EGSUpgradeCategory::Weapon;
+		});
 		TArray<FString> Expected;
 		for (const FGSUpgradeStack& Stack : Stacks)
 		{
 			Expected.Add(FString::Printf(TEXT("%s x%d"), *Stack.Upgrade->DisplayName.ToString(), Stack.Stacks));
 		}
+		TArray<FString> ExpectedWeapons;
+		for (const UGSUpgradeData* Weapon : Upgrades->GetOwnedWeapons())
+		{
+			ExpectedWeapons.Add(Weapon->DisplayName.ToString());
+		}
+		TestEqual(TEXT("Weapons line"), Summary->GetWeaponsText().ToString(), ExpectedWeapons.IsEmpty() ? FString(TEXT("None")) : FString::Join(ExpectedWeapons, TEXT(", ")));
 		TestEqual(TEXT("Upgrades line"), Summary->GetUpgradesText().ToString(), FString::Join(Expected, TEXT(", ")));
 		TestTrue(TEXT("Upgrades line has Damage"), Summary->GetUpgradesText().ToString().Contains(TEXT("Damage x")));
 		TestTrue(TEXT("Upgrades line has Extra Jump"), Summary->GetUpgradesText().ToString().Contains(TEXT("Extra Jump x")));
@@ -8266,7 +8279,7 @@ bool FGSFloatingGunLevelsTest::RunTest(const FString& Parameters)
 				Card->SetChoice(Upgrade, EGSUpgradeRarity::Common, Common, Owned, FMath::Max(Owned - 2, 0), 0);
 				TestEqual(FString::Printf(TEXT("Card with %d owned: description"), Owned), Card->GetDescriptionText().ToString(), Texts[Owned]);
 				TestEqual(FString::Printf(TEXT("Card with %d owned: Common pick line"), Owned), Card->GetPickText().ToString(), Owned < 2 ? FString() : Bonus);
-				TestEqual(FString::Printf(TEXT("Card with %d owned: category"), Owned), Card->GetCategoryText().ToString(), FString(TEXT("WEAPON")));
+				TestEqual(FString::Printf(TEXT("Card with %d owned: category"), Owned), Card->GetCategoryText().ToString(), FString(Owned == 0 ? TEXT("NEW WEAPON") : TEXT("WEAPON UPGRADE")));
 			}
 			Card->SetChoice(Upgrade, EGSUpgradeRarity::Rare, Pool->GetPickValue(Upgrade, EGSUpgradeRarity::Rare, 0), 0, 0.f, 0);
 			TestEqual(TEXT("A Rare first pick: the gun and +5%"), Card->GetPickText().ToString(), FString(TEXT("+5% floating gun damage and fire rate")));
@@ -8705,6 +8718,263 @@ bool FGSUpgradePickValuesTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: no effects left"), GetActiveUpgradeEffectCount(SecondWind), 0);
 		TestEqual(TEXT("New run: Floating Gun power 0"), GetAttr(UGSAttributeSet::GetFloatingGunPowerAttribute()), 0.f, 0.0001f);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Weapon slots (M2c, Prompt 43): MaxWeapons, the first offer's weapon card, the card label, HUD slots, run summary
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	bool OfferHasWeapon(const TArray<FGSUpgradeChoice>& Offer)
+	{
+		return Offer.ContainsByPredicate([](const FGSUpgradeChoice& C) { return C.Upgrade->Category == EGSUpgradeCategory::Weapon; });
+	}
+
+	/** Index of the first card that isn't a weapon (0 if they all are). */
+	int32 FirstNonWeaponCard(const TArray<FGSUpgradeChoice>& Offer)
+	{
+		return FMath::Max(Offer.IndexOfByPredicate([](const FGSUpgradeChoice& C) { return C.Upgrade->Category != EGSUpgradeCategory::Weapon; }), 0);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSWeaponSlotsTest, "BanditBaller.Upgrades.WeaponSlots", GSTests::TestFlags)
+bool FGSWeaponSlotsTest::RunTest(const FString& Parameters)
+{
+	struct FWeaponState
+	{
+		TStrongObjectPtr<UGSUpgradePool> TestPool;
+		TStrongObjectPtr<UGSUpgradeData> TestWeapon;
+	};
+	TSharedRef<FWeaponState> S = MakeShared<FWeaponState>();
+	auto GetPS = []() { return GetPC() ? GetPC()->GetPlayerState<AGSPlayerState>() : nullptr; };
+
+	BeginPIE(this);
+
+	// The roll rules on test pools (two test weapons, three stat boosts).
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		const UGSUpgradePool* Pool = GameMode->GetUpgradePool();
+		if (!TestNotNull(TEXT("DA_UpgradePool"), Pool))
+		{
+			return;
+		}
+		TestEqual(TEXT("MaxWeapons 3"), Pool->MaxWeapons, 3);
+
+		UGSUpgradeData* W1 = MakeTestUpgrade(TEXT("TestWeapon_1"), 0, EGSUpgradeCategory::Weapon);
+		UGSUpgradeData* W2 = MakeTestUpgrade(TEXT("TestWeapon_2"), 0, EGSUpgradeCategory::Weapon);
+		UGSUpgradePool* Test = MakeTestPool({ W1, W2, MakeTestUpgrade(TEXT("TestStat_1")), MakeTestUpgrade(TEXT("TestStat_2")), MakeTestUpgrade(TEXT("TestStat_3")) });
+		Test->MaxWeapons = 1;
+		auto NoneOwned = [](const UGSUpgradeData*) { return 0; };
+		auto OwnsW1 = [W1](const UGSUpgradeData* U) { return U == W1 ? 1 : 0; };
+		FRandomStream Stream(43);
+
+		auto Seen = [&Stream, Test](TFunctionRef<int32(const UGSUpgradeData*)> GetStacks, const UGSUpgradeData* Weapon, bool bWeaponCard)
+		{
+			int32 Count = 0;
+			for (int32 i = 0; i < 400; ++i)
+			{
+				Count += OfferContains(Test->RollOffer(Stream, GetStacks, bWeaponCard), Weapon) ? 1 : 0;
+			}
+			return Count;
+		};
+		TestTrue(TEXT("MaxWeapons 1, none owned: weapon 1 is offered"), Seen(NoneOwned, W1, false) > 0);
+		TestTrue(TEXT("MaxWeapons 1, none owned: weapon 2 is offered"), Seen(NoneOwned, W2, false) > 0);
+		TestEqual(TEXT("MaxWeapons 1, weapon 1 owned: weapon 2 is never offered"), Seen(OwnsW1, W2, false), 0);
+		TestTrue(TEXT("MaxWeapons 1, weapon 1 owned: weapon 1 is still offered (an upgrade)"), Seen(OwnsW1, W1, false) > 0);
+		TestFalse(TEXT("CanOfferWeapon: no free slot for weapon 2"), Test->CanOfferWeapon(W2, OwnsW1));
+		TestTrue(TEXT("CanOfferWeapon: the owned one"), Test->CanOfferWeapon(W1, OwnsW1));
+		Test->MaxWeapons = 2;
+		TestTrue(TEXT("MaxWeapons 2, weapon 1 owned: weapon 2 is offered again"), Seen(OwnsW1, W2, false) > 0);
+		TestEqual(TEXT("Owned weapons counted"), Test->CountOwnedWeapons(OwnsW1), 1);
+
+		// The first offer's weapon card: always there, its rarity rolled, anywhere in the offer.
+		Test->MaxWeapons = 1;
+		bool bAlways = true, bFull = true;
+		int32 AtIndex[3] = {};
+		int32 Rare = 0, Common = 0;
+		for (int32 i = 0; i < 400; ++i)
+		{
+			const TArray<FGSUpgradeChoice> Offer = Test->RollOffer(Stream, NoneOwned, true);
+			bAlways &= OfferHasWeapon(Offer);
+			bFull &= Offer.Num() == 3 && AllDifferent(Offer);
+			const int32 Index = Offer.IndexOfByPredicate([](const FGSUpgradeChoice& C) { return C.Upgrade->Category == EGSUpgradeCategory::Weapon; });
+			if (Offer.IsValidIndex(Index))
+			{
+				++AtIndex[FMath::Min(Index, 2)];
+				Rare += Offer[Index].Rarity == EGSUpgradeRarity::Rare ? 1 : 0;
+				Common += Offer[Index].Rarity == EGSUpgradeRarity::Common ? 1 : 0;
+			}
+		}
+		TestTrue(TEXT("Weapon card in every first offer"), bAlways);
+		TestTrue(TEXT("First offers still have 3 different cards"), bFull);
+		TestTrue(TEXT("The weapon card can be on any of the 3 cards"), AtIndex[0] > 0 && AtIndex[1] > 0 && AtIndex[2] > 0);
+		AddInfo(FString::Printf(TEXT("Forced weapon card rarity over 400: %d Common, %d Rare"), Common, Rare));
+		TestTrue(TEXT("Its rarity is rolled as usual (Common and Rare both come up)"), Common > 0 && Rare > 0);
+		bool bOwnedOnly = true;
+		for (int32 i = 0; i < 200; ++i)
+		{
+			const TArray<FGSUpgradeChoice> Offer = Test->RollOffer(Stream, OwnsW1, true);
+			bOwnedOnly &= OfferContains(Offer, W1) && !OfferContains(Offer, W2);
+		}
+		TestTrue(TEXT("Slots full: the first offer's weapon card is the owned weapon"), bOwnedOnly);
+		Test->MaxWeapons = 0;
+		const TArray<FGSUpgradeChoice> NoWeapons = Test->RollOffer(Stream, NoneOwned, true);
+		TestTrue(TEXT("MaxWeapons 0: no weapon card, still 3 cards"), !OfferHasWeapon(NoWeapons) && NoWeapons.Num() == 3);
+
+		// The card label.
+		const UGSUpgradeData* Gun = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
+		TestEqual(TEXT("Not owned: NEW WEAPON"), UGSUpgradeCardWidget::GetCategoryLabel(Gun, 0).ToString(), FString(TEXT("NEW WEAPON")));
+		TestEqual(TEXT("Owned: WEAPON UPGRADE"), UGSUpgradeCardWidget::GetCategoryLabel(Gun, 1).ToString(), FString(TEXT("WEAPON UPGRADE")));
+		TestEqual(TEXT("Not a weapon: its category"), UGSUpgradeCardWidget::GetCategoryLabel(UGSDebugLibrary::FindUpgradeData(TEXT("Damage")), 0).ToString(), FString(TEXT("STAT BOOST")));
+	});
+
+	// The real first offer of a run: a weapon card, kept by rerolls, gone after the first pick; back on a new run.
+	Step([this, GetPS]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		AGSPlayerState* PS = GetPS();
+		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		GameMode->RestartRunWithSeed(4301);
+		TestTrue(TEXT("A new run: the first offer is pending"), Upgrades->IsFirstOfferPending());
+		GameMode->AwardXP(PS, 100.f, false);
+		TestTrue(TEXT("First offer has a weapon card (the Floating Gun)"), OfferContains(Upgrades->GetCurrentOffer(), UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"))));
+		bool bRerollsKeepIt = true;
+		for (int32 i = 0; i < 3; ++i)
+		{
+			GameMode->RerollUpgradeOffer(PS);
+			bRerollsKeepIt &= OfferHasWeapon(Upgrades->GetCurrentOffer());
+		}
+		TestTrue(TEXT("Rerolls of the first offer keep a weapon card"), bRerollsKeepIt);
+		TestTrue(TEXT("Pick a non-weapon card"), GameMode->ChooseUpgrade(PS, FirstNonWeaponCard(Upgrades->GetCurrentOffer())));
+		TestFalse(TEXT("After the first pick no more guaranteed weapon cards"), Upgrades->IsFirstOfferPending());
+		// Later offers: a weapon card only by chance. About 79% of 20 offers have none without the guarantee.
+		int32 Without = 0;
+		for (int32 i = 0; i < 20; ++i)
+		{
+			GameMode->QueueUpgradeOfferForDebug(PS);
+			Without += OfferHasWeapon(Upgrades->GetCurrentOffer()) ? 0 : 1;
+			GameMode->ChooseUpgrade(PS, FirstNonWeaponCard(Upgrades->GetCurrentOffer()));
+		}
+		AddInfo(FString::Printf(TEXT("Later offers without a weapon card: %d of 20"), Without));
+		TestTrue(TEXT("Later offers are rolled as usual (most without a weapon card)"), Without > 5);
+		GameMode->RestartRunWithSeed(4302);
+		TestTrue(TEXT("A new run: pending again"), Upgrades->IsFirstOfferPending());
+	});
+
+	// The limit in the real offer flow: a copy of the pool with a second (test) weapon and MaxWeapons 1.
+	Step([this, S, GetPS]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		AGSPlayerState* PS = GetPS();
+		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		S->TestPool.Reset(DuplicateObject<UGSUpgradePool>(GameMode->GetUpgradePool(), GetTransientPackage()));
+		S->TestWeapon.Reset(MakeTestUpgrade(TEXT("TestWeapon_Real"), 0, EGSUpgradeCategory::Weapon));
+		S->TestWeapon->DisplayName = FText::FromString(TEXT("Test Weapon"));
+		S->TestPool->Upgrades.Add(S->TestWeapon.Get());
+		S->TestPool->MaxWeapons = 1;
+		GameMode->SetUpgradePoolOverride(S->TestPool.Get());
+		GameMode->RestartRunWithSeed(4303);
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FloatingGun") });
+		TestEqual(TEXT("One weapon slot (MaxWeapons 1)"), GetHUD()->GetWeaponSlotCount(), 1);
+
+		const UGSUpgradeData* Gun = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
+		bool bTestWeaponSeen = false;
+		int32 GunSeen = 0;
+		for (int32 i = 0; i < 30; ++i)
+		{
+			GameMode->QueueUpgradeOfferForDebug(PS);
+			const TArray<FGSUpgradeChoice> Offer = Upgrades->GetCurrentOffer();
+			if (i == 0)
+			{
+				TestTrue(TEXT("First offer, slots full: its weapon card is the owned Floating Gun"), OfferContains(Offer, Gun));
+			}
+			bTestWeaponSeen |= OfferContains(Offer, S->TestWeapon.Get());
+			GunSeen += OfferContains(Offer, Gun) ? 1 : 0;
+			if (GameMode->RerollUpgradeOffer(PS))
+			{
+				bTestWeaponSeen |= OfferContains(Upgrades->GetCurrentOffer(), S->TestWeapon.Get());
+			}
+			GameMode->ChooseUpgrade(PS, FirstNonWeaponCard(Upgrades->GetCurrentOffer()));
+		}
+		TestFalse(TEXT("MaxWeapons 1 and a weapon owned: a new weapon is never offered (offers and rerolls)"), bTestWeaponSeen);
+		TestTrue(TEXT("The owned weapon is still offered, as an upgrade"), GunSeen > 1);
+
+		// A free slot: the second weapon can be offered and picked.
+		S->TestPool->MaxWeapons = 3;
+		bool bPicked = false;
+		for (int32 i = 0; i < 60 && !bPicked; ++i)
+		{
+			GameMode->QueueUpgradeOfferForDebug(PS);
+			const TArray<FGSUpgradeChoice> Offer = Upgrades->GetCurrentOffer();
+			const int32 Index = Offer.IndexOfByPredicate([S](const FGSUpgradeChoice& C) { return C.Upgrade == S->TestWeapon.Get(); });
+			bPicked = Index != INDEX_NONE;
+			GameMode->ChooseUpgrade(PS, bPicked ? Index : FirstNonWeaponCard(Offer));
+		}
+		TestTrue(TEXT("MaxWeapons 3: the second weapon is offered and picked"), bPicked);
+		UGSHUDWidget* HUD = GetHUD();
+		TestEqual(TEXT("Three weapon slots"), HUD->GetWeaponSlotCount(), 3);
+		TestTrue(TEXT("Slot 1: the Floating Gun (picked first)"), HUD->GetWeaponInSlot(0) == Gun);
+		TestTrue(TEXT("Slot 2: the test weapon"), HUD->GetWeaponInSlot(1) == S->TestWeapon.Get());
+		TestNull(TEXT("Slot 3: empty"), HUD->GetWeaponInSlot(2));
+		TestNull(TEXT("No weapon icon in the upgrade row"), HUD->FindUpgradeIcon(Gun));
+		TestNull(TEXT("No test weapon icon in the upgrade row"), HUD->FindUpgradeIcon(S->TestWeapon.Get()));
+		GameMode->SetUpgradePoolOverride(nullptr);
+	});
+
+	// HUD slots with the real pool: empty, filled by a pick, icon only; a new run empties them.
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->RestartRunWithSeed(4304);
+		UGSHUDWidget* HUD = GetHUD();
+		const UGSUpgradeData* Gun = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
+		const UGSUpgradeData* Damage = UGSDebugLibrary::FindUpgradeData(TEXT("Damage"));
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Damage") });
+		TestEqual(TEXT("Three weapon slots"), HUD->GetWeaponSlotCount(), 3);
+		bool bAllEmpty = true;
+		for (int32 Index = 0; Index < HUD->GetWeaponSlotCount(); ++Index)
+		{
+			const UGSUpgradeIconWidget* WeaponSlot = HUD->GetWeaponSlot(Index);
+			bAllEmpty &= WeaponSlot && WeaponSlot->IsWeaponSlot() && !WeaponSlot->GetUpgrade() && !WeaponSlot->IsIconShown();
+		}
+		TestTrue(TEXT("No weapon: all three slots empty, no icon"), bAllEmpty);
+		TestEqual(TEXT("The Damage pick is in the upgrade row"), HUD->GetUpgradeIconCount(), 1);
+
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FloatingGun"), TEXT("2"), TEXT("Epic") });
+		const UGSUpgradeIconWidget* First = HUD->GetWeaponSlot(0);
+		TestTrue(TEXT("Slot 1 shows the Floating Gun"), First && First->GetUpgrade() == Gun && First->IsIconShown());
+		TestTrue(TEXT("Slots 2 and 3 still empty"), !HUD->GetWeaponInSlot(1) && !HUD->GetWeaponInSlot(2));
+		TestTrue(TEXT("Icon only: no pick count shown"), First && First->GetStacks() == 0);
+		TestNull(TEXT("The Floating Gun isn't in the upgrade row"), HUD->FindUpgradeIcon(Gun));
+		TestEqual(TEXT("Upgrade row: still just Damage"), HUD->GetUpgradeIconCount(), 1);
+		TestTrue(TEXT("Damage icon still there"), HUD->FindUpgradeIcon(Damage) != nullptr);
+
+		GameMode->RestartRunWithSeed(4305);
+		TestTrue(TEXT("New run: slots empty"), !HUD->GetWeaponInSlot(0) && !HUD->GetWeaponInSlot(1) && !HUD->GetWeaponInSlot(2));
+		TestEqual(TEXT("New run: still three slots"), HUD->GetWeaponSlotCount(), 3);
+
+		// The run summary lists the weapons held.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FloatingGun") });
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Damage") });
+		ApplyDamage(GetPlayerASC(), 100000.f);
+	});
+	WaitUntil(this, TEXT("the run summary"), []() { return GetRunSummary() != nullptr; }, 10.0);
+	Step([this]()
+	{
+		UGSRunSummaryWidget* Summary = GetRunSummary();
+		if (!TestNotNull(TEXT("Run summary"), Summary))
+		{
+			return;
+		}
+		TestEqual(TEXT("Summary: weapons held"), Summary->GetWeaponsText().ToString(), FString(TEXT("Floating Gun")));
+		TestEqual(TEXT("Summary: upgrades without the weapon"), Summary->GetUpgradesText().ToString(), FString(TEXT("Damage x1")));
+		TestEqual(TEXT("Summary: one upgrade icon (no weapon icon)"), Summary->GetUpgradeIconCount(), 1);
 	});
 	EndPIE();
 	return true;

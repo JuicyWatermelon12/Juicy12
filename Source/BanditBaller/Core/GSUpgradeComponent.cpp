@@ -222,7 +222,7 @@ TArray<FGSUpgradeChoice> UGSUpgradeComponent::RollChoices() const
 		UE_LOG(LogBanditBaller, Warning, TEXT("[upgrade] No UpgradePool on the GameMode; no offer rolled."));
 		return {};
 	}
-	return Pool->RollOffer(UGSRunRandom::GetStream(this), [this](const UGSUpgradeData* Upgrade) { return GetStacks(Upgrade); });
+	return Pool->RollOffer(UGSRunRandom::GetStream(this), [this](const UGSUpgradeData* Upgrade) { return GetStacks(Upgrade); }, /*bWeaponCard*/ bFirstOfferPending);
 }
 
 void UGSUpgradeComponent::HandleLevelUp(int32 NewLevel)
@@ -293,6 +293,7 @@ bool UGSUpgradeComponent::ChooseUpgrade(int32 Index)
 	}
 
 	UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: chose [%d] %s (%s)."), *GetNameSafe(GetOwner()), Index, *Picked->GetName(), *UGSUpgradeData::GetRarityName(Choice.Rarity));
+	bFirstOfferPending = false; // later offers have no guaranteed weapon card
 	CurrentChoices.Reset();
 	// The next queued offer replaces this one (one Opened event); Closed only when nothing is left, so the choice
 	// screen and the pause stay up between queued offers.
@@ -410,6 +411,7 @@ void UGSUpgradeComponent::ResetUpgrades()
 
 	// Offers and rerolls are per run too.
 	DropOffers(TEXT("new run"));
+	bFirstOfferPending = true;
 	const UGSUpgradePool* Pool = GetPool();
 	SetRerollsLeft(Pool ? Pool->RerollsPerRun : 0);
 }
@@ -431,4 +433,17 @@ void UGSUpgradeComponent::DropOffers(const TCHAR* Reason)
 	{
 		UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: offers dropped (%s)."), *GetNameSafe(GetOwner()), Reason);
 	}
+}
+
+TArray<const UGSUpgradeData*> UGSUpgradeComponent::GetOwnedWeapons() const
+{
+	TArray<const UGSUpgradeData*> Weapons;
+	for (const FGSUpgradeStack& Entry : Stacks)
+	{
+		if (Entry.Upgrade && Entry.Upgrade->Category == EGSUpgradeCategory::Weapon && Entry.Stacks > 0)
+		{
+			Weapons.Add(Entry.Upgrade);
+		}
+	}
+	return Weapons;
 }

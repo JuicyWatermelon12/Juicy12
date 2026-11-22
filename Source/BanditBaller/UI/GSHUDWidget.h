@@ -150,6 +150,10 @@ public:
 	bool IsSecondWindBannerShowing() const { return IsRoundBannerShowing() && ActiveRoundBanner.bSecondWind; }
 	FText GetRoundBannerSubtitle() const;
 	int32 GetUpgradeIconCount() const { return UpgradeIcons.Num(); }
+	/** Weapon slots shown (MaxWeapons) and the weapon in each (nullptr = empty), in pick order. */
+	int32 GetWeaponSlotCount() const { return WeaponSlots.Num(); }
+	const UGSUpgradeData* GetWeaponInSlot(int32 Index) const;
+	const UGSUpgradeIconWidget* GetWeaponSlot(int32 Index) const { return WeaponSlots.IsValidIndex(Index) ? WeaponSlots[Index].Get() : nullptr; }
 	const UGSUpgradeIconWidget* FindUpgradeIcon(const UGSUpgradeData* Upgrade) const;
 
 	// --- Safe area (tests) ---
@@ -262,6 +266,10 @@ protected:
 	/** Owned upgrade icons are created into this panel (a HorizontalBox). */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UPanelWidget> UpgradeIconsBox;
+
+	/** The weapon slots (MaxWeapons of them, a HorizontalBox next to the upgrade icons): icon only, empty until a weapon is picked. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UPanelWidget> WeaponSlotsBox;
 
 	/** The crosshair (WBP_Crosshair); hidden in the safe area. */
 	UPROPERTY(meta = (BindWidgetOptional))
@@ -564,6 +572,7 @@ private:
 	void UnbindUpgrades();
 	void RebuildUpgradeIcons();
 	void SetUpgradeIcon(const UGSUpgradeData* Upgrade, int32 Stacks);
+	void RefreshWeaponSlots();
 	void HandleUpgradeOfferChanged(EGSUpgradeOfferChange Change);
 
 	UFUNCTION()
@@ -666,6 +675,10 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UGSUpgradeIconWidget>> UpgradeIcons;
+
+	/** One per weapon slot in WeaponSlotsBox (WBP_UpgradeIcon in weapon-slot mode). */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UGSUpgradeIconWidget>> WeaponSlots;
 
 	/** Designer visibility of the always-on combat elements (restored when leaving the safe area). */
 	TMap<TWeakObjectPtr<UWidget>, ESlateVisibility> CombatWidgetVisibility;

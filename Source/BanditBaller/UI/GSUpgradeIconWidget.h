@@ -25,6 +25,15 @@ public:
 	/** BestRarity tints the frame (the rarest pick of the upgrade so far). */
 	void SetUpgrade(const UGSUpgradeData* InUpgrade, int32 InStacks, EGSUpgradeRarity BestRarity = EGSUpgradeRarity::Common);
 
+	/**
+	 * Use this widget as a HUD weapon slot: icon only (no count, no name, a neutral frame). Weapon nullptr = an empty
+	 * slot (no icon).
+	 */
+	void SetWeaponSlot(const UGSUpgradeData* Weapon);
+
+	bool IsWeaponSlot() const { return bWeaponSlot; }
+	bool IsIconShown() const;
+
 	const UGSUpgradeData* GetUpgrade() const { return Upgrade; }
 	int32 GetStacks() const { return Stacks; }
 
@@ -55,9 +64,18 @@ protected:
 		{ EGSUpgradeRarity::Epic, FLinearColor(0.62f, 0.25f, 0.95f) },
 		{ EGSUpgradeRarity::Legendary, FLinearColor(1.f, 0.72f, 0.1f) } };
 
+	/** Frame color of a weapon slot holding a weapon (no rarity colors on weapon slots). */
+	UPROPERTY(EditDefaultsOnly, Category = "Upgrade Icon")
+	FLinearColor WeaponSlotColor = FLinearColor(0.75f, 0.75f, 0.78f);
+
+	/** Frame color of an empty weapon slot. */
+	UPROPERTY(EditDefaultsOnly, Category = "Upgrade Icon")
+	FLinearColor EmptyWeaponSlotColor = FLinearColor(0.25f, 0.25f, 0.27f, 0.8f);
+
 private:
 	UPROPERTY(Transient)
 	TObjectPtr<const UGSUpgradeData> Upgrade;
 
 	int32 Stacks = 0;
+	bool bWeaponSlot = false;
 };

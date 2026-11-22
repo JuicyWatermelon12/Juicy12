@@ -34,7 +34,7 @@ void UGSUpgradeCardWidget::SetChoice(const UGSUpgradeData* InUpgrade, EGSUpgrade
 	}
 	if (CategoryText)
 	{
-		CategoryText->SetText(FText::FromString(InUpgrade->GetCategoryName().ToUpper()));
+		CategoryText->SetText(GetCategoryLabel(InUpgrade, OwnedPicks));
 	}
 	if (NameText)
 	{
@@ -85,6 +85,19 @@ FLinearColor UGSUpgradeCardWidget::GetRarityColor(EGSUpgradeRarity InRarity) con
 {
 	const FLinearColor* Color = RarityColors.Find(InRarity);
 	return Color ? *Color : FLinearColor::White;
+}
+
+FText UGSUpgradeCardWidget::GetCategoryLabel(const UGSUpgradeData* InUpgrade, int32 OwnedPicks)
+{
+	if (!InUpgrade)
+	{
+		return FText::GetEmpty();
+	}
+	if (InUpgrade->Category == EGSUpgradeCategory::Weapon)
+	{
+		return OwnedPicks > 0 ? NSLOCTEXT("GSUpgradeCard", "WeaponUpgrade", "WEAPON UPGRADE") : NSLOCTEXT("GSUpgradeCard", "NewWeapon", "NEW WEAPON");
+	}
+	return FText::FromString(InUpgrade->GetCategoryName().ToUpper());
 }
 
 FText UGSUpgradeCardWidget::GetCategoryText() const

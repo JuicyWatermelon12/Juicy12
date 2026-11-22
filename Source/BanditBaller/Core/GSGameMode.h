@@ -235,8 +235,11 @@ public:
 
 	// --- Level-up upgrade offers (server; state on the player's UGSUpgradeComponent) ---
 
-	/** Upgrade pool for level-up offers (DA_UpgradePool). Level-ups offer nothing if unset. */
-	const UGSUpgradePool* GetUpgradePool() const { return UpgradePool; }
+	/** Upgrade pool for level-up offers (DA_UpgradePool, or the test override). Level-ups offer nothing if unset. */
+	const UGSUpgradePool* GetUpgradePool() const { return UpgradePoolOverride ? UpgradePoolOverride.Get() : UpgradePool.Get(); }
+
+	/** Tests: use Pool instead of DA_UpgradePool until cleared (nullptr), e.g. a copy with a lower MaxWeapons. */
+	void SetUpgradePoolOverride(const UGSUpgradePool* Pool) { UpgradePoolOverride = Pool; }
 
 	/** Player takes choice Index of their open offer; the next queued offer opens. False if refused. */
 	bool ChooseUpgrade(AGSPlayerState* Player, int32 Index);
@@ -379,6 +382,10 @@ private:
 	/** SetComboSettingsOverride (tests). */
 	UPROPERTY(Transient)
 	TObjectPtr<const UGSComboSettings> ComboSettingsOverride;
+
+	/** SetUpgradePoolOverride (tests). */
+	UPROPERTY(Transient)
+	TObjectPtr<const UGSUpgradePool> UpgradePoolOverride;
 
 	/** SetRoundClearSettingsOverride (tests). */
 	UPROPERTY(Transient)

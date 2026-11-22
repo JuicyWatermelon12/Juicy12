@@ -55,8 +55,10 @@ public:
 	FText GetTotalCashText() const;
 	FText GetRunTimeText() const;
 	FText GetSeedText() const;
-	/** "Damage x2, Extra Jump x1" in pick order, or "None". */
+	/** "Damage x2, Extra Jump x1" in pick order, or "None" (weapons are listed apart). */
 	FText GetUpgradesText() const;
+	/** "Floating Gun, Razor Cards" in the order they were picked, or "None". */
+	FText GetWeaponsText() const;
 	int32 GetUpgradeIconCount() const { return UpgradeIcons.Num(); }
 	UGSUpgradeIconWidget* GetUpgradeIcon(int32 Index) const { return UpgradeIcons.IsValidIndex(Index) ? UpgradeIcons[Index] : nullptr; }
 
@@ -107,6 +109,10 @@ protected:
 	/** "None", shown instead of the icons when no upgrade was picked. */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> NoUpgradesText;
+
+	/** The weapons held ("Floating Gun", or "None"). */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> WeaponsValue;
 
 	/** "Return to Market" (non-focusable; keys are handled here). */
 	UPROPERTY(meta = (BindWidgetOptional))

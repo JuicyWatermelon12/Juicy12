@@ -191,6 +191,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Upgrades")
 	int32 GetRerollsLeft() const { return RerollsLeft; }
 
+	/** True until the first pick of the run: that offer (and its rerolls) always has a weapon card. */
+	bool IsFirstOfferPending() const { return bFirstOfferPending; }
+
+	/** The weapons picked this run, in the order they were first picked (the HUD's weapon slots). */
+	TArray<const UGSUpgradeData*> GetOwnedWeapons() const;
+
 	/** New run: remove every upgrade effect, forget all stacks, drop all offers and refill the rerolls. Authority only. */
 	void ResetUpgrades();
 
@@ -242,4 +248,7 @@ private:
 
 	int32 QueuedOffers = 0;
 	int32 RerollsLeft = 0;
+
+	/** Set on a new run, cleared by the first pick (the first offer has a weapon card). */
+	bool bFirstOfferPending = true;
 };

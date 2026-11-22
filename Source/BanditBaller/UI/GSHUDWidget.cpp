@@ -14,6 +14,8 @@
 #include "GSSecondWindComponent.h"
 #include "GSUpgradeComponent.h"
 #include "GSUpgradeIconWidget.h"
+#include "GSUpgradePool.h"
+#include "GSGameMode.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/PanelWidget.h"
 #include "TimerManager.h"
@@ -105,7 +107,7 @@ TArray<UWidget*> UGSHUDWidget::GetStaticCombatWidgets() const
 	TArray<UWidget*> Widgets;
 	for (UWidget* Widget : { static_cast<UWidget*>(Crosshair.Get()), static_cast<UWidget*>(WeaponNameText.Get()), static_cast<UWidget*>(AmmoText.Get()),
 		static_cast<UWidget*>(HealthBar.Get()), static_cast<UWidget*>(HealthText.Get()), static_cast<UWidget*>(LevelText.Get()),
-		static_cast<UWidget*>(XPBar.Get()), static_cast<UWidget*>(XPText.Get()), static_cast<UWidget*>(UpgradeIconsBox.Get()) })
+		static_cast<UWidget*>(XPBar.Get()), static_cast<UWidget*>(XPText.Get()), static_cast<UWidget*>(UpgradeIconsBox.Get()), static_cast<UWidget*>(WeaponSlotsBox.Get()) })
 	{
 		if (Widget)
 		{
@@ -414,16 +416,64 @@ void UGSHUDWidget::RebuildUpgradeIcons()
 			SetUpgradeIcon(Entry.Upgrade, Entry.Stacks);
 		}
 	}
+	RefreshWeaponSlots();
 }
 
 void UGSHUDWidget::HandleUpgradeStacksChanged(const UGSUpgradeData* Upgrade, int32 NewStacks)
 {
+	if (Upgrade && Upgrade->Category == EGSUpgradeCategory::Weapon)
+	{
+		RefreshWeaponSlots(); // weapons live in the weapon slots, not the upgrade icon row
+		return;
+	}
 	SetUpgradeIcon(Upgrade, NewStacks);
+}
+
+void UGSHUDWidget::RefreshWeaponSlots()
+{
+	if (!WeaponSlotsBox || !UpgradeIconWidgetClass)
+	{
+		return;
+	}
+	// One slot per MaxWeapons. TODO(co-op): the pool comes from the server GameMode (single-player: this machine).
+	const UWorld* World = GetWorld();
+	const AGSGameMode* GameMode = World ? World->GetAuthGameMode<AGSGameMode>() : nullptr;
+	const UGSUpgradePool* Pool = GameMode && GameMode->GetUpgradePool() ? GameMode->GetUpgradePool() : GetDefault<UGSUpgradePool>();
+	const int32 SlotCount = FMath::Max(Pool->MaxWeapons, 0);
+	while (WeaponSlots.Num() > SlotCount)
+	{
+		WeaponSlots.Pop()->RemoveFromParent();
+	}
+	while (WeaponSlots.Num() < SlotCount)
+	{
+		UGSUpgradeIconWidget* WeaponSlot = CreateWidget<UGSUpgradeIconWidget>(GetOwningPlayer(), UpgradeIconWidgetClass);
+		if (!WeaponSlot)
+		{
+			break;
+		}
+		if (UHorizontalBoxSlot* BoxSlot = Cast<UHorizontalBoxSlot>(WeaponSlotsBox->AddChild(WeaponSlot)))
+		{
+			BoxSlot->SetPadding(FMargin(0.f, 0.f, UpgradeIconSpacing, 0.f));
+		}
+		WeaponSlots.Add(WeaponSlot);
+	}
+	// The weapons in the order they were first picked; the rest of the slots stay empty.
+	const UGSUpgradeComponent* Upgrades = BoundUpgrades.Get();
+	const TArray<const UGSUpgradeData*> Weapons = Upgrades ? Upgrades->GetOwnedWeapons() : TArray<const UGSUpgradeData*>();
+	for (int32 Index = 0; Index < WeaponSlots.Num(); ++Index)
+	{
+		WeaponSlots[Index]->SetWeaponSlot(Weapons.IsValidIndex(Index) ? Weapons[Index] : nullptr);
+	}
+}
+
+const UGSUpgradeData* UGSHUDWidget::GetWeaponInSlot(int32 Index) const
+{
+	return WeaponSlots.IsValidIndex(Index) && WeaponSlots[Index] ? WeaponSlots[Index]->GetUpgrade() : nullptr;
 }
 
 void UGSHUDWidget::SetUpgradeIcon(const UGSUpgradeData* Upgrade, int32 Stacks)
 {
-	if (!Upgrade)
+	if (!Upgrade || Upgrade->Category == EGSUpgradeCategory::Weapon) // weapons: RefreshWeaponSlots
 	{
 		return;
 	}

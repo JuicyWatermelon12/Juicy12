@@ -32,8 +32,9 @@ struct FGSUpgradeChoice
  * 1. Roll LegendaryAbilityChance. On a hit the card is a Legendary ability (by AppearanceWeight) not yet in the offer.
  * 2. Otherwise pick a stat boost, ability or weapon not yet in the offer, by AppearanceWeight, then roll its rarity with
  *    its category's weights. A whole-unit upgrade has no Rare: a Rare roll counts as Common.
- * Upgrades at MaxStacks are never offered. A hit with no Legendary ability left falls back to step 2 (and step 2 with
- * nothing left falls back to a Legendary ability). With nothing available at all the offer is shorter.
+ * Upgrades at MaxStacks are never offered, and a weapon the player doesn't own only while they own fewer than MaxWeapons
+ * weapons. A hit with no Legendary ability left falls back to step 2 (and step 2 with nothing left falls back to a
+ * Legendary ability). With nothing available at all the offer is shorter. The first offer of a run has a weapon card.
  */
 UCLASS(BlueprintType, Const)
 class BANDITBALLER_API UGSUpgradePool : public UPrimaryDataAsset
@@ -82,6 +83,19 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pool", meta = (ClampMin = "0"))
 	int32 RerollsPerRun = 3;
 
+	/**
+	 * Most different weapons a run holds (the HUD shows this many weapon slots). A weapon the player doesn't own is only
+	 * offered while they own fewer; owned weapons can always be offered, as upgrades. The rifle and pistol don't count.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pool", meta = (ClampMin = "0"))
+	int32 MaxWeapons = 3;
+
+	/** True if Weapon may be offered to a player with these picks (GetStacks): owned, or a free weapon slot left. */
+	bool CanOfferWeapon(const UGSUpgradeData* Weapon, TFunctionRef<int32(const UGSUpgradeData*)> GetStacks) const;
+
+	/** Different weapons in the pool the player owns (GetStacks > 0). */
+	int32 CountOwnedWeapons(TFunctionRef<int32(const UGSUpgradeData*)> GetStacks) const;
+
 	/** The rarity weights of Category's cards. */
 	const TMap<EGSUpgradeRarity, float>& GetRarityWeights(EGSUpgradeCategory Category) const;
 
@@ -110,9 +124,11 @@ public:
 
 	/**
 	 * Roll one offer from Stream. GetStacks returns how many picks the player already has of an upgrade (for
-	 * MaxStacks). Pure apart from Stream: the run stream for real offers, a private stream for simulations.
+	 * MaxStacks and MaxWeapons). With bWeaponCard (the first offer of a run) one card is a weapon (by AppearanceWeight,
+	 * rarity rolled as usual) at a random position, if any weapon may be offered. Pure apart from Stream: the run
+	 * stream for real offers, a private stream for simulations.
 	 */
-	TArray<FGSUpgradeChoice> RollOffer(FRandomStream& Stream, TFunctionRef<int32(const UGSUpgradeData*)> GetStacks) const;
+	TArray<FGSUpgradeChoice> RollOffer(FRandomStream& Stream, TFunctionRef<int32(const UGSUpgradeData*)> GetStacks, bool bWeaponCard = false) const;
 
 	/** Roll a rarity for Category's weights (Common if every weight is 0). */
 	EGSUpgradeRarity RollRarity(FRandomStream& Stream, EGSUpgradeCategory Category) const;
