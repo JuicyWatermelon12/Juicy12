@@ -14,6 +14,7 @@ class UGSProgressionComponent;
 class UGSUpgradeComponent;
 class UGSComboComponent;
 class UGSShieldComponent;
+class UGSSecondWindComponent;
 
 /**
  * Per-player run state. Owns the player's AbilitySystemComponent + attributes (so they survive pawn changes),
@@ -55,6 +56,9 @@ public:
 	/** Floating Shields: which are ready, their recharge, TryAbsorbHit (UGSAttributeSet's damage path). */
 	UGSShieldComponent* GetShieldComponent() const { return Shields; }
 
+	/** Second Winds: survive a killing blow (UGSAttributeSet's damage path), feedback event for the HUD. */
+	UGSSecondWindComponent* GetSecondWindComponent() const { return SecondWind; }
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Abilities")
 	TObjectPtr<UGSAbilitySystemComponent> AbilitySystemComponent;
@@ -73,6 +77,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
 	TObjectPtr<UGSShieldComponent> Shields;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
+	TObjectPtr<UGSSecondWindComponent> SecondWind;
 
 private:
 	FGSAbilitySetGrantedHandles StartupAbilitySetHandles;

@@ -7,6 +7,7 @@
 #include "GSGameplayTags.h"
 #include "GSPlayerController.h"
 #include "GSPlayerState.h"
+#include "GSSecondWindComponent.h"
 #include "GSShieldComponent.h"
 #include "Net/UnrealNetwork.h"
 
@@ -23,6 +24,7 @@ UGSAttributeSet::UGSAttributeSet()
 	InitPierce(0.f);
 	InitPowderKeg(0.f);
 	InitShields(0.f);
+	InitSecondWinds(0.f);
 }
 
 void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -60,7 +62,8 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 		|| Attribute == GetHealthOnKillAttribute()
 		|| Attribute == GetPierceAttribute()
 		|| Attribute == GetPowderKegAttribute()
-		|| Attribute == GetShieldsAttribute())
+		|| Attribute == GetShieldsAttribute()
+		|| Attribute == GetSecondWindsAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}
@@ -104,10 +107,10 @@ void UGSAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 		SetIncomingDamage(0.f);
 
 		// Damage order: dash invulnerability (State.Invulnerable keeps GE_Damage from applying at all, so it never gets
-		// here) -> a ready Floating Shield cancels the whole hit -> Health. TODO(M2b 37): Second Wind on a killing blow.
+		// here) -> a ready Floating Shield cancels the whole hit -> Health -> Second Wind if the hit would kill.
+		const AGSPlayerState* OwnerPS = Cast<AGSPlayerState>(GetOwningActor());
 		if (LocalDamage > 0.f)
 		{
-			const AGSPlayerState* OwnerPS = Cast<AGSPlayerState>(GetOwningActor());
 			UGSShieldComponent* ShieldComponent = OwnerPS ? OwnerPS->GetShieldComponent() : nullptr;
 			if (ShieldComponent && ShieldComponent->TryAbsorbHit(LocalDamage, Data.EffectSpec.GetEffectContext().GetOriginalInstigator()))
 			{
@@ -123,10 +126,20 @@ void UGSAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 			LastDamageInstigator = Causer ? Causer : Context.GetOriginalInstigator();
 
 			const float OldHealth = GetHealth();
-			SetHealth(FMath::Clamp(OldHealth - LocalDamage, 0.f, GetMaxHealth()));
+			const float NewHealth = FMath::Clamp(OldHealth - LocalDamage, 0.f, GetMaxHealth());
 
-			// Run stats: health actually removed (no overkill).
-			const float Applied = OldHealth - GetHealth();
+			// Second Wind: a killing blow takes the Health the player had, but Health goes straight to the restored share
+			// (it never reaches 0, so nothing dies), then the component uses one up and makes the player invulnerable.
+			UGSSecondWindComponent* SecondWind = OwnerPS ? OwnerPS->GetSecondWindComponent() : nullptr;
+			const bool bSecondWind = OldHealth > 0.f && NewHealth <= 0.f && SecondWind && SecondWind->CanSave();
+			SetHealth(bSecondWind ? SecondWind->GetRestoredHealth(GetMaxHealth()) : NewHealth);
+			if (bSecondWind)
+			{
+				SecondWind->UseSecondWind(OldHealth, LastDamageInstigator.Get());
+			}
+
+			// Run stats: health actually removed by the hit (no overkill; a Second Wind's hit removed all the old Health).
+			const float Applied = bSecondWind ? OldHealth : OldHealth - GetHealth();
 			const UWorld* World = GetWorld();
 			if (AGSGameMode* GameMode = World ? World->GetAuthGameMode<AGSGameMode>() : nullptr)
 			{

@@ -7,6 +7,7 @@
 #include "ActiveGameplayEffectHandle.h"
 #include "GSUpgradeComponent.generated.h"
 
+class UGameplayEffect;
 class UGSUpgradeData;
 class UGSUpgradePool;
 
@@ -76,6 +77,13 @@ public:
 	 */
 	bool GrantUpgrade(const UGSUpgradeData* Upgrade, const TCHAR* Source = TEXT("Code"));
 
+	/**
+	 * Remove one stack of the picked upgrade whose Effect is (a child of) EffectClass: one stack of its GE comes off and
+	 * the count drops (the entry goes at 0, so the HUD icon and the card's "Owned" follow). Used when an upgrade is used
+	 * up (Second Wind). Returns the upgrade, or nullptr if no picked upgrade has that effect. Authority only.
+	 */
+	const UGSUpgradeData* RemoveStackByEffect(TSubclassOf<UGameplayEffect> EffectClass, const TCHAR* Reason = TEXT("Code"));
+
 	/** Stacks of Upgrade picked this run (0 if never). */
 	UFUNCTION(BlueprintPure, Category = "Upgrades")
 	int32 GetStacks(const UGSUpgradeData* Upgrade) const;
@@ -129,7 +137,7 @@ public:
 
 	// --- Events (server; single-player = the local machine) ---
 
-	/** After a stack was added (NewStacks) or on reset (NewStacks 0, once per upgrade that had stacks). */
+	/** After a stack was added or used up (NewStacks) or on reset (NewStacks 0, once per upgrade that had stacks). */
 	UPROPERTY(BlueprintAssignable, Category = "Upgrades")
 	FGSOnUpgradeStacksChangedSignature OnUpgradeStacksChanged;
 

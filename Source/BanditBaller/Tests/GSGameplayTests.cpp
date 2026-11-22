@@ -84,6 +84,7 @@
 #include "GSMovementSettings.h"
 #include "Editor/EditorPerformanceSettings.h"
 #include "GSFloatingShieldsComponent.h"
+#include "GSSecondWindComponent.h"
 #include "GSShieldComponent.h"
 #include "GSUpgradeComponent.h"
 #include "GSUpgradeData.h"
@@ -4580,7 +4581,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
-		TestEqual(TEXT("Pool has the 13 upgrades"), Pool->Upgrades.Num(), 13);
+		TestEqual(TEXT("Pool has the 14 upgrades"), Pool->Upgrades.Num(), 14);
 		TestEqual(TEXT("Common weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Common), 100.f);
 		TestEqual(TEXT("Rare weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Rare), 20.f);
 		TestEqual(TEXT("Epic weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Epic), 6.f);
@@ -4598,10 +4599,10 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 
 		auto NoStacks = [](const UGSUpgradeData*) { return 0; };
 
-		// Real pool: always 3 different upgrades (the empty Legendary tier never wastes a pick). Weights Common 100, Rare 20,
-		// Epic 6 (two Epics: Piercing Rounds, Powder Keg; the tier leaves the weighting once both are in the offer). An
-		// offer has no Rare with probability 0.5954 (every C/E ordering), so the Rare tier is in about 40.5% of offers.
-		// (Five Rares since Floating Shield: the Rare tier can't run out within an offer, so the rate is unchanged.)
+		// Real pool: always 3 different upgrades. Weights Common 100, Rare 20, Epic 6 (two Epics: Piercing Rounds, Powder
+		// Keg), Legendary 1 (Second Wind); a tier leaves the weighting once all its upgrades are in the offer. Five Rares
+		// can't run out within an offer. An offer has no Rare with probability 0.5980 (every C/E/L ordering), so the Rare
+		// tier is in about 40.2% of offers.
 		FRandomStream Stream(7);
 		int32 WithRare = 0;
 		bool bAllFull = true, bAllDifferent = true;
@@ -4614,8 +4615,8 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		}
 		TestTrue(TEXT("Every offer has 3 choices"), bAllFull);
 		TestTrue(TEXT("Choices in an offer are different"), bAllDifferent);
-		AddInfo(FString::Printf(TEXT("Rare in %.1f%% of 3000 offers (expected 40.5%%)"), 100.0 * WithRare / 3000.0));
-		TestTrue(TEXT("Rare frequency matches the tier weights"), FMath::Abs(WithRare / 3000.0 - 0.4046) < 0.03);
+		AddInfo(FString::Printf(TEXT("Rare in %.1f%% of 3000 offers (expected 40.2%%)"), 100.0 * WithRare / 3000.0));
+		TestTrue(TEXT("Rare frequency matches the tier weights"), FMath::Abs(WithRare / 3000.0 - 0.4020) < 0.03);
 
 		// Same seed -> same offers.
 		FRandomStream A(99), B(99);
@@ -4747,7 +4748,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("No short offers"), Sim1.ShortOffers, 0);
 		TestTrue(TEXT("Simulator is deterministic"), Sim1.UpgradeOffers.OrderIndependentCompareEqual(Sim2.UpgradeOffers));
 		TestTrue(TEXT("Epic choices now appear (Piercing Rounds)"), Sim1.RarityChoices.FindRef(TEXT("Epic")) > 0);
-		TestEqual(TEXT("No Legendary choices (empty tier)"), Sim1.RarityChoices.FindRef(TEXT("Legendary")), 0);
+		TestTrue(TEXT("Legendary choices now appear (Second Wind)"), Sim1.RarityChoices.FindRef(TEXT("Legendary")) > 0);
 	});
 	EndPIE();
 	return true;
@@ -7379,6 +7380,180 @@ bool FGSFloatingShieldTest::RunTest(const FString& Parameters)
 	Step([this]()
 	{
 		TestEqual(TEXT("New run: no shield meshes"), GetShieldVisuals()->GetNumShieldMeshes(), 0);
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Second Wind (Prompt 37): a killing blow uses one up instead (30% Health, 2 s invulnerable, one stack gone)
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	UGSSecondWindComponent* GetPlayerSecondWind()
+	{
+		const AGSPlayerState* PS = GetPC() ? GetPC()->GetPlayerState<AGSPlayerState>() : nullptr;
+		return PS ? PS->GetSecondWindComponent() : nullptr;
+	}
+
+	bool IsPlayerInvulnerable()
+	{
+		return GetPlayerASC() && GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Invulnerable);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSSecondWindTest, "BanditBaller.Upgrades.SecondWind", GSTests::TestFlags)
+bool FGSSecondWindTest::RunTest(const FString& Parameters)
+{
+	struct FWindState
+	{
+		TWeakObjectPtr<AGSEnemyCharacter> Attacker;
+		TObjectPtr<const UGSUpgradeData> Upgrade;
+		double SaveTime = 0.0;
+		float Restored = 0.f;
+	};
+	TSharedRef<FWindState> S = MakeShared<FWindState>();
+	auto Now = []() { return GetPIEWorld() ? GetPIEWorld()->GetTimeSeconds() : 0.0; };
+	auto AttackerASC = [S]() { return S->Attacker.IsValid() ? S->Attacker->GetAbilitySystemComponent() : nullptr; };
+	auto Stacks = [S]()
+	{
+		const AGSPlayerState* PS = GetPC()->GetPlayerState<AGSPlayerState>();
+		return PS ? PS->GetUpgradeComponent()->GetStacks(S->Upgrade) : -1;
+	};
+
+	BeginPIE(this);
+
+	// Data; two Second Winds; a killing blow uses one: 30% Health, invulnerable, one stack gone, feedback.
+	Step([this, S, Now, AttackerASC, Stacks]()
+	{
+		SpeedUpWorld(4.f);
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->SetHealthOrbDropChanceOverride(0.f);
+		GetPlayer()->TeleportTo(FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator);
+
+		S->Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("SecondWind"));
+		if (!TestNotNull(TEXT("DA_Upgrade_SecondWind exists"), S->Upgrade.Get()))
+		{
+			return;
+		}
+		TestTrue(TEXT("Second Wind is Legendary"), S->Upgrade->Rarity == EGSUpgradeRarity::Legendary);
+		TestEqual(TEXT("Second Wind has no cap"), S->Upgrade->MaxStacks, 0);
+		TestTrue(TEXT("Effect is GE_Upgrade_SecondWind"), S->Upgrade->Effect && S->Upgrade->Effect->IsChildOf(UGSUpgradeEffect_SecondWind::StaticClass()));
+		TestTrue(FString::Printf(TEXT("Card says +1: %s"), *S->Upgrade->GetFormattedDescription().ToString()),
+			S->Upgrade->GetFormattedDescription().ToString().Contains(TEXT("+1")));
+		const UGSUpgradePool* Pool = GameMode->GetUpgradePool();
+		TestTrue(TEXT("Second Wind is in DA_UpgradePool"), Pool && Pool->Upgrades.Contains(S->Upgrade));
+		const UGSCombatSettings* Combat = GameMode->GetCombatSettings();
+		TestTrue(TEXT("Back at 30% Health"), Combat && FMath::IsNearlyEqual(Combat->SecondWindHealthFraction, 0.3f));
+		TestTrue(TEXT("Invulnerable for 2 s"), Combat && FMath::IsNearlyEqual(Combat->SecondWindInvulnerableTime, 2.f));
+
+		UGSSecondWindComponent* SecondWind = GetPlayerSecondWind();
+		if (!TestNotNull(TEXT("Second Wind component on the PlayerState"), SecondWind))
+		{
+			return;
+		}
+		TestEqual(TEXT("SecondWinds starts at 0"), GetAttr(UGSAttributeSet::GetSecondWindsAttribute()), 0.f, 0.001f);
+		TestFalse(TEXT("No Second Wind: can't save"), SecondWind->CanSave());
+
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("SecondWind"), TEXT("2") });
+		TestEqual(TEXT("SecondWinds 2"), GetAttr(UGSAttributeSet::GetSecondWindsAttribute()), 2.f, 0.001f);
+		TestEqual(TEXT("Two stacks (Owned: 2)"), Stacks(), 2);
+
+		S->Attacker = SpawnFrozenBandit(FVector(-600.f, 0.f, 0.f));
+		KillTestEnemyAsPlayer(this); // start a combo
+		TestTrue(TEXT("A combo is running"), GetPlayerCombo()->GetComboCount() > 0);
+		const float DamageTakenBefore = GetGameState()->GetRunStats()->GetDamageTaken();
+		const float MaxHealth = GetMaxHealth(GetPlayerASC());
+		const float HealthBefore = GetHealth(GetPlayerASC());
+		S->Restored = FMath::RoundToFloat(MaxHealth * 0.3f); // whole health points
+		UGSHUDWidget* HUD = GetPC()->GetGSHUD();
+		// The flash fades in real time; game time runs x4 here, so shorten this HUD's flash (not the asset).
+		SetFloatProperty(HUD, TEXT("SecondWindFlashDuration"), 0.3f);
+
+		ApplyDamage(GetPlayerASC(), 9999.f, AttackerASC());
+		S->SaveTime = Now();
+		TestFalse(TEXT("Saved: not dead"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
+		TestTrue(TEXT("Saved: still in the run"), GetGameState()->GetRoundPhase() != EGSRoundPhase::GameOver);
+		TestEqual(TEXT("Saved: Health = 30% of MaxHealth"), GetHealth(GetPlayerASC()), S->Restored, 0.01f);
+		TestTrue(TEXT("Saved: invulnerable"), IsPlayerInvulnerable());
+		const TArray<TPair<float, float>> Invulnerability = GetPlayerASC()->GetActiveEffectsTimeRemainingAndDuration(
+			FGameplayEffectQuery::MakeQuery_MatchAnyOwningTags(FGameplayTagContainer(GSGameplayTags::State_Invulnerable)));
+		TestTrue(TEXT("The invulnerability lasts exactly 2 s"), Invulnerability.Num() == 1 && FMath::IsNearlyEqual(Invulnerability[0].Value, 2.f, 0.001f));
+		TestEqual(TEXT("One Second Wind used: SecondWinds 1"), GetAttr(UGSAttributeSet::GetSecondWindsAttribute()), 1.f, 0.001f);
+		TestEqual(TEXT("One stack removed (Owned: 1)"), Stacks(), 1);
+		TestEqual(TEXT("Used once this run"), SecondWind->GetUsesThisRun(), 1);
+		TestEqual(TEXT("The hit counts as damage taken (the Health it took)"), GetGameState()->GetRunStats()->GetDamageTaken(), DamageTakenBefore + HealthBefore, 0.01f);
+		TestEqual(TEXT("The hit ended the combo"), GetPlayerCombo()->GetComboCount(), 0);
+		if (TestNotNull(TEXT("HUD"), HUD))
+		{
+			TestTrue(TEXT("Screen flash"), HUD->IsSecondWindFlashShowing() && HUD->GetSecondWindFlashAlpha() > 0.5f);
+			TestEqual(TEXT("Sound played once"), HUD->GetSecondWindSoundsPlayed(), 1);
+			TestEqual(TEXT("HUD shows whole Health (30, not 31)"), FMath::CeilToInt(HUD->GetDisplayedHealth()), FMath::RoundToInt(S->Restored));
+			TestTrue(TEXT("SECOND WIND banner"), HUD->IsSecondWindBannerShowing());
+			TestEqual(TEXT("Banner title"), HUD->GetRoundBannerTitle().ToString(), FString(TEXT("SECOND WIND")));
+			TestEqual(TEXT("Banner subtitle"), HUD->GetRoundBannerSubtitle().ToString(), FString(TEXT("1 left")));
+			const UGSUpgradeIconWidget* Icon = HUD->FindUpgradeIcon(S->Upgrade);
+			TestTrue(TEXT("The HUD icon shows 1 left"), Icon && Icon->GetStacks() == 1);
+		}
+
+		// Invulnerable: another killing blow does nothing.
+		ApplyDamage(GetPlayerASC(), 9999.f, AttackerASC());
+		TestEqual(TEXT("Invulnerable: no Health lost"), GetHealth(GetPlayerASC()), S->Restored, 0.01f);
+		TestEqual(TEXT("Invulnerable: no Second Wind used"), GetAttr(UGSAttributeSet::GetSecondWindsAttribute()), 1.f, 0.001f);
+	});
+	WaitUntil(this, TEXT("the invulnerability to end"), []() { return !IsPlayerInvulnerable(); }, 10.0);
+
+	// A hit that doesn't kill uses nothing; a ready shield comes first; then the last Second Wind.
+	Step([this, S, Now, AttackerASC, Stacks]()
+	{
+		const double Elapsed = Now() - S->SaveTime;
+		AddInfo(FString::Printf(TEXT("[secondwind] invulnerable for %.2f s"), Elapsed));
+		// Sampled once a frame, so a long frame at x4 can overshoot; it must not end early.
+		TestTrue(FString::Printf(TEXT("Invulnerability didn't end early (%.2f s)"), Elapsed), Elapsed >= 1.95);
+		TestFalse(TEXT("The flash is over"), GetPC()->GetGSHUD()->IsSecondWindFlashShowing());
+
+		ApplyDamage(GetPlayerASC(), 10.f, AttackerASC());
+		TestEqual(TEXT("A hit that doesn't kill takes Health"), GetHealth(GetPlayerASC()), S->Restored - 10.f, 0.01f);
+		TestEqual(TEXT("... and uses no Second Wind"), GetAttr(UGSAttributeSet::GetSecondWindsAttribute()), 1.f, 0.001f);
+
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FloatingShield") });
+		ApplyDamage(GetPlayerASC(), 9999.f, AttackerASC());
+		TestEqual(TEXT("Shield first: no Health lost"), GetHealth(GetPlayerASC()), S->Restored - 10.f, 0.01f);
+		TestEqual(TEXT("Shield first: the shield is used"), GetPlayerShields()->GetNumReady(), 0);
+		TestEqual(TEXT("Shield first: no Second Wind used"), GetAttr(UGSAttributeSet::GetSecondWindsAttribute()), 1.f, 0.001f);
+
+		ApplyDamage(GetPlayerASC(), 9999.f, AttackerASC());
+		TestFalse(TEXT("Last Second Wind: not dead"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
+		TestEqual(TEXT("Last Second Wind: Health = 30%"), GetHealth(GetPlayerASC()), S->Restored, 0.01f);
+		TestEqual(TEXT("None left"), GetAttr(UGSAttributeSet::GetSecondWindsAttribute()), 0.f, 0.001f);
+		TestEqual(TEXT("No stacks left (Owned: 0)"), Stacks(), 0);
+		const UGSHUDWidget* HUD = GetPC()->GetGSHUD();
+		TestEqual(TEXT("Banner: that was the last"), HUD->GetRoundBannerSubtitle().ToString(), FString(TEXT("THAT WAS YOUR LAST")));
+		TestNull(TEXT("The HUD icon is gone"), HUD->FindUpgradeIcon(S->Upgrade));
+		TestEqual(TEXT("Two sounds in all"), HUD->GetSecondWindSoundsPlayed(), 2);
+	});
+	WaitUntil(this, TEXT("the invulnerability to end"), []() { return !IsPlayerInvulnerable(); }, 10.0);
+
+	// Picking it again adds one; a new run clears it; without one, a killing blow kills.
+	Step([this, S, AttackerASC, Stacks]()
+	{
+		TestEqual(TEXT("Picked again"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("SecondWind"), 1), 1);
+		TestEqual(TEXT("Picked again: SecondWinds 1"), GetAttr(UGSAttributeSet::GetSecondWindsAttribute()), 1.f, 0.001f);
+		TestEqual(TEXT("Picked again: Owned 1"), Stacks(), 1);
+
+		RemoveAllEnemies(GetPIEWorld());
+		GetGameMode()->RestartRunWithSeed(37);
+		TestEqual(TEXT("New run: SecondWinds 0"), GetAttr(UGSAttributeSet::GetSecondWindsAttribute()), 0.f, 0.001f);
+		TestEqual(TEXT("New run: no uses"), GetPlayerSecondWind()->GetUsesThisRun(), 0);
+		TestEqual(TEXT("New run: Owned 0"), Stacks(), 0);
+
+		ApplyDamage(GetPlayerASC(), 9999.f);
+		TestTrue(TEXT("No Second Wind: a killing blow kills"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
+		TestTrue(TEXT("No Second Wind: game over"), GetGameState()->GetRoundPhase() == EGSRoundPhase::GameOver);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
 		RestoreWorldSpeed();
 	});

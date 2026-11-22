@@ -59,6 +59,20 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Floating Shield", meta = (ClampMin = "0.1", Units = "s"))
 	float ShieldCooldown = 10.f;
 
+	// --- Second Wind: a killing blow uses one instead ---
+
+	/** Share of MaxHealth the player comes back with (0.3 = 30%). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Second Wind", meta = (ClampMin = "0.01", ClampMax = "1"))
+	float SecondWindHealthFraction = 0.3f;
+
+	/** Seconds of invulnerability right after (State.Invulnerable: GE_Damage isn't applied, no shield is used). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Second Wind", meta = (ClampMin = "0", Units = "s"))
+	float SecondWindInvulnerableTime = 2.f;
+
+	/** The invulnerability (SetByCaller Data.Duration). Unset = the native UGSTimedInvulnerabilityEffect. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Second Wind")
+	TSubclassOf<UGameplayEffect> SecondWindInvulnerableEffect;
+
 	/** Chance (0..1) that a kill explodes at Stacks PowderKeg stacks: Stacks x ChancePerStack, clamped. */
 	float GetExplodeChance(int32 Stacks) const { return Stacks > 0 ? FMath::Clamp(Stacks * ChancePerStack, 0.f, 1.f) : 0.f; }
 };

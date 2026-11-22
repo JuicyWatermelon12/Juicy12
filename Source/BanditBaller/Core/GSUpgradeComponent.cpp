@@ -91,6 +91,37 @@ bool UGSUpgradeComponent::GrantUpgrade(const UGSUpgradeData* Upgrade, const TCHA
 	return true;
 }
 
+const UGSUpgradeData* UGSUpgradeComponent::RemoveStackByEffect(TSubclassOf<UGameplayEffect> EffectClass, const TCHAR* Reason)
+{
+	AActor* Owner = GetOwner();
+	if (!EffectClass || !Owner || !Owner->HasAuthority())
+	{
+		return nullptr;
+	}
+	const int32 Index = Stacks.IndexOfByPredicate([EffectClass](const FGSUpgradeStack& S)
+	{
+		return S.Upgrade && S.Upgrade->Effect && S.Upgrade->Effect->IsChildOf(EffectClass) && S.Stacks > 0;
+	});
+	if (Index == INDEX_NONE)
+	{
+		return nullptr;
+	}
+	FGSUpgradeStack& Entry = Stacks[Index];
+	const UGSUpgradeData* Upgrade = Entry.Upgrade;
+	if (UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Owner))
+	{
+		ASC->RemoveActiveGameplayEffect(Entry.EffectHandle, /*StacksToRemove*/ 1);
+	}
+	const int32 Left = --Entry.Stacks;
+	if (Left <= 0)
+	{
+		Stacks.RemoveAt(Index);
+	}
+	UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: %s used up (%s), %d left"), *GetNameSafe(Owner), *GetNameSafe(Upgrade), Reason, Left);
+	OnUpgradeStacksChanged.Broadcast(Upgrade, Left);
+	return Upgrade;
+}
+
 int32 UGSUpgradeComponent::GetStacks(const UGSUpgradeData* Upgrade) const
 {
 	const FGSUpgradeStack* Entry = Stacks.FindByPredicate([Upgrade](const FGSUpgradeStack& S) { return S.Upgrade == Upgrade; });

@@ -17,6 +17,7 @@
 #include "GSEnemyData.h"
 #include "GSCombatSettings.h"
 #include "GSGameMode.h"
+#include "GSSecondWindComponent.h"
 #include "GSShieldComponent.h"
 #include "GSGameplayAbility_Dash.h"
 #include "GSGameplayTags.h"
@@ -223,7 +224,7 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 	}
 	if (ASC)
 	{
-		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, FireRate %.2f, MoveSpeed %.0f, PickupRadius %.0f, ExtraJumps %.0f, MagazineSizeMultiplier %.2f, HealthOnKill %.0f, CritChance %.2f, Pierce %.0f, PowderKeg %.0f, Shields %.0f"),
+		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, FireRate %.2f, MoveSpeed %.0f, PickupRadius %.0f, ExtraJumps %.0f, MagazineSizeMultiplier %.2f, HealthOnKill %.0f, CritChance %.2f, Pierce %.0f, PowderKeg %.0f, Shields %.0f, SecondWinds %.0f"),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetReloadSpeedAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetFireRateAttribute()),
@@ -235,7 +236,8 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 			ASC->GetNumericAttribute(UGSAttributeSet::GetCritChanceAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetPierceAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetPowderKegAttribute()),
-			ASC->GetNumericAttribute(UGSAttributeSet::GetShieldsAttribute()));
+			ASC->GetNumericAttribute(UGSAttributeSet::GetShieldsAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetSecondWindsAttribute()));
 		if (const AGSCharacter* Character = Cast<AGSCharacter>(PC->GetPawn()))
 		{
 			if (const UGSWeaponComponent* Weapons = Character->GetWeaponComponent())
@@ -261,6 +263,10 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 			}
 			Text += FString::Printf(TEXT("\n  Floating shields: %d (%d ready%s%s), %d hit(s) blocked this run"), Shields->GetNumShields(),
 				Shields->GetNumReady(), Cooldowns.IsEmpty() ? TEXT("") : TEXT(": "), *Cooldowns, Shields->GetHitsBlocked());
+		}
+		if (const UGSSecondWindComponent* SecondWind = PS ? PS->GetSecondWindComponent() : nullptr)
+		{
+			Text += FString::Printf(TEXT("\n  Second Wind: %d left, %d used this run"), SecondWind->GetSecondWindsLeft(), SecondWind->GetUsesThisRun());
 		}
 		if (const AGSGameMode* GameMode = PC->GetWorld()->GetAuthGameMode<AGSGameMode>())
 		{

@@ -173,6 +173,28 @@ UGSUpgradeEffect_FloatingShield::UGSUpgradeEffect_FloatingShield(const FObjectIn
 	AddAdditiveModifier(UGSAttributeSet::GetShieldsAttribute(), 1.f);
 }
 
+UGSUpgradeEffect_SecondWind::UGSUpgradeEffect_SecondWind(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddAdditiveModifier(UGSAttributeSet::GetSecondWindsAttribute(), 1.f);
+}
+
+UGSTimedInvulnerabilityEffect::UGSTimedInvulnerabilityEffect(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	DurationPolicy = EGameplayEffectDurationType::HasDuration;
+
+	FSetByCallerFloat Duration;
+	Duration.DataTag = GSGameplayTags::Data_Duration;
+	DurationMagnitude = FGameplayEffectModifierMagnitude(Duration);
+
+	UTargetTagsGameplayEffectComponent* TagsComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("InvulnerableTags"));
+	FInheritedTagContainer Tags;
+	Tags.Added.AddTag(GSGameplayTags::State_Invulnerable);
+	TagsComponent->SetAndApplyTargetTagChanges(Tags);
+	GEComponents.Add(TagsComponent);
+}
+
 UGSUpgradeEffect_PiercingRounds::UGSUpgradeEffect_PiercingRounds(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

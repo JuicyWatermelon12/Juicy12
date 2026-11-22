@@ -142,6 +142,16 @@ public:
 	FGameplayAttributeData Shields;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, Shields)
 
+	/**
+	 * Second Winds left: a hit that would kill the player uses one instead (UGSSecondWindComponent on the PlayerState):
+	 * Health goes to a share of MaxHealth and the player is briefly invulnerable. Using one removes a stack of the
+	 * Second Wind upgrade. Default 0, clamped to >= 0, rounded when read.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Health")
+	FGameplayAttributeData SecondWinds;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, SecondWinds)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;

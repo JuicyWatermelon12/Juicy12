@@ -12,6 +12,7 @@
 #include "GSEnemyData.h"
 #include "GSRunRandom.h"
 #include "GSRunStats.h"
+#include "GSSecondWindComponent.h"
 #include "GSShieldComponent.h"
 #include "GSRunSummaryWidget.h"
 #include "GSWaveDirector.h"
@@ -682,6 +683,10 @@ void AGSGameMode::StartRun(int32 Seed, const TCHAR* Source)
 			if (UGSShieldComponent* Shields = GSPS ? GSPS->GetShieldComponent() : nullptr)
 			{
 				Shields->ResetShields(); // after the upgrades reset: no shields left, no recharges running
+			}
+			if (UGSSecondWindComponent* SecondWind = GSPS ? GSPS->GetSecondWindComponent() : nullptr)
+			{
+				SecondWind->ResetSecondWind();
 			}
 		}
 	}

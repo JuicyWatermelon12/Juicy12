@@ -11,6 +11,7 @@
 #include "GSAttributeSet.h"
 #include "GSComboComponent.h"
 #include "GSGameState.h"
+#include "GSSecondWindComponent.h"
 #include "GSUpgradeComponent.h"
 #include "GSUpgradeIconWidget.h"
 #include "Components/HorizontalBoxSlot.h"
@@ -175,6 +176,7 @@ void UGSHUDWidget::NativeDestruct()
 	UnbindCash();
 	UnbindProgression();
 	UnbindCombo();
+	UnbindSecondWind();
 	UnbindGameState();
 	UnbindUpgrades();
 	Super::NativeDestruct();
@@ -503,6 +505,10 @@ bool UGSHUDWidget::CanShowRoundBanner() const
 
 bool UGSHUDWidget::IsRoundBannerValid(const FRoundBannerRequest& Request) const
 {
+	if (Request.bSecondWind)
+	{
+		return true; // interrupted by another banner: still worth showing
+	}
 	const AGSGameState* GS = BoundGameState.Get();
 	if (!GS || GS->GetRoundNumber() != Request.Round)
 	{
@@ -526,26 +532,30 @@ void UGSHUDWidget::TryShowNextRoundBanner()
 		{
 			continue; // its round or phase is over
 		}
-		ActiveRoundBanner = Next;
-		RoundBannerRemaining = RoundBannerDuration;
-		++RoundBannersShown;
-		if (RoundBannerTitle)
-		{
-			RoundBannerTitle->SetText(GetRoundBannerTitle());
-			RoundBannerTitle->SetColorAndOpacity(FSlateColor(Next.bRoundClear ? RoundClearBannerColor : RoundBannerColor));
-		}
-		if (RoundBannerSubtitle)
-		{
-			RoundBannerSubtitle->SetText(Next.bRoundClear
-				? FText::Format(NSLOCTEXT("GSHUD", "RoundBannerClearSub", "Round {0}"), FText::AsNumber(Next.Round))
-				: NSLOCTEXT("GSHUD", "RoundBannerSub", "GET READY"));
-		}
-		if (RoundBanner)
-		{
-			RoundBanner->SetRenderOpacity(RoundBannerFadeIn > 0.f ? 0.f : 1.f);
-			RoundBanner->SetVisibility(ESlateVisibility::HitTestInvisible);
-		}
+		ShowBanner(Next);
 		return;
+	}
+}
+
+void UGSHUDWidget::ShowBanner(const FRoundBannerRequest& Request)
+{
+	ActiveRoundBanner = Request;
+	RoundBannerRemaining = RoundBannerDuration;
+	++RoundBannersShown;
+	if (RoundBannerTitle)
+	{
+		RoundBannerTitle->SetText(GetRoundBannerTitle());
+		RoundBannerTitle->SetColorAndOpacity(FSlateColor(Request.bSecondWind ? SecondWindBannerColor
+			: (Request.bRoundClear ? RoundClearBannerColor : RoundBannerColor)));
+	}
+	if (RoundBannerSubtitle)
+	{
+		RoundBannerSubtitle->SetText(GetRoundBannerSubtitle());
+	}
+	if (RoundBanner)
+	{
+		RoundBanner->SetRenderOpacity(RoundBannerFadeIn > 0.f ? 0.f : 1.f);
+		RoundBanner->SetVisibility(ESlateVisibility::HitTestInvisible);
 	}
 }
 
@@ -555,8 +565,91 @@ FText UGSHUDWidget::GetRoundBannerTitle() const
 	{
 		return FText::GetEmpty();
 	}
+	if (ActiveRoundBanner.bSecondWind)
+	{
+		return NSLOCTEXT("GSHUD", "SecondWindBanner", "SECOND WIND");
+	}
 	return ActiveRoundBanner.bRoundClear ? NSLOCTEXT("GSHUD", "RoundBannerClear", "ROUND CLEAR")
 		: FText::Format(NSLOCTEXT("GSHUD", "RoundBanner", "ROUND {0}"), FText::AsNumber(ActiveRoundBanner.Round));
+}
+
+FText UGSHUDWidget::GetRoundBannerSubtitle() const
+{
+	if (!IsRoundBannerShowing())
+	{
+		return FText::GetEmpty();
+	}
+	if (ActiveRoundBanner.bSecondWind)
+	{
+		return ActiveRoundBanner.SecondWindsLeft > 0
+			? FText::Format(NSLOCTEXT("GSHUD", "SecondWindBannerLeft", "{0} left"), FText::AsNumber(ActiveRoundBanner.SecondWindsLeft))
+			: NSLOCTEXT("GSHUD", "SecondWindBannerLast", "THAT WAS YOUR LAST");
+	}
+	return ActiveRoundBanner.bRoundClear
+		? FText::Format(NSLOCTEXT("GSHUD", "RoundBannerClearSub", "Round {0}"), FText::AsNumber(ActiveRoundBanner.Round))
+		: NSLOCTEXT("GSHUD", "RoundBannerSub", "GET READY");
+}
+
+// ---------------------------------------------------------------------------
+// Second Wind (UGSSecondWindComponent): flash, sound, banner
+// ---------------------------------------------------------------------------
+
+bool UGSHUDWidget::TryBindSecondWind()
+{
+	const AGSPlayerState* PS = GetOwningPlayerState<AGSPlayerState>();
+	UGSSecondWindComponent* SecondWind = PS ? PS->GetSecondWindComponent() : nullptr;
+	if (SecondWind == BoundSecondWind.Get())
+	{
+		return SecondWind != nullptr;
+	}
+	UnbindSecondWind();
+	if (!SecondWind)
+	{
+		return false;
+	}
+	BoundSecondWind = SecondWind;
+	SecondWindUsedHandle = SecondWind->OnSecondWindUsed.AddUObject(this, &UGSHUDWidget::HandleSecondWindUsed);
+	return true;
+}
+
+void UGSHUDWidget::UnbindSecondWind()
+{
+	if (UGSSecondWindComponent* SecondWind = BoundSecondWind.Get())
+	{
+		SecondWind->OnSecondWindUsed.Remove(SecondWindUsedHandle);
+	}
+	BoundSecondWind.Reset();
+}
+
+void UGSHUDWidget::HandleSecondWindUsed(int32 SecondWindsLeft)
+{
+	SecondWindFlashRemaining = SecondWindFlashDuration;
+	if (SecondWindSound)
+	{
+		UGameplayStatics::PlaySound2D(this, SecondWindSound);
+	}
+	++SecondWindSoundsPlayed;
+
+	// The banner takes the spot at once; a round banner that was showing goes back to the front of the queue.
+	InterruptRoundBanner();
+	FRoundBannerRequest Request;
+	Request.bSecondWind = true;
+	Request.SecondWindsLeft = SecondWindsLeft;
+	ShowBanner(Request);
+	++SecondWindBannersShown;
+}
+
+float UGSHUDWidget::GetSecondWindFlashAlpha() const
+{
+	return SecondWindFlashDuration > 0.f ? SecondWindFlashMaxAlpha * (SecondWindFlashRemaining / SecondWindFlashDuration) : 0.f;
+}
+
+void UGSHUDWidget::PaintSecondWindFlash(const FGeometry& Geometry, FSlateWindowElementList& OutDrawElements, int32 LayerId) const
+{
+	const FSlateBrush* White = FCoreStyle::Get().GetBrush(TEXT("GenericWhiteBox"));
+	FLinearColor Color = SecondWindFlashColor;
+	Color.A = GetSecondWindFlashAlpha();
+	FSlateDrawElement::MakeBox(OutDrawElements, LayerId, Geometry.ToPaintGeometry(), White, ESlateDrawEffect::None, Color);
 }
 
 void UGSHUDWidget::InterruptRoundBanner()
@@ -1178,6 +1271,7 @@ void UGSHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	TryBindCash();
 	TryBindProgression();
 	TryBindCombo();
+	TryBindSecondWind();
 	TryBindUpgrades();
 	TryBindGameState();
 
@@ -1198,6 +1292,7 @@ void UGSHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 
 	HitMarkerRemaining = FMath::Max(HitMarkerRemaining - InDeltaTime, 0.f);
 	DamageFlashRemaining = FMath::Max(DamageFlashRemaining - InDeltaTime, 0.f);
+	SecondWindFlashRemaining = FMath::Max(SecondWindFlashRemaining - InDeltaTime, 0.f);
 	PulseTime += InDeltaTime;
 
 	// Cash counter punch when cash comes in.
@@ -1282,6 +1377,11 @@ int32 UGSHUDWidget::NativePaint(const FPaintArgs& Args, const FGeometry& Allotte
 	if (EdgeAlpha > KINDA_SMALL_NUMBER)
 	{
 		PaintEdgeGlow(AllottedGeometry, OutDrawElements, ++MaxLayer, EdgeAlpha);
+	}
+
+	if (SecondWindFlashRemaining > 0.f)
+	{
+		PaintSecondWindFlash(AllottedGeometry, OutDrawElements, ++MaxLayer);
 	}
 
 	PaintDamageNumbers(AllottedGeometry, OutDrawElements, ++MaxLayer);

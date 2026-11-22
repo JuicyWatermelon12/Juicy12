@@ -41,10 +41,10 @@ the hub map replaces them.
 **M2 — the run loop is complete** (rounds, waves, scaling, economy, progression; Prompts 1–28 and 26b; 11–13 and 17
 were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **Next: M2b**, eleven more
 level-up upgrades (Prompts 29–40; 29 is the docs-only plan, then Dash Charge (30), Fire Rate + Magnet (31) and the
-held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds (34), Powder Keg (35) and Floating Shield (36); all done). **Then M3** (shop, owned items, gear loadout,
+held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds (34), Powder Keg (35), Floating Shield (36) and Second Wind (37); all done). **Then M3** (shop, owned items, gear loadout,
 two-layer save); not planned in detail yet. Health orbs (35b) were added between 35 and 36; they aren't an upgrade. Powder Keg became a chance to explode in 35c.
 
-State at the time of writing: `main` after "Floating Shield upgrade" (Prompt 36), not pushed. The build is clean and all 44 automation tests pass in about 98 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Second Wind upgrade" (Prompt 37), not pushed. The build is clean and all 45 automation tests pass in about 100 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -95,7 +95,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2b 35 | Powder Keg: the player's kills explode (radius / damage per stack × Damage), chains 0.1 s apart, blast kills are the player's | a650a64 |
 | M2b 35b | Health orbs: a 20% chance per player kill (run stream), heal 15 at pickup, ignored at full health, vacuumed at RoundClear | 5a7086a |
 | M2b 35c | Powder Keg: a 3% chance per stack that a player kill explodes (run stream), fixed blast (30 × Damage, 3 m), MaxStacks 34 | 07a8341 |
-| M2b 36 | Floating Shield: +1 shield per pick; a ready shield cancels a whole hit in the damage path and recharges 10 s on its own; dash i-frames first | see git log |
+| M2b 36 | Floating Shield: +1 shield per pick; a ready shield cancels a whole hit in the damage path and recharges 10 s on its own; dash i-frames first | 2bbe7d4, ae5d083 |
+| M2b 37 | Second Wind: a killing blow uses one instead (30% Health, 2 s invulnerable, one stack gone); flash, sound, banner | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -1450,7 +1451,7 @@ data.
   Changed in Prompt 35c: stacks raise the chance to explode (3% each), the blast stays the same, and each chain kill
   rolls the chance too.
 - Floating Gun: do the player's Damage and Fire Rate upgrades also scale the guns? Which enemy does a gun target?
-- Second Wind: is there a short invulnerability after coming back?
+- ~~Second Wind: is there a short invulnerability after coming back?~~ Decided in Prompt 37 (user): yes, 2 s.
 
 **Docs changed**
 - CLAUDE.md: the game summary says the upgrade pool grows to 15 in M2b.
@@ -1917,6 +1918,67 @@ Changes Prompt 35. Stacks no longer grow the blast; they raise the chance that a
     the player, and both shields came back 10 s after their blocks.
 - **Full suite:** 44 tests, all passing, in 98.5 s.
 
+### Prompt 37 — Second Wind
+- **New attribute `SecondWinds`** (default 0, clamped to ≥ 0, rounded when read; not replicated, `TODO(co-op)`).
+- **In the damage path** (`UGSAttributeSet::PostGameplayEffectExecute`). The order is complete now:
+  1. Dash invulnerability (GE_Damage isn't applied).
+  2. A ready Floating Shield.
+  3. Health.
+  4. Second Wind, only when the hit would take Health to 0.
+  - On a killing blow with a Second Wind, Health goes straight to the restored value and never touches 0, so nothing
+    dies. `UGSSecondWindComponent::UseSecondWind` then handles the rest (below).
+- **`Core/GSSecondWindComponent.*` (`UGSSecondWindComponent`, on `AGSPlayerState`, `GetSecondWindComponent()`)**, run
+  state:
+  - `CanSave()`, `GetRestoredHealth(MaxHealth)` (`SecondWindHealthFraction` × MaxHealth, rounded to whole points: in
+    float, 100 × 0.3 is a hair above 30, and the HUD showed "31").
+  - `UseSecondWind`:
+    1. Applies the new native `UGSTimedInvulnerabilityEffect` (has a duration from SetByCaller `Data.Duration`, a new
+       tag; grants `State.Invulnerable`) for `SecondWindInvulnerableTime`.
+    2. Removes one stack of the upgrade with the new `UGSUpgradeComponent::RemoveStackByEffect`, which also drops the
+       attribute and fires `OnUpgradeStacksChanged`. So the card's "Owned", the HUD icon and `gs.Upgrade.List` show
+       what's left, and picking it again adds one. Without an upgrade stack (e.g. `gs.SetAttr SecondWinds`) it lowers
+       the base value instead.
+    3. Fires `OnSecondWindUsed(Left)`.
+  - `ResetSecondWind()` from `AGSGameMode::StartRun` clears the uses and any invulnerability left.
+  - Log: `[secondwind] <PS>: Second Wind! A killing blow from X at 100 Health -> Health 30, invulnerable 2.0 s, 0
+    left`, plus the `[upgrade] … used up (Second Wind), N left` line.
+- **Decided here** (the prompt didn't say): the saving hit still counts as damage taken, up to the Health it removed
+  (e.g. 100), so it ends the kill combo and costs the no-damage round bonus. The player was hit; only the death is
+  prevented.
+- **Tuning** in DA_CombatSettings (new "Second Wind" section, class defaults): `SecondWindHealthFraction` 0.3,
+  `SecondWindInvulnerableTime` 2 s, `SecondWindInvulnerableEffect` (unset = the native effect).
+- **Feedback** (`UGSHUDWidget`, bound to `OnSecondWindUsed`; tuning under HUD|Second Wind on WBP_HUD):
+  - A strong full-screen gold flash: (1, 0.85, 0.4) from 0.85 alpha, fading over 0.7 s real time.
+  - `SecondWindSound`: 2D, the placeholder `Teleport_Committed`.
+  - A "SECOND WIND" banner (gold-orange) with "N left", or "THAT WAS YOUR LAST", in the round banner's spot.
+    - It shows at once. A showing round banner goes back to the front of the queue.
+    - The banner code now has one `ShowBanner(Request)` for every kind, and `GetRoundBannerSubtitle()`.
+  - Test hooks: `IsSecondWindFlashShowing`, `GetSecondWindFlashAlpha`, `GetSecondWindSoundsPlayed`,
+    `GetSecondWindBannersShown`, `IsSecondWindBannerShowing`.
+- **Upgrade:** `UGSUpgradeEffect_SecondWind` → `Abilities/GE_Upgrade_SecondWind` (+1 SecondWinds per stack).
+  `Data/Upgrades/DA_Upgrade_SecondWind`: **Legendary**, no cap, "+{PerStack} Second Wind per stack. Survive a killing
+  blow: come back with part of your health and a moment of invulnerability. Each one is used up when it saves you."
+  Added to DA_UpgradePool (14: 6 Common, 5 Rare, 2 Epic, 1 Legendary). **Every tier has upgrades now.**
+- **Debug:**
+  - `gs.Upgrade.Grant SecondWind [N]`.
+  - `gs.Upgrade.List` adds SecondWinds to its Stats line and a new line, "Second Wind: 0 left, 1 used this run".
+- **Offer odds** (10,000 offers, seed 1): Second Wind in 2.3% of offers (about one in 44). The Rare tier dips to 40.6%
+  (40.2% expected).
+- **Tests:**
+  - New `Upgrades.SecondWind`.
+  - `Upgrades.Offers` expects 14 upgrades, Rare in ~40.2%, and Legendary choices in the simulator.
+  - Two fixes in the new test while building it (not the game):
+    - The HUD flash fades in real time while the test runs ×4, so the test shortens its own HUD's flash
+      (`SetFloatProperty`).
+    - The 2 s invulnerability is checked on the active effect's duration. The frame-sampled wait only checks that it
+      doesn't end early: a long first frame at ×4 once overshot to 3.03 s.
+- **PIE check** (town, round paused, editor throttling off; restored after):
+  - `gs.Upgrade.Grant SecondWind`, `gs.Damage.Self 9999`: the screen flashed gold under "SECOND WIND / THAT WAS YOUR
+    LAST", and the player stood at 30 Health ("31" before the rounding fix).
+  - `gs.Upgrade.List`: "x0/inf" and "Second Wind: 0 left, 1 used this run".
+  - A second `gs.Damage.Self 9999` after the invulnerability killed the player (GameOver).
+- **Full suite:** 45 tests, all passing, in 99.9 s.
+
 ---
 
 ## Console commands and CVars
@@ -1930,8 +1992,8 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.God [0\|1]` | Toggle/set damage immunity (one `State.Invulnerable` count). |
 | `gs.GiveWeapon <Weapon>` | Equip `Rifle` / `Pistol` / `BanditCarbine` with a full mag (replaces the equipped one if both slots are full). |
 | `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain, ReloadSpeed). |
-| `gs.Upgrade.Grant <Name> [Count=1]` | Add stacks of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed`, `FireRate`, `Magnet`, `BiggerMags`, `ExtraJump`, `DashCharge`, `Leech`, `LoadedDice`, `PiercingRounds`, `PowderKeg`, `FloatingShield` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`. |
-| `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps / MagazineSizeMultiplier / HealthOnKill / CritChance / Pierce / PowderKeg / Shields, the magazine (ammo / size), the dash charges (max = base + ExtraDashCharges, ready now), the floating shields (ready / each recharge / hits blocked) and Powder Keg (stacks, chance per kill, blast damage and radius). |
+| `gs.Upgrade.Grant <Name> [Count=1]` | Add stacks of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed`, `FireRate`, `Magnet`, `BiggerMags`, `ExtraJump`, `DashCharge`, `Leech`, `LoadedDice`, `PiercingRounds`, `PowderKeg`, `FloatingShield`, `SecondWind` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`. |
+| `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps / MagazineSizeMultiplier / HealthOnKill / CritChance / Pierce / PowderKeg / Shields / SecondWinds, the magazine (ammo / size), the dash charges (max = base + ExtraDashCharges, ready now), the floating shields (ready / each recharge / hits blocked), Second Wind (left / used this run) and Powder Keg (stacks, chance per kill, blast damage and radius). |
 | `gs.Upgrade.Offer` | Queue a level-up offer without the level (opens at once if none is open) and print the open offer. Refused in GameOver. |
 | `gs.Upgrade.Choose <0-2>` | Take a choice of the open offer; the next queued offer opens. |
 | `gs.Upgrade.Reroll` | Reroll the open offer for one of this run's rerolls (refused with none left or no offer). |
@@ -1990,6 +2052,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | HealthOnKill | Health healed per enemy kill credited to the player (UGSHealthOnKillEffect, never above MaxHealth; constructor default 0, min 0). Raised by Leech. Not replicated yet. |
 | CritChance | Chance (0..1) that a hit from the player's weapons is critical (GSCombat::RollCriticalHit, run stream; damage × DA_CombatSettings CritMultiplier 2). Constructor default 0, clamped 0..1. Raised by Loaded Dice. Not replicated yet. |
 | Pierce | Targets a player shot passes through (UGSGameplayAbility_Fire::TraceShot): up to 1 + Pierce targets, each once, full damage; walls stop it. Constructor default 0, min 0, rounded. Raised by Piercing Rounds. Not replicated yet. |
+| SecondWinds | Second Winds left: a hit that would take Health to 0 uses one instead (UGSSecondWindComponent on the PlayerState): Health goes to 30% of MaxHealth (whole points), 2 s of State.Invulnerable, one stack of the upgrade removed. Constructor default 0, min 0, rounded. Raised by Second Wind. Not replicated yet. |
 | Shields | Floating shields: each blocks one whole hit in the damage path, then recharges for DA_CombatSettings ShieldCooldown (UGSShieldComponent on the PlayerState; drawn by AGSCharacter's UGSFloatingShieldsComponent). Constructor default 0, min 0, rounded. Raised by Floating Shield. Not replicated yet. |
 | PowderKeg | Powder Keg stacks: each of the player's enemy kills explodes with chance stacks × DA_CombatSettings ChancePerStack (3%, max 100%; run stream; AGSGameMode::RollPowderKegChance / ExplodePowderKeg). The blast is fixed: BlastDamage × Damage in BlastRadius. Constructor default 0, min 0, rounded. Not replicated yet. |
 | IncomingDamage | Meta attribute: GE_Damage writes it, the set converts it to Health loss and records the instigator. |
@@ -2000,7 +2063,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Ability: `Ability.Fire`, `Ability.Reload`, `Ability.Slide`, `Ability.Dash`, `Ability.SwapWeapon`,
   `Ability.Attack.Melee`, `Ability.Attack.Ranged`
 - Cooldown: `Cooldown.Slide`, `Cooldown.Dash`
-- SetByCaller data: `Data.Damage`, `Data.Critical` (1 on a critical hit's damage spec), `Data.Heal` (health orbs), `Data.Cooldown`,
+- SetByCaller data: `Data.Damage`, `Data.Critical` (1 on a critical hit's damage spec), `Data.Heal` (health orbs), `Data.Duration` (timed state effects: Second Wind invulnerability), `Data.Cooldown`,
   `Data.HealthMultiplier`, `Data.DamageMultiplier`
 
 **Gameplay Effects** (`Content/BanditBaller/Abilities/`):
@@ -2027,6 +2090,8 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | `GE_Upgrade_PiercingRounds` | `UGSUpgradeEffect_PiercingRounds` | Infinite, stacking; Additive +1 Pierce per stack. |
 | `GE_Upgrade_PowderKeg` | `UGSUpgradeEffect_PowderKeg` | Infinite, stacking; Additive +1 PowderKeg per stack. |
 | `GE_Upgrade_FloatingShield` | `UGSUpgradeEffect_FloatingShield` | Infinite, stacking; Additive +1 Shields per stack. |
+| `GE_Upgrade_SecondWind` | `UGSUpgradeEffect_SecondWind` | Infinite, stacking; Additive +1 SecondWinds per stack. A used Second Wind removes one stack. |
+| (native, no asset) | `UGSTimedInvulnerabilityEffect` | Has duration (SetByCaller `Data.Duration`); grants `State.Invulnerable`. Second Wind applies it for 2 s (DA_CombatSettings `SecondWindInvulnerableEffect` can replace it). |
 | `GE_Upgrade_LoadedDice` | `UGSUpgradeEffect_LoadedDice` | Infinite, stacking; Additive +0.05 CritChance per stack (MaxStacks 20 on the upgrade). |
 | (native, no asset) | `UGSHealEffect` | Instant; Health + SetByCaller `Data.Heal`, clamped to MaxHealth. AGSGameMode::AwardHealthPickup applies it when a health orb is collected (DA_CashSettings `HealthOrbHealEffect` can replace it). |
 | (native, no asset) | `UGSHealthOnKillEffect` | Instant; Health + the target's HealthOnKill (captured live). AGSGameMode applies it to the killer per enemy kill (`HealthOnKillEffect`). |
@@ -2035,7 +2100,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (44, all passing, about 98 s)
+## Automation tests (45, all passing, about 100 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
@@ -2089,7 +2154,8 @@ runs its magnet part at ×4. `Weapons.HeldFire` runs at ×4, and ×16 for its sl
 | `Upgrades.BiggerMagsAndLeech` | DA_Upgrade_BiggerMags (Common, +15%) and DA_Upgrade_Leech (Rare, +1): no cap, their GE classes, in DA_UpgradePool; multiplier 1, HealthOnKill 0, rifle magazine 30, HUD "30 / 30"; two taps → 28, one Bigger Mags stack (console) → ×1.15, magazine 35, still 28 rounds (no refill, not full), HUD "28 / 35"; a reload fills 35; 4 stacks → ×1.6: rifle exactly 48, pistol ceil(19.2) = 20, rifle still 35 rounds, HUD "35 / 48"; the pistol equips with 20 ("20 / 20"); Leech: damaged to 70, a kill without Leech heals nothing, x1 → +1 per kill, x5 → +5, a kill that isn't the player's heals nothing, at 98 a kill stops at MaxHealth 100; a new run resets both (multiplier 1, magazine 30, HealthOnKill 0). Game time ×4. |
 | `Upgrades.DashCharge` | DA_DashSettings MaxCharges 1; DA_Upgrade_DashCharge (Rare, no cap, "+1", GE_Upgrade_DashCharge, in DA_UpgradePool); ExtraDashCharges 0, 1 max charge, icon READY; a dash uses it, a second press inside the recharge is refused, icon shows the countdown with no count; a pick (console) during the recharge: ExtraDashCharges 1, max 2 and one charge ready at once, icon "1/2" a frame later, the second dash works; charges come back one recharge (3 s) after the first dash and one more recharge later; `gs.Upgrade.Grant DashCharge 2` → 3 stacks, 4 charges all ready, icon "4/4", four dashes in a row, the 5th refused, icon "0/4"; a new run → ExtraDashCharges 0, 1 max charge, no stacks. Game time ×4. |
 | `Upgrades.ExtraJump` | DA_Upgrade_ExtraJump (Rare, no cap, "+1"); no air jump without it; ×3 → ExtraJumps 3, JumpMaxCount 4; three air jumps (rising, falling, falling fast) each set AirJumpZVelocity, 4th refused, one puff/sound each; landing resets; coyote jump is the ground jump; late jump after walking off uses an air jump; slide-hop then air jump; jump during an air dash is queued and becomes an air jump at the dash end; jump during a ground dash becomes the ground jump; 25 more stacks (no cap) → ExtraJumps = stacks, JumpMaxCount = 1 + stacks; new run → 0 / 1. |
-| `Upgrades.Offers` | DA_UpgradePool on the GameMode (12 upgrades, 100/20/6/1, 3 choices, 3 rerolls), 4 rarities; roll rules: 3000 offers all 3 different, Rare in ~42%, same seed same offers, 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer; simulator deterministic, no short offers, no Epic / Legendary, run stream untouched. |
+| `Upgrades.SecondWind` | DA_Upgrade_SecondWind (Legendary, no cap, "+1", GE class, in the pool); DA_CombatSettings 30% / 2 s; SecondWinds 0, can't save; `gs.Upgrade.Grant SecondWind 2` → 2, Owned 2; with a combo running, a 9999 hit from a bandit: not dead, still in the run, Health = 30 (whole points), invulnerable for exactly 2 s (the effect's duration), SecondWinds 1, Owned 1, used once, damage taken += the old Health, combo ended; HUD: strong flash, one sound, "SECOND WIND / 1 left" banner, Health shown as 30, upgrade icon x1; a second killing blow while invulnerable does nothing; the invulnerability doesn't end early; a hit that doesn't kill uses none; a ready Floating Shield blocks a killing blow first (no Second Wind used); the last Second Wind saves again (Health 30, none left, Owned 0, "THAT WAS YOUR LAST", icon gone, two sounds); picked again → 1; a new run → 0, no uses; with none, a killing blow kills (GameOver). Health orbs off. Game time ×4; the HUD flash shortened on this HUD (it fades in real time). |
+| `Upgrades.Offers` | DA_UpgradePool on the GameMode (14 upgrades, 100/20/6/1, 3 choices, 3 rerolls), 4 rarities; roll rules: 3000 offers all 3 different, Rare in ~40.2% (exact for these weights with 2 Epics and 1 Legendary), same seed same offers, 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer; simulator deterministic, no short offers, Epic and Legendary choices appear, run stream untouched. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
@@ -2172,8 +2238,12 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   +8%, Magnet +15% pickup radius, Bigger Mags +15% magazine size (rounded up) (Common); Extra Jump +1 air jump, Dash
   Charge +1 dash charge, Leech +1 health per kill, Loaded Dice +5% crit chance, Floating Shield +1 shield (Rare);
   Piercing Rounds +1 enemy
-  pierced, Powder Keg +3% chance that a kill explodes (Epic). Loaded Dice (20 stacks = 100%) and Powder Keg (34
-  stacks = 100%) are capped.
+  pierced, Powder Keg +3% chance that a kill explodes (Epic); Second Wind +1 (Legendary, used up when it saves the
+  player). Loaded Dice (20 stacks = 100%) and Powder Keg (34 stacks = 100%) are capped.
+- **Second Wind** (DA_CombatSettings): back at `SecondWindHealthFraction` 30% of MaxHealth (rounded to whole points),
+  `SecondWindInvulnerableTime` 2 s. HUD (WBP_HUD, HUD|Second Wind): full-screen flash (1, 0.85, 0.4) from 0.85 alpha
+  over 0.7 s, `SecondWindSound` = `/Engine/VREditor/Sounds/UI/Teleport_Committed` (editor content), banner color
+  (1, 0.7, 0.15) for the round banner's 1.8 s.
 - **Critical hits** (DA_CombatSettings): CritMultiplier 2.0. Crit damage numbers: size 28 (normal 20), gold, "N!".
 - **Powder Keg** (DA_CombatSettings): `ChancePerStack` 3% that a player kill explodes (10 stacks 30%, 34 stacks 100%),
   rolled per kill on the run stream. The blast is always 30 damage × the player's Damage in 3 m, at any stack count;
@@ -2182,14 +2252,14 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   the game). Visuals on BP_GSCharacter's `FloatingShields` component: engine cylinder at (0.45, 0.45, 0.06) with
   M_FloatingShield, orbit 85 cm, 40 cm above the capsule center (chest height), 120°/s; block flash ×1.8 over 0.15 s,
   return pop 0.35 s.
-- **Upgrade offers** (DA_UpgradePool, 13 upgrades; placeholders): rarity weights Common 100 / Rare 20 / Epic 6 /
+- **Upgrade offers** (DA_UpgradePool, 14 upgrades; placeholders): rarity weights Common 100 / Rare 20 / Epic 6 /
   Legendary 1, 3 choices, 3 rerolls per run.
-  - `simulate_upgrade_offers(10000, 1)`, fresh run with no picks (Prompt 36): Move Speed in 40.3% of offers, Magnet
-    39.9%, Reload Speed 39.5%, Damage 39.5%, Bigger Mags 39.3%, Fire Rate 39.2%, Dash Charge 9.8%, Extra Jump 9.7%,
-    Loaded Dice 9.7%, Leech 9.7%, Floating Shield 9.5%, Piercing Rounds 7.1%, Powder Keg 7.0%.
-  - The Rare tier is in 40.8% of offers (40.5% expected), shared by five upgrades. The Epic tier (Piercing Rounds,
-    Powder Keg) is in 13.5%.
-  - By choices: Common 79.2%, Rare 16.1%, Epic 4.7%, Legendary 0 (empty tier). No short offers.
+  - `simulate_upgrade_offers(10000, 1)`, fresh run with no picks (Prompt 37): Move Speed in 39.9% of offers, Magnet
+    39.5%, Reload Speed 39.3%, Damage 39.2%, Bigger Mags 38.9%, Fire Rate 38.9%, Dash Charge 9.7%, Extra Jump 9.6%,
+    Leech 9.6%, Floating Shield 9.5%, Loaded Dice 9.5%, Powder Keg 7.3%, Piercing Rounds 6.8%, Second Wind 2.3%.
+  - The Rare tier is in 40.6% of offers (40.2% expected), shared by five upgrades. The Epic tier (Piercing Rounds,
+    Powder Keg) is in 13.4%. The Legendary tier (Second Wind) is in 2.3%: about one offer in 44.
+  - By choices: Common 78.6%, Rare 16.0%, Epic 4.7%, Legendary 0.8%. No short offers.
 - **Combo curves**: there is no combo system yet.
 
 ## Known issues, TODOs and deviations
@@ -2206,8 +2276,16 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - The orbs aren't in the run summary (only `gs.Run.Stats`).
   - The orb's kind isn't replicated, like XP orbs (`TODO(co-op)`).
   - The 20% chance and the heal of 15 are first-pass numbers, not balanced against real fights.
-- The Legendary tier is still empty and never offered (Second Wind comes in Prompt 37). Epic has Piercing Rounds and
-  Powder Keg so far (Floating Gun comes in Prompts 38–39).
+- Second Wind (Prompt 37):
+  - The sound is an editor sound that may not cook (`Teleport_Committed`); the flash is a plain full-screen color.
+  - The banner reuses the round banner's widgets and spot. It shows at once and pushes a round banner back into the
+    queue, but it can overlap a "LEVEL UP!" banner that is showing at the same moment.
+  - The run summary's upgrade icons show only the Second Winds still left (a used one is removed from the stacks).
+  - Pre-existing, seen here: the `[round] … died` line doesn't include the killing blow's damage, because death fires
+    from the Health change before `HandleDamageApplied` records it.
+  - Not replicated (`TODO(co-op)`).
+- Every rarity tier now has upgrades. Epic has Piercing Rounds and Powder Keg so far (Floating Gun comes in Prompts
+  38–39).
 - Powder Keg (Prompt 35):
   - The explosion and sound are placeholders (the Niagara template `SimpleExplosion`; an editor sound that may not
     cook). The first blast of a session costs a ~140 ms frame while they load; warm chains peak at ~29 ms.
@@ -2415,7 +2493,8 @@ smaller pool.
     34 (100%); chains roll the same chance after 0.1 s.~~ Done (see Prompt 35c).
 36. ~~**Floating Shield** (Rare): +1 shield per pick; a shield takes a hit and comes back after 10 s. The damage order
     starts here (dash invulnerability → shield → Health).~~ Done (see Prompt 36).
-37. **Second Wind** (Legendary): survive one killing blow per pick at 30% health; the last step of the damage order.
+37. ~~**Second Wind** (Legendary): survive one killing blow per pick at 30% health; the last step of the damage order.~~
+    Done (see Prompt 37).
 38. **Floating Gun, part 1** (Epic): the projectile and the first gun (right shoulder). Its kills count as the
     player's.
 39. **Floating Gun, part 2:** the second gun (left shoulder) and the +10% damage / fire rate picks from the 3rd on.
@@ -2468,6 +2547,10 @@ Decided (user):
     Health → Second Wind on a killing blow. Floating Gun and Powder Keg kills are the player's (cash, XP orb,
     combo, Leech). New rolls use the run stream; all damage goes through GE_Damage. Single-player only,
     co-op-ready.
+- **Second Wind** (Prompt 37): a killing blow uses one instead: back at 30% of MaxHealth, invulnerable for 2 s, and
+  one stack of the upgrade is removed (the card's "Owned" and `gs.Upgrade.List` show what's left; picking it again adds
+  one). Order: shields first, then Health, then Second Wind only if the hit would kill. Feedback: a strong screen
+  flash, a sound and a "SECOND WIND" banner.
 - **Floating Shield** (Prompt 36): a hit a shield blocks is not damage taken (the kill combo goes on, the no-damage
   round bonus is kept, run-stats damage taken doesn't change). The shield recharge pauses with the game.
 - **Upgrade rarities and rerolls:** four tiers (Common, Rare, Epic, Legendary). The 3 choices can be rerolled a

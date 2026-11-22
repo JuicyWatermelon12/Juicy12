@@ -17,6 +17,7 @@ class UTextBlock;
 class UGSWeaponComponent;
 class UGSProgressionComponent;
 class UGSComboComponent;
+class UGSSecondWindComponent;
 class UGSUpgradeComponent;
 class UGSUpgradeData;
 class UGSUpgradeIconWidget;
@@ -140,6 +141,14 @@ public:
 	int32 GetQueuedRoundBannerCount() const { return RoundBannerQueue.Num(); }
 	/** Round banners shown so far (each show counts, a replay after a level-up too). */
 	int32 GetRoundBannersShown() const { return RoundBannersShown; }
+
+	// --- Second Wind feedback (tests) ---
+	bool IsSecondWindFlashShowing() const { return SecondWindFlashRemaining > 0.f; }
+	float GetSecondWindFlashAlpha() const;
+	int32 GetSecondWindSoundsPlayed() const { return SecondWindSoundsPlayed; }
+	int32 GetSecondWindBannersShown() const { return SecondWindBannersShown; }
+	bool IsSecondWindBannerShowing() const { return IsRoundBannerShowing() && ActiveRoundBanner.bSecondWind; }
+	FText GetRoundBannerSubtitle() const;
 	int32 GetUpgradeIconCount() const { return UpgradeIcons.Num(); }
 	const UGSUpgradeIconWidget* FindUpgradeIcon(const UGSUpgradeData* Upgrade) const;
 
@@ -452,6 +461,24 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|Round")
 	FLinearColor RoundClearBannerColor = FLinearColor(0.45f, 1.f, 0.35f);
 
+	/** "SECOND WIND" banner color (shown in the round banner's spot, at once, ahead of any round banner). */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Second Wind")
+	FLinearColor SecondWindBannerColor = FLinearColor(1.f, 0.7f, 0.15f);
+
+	/** Full-screen flash when a Second Wind saves the player: fades from SecondWindFlashMaxAlpha to 0. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Second Wind", meta = (Units = "s"))
+	float SecondWindFlashDuration = 0.7f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Second Wind", meta = (ClampMin = "0", ClampMax = "1"))
+	float SecondWindFlashMaxAlpha = 0.85f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Second Wind")
+	FLinearColor SecondWindFlashColor = FLinearColor(1.f, 0.85f, 0.4f);
+
+	/** 2D sound when a Second Wind saves the player. Placeholder on WBP_HUD. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Second Wind")
+	TObjectPtr<USoundBase> SecondWindSound;
+
 	/** One per owned upgrade in UpgradeIconsBox (WBP_UpgradeIcon). */
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|Upgrades")
 	TSubclassOf<UGSUpgradeIconWidget> UpgradeIconWidgetClass;
@@ -547,8 +574,27 @@ private:
 	{
 		bool bRoundClear = false;
 		int32 Round = 0;
-		bool operator==(const FRoundBannerRequest& Other) const { return bRoundClear == Other.bRoundClear && Round == Other.Round; }
+		/** "SECOND WIND / N left" instead of a round banner (never queued: shown at once). */
+		bool bSecondWind = false;
+		int32 SecondWindsLeft = 0;
+		bool operator==(const FRoundBannerRequest& Other) const
+		{
+			return bRoundClear == Other.bRoundClear && Round == Other.Round && bSecondWind == Other.bSecondWind;
+		}
 	};
+	/** Show Request in the banner spot now (title, subtitle, color, fade-in). */
+	void ShowBanner(const FRoundBannerRequest& Request);
+
+	// Second Wind (UGSSecondWindComponent::OnSecondWindUsed).
+	bool TryBindSecondWind();
+	void UnbindSecondWind();
+	void HandleSecondWindUsed(int32 SecondWindsLeft);
+	void PaintSecondWindFlash(const FGeometry& Geometry, FSlateWindowElementList& OutDrawElements, int32 LayerId) const;
+	TWeakObjectPtr<UGSSecondWindComponent> BoundSecondWind;
+	FDelegateHandle SecondWindUsedHandle;
+	float SecondWindFlashRemaining = 0.f;
+	int32 SecondWindSoundsPlayed = 0;
+	int32 SecondWindBannersShown = 0;
 	void QueueRoundBanner(bool bRoundClear, int32 Round);
 	bool CanShowRoundBanner() const;
 	bool IsRoundBannerValid(const FRoundBannerRequest& Request) const;

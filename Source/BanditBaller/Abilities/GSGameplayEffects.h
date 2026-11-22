@@ -212,6 +212,29 @@ public:
 	UGSUpgradeEffect_FloatingShield(const FObjectInitializer& ObjectInitializer);
 };
 
+/** +1 SecondWinds per stack (GE_Upgrade_SecondWind): survive one more killing blow. Using one removes a stack. */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_SecondWind : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_SecondWind(const FObjectInitializer& ObjectInitializer);
+};
+
+/**
+ * Timed invulnerability: grants State.Invulnerable for SetByCaller Data.Duration seconds (Second Wind; DA_CombatSettings
+ * SecondWindInvulnerableEffect can replace it). GE_Damage isn't applied while the tag is on.
+ */
+UCLASS()
+class BANDITBALLER_API UGSTimedInvulnerabilityEffect : public UGameplayEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSTimedInvulnerabilityEffect(const FObjectInitializer& ObjectInitializer);
+};
+
 /** +1 Pierce per stack (GE_Upgrade_PiercingRounds): each shot passes through one more target. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_PiercingRounds : public UGSUpgradeEffect
