@@ -3,11 +3,12 @@
 #include "GSGameplayAbility_Fire.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
-#include "Abilities/Tasks/AbilityTask_WaitDelay.h"
 #include "BanditBaller.h"
 #include "DrawDebugHelpers.h"
+#include "Engine/World.h"
 #include "GameFramework/Controller.h"
 #include "GameplayEffect.h"
+#include "GSAbilitySystemComponent.h"
 #include "GSAttributeSet.h"
 #include "GSCharacter.h"
 #include "GSGameplayTags.h"
@@ -17,6 +18,16 @@
 #include "GSWeaponDebug.h"
 #include "Kismet/GameplayStatics.h"
 #include "NiagaraFunctionLibrary.h"
+#include "TimerManager.h"
+
+namespace
+{
+	/** A shot due within this much of now counts as due (float rounding between the schedule and world time). */
+	constexpr double ShotTimeTolerance = 1e-4;
+
+	/** Runaway guard: most shots one timer update fires before carrying on next tick (only an extreme FireRate). */
+	constexpr int32 MaxShotsPerUpdate = 256;
+}
 
 UGSGameplayAbility_Fire::UGSGameplayAbility_Fire()
 {
@@ -66,23 +77,143 @@ void UGSGameplayAbility_Fire::ActivateAbility(const FGameplayAbilitySpecHandle H
 	}
 
 	FireShot(ActorInfo, *WeaponData);
+	LastShotTime = GetWorld()->GetTimeSeconds();
 
-	const UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
-	const float FireRateMultiplier = ASC ? ASC->GetNumericAttribute(UGSAttributeSet::GetFireRateAttribute()) : 1.f;
+	// A FireRate change re-times the pending shot, so it applies from the next shot.
+	if (UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get())
+	{
+		FireRateChangedHandle = ASC->GetGameplayAttributeValueChangeDelegate(UGSAttributeSet::GetFireRateAttribute())
+			.AddUObject(this, &UGSGameplayAbility_Fire::OnFireRateChanged);
+	}
 
-	UAbilityTask_WaitDelay* WaitRefire = UAbilityTask_WaitDelay::WaitDelay(this, WeaponData->GetRefireInterval(FireRateMultiplier));
-	WaitRefire->OnFinish.AddDynamic(this, &UGSGameplayAbility_Fire::OnRefireReady);
-	WaitRefire->ReadyForActivation();
+	ScheduleNextShot();
 }
 
-void UGSGameplayAbility_Fire::OnRefireReady()
+float UGSGameplayAbility_Fire::GetCurrentRefireInterval(const UGSWeaponData& WeaponData) const
 {
-	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+	const UAbilitySystemComponent* ASC = CurrentActorInfo ? CurrentActorInfo->AbilitySystemComponent.Get() : nullptr;
+	const float FireRateMultiplier = ASC ? ASC->GetNumericAttribute(UGSAttributeSet::GetFireRateAttribute()) : 1.f;
+	return WeaponData.GetRefireInterval(FireRateMultiplier);
+}
+
+UGSGameplayAbility_Fire::ENextShot UGSGameplayAbility_Fire::CheckNextShot() const
+{
+	// Everything a new activation would check: alive, not reloading, no safe zone, a weapon equipped.
+	if (!CurrentActorInfo || !CanActivateAbility(CurrentSpecHandle, CurrentActorInfo, nullptr, nullptr, nullptr))
+	{
+		return ENextShot::Blocked;
+	}
+
+	const UGSWeaponComponent* Weapons = GetWeaponComponent(CurrentActorInfo);
+	const UGSWeaponData* WeaponData = Weapons ? Weapons->GetCurrentWeaponData() : nullptr;
+	if (!WeaponData)
+	{
+		return ENextShot::Blocked;
+	}
+	if (WeaponData->FireMode != EGSFireMode::FullAuto)
+	{
+		return ENextShot::Done; // semi-auto: one shot per press
+	}
+
+	const UGSAbilitySystemComponent* ASC = Cast<UGSAbilitySystemComponent>(CurrentActorInfo->AbilitySystemComponent.Get());
+	if (!ASC || !ASC->IsAbilityInputHeld(ActivationInputTag))
+	{
+		return ENextShot::Done; // released
+	}
+	if (Weapons->GetCurrentAmmo() <= 0)
+	{
+		return ENextShot::Done; // empty: EndAbility starts the auto-reload
+	}
+	return ENextShot::Fire;
+}
+
+void UGSGameplayAbility_Fire::ScheduleNextShot()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	const UGSWeaponComponent* Weapons = GetWeaponComponent(CurrentActorInfo);
+	const UGSWeaponData* WeaponData = Weapons ? Weapons->GetCurrentWeaponData() : nullptr;
+	const double Due = LastShotTime + (WeaponData ? GetCurrentRefireInterval(*WeaponData) : 0.0);
+	const double Delay = Due - World->GetTimeSeconds();
+
+	FTimerManager& Timers = World->GetTimerManager();
+	Timers.ClearTimer(ShotTimerHandle);
+	if (Delay > ShotTimeTolerance)
+	{
+		Timers.SetTimer(ShotTimerHandle, this, &UGSGameplayAbility_Fire::OnShotDue, static_cast<float>(Delay), false);
+	}
+	else
+	{
+		ShotTimerHandle = Timers.SetTimerForNextTick(this, &UGSGameplayAbility_Fire::OnShotDue);
+	}
+}
+
+void UGSGameplayAbility_Fire::OnShotDue()
+{
+	ShotTimerHandle.Invalidate();
+	const UWorld* World = GetWorld();
+	if (!World || !IsActive())
+	{
+		return;
+	}
+
+	// Fire every shot that is due by now, each one refire interval after the previous shot's scheduled time. A slow
+	// frame that spans several intervals fires every shot it owes, so the average rate stays exact.
+	const double Now = World->GetTimeSeconds();
+	for (int32 Shot = 0; Shot < MaxShotsPerUpdate; ++Shot)
+	{
+		const UGSWeaponComponent* Weapons = GetWeaponComponent(CurrentActorInfo);
+		const UGSWeaponData* WeaponData = Weapons ? Weapons->GetCurrentWeaponData() : nullptr;
+		const double Due = LastShotTime + (WeaponData ? GetCurrentRefireInterval(*WeaponData) : 0.0);
+		if (Due > Now + ShotTimeTolerance)
+		{
+			// Not due yet: the timer was armed before this frame's timer update, or FireRate went down. Wait the rest.
+			ScheduleNextShot();
+			return;
+		}
+
+		const ENextShot Next = CheckNextShot();
+		if (Next != ENextShot::Fire)
+		{
+			// Ends when the next shot would have been due: State.Firing lasts one refire interval past the last shot.
+			EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, Next == ENextShot::Blocked);
+			return;
+		}
+
+		FireShot(CurrentActorInfo, *WeaponData);
+		LastShotTime = Due;
+	}
+	ScheduleNextShot(); // only after MaxShotsPerUpdate (an extreme FireRate): carry on next tick
+}
+
+void UGSGameplayAbility_Fire::OnFireRateChanged(const FOnAttributeChangeData& Data)
+{
+	if (IsActive() && ShotTimerHandle.IsValid())
+	{
+		ScheduleNextShot();
+	}
 }
 
 void UGSGameplayAbility_Fire::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 	const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ShotTimerHandle);
+	}
+	if (FireRateChangedHandle.IsValid())
+	{
+		if (UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr)
+		{
+			ASC->GetGameplayAttributeValueChangeDelegate(UGSAttributeSet::GetFireRateAttribute()).Remove(FireRateChangedHandle);
+		}
+		FireRateChangedHandle.Reset();
+	}
+
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 
 	// Auto-reload on empty (the owning player drives it so it predicts like a button press).

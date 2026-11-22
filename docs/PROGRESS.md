@@ -40,11 +40,11 @@ the hub map replaces them.
 
 **M2 — the run loop is complete** (rounds, waves, scaling, economy, progression; Prompts 1–28 and 26b; 11–13 and 17
 were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **Next: M2b**, eleven more
-level-up upgrades (Prompts 29–40; 29 is the docs-only plan, then Dash Charge (30) and Fire Rate + Magnet (31); all
-three done). **Then M3** (shop, owned items, gear loadout,
+level-up upgrades (Prompts 29–40; 29 is the docs-only plan, then Dash Charge (30), Fire Rate + Magnet (31) and the
+held-fire fix (31b); all done). **Then M3** (shop, owned items, gear loadout,
 two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Fire Rate and Magnet upgrades" (Prompt 31), not pushed. The build is clean and all 37 automation tests pass in about 85 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Fix: exact fire rate for held fire" (Prompt 31b), not pushed. The build is clean and all 38 automation tests pass in about 91 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -87,7 +87,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | Workflow | Faster test runs: area tests while working, full suite once per prompt, short PIE checks; five slowest tests sped up (suite 118 → 80 s) | 84bc97f |
 | M2b 29 | Design update: the M2b upgrade list (11 upgrades, pool 4 → 15) and its rules; Prompts 30–40 planned (docs only) | 691d54e |
 | M2b 30 | Dash Charge upgrade (ExtraDashCharges → GA_Dash max charges, live); the player starts with 1 dash charge | 252bd0b |
-| M2b 31 | Fire Rate (+8% FireRate) and Magnet (+15% PickupRadius) upgrades, both Common | see git log |
+| M2b 31 | Fire Rate (+8% FireRate) and Magnet (+15% PickupRadius) upgrades, both Common | 6a78abe |
+| M2b 31b | Fix: exact fire rate for held fire (the burst stays inside GA_Fire on an exact shot schedule) | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -1514,7 +1515,7 @@ Two Common upgrades on attributes that already existed, so no new attribute and 
     within one offer).
 - **Measured in the test** (held rifle fire, normal game speed, editor throttling off): 0.111 s between shots at
   FireRate 1 (refire 0.100 s) and 0.067 s at FireRate 1.8 (refire 0.056 s). Every re-fire comes about one frame
-  (~11 ms) after its refire interval. See Known issues.
+  (~11 ms) after its refire interval. Fixed in Prompt 31b (now exactly 0.100 s and 0.0556 s).
 - **PIE check** (town, god mode, round paused):
   - `gs.Upgrade.Grant FireRate 5` → FireRate 1.40. `gs.Upgrade.Grant Magnet 4` → PickupRadius 480
     (`get_player_attributes` before: 1 and 300).
@@ -1523,6 +1524,54 @@ Two Common upgrades on attributes that already existed, so no new attribute and 
     MoveSpeed 900, PickupRadius 480, ExtraJumps 0".
   - The HUD showed the "x5 Fire Rate" and "x4 Magnet" icons under the XP bar.
 - **Full suite:** 37 tests, all passing, in 84.9 s.
+
+### Prompt 31b — Fix: exact fire rate for held fire
+Fixes the known issue found in Prompt 31: every held full-auto shot came about a frame late, because GA_Fire ended
+after each refire interval and the character's next tick re-activated it.
+- **GA_Fire (`UGSGameplayAbility_Fire`) keeps a held burst going inside one activation:**
+  - The press fires the first shot. Each later shot is scheduled one refire interval after the previous shot's
+    *scheduled* time (`LastShotTime`), on a world timer. It is never timed from the frame the timer happened to fire
+    on, so the rate doesn't drift and doesn't depend on the frame rate.
+  - **Catch-up:** if one frame spans more than one interval, that frame fires every shot it owes, so the average rate
+    stays exact (capped at 256 per update as a runaway guard).
+  - **The interval** (weapon RPM × FireRate) is read again for every shot. A FireRate attribute change also re-times the
+    pending shot, so a change in the middle of a burst applies from the next shot. This covers a Fire Rate pick on
+    the upgrade screen.
+  - **Before every shot** it checks what an activation checks (`CanActivateAbility`: not dead, not reloading, no safe
+    zone, a weapon equipped), then that the weapon is full auto, the input is still held
+    (`UGSAbilitySystemComponent::IsAbilityInputHeld`, new) and there is ammo.
+    - Released, semi-auto or empty: it ends normally, and an empty magazine still starts the auto-reload.
+    - Dead, safe zone, reloading or no weapon: it ends as cancelled.
+    - Either way it ends at the time the next shot would have been due. So State.Firing still lasts one refire
+      interval past the last shot: reload and weapon swap stay blocked until then and work right after.
+  - Unchanged: semi-auto fires once per press; a press while active does nothing (tapping can't beat the interval);
+    the game pause stops the world timer, so it pauses a burst; spread, recoil, damage, ammo per shot and
+    GA_EnemyFire.
+  - `ShouldRetriggerWhileInputHeld` still starts a new burst while fire stays held after one ended (after the
+    auto-reload, or after leaving a safe zone).
+  - `TODO(co-op)`: per-shot server sync for a held burst (the loop runs where the input is held).
+- **The rifle's held rate is now exactly 600 rounds a minute** (0.100 s between shots); it was ~540 at ~90 fps. Fire
+  Rate ×1.8 now gives exactly 0.0556 s (it gave ×1.66 before).
+- **Tests:**
+  - New `Weapons.HeldFire`. Its burst helpers (`FHeldBurst`, `PollBurst`, `CheckBurst`) check every frame that the
+    shot count equals 1 + floor(elapsed / interval), which holds at any frame rate and time dilation.
+  - `Upgrades.FireRateAndMagnet` now checks the exact schedule and averages: 0.1007 s over 12 rifle shots (one 0.11 s
+    hitch in that run) and 0.0556 s over 16 shots at FireRate 1.8.
+  - No other test allowed for the lost frame. `Balance.TimeToKill` counts shots, and its measured times now equal the
+    ideal ones (e.g. round 10 melee: 6 rifle shots in 0.50 s).
+- **Measured in `Weapons.HeldFire`** (game time ×4):
+  - A whole 30-round magazine held: 0.1000 s apart. The auto-reload started 0.4 ms after the 31st shot would have
+    been due (the first frame after it).
+  - After a mid-burst change to FireRate 1.8: 0.0556 s.
+  - Game time ×16 (frames up to 0.13 s, longer than the 0.0556 s interval): up to 3 shots in one frame, and the count
+    matched the schedule in every frame.
+- **PIE check** (town, god mode, round paused):
+  - Fire was held with the engine's console input injection (`Input.+key LeftMouseButton` / `Input.-key
+    LeftMouseButton`).
+  - Held: the rifle emptied its magazine, auto-reloaded to 30, and ammo kept dropping (30 → 29 → 28) while held.
+    After the release it stayed at 28.
+  - No warnings from the fire code.
+- **Full suite:** 38 tests, all passing, in 91.4 s.
 
 ---
 
@@ -1626,14 +1675,14 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (37, all passing, about 85 s)
+## Automation tests (38, all passing, about 91 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
 the area's tests; run the full suite once per prompt before the commit (see **Workflow update — faster test runs**).
 `UI.RoundHUD`, `Round.PhaseLoop`, `Round.ClearBonus`, `Map.TownLayout` and `Upgrades.DashCharge` run game time ×4 and
 `Upgrades.ExtraJump` ×3 (`SpeedUpWorld`). `Upgrades.FireRateAndMagnet` measures its shots at ×1 (throttling off) and
-runs its magnet part at ×4. `UI.RoundHUD` also shortens its HUD's banners.
+runs its magnet part at ×4. `Weapons.HeldFire` runs at ×4, and ×16 for its slow-frame burst. `UI.RoundHUD` also shortens its HUD's banners.
 
 | Test | Checks |
 |---|---|
@@ -1641,6 +1690,7 @@ runs its magnet part at ×4. `UI.RoundHUD` also shortens its HUD's banners.
 | `GAS.HealthClampsToZeroAndMax` | Health clamps at 0 and MaxHealth. |
 | `GAS.DeathAddsStateDead` | Death adds `State.Dead`. |
 | `Weapons.FireConsumesAmmoReloadRefills` | GA_Fire uses ammo, GA_Reload refills. |
+| `Weapons.HeldFire` | Rifle 600 RPM (0.100 s). Every frame of every burst: shots = 1 + floor(elapsed / interval). Held 6 shots: reload refused while firing; release: no further shot, State.Firing ends in the first frame at or after the next shot's due time, and a reload starts in that frame. A whole magazine held: 30 shots on schedule, the auto-reload starts when the 31st would have been due, held fire resumes after it. Fire Rate x10 granted mid-burst: the next shots follow 0.0556 s from the last shot's scheduled time. Game time ×16 (frames longer than the interval): catch-up fires several shots in one frame, still on schedule. Game paused mid-burst: no shot, no game time, the burst resumes on schedule. Safe zone mid-burst: ends at the next due time, no reload, held fire doesn't restart until it's gone, then resumes. Pistol (semi-auto): one shot per press however long it's held, a second press inside the interval does nothing, the next press after it fires. Death mid-burst: firing ends at once, no shot, no reload. |
 | `Abilities.DashInvulnerabilityBlocksDamage` | Dash i-frames block damage. |
 | `Map.Hub` | PIE in L_Hub_Graybox: AGSHubGameMode (no AGSGameMode), area MarketDistrict, round 0 / WaitingToStart; Casino, 4 stalls, MarketArrival, MarketExitPortalSpot; player starts at MarketArrival; no NavMesh; AGSMapBoundary contains the player and the Casino; gs.Spawn refused, no enemies; State.SafeZone (GE_SafeZone) on the player, GE_Damage blocked, the fire input fires nothing (no State.Firing, ammo unchanged); HUD in the safe area hides every combat element and shows the cash (= profile); still no round half a second later. |
 | `Map.Town` | PIE in L_Town_Graybox: AGSGameMode (no hub GameMode), area Town, run started; no sublevels; no TownReturn / MarketPortalSpot / MarketArrival / MarketExitPortalSpot / Casino / MarketStall / Market actors; EnemySpawn points on the NavMesh; NavMesh under the player; boundary; no State.SafeZone; HUD not in a safe area; gs.Market.Teleport opens the hub (AGSHubGameMode, MarketDistrict); gs.Market.Return starts a run and opens the town again (round 1). |
@@ -1670,7 +1720,7 @@ runs its magnet part at ×4. `UI.RoundHUD` also shortens its HUD's banners.
 | `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; Combat → RoundClear pays the round-clear bonus into the profile; save when RoundClear ends includes it (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + return to the hub (the hub's HUD shows it); quitting saves it and the next PIE session (new GameInstance) loads it (HUD too); `gs.Profile.Reset` through the console → 0 and no save file. |
 | `Round.ClearBonus` | DA_RoundClearSettings on the GameMode ($20 / $15 / $15, 8 s + 1.5 s per enemy) and the summary widget on the controller; PreRound starts the round's stats (no payout, no summary); Combat records its start and wave size; round 1 killed fast with no damage → base + no damage + fast clear, kills = wave size, profile += bonus + cash collected; summary shows round, title and each line; after the vacuum cash collected ≥ kills × CashValue, XP = kills × XPValue, profile and CashEarned += cash collected + bonus, summary lines follow; round 2 PreRound hides the summary and starts from zero; damage taken + an impossible time limit (override) → base only, "missed" lines, total = base; RoundClear from PreRound pays nothing and shows nothing; round 10 (skip) pays the same as round 1; gs.Run.Stats shows the last bonus; a new run clears payout and round stats. |
 | `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
-| `Upgrades.FireRateAndMagnet` | DA_Upgrade_FireRate (+8%) and DA_Upgrade_Magnet (+15%): Common, no cap, their GE classes, in DA_UpgradePool; FireRate 1 and PickupRadius 300 at start; rifle held for 8 shots: one refire interval (0.1 s) apart, at most a frame or two more; `gs.Upgrade.Grant FireRate 10` → FireRate 1.8, refire interval / 1.8, 12 held shots that far apart and clearly faster; a bandit's drop (cash + XP orb) lands 380–660 cm away: nothing flies in at radius 300; `gs.Upgrade.Grant Magnet 10` → PickupRadius 750, the cash and the orb fly in (cash += CashValue, XP += XPValue); a new run resets both. |
+| `Upgrades.FireRateAndMagnet` | DA_Upgrade_FireRate (+8%) and DA_Upgrade_Magnet (+15%): Common, no cap, their GE classes, in DA_UpgradePool; FireRate 1 and PickupRadius 300 at start; rifle held for 12 shots: on the exact schedule every frame, 0.100 s apart on average (within a frame over the burst); `gs.Upgrade.Grant FireRate 10` → FireRate 1.8, refire interval / 1.8 (0.0556 s), 16 held shots on that schedule, 1.8 times as fast; a bandit's drop (cash + XP orb) lands 380–660 cm away: nothing flies in at radius 300; `gs.Upgrade.Grant Magnet 10` → PickupRadius 750, the cash and the orb fly in (cash += CashValue, XP += XPValue); a new run resets both. |
 | `Upgrades.DashCharge` | DA_DashSettings MaxCharges 1; DA_Upgrade_DashCharge (Rare, no cap, "+1", GE_Upgrade_DashCharge, in DA_UpgradePool); ExtraDashCharges 0, 1 max charge, icon READY; a dash uses it, a second press inside the recharge is refused, icon shows the countdown with no count; a pick (console) during the recharge: ExtraDashCharges 1, max 2 and one charge ready at once, icon "1/2" a frame later, the second dash works; charges come back one recharge (3 s) after the first dash and one more recharge later; `gs.Upgrade.Grant DashCharge 2` → 3 stacks, 4 charges all ready, icon "4/4", four dashes in a row, the 5th refused, icon "0/4"; a new run → ExtraDashCharges 0, 1 max charge, no stacks. Game time ×4. |
 | `Upgrades.ExtraJump` | DA_Upgrade_ExtraJump (Rare, no cap, "+1"); no air jump without it; ×3 → ExtraJumps 3, JumpMaxCount 4; three air jumps (rising, falling, falling fast) each set AirJumpZVelocity, 4th refused, one puff/sound each; landing resets; coyote jump is the ground jump; late jump after walking off uses an air jump; slide-hop then air jump; jump during an air dash is queued and becomes an air jump at the dash end; jump during a ground dash becomes the ground jump; 25 more stacks (no cap) → ExtraJumps = stacks, JumpMaxCount = 1 + stacks; new run → 0 / 1. |
 | `Upgrades.Offers` | DA_UpgradePool on the GameMode (7 upgrades, 100/20/6/1, 3 choices, 3 rerolls), 4 rarities; roll rules: 3000 offers all 3 different, Rare in ~42%, same seed same offers, 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer; simulator deterministic, no short offers, no Epic / Legendary, run stream untouched. |
@@ -1683,7 +1733,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   65. Slide: +600 boost, max 1600, 0.8 s, 1 s cooldown. Dash: 600 cm in 0.15 s, 0.25 s i-frames, 1 charge (+1 per
   Dash Charge pick), 3 s recharge each, one after another.
 - **Weapons** (damage / RPM / mag / reload):
-  - Rifle: 20 / 600 auto / 30 / 1.8 s, spread hip 2° and ADS 0.5°.
+  - Rifle: 20 / 600 auto / 30 / 1.8 s, spread hip 2° and ADS 0.5°. Held fire is exactly 600 rounds a minute
+    (0.100 s apart, Prompt 31b), at any frame rate.
   - Pistol: 45 / 300 semi / 12 / 1.2 s.
   - BanditCarbine (enemy): 7 / 360 / 4-shot bursts, 3.5° spread, 60 m.
 - **Enemies** (`Enemies/DA_Enemy_*`):
@@ -1768,14 +1819,6 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - Dash Charge (Prompt 30): charges spent before a run restart in the same map (`gs.Run.Seed`, debug) keep
   recharging after the Dash Charge stacks are removed. Until enough of them come back the player can have 0 of 1
   charges for a few seconds. A real run loads a fresh town, so this only happens with the debug restart.
-- Full-auto fire (seen in Prompt 31; not changed):
-  - GA_Fire ends after its refire interval, and the held input re-fires it on the character's next tick. So every
-    held shot comes about one frame late: 0.111 s instead of 0.100 s for the rifle at ~90 fps, an effective ~540
-    instead of 600 RPM.
-  - The lost frame is a fixed cost, so the Fire Rate upgrade gains less than its number as FireRate grows: ×1.8 gave
-    ×1.66 in the test.
-  - Suggestion: keep firing inside the ability on a timer (carrying the leftover time) instead of re-activating it
-    each shot.
 - **Not yet built for the decisions before M3:**
   - Owned items in `OwnedItems`, item types (usable items, gear) and the gear loadout (M3/M4).
 - Prestige and the two-layer profile (playthrough data + prestige data) are a later milestone; the save layout
@@ -1890,6 +1933,9 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 - Screenshots: `CaptureEditorImage` → `AssetTools.write_file` into `Saved/` as `.txt` (only .csv / .html / .json /
   .md / .py / .txt are allowed), then base64-decode with PowerShell. `SlateInspectorToolset.PressKey` (key names
   like `Two`, `R`, `Gamepad_DPad_Right`) sends real key presses to the focused widget, e.g. the choice screen.
+- Holding an input in PIE from MCP: the engine console commands `Input.+key <Key>` / `Input.-key <Key>` hold and
+  release a key (`LeftMouseButton` holds fire). Reads inside one `ProgrammaticToolset` script all come from the same
+  frame (no world time passes between calls in a script), so read changing values across separate tool calls.
 - Level-ups pause the game (upgrade offers). Tests or PIE sessions that need world time after a level-up must pick
   the offers (`gs.Upgrade.Choose 0`, `PickAllUpgradeOffers` in tests).
 - NavMesh from MCP: `RebuildNavigation` in the editor console rebuilds it. `ShowFlag.Navigation` doesn't show up in
@@ -1944,6 +1990,8 @@ smaller pool.
     Prompt 30).
 31. ~~**Fire Rate + Magnet** (Common): +8% FireRate and +15% PickupRadius per pick, on the existing attributes.~~
     Done (see Prompt 31).
+31b. ~~**Fix: exact fire rate for held fire.**~~ Done (see Prompt 31b): a held burst stays inside GA_Fire on an exact
+    shot schedule; the rifle fires exactly 600 rounds a minute.
 32. **Bigger Mags + Leech** (Common, Rare): +15% magazine size per pick (rounding decided here); heal 1 health per kill
     per pick.
 33. **Loaded Dice** (Rare, MaxStacks 20): +5% chance per pick for a shot to deal double damage, rolled on the run

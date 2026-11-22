@@ -288,6 +288,12 @@ namespace GSTests
 	/** Enqueue: wait Seconds of PIE world time (defined with the economy helpers below). */
 	void WaitWorldSeconds(FAutomationTestBase* Test, double Seconds);
 
+	/** Enqueue: wait Seconds of real time (defined with the HUD helpers below). */
+	void WaitRealSeconds(FAutomationTestBase* Test, double Seconds);
+
+	/** The PIE world's round GameMode (defined with the map helpers below). */
+	AGSGameMode* GetGameMode();
+
 	// --- Test speed (test-only; nothing here changes game rules or tuning assets) ---
 
 	/** Editor throttling saved by SpeedUpWorld, put back by RestoreWorldSpeed. */
@@ -469,6 +475,467 @@ bool FGSFireAndReloadTest::RunTest(const FString& Parameters)
 	Step([this]()
 	{
 		TestFalse(TEXT("State.Reloading cleared after reload"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Reloading));
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Held fire: a full-auto burst keeps an exact shot schedule inside GA_Fire
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	int32 GetPlayerAmmo()
+	{
+		const AGSCharacter* Player = GetPlayer();
+		const UGSWeaponComponent* Weapons = Player ? Player->GetWeaponComponent() : nullptr;
+		return Weapons ? Weapons->GetCurrentAmmo() : -1;
+	}
+
+	int32 GetPlayerMagazineSize()
+	{
+		const AGSCharacter* Player = GetPlayer();
+		const UGSWeaponData* Data = Player ? Player->GetWeaponComponent()->GetCurrentWeaponData() : nullptr;
+		return Data ? Data->MagazineSize : -1;
+	}
+
+	bool IsPlayerFiring()
+	{
+		const UGSAbilitySystemComponent* ASC = GetPlayerASC();
+		return ASC && ASC->HasMatchingGameplayTag(GSGameplayTags::State_Firing);
+	}
+
+	bool IsPlayerReloading()
+	{
+		const UGSAbilitySystemComponent* ASC = GetPlayerASC();
+		return ASC && ASC->HasMatchingGameplayTag(GSGameplayTags::State_Reloading);
+	}
+
+	/** The equipped weapon's refire interval at the player's FireRate now (game time). */
+	double GetPlayerRefireInterval()
+	{
+		const AGSCharacter* Player = GetPlayer();
+		const UGSWeaponData* Data = Player ? Player->GetWeaponComponent()->GetCurrentWeaponData() : nullptr;
+		const UGSAbilitySystemComponent* ASC = GetPlayerASC();
+		return Data && ASC ? Data->GetRefireInterval(ASC->GetNumericAttribute(UGSAttributeSet::GetFireRateAttribute())) : 0.0;
+	}
+
+	void TapInput(const FGameplayTag& InputTag)
+	{
+		GetPlayerASC()->AbilityInputTagPressed(InputTag);
+		GetPlayerASC()->AbilityInputTagReleased(InputTag);
+	}
+
+	void ReleaseFire()
+	{
+		GetPlayerASC()->AbilityInputTagReleased(GSGameplayTags::Ability_Fire);
+	}
+
+	/**
+	 * A held burst, watched once a frame. The first shot fires on the press; GA_Fire then schedules each shot one refire
+	 * interval after the previous shot's scheduled time. So by world time T the burst has fired exactly
+	 * ScheduleShots + floor((T - ScheduleStart) / Interval) shots, whatever the frame rate.
+	 */
+	struct FHeldBurst
+	{
+		int32 StartAmmo = 0;
+		int32 Shots = 0;
+		double PressTime = 0.0;
+		/** Scheduled time of shot number ScheduleShots (the press, or the last shot before an interval change). */
+		double ScheduleStart = 0.0;
+		int32 ScheduleShots = 1;
+		double Interval = 0.0;
+		/** World time of the frame the latest shot was seen in. */
+		double LastSeen = 0.0;
+		double LastPoll = 0.0;
+		/** Longest frame (game time) seen while watching. */
+		double MaxFrame = 0.0;
+		int32 MaxShotsInOneFrame = 0;
+		int32 OffSchedule = 0;
+		FString FirstOffSchedule;
+
+		/** Shots the schedule allows by Now (a shot due within 1 ms of Now may or may not have fired yet). */
+		void GetExpectedShots(double Now, int32& OutLow, int32& OutHigh) const
+		{
+			OutLow = ScheduleShots + FMath::FloorToInt((Now - ScheduleStart - 1e-3) / Interval);
+			OutHigh = ScheduleShots + FMath::FloorToInt((Now - ScheduleStart + 1e-3) / Interval);
+		}
+
+		/** When the next shot is due. */
+		double GetNextDue() const { return ScheduleStart + (Shots - ScheduleShots + 1) * Interval; }
+
+		/** Average interval from ScheduleStart's shot to the frame the latest shot was seen in. */
+		double GetAverageInterval() const
+		{
+			const int32 Count = Shots - ScheduleShots;
+			return Count > 0 ? (LastSeen - ScheduleStart) / Count : 0.0;
+		}
+
+		/** The latest shot is seen at most one frame late, spread over the measured intervals. */
+		double GetAverageTolerance() const { return MaxFrame / FMath::Max(Shots - ScheduleShots, 1) + 1e-4; }
+
+		/** FireRate changed after the latest shot: later shots follow NewInterval from that shot's scheduled time. */
+		void ChangeInterval(double NewInterval)
+		{
+			ScheduleStart += (Shots - ScheduleShots) * Interval;
+			ScheduleShots = Shots;
+			Interval = NewInterval;
+		}
+	};
+
+	/** Once a frame while the burst runs: count new shots and check the count against the schedule. */
+	void PollBurst(FHeldBurst& Burst)
+	{
+		const double Now = GetPIEWorld()->GetTimeSeconds();
+		Burst.MaxFrame = FMath::Max(Burst.MaxFrame, Now - Burst.LastPoll);
+		Burst.LastPoll = Now;
+		const int32 Shots = Burst.StartAmmo - GetPlayerAmmo();
+		if (Shots > Burst.Shots)
+		{
+			Burst.MaxShotsInOneFrame = FMath::Max(Burst.MaxShotsInOneFrame, Shots - Burst.Shots);
+			Burst.LastSeen = Now;
+		}
+		Burst.Shots = Shots;
+
+		int32 Low = 0, High = 0;
+		Burst.GetExpectedShots(Now, Low, High);
+		if ((Shots < Low || Shots > High) && Burst.OffSchedule++ == 0)
+		{
+			Burst.FirstOffSchedule = FString::Printf(TEXT("%d shots %.4f s after the press, expected %d-%d"), Shots, Now - Burst.PressTime, Low, High);
+		}
+	}
+
+	/** Press and hold fire (the first shot fires on the press) and start watching the burst. */
+	void PressAndHoldFire(FHeldBurst& Burst)
+	{
+		const double Now = GetPIEWorld()->GetTimeSeconds();
+		Burst = FHeldBurst();
+		Burst.StartAmmo = GetPlayerAmmo();
+		Burst.Interval = GetPlayerRefireInterval();
+		Burst.PressTime = Burst.ScheduleStart = Burst.LastPoll = Now;
+		GetPlayerASC()->AbilityInputTagPressed(GSGameplayTags::Ability_Fire);
+		PollBurst(Burst);
+	}
+
+	void EnqueueHoldFire(TSharedRef<FHeldBurst> Burst)
+	{
+		Step([Burst]() { PressAndHoldFire(*Burst); });
+	}
+
+	/** Enqueue: keep fire held until the burst has fired Shots shots, checking the schedule every frame. */
+	void EnqueueWaitShots(FAutomationTestBase* Test, TSharedRef<FHeldBurst> Burst, int32 Shots)
+	{
+		WaitUntil(Test, FString::Printf(TEXT("%d shots with fire held"), Shots), [Burst, Shots]()
+		{
+			PollBurst(*Burst);
+			return Burst->Shots >= Shots;
+		});
+	}
+
+	/** The burst kept to its schedule every frame, and its average interval is Expected (within a frame over the burst). */
+	void CheckBurst(FAutomationTestBase* Test, const FHeldBurst& Burst, const FString& What, double Expected)
+	{
+		Test->TestEqual(*FString::Printf(TEXT("%s: the shot count matched the schedule in every frame%s%s"), *What,
+			Burst.OffSchedule > 0 ? TEXT("; first miss: ") : TEXT(""), *Burst.FirstOffSchedule), Burst.OffSchedule, 0);
+		const double Average = Burst.GetAverageInterval();
+		Test->AddInfo(FString::Printf(TEXT("%s: %d shots, %.4f s apart on average (refire %.4f s; longest frame %.4f s, up to %d shots in one frame)"),
+			*What, Burst.Shots, Average, Expected, Burst.MaxFrame, Burst.MaxShotsInOneFrame));
+		Test->TestEqual(*FString::Printf(TEXT("%s: average interval over the burst"), *What), Average, Expected, Burst.GetAverageTolerance());
+	}
+
+	/** State a held-fire step waits on: when firing ended, and the last frame it was still on. */
+	struct FFireEnd
+	{
+		double Due = 0.0;
+		double LastFiring = 0.0;
+		double Ended = -1.0;
+		int32 Ammo = 0;
+	};
+
+	/** Enqueue: wait until State.Firing ends, remembering the frame it ended in and the last frame before it. */
+	void EnqueueWaitFireEnd(FAutomationTestBase* Test, const FString& What, TSharedRef<FFireEnd> End, TFunction<void()> OnEnded = nullptr)
+	{
+		WaitUntil(Test, What, [End, OnEnded]()
+		{
+			const double Now = GetPIEWorld()->GetTimeSeconds();
+			if (IsPlayerFiring())
+			{
+				End->LastFiring = Now;
+				return false;
+			}
+			End->Ended = Now;
+			if (OnEnded)
+			{
+				OnEnded();
+			}
+			return true;
+		});
+	}
+
+	/** Firing ended in the first frame at or after End.Due (it was still on in the frame before). */
+	void CheckEndedAtDue(FAutomationTestBase* Test, const FFireEnd& End, const FString& What)
+	{
+		Test->AddInfo(FString::Printf(TEXT("%s: due %.4f, still firing at %.4f, ended at %.4f"), *What, End.Due, End.LastFiring, End.Ended));
+		Test->TestTrue(*FString::Printf(TEXT("%s: State.Firing lasted until the next shot's due time, not longer"), *What),
+			End.LastFiring < End.Due + 1e-3 && End.Ended >= End.Due - 1e-3);
+	}
+
+	/** Enqueue: once firing has ended, reload the magazine to full. */
+	void EnqueueReloadToFull(FAutomationTestBase* Test)
+	{
+		WaitUntil(Test, TEXT("firing to end before reloading"), []() { return !IsPlayerFiring(); });
+		Step([]()
+		{
+			if (GetPlayerAmmo() < GetPlayerMagazineSize())
+			{
+				TapInput(GSGameplayTags::Ability_Reload);
+			}
+		});
+		WaitUntil(Test, TEXT("a full magazine"), []() { return !IsPlayerReloading() && GetPlayerAmmo() == GetPlayerMagazineSize(); });
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSHeldFireTest, "BanditBaller.Weapons.HeldFire", GSTests::TestFlags)
+bool FGSHeldFireTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	struct FState
+	{
+		double Interval = 0.0;
+		int32 AmmoBefore = 0;
+		bool bReloadRefusedWhileFiring = false;
+		bool bReloadRightAfter = false;
+		double PausedTime = 0.0;
+		int32 PausedAmmo = 0;
+	};
+	TSharedRef<FState> S = MakeShared<FState>();
+	TSharedRef<FHeldBurst> Burst = MakeShared<FHeldBurst>();
+	TSharedRef<FFireEnd> End = MakeShared<FFireEnd>();
+
+	// The rifle at FireRate 1. Game time runs x4: the schedule is checked in game time, so that changes nothing.
+	Step([this, S]()
+	{
+		SpeedUpWorld(4.f);
+		GetGameMode()->SetRoundTimerPaused(true); // stay in PreRound: no enemies
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		const UGSWeaponData* Rifle = GetPlayer()->GetWeaponComponent()->GetCurrentWeaponData();
+		if (!TestNotNull(TEXT("A weapon is equipped"), Rifle))
+		{
+			return;
+		}
+		TestTrue(TEXT("The rifle is full auto"), Rifle->FireMode == EGSFireMode::FullAuto);
+		TestEqual(TEXT("The rifle fires 600 rounds a minute"), Rifle->FireRateRPM, 600.f);
+		S->Interval = GetPlayerRefireInterval();
+		TestEqual(TEXT("Rifle refire interval at FireRate 1: 0.100 s"), S->Interval, 0.1, 1e-6);
+		TestEqual(TEXT("Magazine full"), GetPlayerAmmo(), Rifle->MagazineSize);
+	});
+
+	// 1) Hold for 6 shots: exact schedule, reload refused while firing. Release: no further shot, State.Firing lasts
+	//    until the 7th shot would have been due, and a reload works in that very frame.
+	EnqueueHoldFire(Burst);
+	Step([S]()
+	{
+		TapInput(GSGameplayTags::Ability_Reload);
+		S->bReloadRefusedWhileFiring = IsPlayerFiring() && !IsPlayerReloading();
+	});
+	EnqueueWaitShots(this, Burst, 6);
+	Step([Burst, End]()
+	{
+		PollBurst(*Burst);
+		ReleaseFire();
+		End->Due = Burst->GetNextDue();
+		End->Ammo = GetPlayerAmmo();
+	});
+	EnqueueWaitFireEnd(this, TEXT("State.Firing to end after the release"), End, [S]()
+	{
+		TapInput(GSGameplayTags::Ability_Reload);
+		S->bReloadRightAfter = IsPlayerReloading();
+	});
+	Step([this, S, Burst, End]()
+	{
+		TestTrue(TEXT("Reload is refused during a burst (State.Firing)"), S->bReloadRefusedWhileFiring);
+		CheckBurst(this, *Burst, TEXT("Held rifle burst"), S->Interval);
+		TestEqual(TEXT("Released after 6 shots"), Burst->Shots, 6);
+		TestEqual(TEXT("Release: no shot after the release"), GetPlayerAmmo(), End->Ammo);
+		CheckEndedAtDue(this, *End, TEXT("Release"));
+		TestTrue(TEXT("Reload starts in the frame firing ends"), S->bReloadRightAfter);
+	});
+	WaitUntil(this, TEXT("the reload to refill the magazine"), []() { return !IsPlayerReloading() && GetPlayerAmmo() == GetPlayerMagazineSize(); });
+
+	// 2) Hold through the whole magazine: exact schedule to the last round; the auto-reload starts when the next shot
+	//    would have been due; with fire still held, firing resumes after the reload.
+	EnqueueHoldFire(Burst);
+	WaitUntil(this, TEXT("the magazine to run empty with fire held"), [Burst]()
+	{
+		PollBurst(*Burst);
+		return GetPlayerAmmo() == 0;
+	});
+	Step([Burst, End]() { End->Due = Burst->GetNextDue(); End->Ammo = 0; });
+	EnqueueWaitFireEnd(this, TEXT("the empty burst to end"), End);
+	Step([this, Burst, End, S]()
+	{
+		CheckBurst(this, *Burst, TEXT("A whole magazine held"), S->Interval);
+		TestEqual(TEXT("Empty: every round fired"), Burst->Shots, GetPlayerMagazineSize());
+		CheckEndedAtDue(this, *End, TEXT("Empty magazine"));
+		TestTrue(TEXT("Empty magazine: the auto-reload started"), IsPlayerReloading());
+	});
+	WaitUntil(this, TEXT("held fire to resume after the auto-reload"), []()
+	{
+		const int32 Ammo = GetPlayerAmmo();
+		return !IsPlayerReloading() && Ammo > 0 && Ammo < GetPlayerMagazineSize();
+	});
+	Step([]() { ReleaseFire(); });
+	EnqueueReloadToFull(this);
+
+	// 3) A FireRate change mid-burst applies from the next shot: 4 shots at FireRate 1, Fire Rate x10 (1.8), 12 more.
+	EnqueueHoldFire(Burst);
+	EnqueueWaitShots(this, Burst, 4);
+	Step([this, S, Burst]()
+	{
+		PollBurst(*Burst);
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FireRate"), TEXT("10") });
+		TestEqual(TEXT("FireRate 1.8 mid-burst"), GetPlayerASC()->GetNumericAttribute(UGSAttributeSet::GetFireRateAttribute()), 1.8f, 0.001f);
+		Burst->ChangeInterval(GetPlayerRefireInterval());
+	});
+	EnqueueWaitShots(this, Burst, 16);
+	Step([this, S, Burst]()
+	{
+		ReleaseFire();
+		CheckBurst(this, *Burst, TEXT("After a mid-burst FireRate change to 1.8"), S->Interval / 1.8);
+	});
+	EnqueueReloadToFull(this);
+
+	// 4) Slow frames: game time x16 makes every frame longer than the 0.0556 s interval. Each frame fires the shots it
+	//    owes, so the count still matches the schedule and the average stays exact.
+	Step([]() { SpeedUpWorld(16.f); });
+	EnqueueHoldFire(Burst);
+	EnqueueWaitShots(this, Burst, 20);
+	Step([this, S, Burst]()
+	{
+		ReleaseFire();
+		SpeedUpWorld(4.f);
+		CheckBurst(this, *Burst, TEXT("Frames longer than the refire interval"), S->Interval / 1.8);
+		TestTrue(FString::Printf(TEXT("Setup: frames (up to %.3f s) longer than the interval"), Burst->MaxFrame), Burst->MaxFrame > Burst->Interval);
+		TestTrue(TEXT("A slow frame fired more than one shot (catch-up)"), Burst->MaxShotsInOneFrame >= 2);
+	});
+
+	// Back to FireRate 1 for the rest (a new run removes the upgrade).
+	WaitUntil(this, TEXT("firing to end"), []() { return !IsPlayerFiring(); });
+	Step([this]()
+	{
+		GetGameMode()->RestartRunWithSeed(77);
+		GetGameMode()->SetRoundTimerPaused(true);
+		TestEqual(TEXT("New run: FireRate 1"), GetPlayerASC()->GetNumericAttribute(UGSAttributeSet::GetFireRateAttribute()), 1.f, 0.001f);
+	});
+	EnqueueReloadToFull(this);
+
+	// 5) The game pause pauses a burst: no shot and no game time while paused; the schedule carries on after.
+	EnqueueHoldFire(Burst);
+	EnqueueWaitShots(this, Burst, 3);
+	Step([S, Burst]()
+	{
+		PollBurst(*Burst);
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), true);
+		S->PausedTime = GetPIEWorld()->GetTimeSeconds();
+		S->PausedAmmo = GetPlayerAmmo();
+	});
+	WaitRealSeconds(this, 0.3);
+	Step([this, S, Burst]()
+	{
+		TestTrue(TEXT("Pause: the game is paused"), GetPIEWorld()->IsPaused());
+		TestEqual(TEXT("Pause: no shot while paused"), GetPlayerAmmo(), S->PausedAmmo);
+		TestEqual(TEXT("Pause: game time stood still"), GetPIEWorld()->GetTimeSeconds(), S->PausedTime, 1e-6);
+		TestTrue(TEXT("Pause: the burst is still on"), IsPlayerFiring());
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), false);
+		Burst->LastPoll = GetPIEWorld()->GetTimeSeconds();
+	});
+	EnqueueWaitShots(this, Burst, 8);
+	Step([this, S, Burst]()
+	{
+		ReleaseFire();
+		CheckBurst(this, *Burst, TEXT("A burst across a pause"), S->Interval);
+	});
+	EnqueueReloadToFull(this);
+
+	// 6) A safe zone starting mid-burst stops it when the next shot is due; leaving it with fire still held resumes.
+	EnqueueHoldFire(Burst);
+	EnqueueWaitShots(this, Burst, 3);
+	Step([S, Burst, End]()
+	{
+		PollBurst(*Burst);
+		GetPlayerASC()->AddLooseGameplayTag(GSGameplayTags::State_SafeZone);
+		End->Due = Burst->GetNextDue();
+		End->Ammo = GetPlayerAmmo();
+	});
+	EnqueueWaitFireEnd(this, TEXT("the burst to stop in the safe zone"), End);
+	WaitWorldSeconds(this, 0.5);
+	Step([this, End]()
+	{
+		CheckEndedAtDue(this, *End, TEXT("Safe zone"));
+		TestEqual(TEXT("Safe zone: no shot after it started"), GetPlayerAmmo(), End->Ammo);
+		TestFalse(TEXT("Safe zone: held fire doesn't start a new burst"), IsPlayerFiring());
+		TestFalse(TEXT("Safe zone: no reload"), IsPlayerReloading());
+		GetPlayerASC()->RemoveLooseGameplayTag(GSGameplayTags::State_SafeZone);
+	});
+	WaitUntil(this, TEXT("held fire to resume after the safe zone"), [End]() { return GetPlayerAmmo() < End->Ammo; });
+	Step([]() { ReleaseFire(); });
+
+	// 7) Semi-auto (pistol): one shot per press however long it is held; a second press inside the refire interval
+	//    does nothing; the next press after it fires.
+	WaitUntil(this, TEXT("firing to end"), []() { return !IsPlayerFiring(); });
+	Step([this, S]()
+	{
+		UGSDebugLibrary::GiveWeaponTo(GetPC(), UGSDebugLibrary::FindWeaponData(TEXT("Pistol")));
+		const UGSWeaponData* Pistol = GetPlayer()->GetWeaponComponent()->GetCurrentWeaponData();
+		TestTrue(TEXT("The pistol is semi-auto"), Pistol && Pistol->FireMode == EGSFireMode::SemiAuto);
+		S->AmmoBefore = GetPlayerAmmo();
+		GetPlayerASC()->AbilityInputTagPressed(GSGameplayTags::Ability_Fire);
+	});
+	WaitWorldSeconds(this, 0.7); // more than three pistol refire intervals, fire held
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Semi-auto held: one shot"), GetPlayerAmmo(), S->AmmoBefore - 1);
+		TestFalse(TEXT("Semi-auto held: firing ended after the refire interval"), IsPlayerFiring());
+		ReleaseFire();
+		TapInput(GSGameplayTags::Ability_Fire);
+		TapInput(GSGameplayTags::Ability_Fire);
+		TestEqual(TEXT("Semi-auto double tap: one shot"), GetPlayerAmmo(), S->AmmoBefore - 2);
+	});
+	WaitUntil(this, TEXT("firing to end"), []() { return !IsPlayerFiring(); });
+	Step([this, S]()
+	{
+		TapInput(GSGameplayTags::Ability_Fire);
+		TestEqual(TEXT("Semi-auto: the next press after the interval fires"), GetPlayerAmmo(), S->AmmoBefore - 3);
+	});
+	WaitUntil(this, TEXT("firing to end"), []() { return !IsPlayerFiring(); });
+
+	// 8) Death during a burst ends it at once: no shot, no reload.
+	Step([this]()
+	{
+		UGSDebugLibrary::GiveWeaponTo(GetPC(), UGSDebugLibrary::FindWeaponData(TEXT("Rifle")));
+		TestTrue(TEXT("The rifle again"), GetPlayer()->GetWeaponComponent()->GetCurrentWeaponData()->FireMode == EGSFireMode::FullAuto);
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+	});
+	EnqueueHoldFire(Burst);
+	EnqueueWaitShots(this, Burst, 3);
+	Step([this, S, Burst]()
+	{
+		PollBurst(*Burst);
+		S->AmmoBefore = GetPlayerAmmo();
+		ApplyDamage(GetPlayerASC(), 100000.f);
+		TestTrue(TEXT("Death: the player is dead"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
+		TestFalse(TEXT("Death: the burst ended at once"), IsPlayerFiring());
+	});
+	WaitWorldSeconds(this, 0.5);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Death: no shot after death"), GetPlayerAmmo(), S->AmmoBefore);
+		TestFalse(TEXT("Death: no reload"), IsPlayerReloading());
+		ReleaseFire();
+		RestoreWorldSpeed();
 	});
 	EndPIE();
 	return true;
@@ -2569,40 +3036,8 @@ bool FGSStatUpgradesTest::RunTest(const FString& Parameters)
 }
 
 // ---------------------------------------------------------------------------
-// Fire Rate and Magnet: Common upgrades on existing attributes (real refire interval, real pickup reach)
+// Fire Rate and Magnet: Common upgrades on existing attributes (exact held-fire interval, real pickup reach)
 // ---------------------------------------------------------------------------
-
-namespace GSTests
-{
-	/** Enqueue: hold the fire input until Shots shots have spent ammo (game time of each, seen once a frame), release. */
-	void HoldFireForShots(FAutomationTestBase* Test, int32 Shots, TSharedRef<TArray<double>> ShotTimes)
-	{
-		TSharedRef<int32> LastAmmo = MakeShared<int32>(-1);
-		Step([ShotTimes, LastAmmo]()
-		{
-			ShotTimes->Reset();
-			*LastAmmo = GetPlayer()->GetWeaponComponent()->GetCurrentAmmo();
-			GetPlayerASC()->AbilityInputTagPressed(GSGameplayTags::Ability_Fire); // held: full auto re-fires each refire
-		});
-		WaitUntil(Test, FString::Printf(TEXT("%d shots with fire held"), Shots), [ShotTimes, LastAmmo, Shots]()
-		{
-			const int32 Ammo = GetPlayer()->GetWeaponComponent()->GetCurrentAmmo();
-			for (int32 Spent = *LastAmmo - Ammo; Spent > 0; --Spent)
-			{
-				ShotTimes->Add(GetPIEWorld()->GetTimeSeconds());
-			}
-			*LastAmmo = Ammo;
-			return ShotTimes->Num() >= Shots;
-		}, 10.0);
-		Step([]() { GetPlayerASC()->AbilityInputTagReleased(GSGameplayTags::Ability_Fire); });
-		WaitUntil(Test, TEXT("State.Firing to clear"), []() { return !GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Firing); }, 5.0);
-	}
-
-	double GetAverageInterval(const TArray<double>& Times)
-	{
-		return Times.Num() > 1 ? (Times.Last() - Times[0]) / (Times.Num() - 1) : 0.0;
-	}
-}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSFireRateAndMagnetTest, "BanditBaller.Upgrades.FireRateAndMagnet", GSTests::TestFlags)
 bool FGSFireRateAndMagnetTest::RunTest(const FString& Parameters)
@@ -2620,11 +3055,11 @@ bool FGSFireRateAndMagnetTest::RunTest(const FString& Parameters)
 		FVector DropOrigin = FVector::ZeroVector;
 	};
 	TSharedRef<FState> S = MakeShared<FState>();
-	TSharedRef<TArray<double>> BaseShots = MakeShared<TArray<double>>();
-	TSharedRef<TArray<double>> FastShots = MakeShared<TArray<double>>();
+	TSharedRef<FHeldBurst> BaseBurst = MakeShared<FHeldBurst>();
+	TSharedRef<FHeldBurst> FastBurst = MakeShared<FHeldBurst>();
 
-	// Data, and the base values. Shots run at normal game speed (the measured interval is the rule), without editor
-	// throttling so frames stay short.
+	// Data, and the base values. Shots run at normal game speed without editor throttling, so frames stay short and the
+	// measured average is within a millisecond (the shot count is checked against the exact schedule every frame).
 	Step([this, S]()
 	{
 		SpeedUpWorld(1.f);
@@ -2658,33 +3093,39 @@ bool FGSFireRateAndMagnetTest::RunTest(const FString& Parameters)
 		if (TestNotNull(TEXT("A weapon is equipped"), Rifle))
 		{
 			TestTrue(TEXT("The equipped weapon is full auto (rifle)"), Rifle->FireMode == EGSFireMode::FullAuto);
-			TestTrue(TEXT("Magazine holds both bursts (8 + 12 shots)"), GetPlayer()->GetWeaponComponent()->GetCurrentAmmo() >= 20);
+			TestTrue(TEXT("Magazine holds both bursts (12 + 16 shots)"), GetPlayer()->GetWeaponComponent()->GetCurrentAmmo() >= 28);
 			S->BaseInterval = Rifle->GetRefireInterval(1.f);
+			TestEqual(TEXT("Rifle refire interval at FireRate 1: 0.100 s (600 rounds a minute)"), S->BaseInterval, 0.1, 1e-6);
 		}
 	});
 
-	// Fire Rate: hold fire for 8 shots, then again with 10 stacks (x1.8) for 12 shots.
-	HoldFireForShots(this, 8, BaseShots);
+	// Fire Rate: hold fire for 12 shots, then again with 10 stacks (x1.8) for 16 shots.
+	EnqueueHoldFire(BaseBurst);
+	EnqueueWaitShots(this, BaseBurst, 12);
+	Step([]() { ReleaseFire(); });
+	WaitUntil(this, TEXT("State.Firing to clear"), []() { return !IsPlayerFiring(); });
 	Step([this]()
 	{
 		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FireRate"), TEXT("10") });
 		TestEqual(TEXT("Fire Rate: 10 stacks tracked"), GetPlayerUpgrades()->GetStacks(UGSDebugLibrary::FindUpgradeData(TEXT("FireRate"))), 10);
 		TestEqual(TEXT("FireRate = 1 + 10 x 8%"), GetAttr(UGSAttributeSet::GetFireRateAttribute()), 1.8f, 0.001f);
 	});
-	HoldFireForShots(this, 12, FastShots);
-	Step([this, S, BaseShots, FastShots]()
+	EnqueueHoldFire(FastBurst);
+	EnqueueWaitShots(this, FastBurst, 16);
+	Step([]() { ReleaseFire(); });
+	WaitUntil(this, TEXT("State.Firing to clear"), []() { return !IsPlayerFiring(); });
+	Step([this, S, BaseBurst, FastBurst]()
 	{
-		const double Expected = GetPlayer()->GetWeaponComponent()->GetCurrentWeaponData()->GetRefireInterval(1.8f);
-		TestEqual(TEXT("Refire interval = base / 1.8"), Expected, S->BaseInterval / 1.8, 0.0005);
+		const double Expected = GetPlayerRefireInterval();
+		TestEqual(TEXT("Refire interval = base / 1.8 (0.0556 s)"), Expected, S->BaseInterval / 1.8, 1e-6);
 
-		const double Base = GetAverageInterval(*BaseShots);
-		const double Fast = GetAverageInterval(*FastShots);
-		AddInfo(FString::Printf(TEXT("Held fire: %.4f s between shots at FireRate 1 (refire %.4f), %.4f s at 1.8 (refire %.4f)"),
-			Base, S->BaseInterval, Fast, Expected));
-		// A re-fire waits for the refire interval, then for the next frame: never shorter, at most a frame or two longer.
-		TestTrue(TEXT("FireRate 1: shots one refire interval apart"), Base >= S->BaseInterval - 0.005 && Base <= S->BaseInterval + 0.04);
-		TestTrue(TEXT("FireRate 1.8: shots one (shorter) refire interval apart"), Fast >= Expected - 0.005 && Fast <= Expected + 0.04);
-		TestTrue(TEXT("Fire Rate upgrade fires clearly faster"), Fast < Base * 0.75);
+		// Exact: one shot per refire interval, no frame lost per shot.
+		CheckBurst(this, *BaseBurst, TEXT("FireRate 1 (rifle)"), 0.1);
+		CheckBurst(this, *FastBurst, TEXT("FireRate 1.8"), 0.1 / 1.8);
+		const double Base = BaseBurst->GetAverageInterval();
+		const double Fast = FMath::Max(FastBurst->GetAverageInterval(), 1e-6);
+		const double RatioTolerance = 1.8 * (BaseBurst->GetAverageTolerance() / Base + FastBurst->GetAverageTolerance() / Fast);
+		TestEqual(TEXT("Fire Rate x10 fires 1.8 times as fast"), Base / Fast, 1.8, RatioTolerance);
 	});
 
 	// Magnet: a drop beyond the base radius stays put; with 10 stacks (x2.5) its cash and its XP orb both fly in.

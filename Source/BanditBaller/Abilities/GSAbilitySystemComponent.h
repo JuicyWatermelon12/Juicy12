@@ -26,6 +26,9 @@ public:
 	/** Forget all held inputs (e.g. on unpossess). */
 	void ClearAbilityInput();
 
+	/** True while InputTag's input is held (pressed and not released or cleared). GA_Fire checks it before each shot. */
+	bool IsAbilityInputHeld(const FGameplayTag& InputTag) const { return HeldInputTags.HasTagExact(InputTag); }
+
 protected:
 	//~ UAbilitySystemComponent
 	virtual void AbilitySpecInputPressed(FGameplayAbilitySpec& Spec) override;

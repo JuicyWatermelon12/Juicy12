@@ -24,7 +24,8 @@ public:
 
 	/**
 	 * If true, the ASC re-activates this ability every frame its input is held (once the previous
-	 * activation has ended). Used for full-auto fire. Called on the ability CDO.
+	 * activation has ended). Full-auto fire uses it to start a new burst (a held burst itself keeps
+	 * firing inside GA_Fire). Called on the ability CDO.
 	 */
 	virtual bool ShouldRetriggerWhileInputHeld(const FGameplayAbilityActorInfo* ActorInfo) const { return false; }
 
