@@ -25,7 +25,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FGSOnRunStatsChanged);
 /**
  * Party-wide stats for the current run, on AGSGameState (replicated). Written only by AGSGameMode on the
  * server: rounds cleared, kills (total + per enemy type), cash earned/spent, damage dealt/taken, XP earned,
- * highest player level, run time.
+ * highest player level, best kill combo, run time.
  * Damage is the health actually removed (overkill not counted).
  */
 UCLASS(ClassGroup = (BanditBaller), meta = (BlueprintSpawnableComponent))
@@ -50,6 +50,8 @@ public:
 	void AddXPEarned(int32 Amount);
 	/** Highest player level reached this run (keeps the max). */
 	void RecordLevelReached(int32 Level);
+	/** A player's kill combo reached Count kills (keeps the max). */
+	void RecordCombo(int32 Count);
 	/** Freezes the run timer (game over). */
 	void EndRun(double InRunEndTime);
 
@@ -86,6 +88,10 @@ public:
 	/** Highest level any player reached this run. */
 	UFUNCTION(BlueprintPure, Category = "Stats")
 	int32 GetLevelReached() const { return LevelReached; }
+
+	/** Longest kill combo any player reached this run (0 = no kills). */
+	UFUNCTION(BlueprintPure, Category = "Stats")
+	int32 GetBestCombo() const { return BestCombo; }
 
 	/** Seconds since the run started (server clock), frozen once the run ends. */
 	UFUNCTION(BlueprintPure, Category = "Stats")
@@ -125,6 +131,10 @@ protected:
 
 	UPROPERTY(VisibleInstanceOnly, ReplicatedUsing = OnRep_Stats, Category = "Stats")
 	int32 LevelReached = 1;
+
+	/** TODO(co-op): not replicated yet (single-player first); replicate it like the stats above in M6. */
+	UPROPERTY(VisibleInstanceOnly, Category = "Stats")
+	int32 BestCombo = 0;
 
 	/** Server world time when the run started / ended (0 = still running). */
 	UPROPERTY(VisibleInstanceOnly, Replicated, Category = "Stats")

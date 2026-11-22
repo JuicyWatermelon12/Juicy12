@@ -56,6 +56,7 @@ void UGSRunStats::ResetStats(double InRunStartTime)
 	DamageTaken = 0.f;
 	XPEarned = 0;
 	LevelReached = 1;
+	BestCombo = 0;
 	RunStartTime = InRunStartTime;
 	RunEndTime = 0.0;
 	Changed();
@@ -141,6 +142,15 @@ void UGSRunStats::RecordLevelReached(int32 Level)
 	}
 }
 
+void UGSRunStats::RecordCombo(int32 Count)
+{
+	if (CanWrite() && Count > BestCombo)
+	{
+		BestCombo = Count;
+		Changed();
+	}
+}
+
 void UGSRunStats::EndRun(double InRunEndTime)
 {
 	if (CanWrite() && RunEndTime <= 0.0)
@@ -184,7 +194,9 @@ FString UGSRunStats::ToDebugString() const
 		TEXT("Damage dealt:   %.0f\n")
 		TEXT("Damage taken:   %.0f\n")
 		TEXT("XP earned:      %d\n")
-		TEXT("Level reached:  %d"),
+		TEXT("Level reached:  %d\n")
+		TEXT("Best combo:     %d"),
 		FMath::FloorToInt(Seconds / 60.f), FMath::FloorToInt(FMath::Fmod(Seconds, 60.f)), Seconds, RunEndTime > 0.0 ? TEXT(" [ended]") : TEXT(""),
-		RoundsCleared, TotalKills, Kills.IsEmpty() ? TEXT("none") : *Kills, CashEarned, CashSpent, DamageDealt, DamageTaken, XPEarned, LevelReached);
+		RoundsCleared, TotalKills, Kills.IsEmpty() ? TEXT("none") : *Kills, CashEarned, CashSpent, DamageDealt, DamageTaken, XPEarned, LevelReached,
+		BestCombo);
 }

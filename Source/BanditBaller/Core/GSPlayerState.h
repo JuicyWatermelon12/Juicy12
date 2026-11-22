@@ -12,10 +12,11 @@
 class UGSAttributeSet;
 class UGSProgressionComponent;
 class UGSUpgradeComponent;
+class UGSComboComponent;
 
 /**
- * Per-player run state. Owns the player's AbilitySystemComponent + attributes (so they survive pawn changes) and
- * progression (XP / level).
+ * Per-player run state. Owns the player's AbilitySystemComponent + attributes (so they survive pawn changes),
+ * progression (XP / level), level-up upgrades and the kill combo.
  * Cash is not stored here: the permanent balance lives in UGSProfileSubsystem (saved, kept across runs).
  */
 UCLASS()
@@ -46,6 +47,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Progression")
 	UGSUpgradeComponent* GetUpgradeComponent() const { return Upgrades; }
 
+	/** Kill combo: count, cash multiplier and window (UGSComboComponent::RegisterKill from AGSGameMode). */
+	UFUNCTION(BlueprintPure, Category = "Combo")
+	UGSComboComponent* GetComboComponent() const { return Combo; }
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Abilities")
 	TObjectPtr<UGSAbilitySystemComponent> AbilitySystemComponent;
@@ -58,6 +63,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Progression")
 	TObjectPtr<UGSUpgradeComponent> Upgrades;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combo")
+	TObjectPtr<UGSComboComponent> Combo;
 
 private:
 	FGSAbilitySetGrantedHandles StartupAbilitySetHandles;

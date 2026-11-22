@@ -25,6 +25,8 @@
 #include "GSAttributeSet.h"
 #include "GSCashPickupSubsystem.h"
 #include "GSCashSettings.h"
+#include "GSComboComponent.h"
+#include "GSComboSettings.h"
 #include "GSDifficultyCurve.h"
 #include "GSGameplayTags.h"
 #include "GSProgressionComponent.h"
@@ -65,6 +67,16 @@ namespace
 		return Actor && Actor->IsA<APlayerState>();
 	}
 
+	/** The AGSPlayerState of a player pawn, or Actor itself if it is one (damage instigators can be either). */
+	AGSPlayerState* GetGSPlayerStateOf(AActor* Actor)
+	{
+		if (const APawn* Pawn = Cast<APawn>(Actor))
+		{
+			return Pawn->GetPlayerState<AGSPlayerState>();
+		}
+		return Cast<AGSPlayerState>(Actor);
+	}
+
 	/** "MeleeBandit" from DA_Enemy_MeleeBandit; class name for anything without enemy data. */
 	FName GetEnemyTypeName(const AActor* Enemy)
 	{
@@ -86,25 +98,47 @@ void AGSGameMode::HandleEnemyKilled(AActor* Enemy, AActor* Killer)
 	UE_LOG(LogBanditBaller, Log, TEXT("OnEnemyKilled: %s killed by %s"), *GetNameSafe(Enemy), *GetNameSafe(Killer));
 
 	// Run stats count enemies the party killed.
-	if (UGSRunStats* Stats = GetRunStats(); Stats && IsPlayerActor(Killer))
+	UGSRunStats* Stats = GetRunStats();
+	if (Stats && IsPlayerActor(Killer))
 	{
 		Stats->RecordKill(GetEnemyTypeName(Enemy));
 	}
 
-	// Drops before the broadcast: if this kill clears the wave, RoundClear's vacuum includes them. Cash and XP per
-	// enemy are flat (the same every round). No XP on the kill itself: it comes from the orb, at pickup.
 	const AGSEnemyCharacter* EnemyCharacter = Cast<AGSEnemyCharacter>(Enemy);
 	const UGSEnemyData* EnemyData = EnemyCharacter ? EnemyCharacter->GetEnemyData() : nullptr;
+
+	// Kill combo: enemy kills (not target dummies) count for the player who made them. Counted before the drops, so
+	// this kill already pays at the step it reaches, and the drop keeps that multiplier however late it is collected.
+	const AGSPlayerState* KillerState = EnemyCharacter ? GetGSPlayerStateOf(Killer) : nullptr;
+	UGSComboComponent* Combo = KillerState ? KillerState->GetComboComponent() : nullptr;
+	const int32 ComboCount = Combo ? Combo->RegisterKill() : 0;
+	const float ComboMultiplier = ComboCount > 0 ? Combo->GetCashMultiplier() : 1.f;
+	if (Stats && ComboCount > 0)
+	{
+		Stats->RecordCombo(ComboCount);
+	}
+
+	// Drops before the broadcast: if this kill clears the wave, RoundClear's vacuum includes them. Cash and XP per
+	// enemy are flat (the same every round); only the combo multiplies them. No XP on the kill itself: it comes from
+	// the orb, at pickup.
 	UGSCashPickupSubsystem* Pickups = GetWorld()->GetSubsystem<UGSCashPickupSubsystem>();
 	if (EnemyData && Pickups && CashSettings)
 	{
-		if (EnemyData->CashValue > 0)
+		const UGSComboSettings* Combos = GetComboSettings();
+		const int32 Cash = FMath::RoundToInt(EnemyData->CashValue * ComboMultiplier);
+		const int32 XP = (Combos && Combos->bApplyComboToXP) ? FMath::RoundToInt(EnemyData->XPValue * ComboMultiplier) : EnemyData->XPValue;
+		if (ComboCount > 0)
 		{
-			Pickups->SpawnCashDrop(CashSettings, Enemy->GetActorLocation(), EnemyData->CashValue);
+			UE_LOG(LogBanditBaller, Log, TEXT("[combo] %s: combo %d (x%.2f): cash $%d -> $%d, XP %d"), *GetNameSafe(KillerState), ComboCount,
+				ComboMultiplier, EnemyData->CashValue, Cash, XP);
 		}
-		if (EnemyData->XPValue > 0)
+		if (Cash > 0)
 		{
-			Pickups->SpawnXPDrop(CashSettings, Enemy->GetActorLocation(), EnemyData->XPValue);
+			Pickups->SpawnCashDrop(CashSettings, Enemy->GetActorLocation(), Cash);
+		}
+		if (XP > 0)
+		{
+			Pickups->SpawnXPDrop(CashSettings, Enemy->GetActorLocation(), XP);
 		}
 	}
 
@@ -260,19 +294,33 @@ int32 AGSGameMode::AwardXPPickup(APlayerController* Player, int32 BaseXP, const 
 
 void AGSGameMode::HandleDamageApplied(AActor* Victim, AActor* DamageInstigator, float Amount)
 {
-	UGSRunStats* Stats = GetRunStats();
-	if (!Stats || Amount <= 0.f)
+	if (Amount <= 0.f)
 	{
 		return;
 	}
+	UGSRunStats* Stats = GetRunStats();
 	if (IsPlayerActor(Victim))
 	{
-		Stats->AddDamageTaken(Amount);
+		if (Stats)
+		{
+			Stats->AddDamageTaken(Amount);
+		}
+		// Health lost (blocked damage never gets here) can end the player's combo (bEndComboOnDamage).
+		const AGSPlayerState* VictimState = GetGSPlayerStateOf(Victim);
+		if (UGSComboComponent* Combo = VictimState ? VictimState->GetComboComponent() : nullptr)
+		{
+			Combo->HandleDamageTaken(Amount);
+		}
 	}
-	else if (IsPlayerActor(DamageInstigator))
+	else if (Stats && IsPlayerActor(DamageInstigator))
 	{
 		Stats->AddDamageDealt(Amount);
 	}
+}
+
+const UGSComboSettings* AGSGameMode::GetComboSettings() const
+{
+	return ComboSettingsOverride ? ComboSettingsOverride.Get() : ComboSettings.Get();
 }
 
 UGSRunStats* AGSGameMode::GetRunStats() const
@@ -310,7 +358,7 @@ void AGSGameMode::StartRun(int32 Seed, const TCHAR* Source)
 		{
 			Stats->ResetStats(GS->GetServerWorldTimeSeconds());
 		}
-		// Levels and upgrades are per run.
+		// Levels, upgrades and combos are per run.
 		for (APlayerState* PS : GS->PlayerArray)
 		{
 			const AGSPlayerState* GSPS = Cast<AGSPlayerState>(PS);
@@ -321,6 +369,10 @@ void AGSGameMode::StartRun(int32 Seed, const TCHAR* Source)
 			if (UGSUpgradeComponent* Upgrades = GSPS ? GSPS->GetUpgradeComponent() : nullptr)
 			{
 				Upgrades->ResetUpgrades();
+			}
+			if (UGSComboComponent* Combo = GSPS ? GSPS->GetComboComponent() : nullptr)
+			{
+				Combo->EndCombo(EGSComboEndReason::Reset);
 			}
 		}
 	}

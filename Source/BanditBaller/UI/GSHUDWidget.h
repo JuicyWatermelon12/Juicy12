@@ -13,6 +13,7 @@ class UProgressBar;
 class UTextBlock;
 class UGSWeaponComponent;
 class UGSProgressionComponent;
+class UGSComboComponent;
 class USoundBase;
 struct FOnAttributeChangeData;
 
@@ -28,6 +29,8 @@ struct FOnAttributeChangeData;
  *   hit marker, red screen-edge flash when hit and pulse at low health.
  * - "+N XP": the amount comes from OnXPChanged; it is placed where the XP orb was collected (NotifyXPSource) when the
  *   two arrive within XPPopupPairWindow of each other (either order), otherwise above the player (gs.XP.Add).
+ * - Kill combo (ComboPanel): count + cash multiplier from UGSComboComponent::OnComboChanged, shown from
+ *   ComboMinCountToShow kills; the timer bar drains from the combo's remaining window each tick (frozen while paused).
  * Tuning values are editable on WBP_HUD's class defaults.
  */
 UCLASS(Abstract)
@@ -74,6 +77,15 @@ public:
 	FText GetLevelUpRewardText() const;
 	bool IsXPBarPulsing() const { return XPBarPulseRemaining > 0.f; }
 	int32 GetLevelUpSoundsPlayed() const { return LevelUpSoundsPlayed; }
+
+	// --- Kill combo display (tests) ---
+	bool IsComboShowing() const;
+	int32 GetComboMinCountToShow() const { return FMath::Max(ComboMinCountToShow, 1); }
+	int32 GetDisplayedComboCount() const { return DisplayedComboCount; }
+	float GetDisplayedComboMultiplier() const { return DisplayedComboMultiplier; }
+	float GetDisplayedComboTimerPercent() const { return DisplayedComboTimerPercent; }
+	FText GetComboCountText() const;
+	FText GetComboMultiplierText() const;
 
 protected:
 	virtual void NativeConstruct() override;
@@ -125,6 +137,22 @@ protected:
 	/** "+10 Max Health" inside the banner (UGSLevelRewards::DescribeRewards). */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> LevelUpRewardText;
+
+	/** Kill combo container; collapsed while the combo is below ComboMinCountToShow. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> ComboPanel;
+
+	/** "5 COMBO" */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ComboCountText;
+
+	/** "x1.25 CASH" */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ComboMultiplierText;
+
+	/** Time left in the combo window (drains; frozen while the game is paused). */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UProgressBar> ComboTimerBar;
 
 	// --- Tuning ---
 
@@ -260,6 +288,31 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|XP", meta = (Units = "s"))
 	float XPPopupPairWindow = 0.25f;
 
+	/** The combo panel appears from this many kills (a single kill isn't shown as a combo). */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Combo", meta = (ClampMin = "1"))
+	int32 ComboMinCountToShow = 2;
+
+	/** ComboCountText briefly scales up by this much on every combo kill. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Combo", meta = (ClampMin = "1"))
+	float ComboPunchScale = 1.3f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Combo", meta = (Units = "s"))
+	float ComboPunchDuration = 0.2f;
+
+	/** ComboMultiplierText scales up by this much when the multiplier reaches a new step. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Combo", meta = (ClampMin = "1"))
+	float ComboStepPunchScale = 1.6f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Combo", meta = (Units = "s"))
+	float ComboStepPunchDuration = 0.35f;
+
+	/** Multiplier text color at x1, and once the combo multiplies cash. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Combo")
+	FLinearColor ComboBaseMultiplierColor = FLinearColor(0.85f, 0.85f, 0.85f);
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Combo")
+	FLinearColor ComboBonusMultiplierColor = FLinearColor(1.f, 0.8f, 0.15f);
+
 private:
 	/** A floating damage number or "+$N" cash popup (shared pool). */
 	struct FDamageNumber
@@ -297,6 +350,15 @@ private:
 
 	UFUNCTION()
 	void HandleLevelUp(int32 NewLevel);
+
+	// Kill combo (UGSComboComponent on the PlayerState).
+	bool TryBindCombo();
+	void UnbindCombo();
+	void RefreshComboDisplay();
+	void TickCombo(float DeltaTime);
+
+	UFUNCTION()
+	void HandleComboChanged(int32 ComboCount, float CashMultiplier);
 
 	// Ability system binding (health).
 	bool TryBindAbilitySystem();
@@ -337,6 +399,13 @@ private:
 	int32 DisplayedLevel = 0;
 	float DisplayedXPPercent = 0.f;
 	float LevelPunchRemaining = 0.f;
+
+	TWeakObjectPtr<UGSComboComponent> BoundCombo;
+	int32 DisplayedComboCount = 0;
+	float DisplayedComboMultiplier = 1.f;
+	float DisplayedComboTimerPercent = 0.f;
+	float ComboPunchRemaining = 0.f;
+	float ComboStepPunchRemaining = 0.f;
 
 	// Level-up feedback.
 	void ShowLevelUpBanner(int32 NewLevel);

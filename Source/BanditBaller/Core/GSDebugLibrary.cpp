@@ -12,6 +12,7 @@
 #include "GameplayEffect.h"
 #include "GSAttributeSet.h"
 #include "GSCharacter.h"
+#include "GSComboComponent.h"
 #include "GSEnemyCharacter.h"
 #include "GSEnemyData.h"
 #include "GSGameMode.h"
@@ -539,6 +540,12 @@ TMap<FString, float> UGSDebugLibrary::GetAttributesOf(const AGSPlayerController*
 			Result.Add(TEXT("XP"), static_cast<float>(Progression->GetCurrentXP()));
 			Result.Add(TEXT("XPForNextLevel"), static_cast<float>(Progression->GetXPForNextLevel()));
 			Result.Add(TEXT("TotalXP"), static_cast<float>(Progression->GetTotalXP()));
+		}
+		if (const UGSComboComponent* Combo = PS->GetComboComponent())
+		{
+			Result.Add(TEXT("Combo"), static_cast<float>(Combo->GetComboCount()));
+			Result.Add(TEXT("ComboMultiplier"), Combo->GetCashMultiplier());
+			Result.Add(TEXT("ComboTimeLeft"), Combo->GetTimeRemaining());
 		}
 	}
 	Result.Add(TEXT("God"), PC->IsDebugGodMode() ? 1.f : 0.f);

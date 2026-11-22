@@ -13,6 +13,7 @@ class UGSSpawnSettings;
 class UGSWaveDirector;
 class UGSDifficultyCurve;
 class UGSCashSettings;
+class UGSComboSettings;
 class UGSXPCurve;
 class UGSLevelRewards;
 class UGSUpgradePool;
@@ -29,8 +30,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnPlayerDiedSignature, APawn*, P
  * Server-only game rules. Runs the round loop as a state machine over EGSRoundPhase (SetPhase /
  * AdvancePhase) and owns area travel between the Town and the Market District.
  * Replicated round state lives in AGSGameState.
- * Receives deaths from UGSHealthComponent: enemies drop cash pickups (UGSCashPickupSubsystem), the killer gets
- * XP (AwardXP) and OnEnemyKilled is broadcast; players get the death screen + restart flow.
+ * Receives deaths from UGSHealthComponent: an enemy kill counts towards the killer's combo (UGSComboComponent), the
+ * enemy drops cash (x the combo's multiplier) and an XP orb (UGSCashPickupSubsystem) and OnEnemyKilled is broadcast;
+ * players get the death screen + restart flow.
  */
 UCLASS()
 class BANDITBALLER_API AGSGameMode : public AGameModeBase
@@ -132,6 +134,14 @@ public:
 	 */
 	int32 AwardXPPickup(APlayerController* Player, int32 BaseXP, const FVector& Location);
 
+	// --- Kill combo (server; state on the player's UGSComboComponent) ---
+
+	/** Combo window, cash multiplier steps, end on damage, XP option (DA_ComboSettings, or the test override). */
+	const UGSComboSettings* GetComboSettings() const;
+
+	/** Tests / debug: use Settings instead of DA_ComboSettings until cleared (nullptr). Lives as long as this world. */
+	void SetComboSettingsOverride(const UGSComboSettings* Settings) { ComboSettingsOverride = Settings; }
+
 	// --- XP / levels (server) ---
 
 	/** Player level curve (DA_XPCurve). Levels don't advance if unset. */
@@ -214,6 +224,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")
 	TObjectPtr<UGSCashSettings> CashSettings;
 
+	/** Kill combo: window, cash multiplier steps, end on damage, XP option (DA_ComboSettings). No combos if unset. */
+	UPROPERTY(EditDefaultsOnly, Category = "Economy")
+	TObjectPtr<UGSComboSettings> ComboSettings;
+
 	/** XP needed per player level + max level (DA_XPCurve). */
 	UPROPERTY(EditDefaultsOnly, Category = "Progression")
 	TObjectPtr<UGSXPCurve> XPCurve;
@@ -273,6 +287,10 @@ private:
 
 	/** This GameMode paused the game for an upgrade choice (so it only unpauses its own pause). */
 	bool bPausedForUpgradeChoice = false;
+
+	/** SetComboSettingsOverride (tests). */
+	UPROPERTY(Transient)
+	TObjectPtr<const UGSComboSettings> ComboSettingsOverride;
 
 	FRandomStream RunStream;
 	int32 RunSeed = 0;

@@ -38,6 +38,10 @@
 #include "GSCashPickup.h"
 #include "GSCashPickupSubsystem.h"
 #include "GSCashSettings.h"
+#include "GSComboComponent.h"
+#include "GSComboSettings.h"
+#include "GSTargetDummy.h"
+#include "AbilitySystemGlobals.h"
 #include "GSHUDWidget.h"
 #include "GSSpawnTelegraph.h"
 #include "HAL/IConsoleManager.h"
@@ -1330,6 +1334,12 @@ namespace GSTests
 		return Sum;
 	}
 
+	UGSComboComponent* GetPlayerCombo()
+	{
+		const AGSPlayerState* PS = GetPC() ? GetPC()->GetPlayerState<AGSPlayerState>() : nullptr;
+		return PS ? PS->GetComboComponent() : nullptr;
+	}
+
 	int32 CountMagnetizedCash()
 	{
 		int32 Count = 0;
@@ -1361,6 +1371,11 @@ namespace GSTests
 
 		OutDropOrigin = Enemy->GetActorLocation();
 		OutCashValue = Data->CashValue;
+		// The drop is worth exactly CashValue: end any kill combo an earlier kill of the test started.
+		if (UGSComboComponent* Combo = GetPlayerCombo())
+		{
+			Combo->EndCombo(EGSComboEndReason::Reset);
+		}
 		ApplyDamage(Enemy->GetAbilitySystemComponent(), 100000.f, GetPlayerASC());
 		return Test->TestTrue(TEXT("Cash test enemy died"), Enemy->GetHealthComponent()->IsDead());
 	}
@@ -3250,6 +3265,298 @@ bool FGSMapBoundaryTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Air jump stopped by the ceiling"), S->MaxPlayerTop <= S->CeilingZ + 2.f);
 		GetPlayer()->TeleportTo(S->Center + FVector(0.f, 0.f, 150.f), FRotator::ZeroRotator);
 		GetMutableDefault<UEditorPerformanceSettings>()->bThrottleCPUWhenNotForeground = S->bOldThrottle;
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Kill combo
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	int32 SumActiveXPOrbs()
+	{
+		int32 Sum = 0;
+		for (const AGSCashPickup* Pickup : GetCashSubsystem()->GetActivePickups())
+		{
+			Sum += (Pickup && Pickup->IsXPOrb()) ? Pickup->GetValue() : 0;
+		}
+		return Sum;
+	}
+
+	/** What one kill dropped: cash pieces and XP orb value. */
+	struct FComboKillDrop
+	{
+		int32 Cash = 0;
+		int32 XP = 0;
+	};
+
+	/** Kill a MeleeBandit (spawn ring, out of pickup reach) as the player; returns what its death dropped. */
+	FComboKillDrop KillForCombo(FAutomationTestBase* Test)
+	{
+		const int32 CashBefore = SumActiveCash();
+		const int32 XPBefore = SumActiveXPOrbs();
+		KillTestEnemyAsPlayer(Test);
+		return { SumActiveCash() - CashBefore, SumActiveXPOrbs() - XPBefore };
+	}
+
+	/** Enqueue: wait Seconds of real time (the PIE world may be paused). */
+	void WaitRealSeconds(FAutomationTestBase* Test, double Seconds)
+	{
+		TSharedRef<double> End = MakeShared<double>(-1.0);
+		WaitUntil(Test, FString::Printf(TEXT("%.1f s of real time"), Seconds), [End, Seconds]()
+		{
+			if (*End < 0.0)
+			{
+				*End = FPlatformTime::Seconds() + Seconds;
+			}
+			return FPlatformTime::Seconds() >= *End;
+		});
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSKillComboTest, "BanditBaller.Economy.KillCombo", GSTests::TestFlags)
+bool FGSKillComboTest::RunTest(const FString& Parameters)
+{
+	struct FComboState
+	{
+		FVector PlayerHome = FVector(0.f, 0.f, 100.f);
+		int32 CashValue = 0;
+		int32 XPValue = 0;
+		int32 MaxStepCombo = 0;
+		int32 ExpectedGroundCash = 0;
+		int32 CashBefore = 0;
+		double LastKillTime = 0.0;
+		float PausedRemaining = 0.f;
+		int32 EndedCount = -1;
+		EGSComboEndReason EndedReason = EGSComboEndReason::Reset;
+		double EndedTime = 0.0;
+		FDelegateHandle EndedHandle;
+	};
+	TSharedRef<FComboState> S = MakeShared<FComboState>();
+
+	BeginPIE(this);
+
+	// Data, then one combo through every multiplier step.
+	Step([this, S]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		const UGSComboSettings* Settings = GameMode ? GameMode->GetComboSettings() : nullptr;
+		UGSComboComponent* Combo = GetPlayerCombo();
+		const UGSHUDWidget* HUD = GetPC() ? GetPC()->GetGSHUD() : nullptr;
+		if (!TestNotNull(TEXT("BP_GSGameMode has ComboSettings (DA_ComboSettings)"), Settings) || !TestNotNull(TEXT("Combo component on the PlayerState"), Combo)
+			|| !TestNotNull(TEXT("HUD"), HUD))
+		{
+			return;
+		}
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->RestartRunWithSeed(2201);
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		GetPlayer()->TeleportTo(S->PlayerHome, FRotator::ZeroRotator);
+		// Collected orbs give no XP, so the vacuum below can't level up (and pause) mid-test. gs.XP.Add still levels.
+		GetPlayerASC()->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 0.f);
+		S->EndedHandle = Combo->OnComboEndedNative.AddLambda([S](int32 FinalCount, EGSComboEndReason Reason)
+		{
+			S->EndedCount = FinalCount;
+			S->EndedReason = Reason;
+			S->EndedTime = GetPIEWorld() ? GetPIEWorld()->GetTimeSeconds() : 0.0;
+		});
+
+		TestEqual(TEXT("Combo window 2.5 s"), Settings->ComboWindow, 2.5f);
+		TestTrue(TEXT("Damage ends the combo by default"), Settings->bEndComboOnDamage);
+		TestFalse(TEXT("The combo doesn't multiply XP by default"), Settings->bApplyComboToXP);
+		const TArray<FGSComboStep>& Steps = Settings->CashMultiplierSteps;
+		if (TestEqual(TEXT("4 multiplier steps"), Steps.Num(), 4))
+		{
+			const float Expected[] = { 1.f, 1.25f, 1.5f, 2.f };
+			TestEqual(TEXT("First step at 1 kill"), Steps[0].MinCombo, 1);
+			for (int32 Index = 0; Index < 4; ++Index)
+			{
+				TestEqual(FString::Printf(TEXT("Step %d multiplier"), Index), Steps[Index].Multiplier, Expected[Index]);
+				if (Index > 0)
+				{
+					TestTrue(FString::Printf(TEXT("Step %d starts after step %d"), Index, Index - 1), Steps[Index].MinCombo > Steps[Index - 1].MinCombo);
+					TestEqual(FString::Printf(TEXT("One kill short of step %d: previous multiplier"), Index),
+						Settings->GetMultiplierForCombo(Steps[Index].MinCombo - 1), Steps[Index - 1].Multiplier);
+					TestEqual(FString::Printf(TEXT("Step %d reached at %d kills"), Index, Steps[Index].MinCombo),
+						Settings->GetMultiplierForCombo(Steps[Index].MinCombo), Steps[Index].Multiplier);
+				}
+			}
+			S->MaxStepCombo = Steps.Last().MinCombo;
+		}
+		TestEqual(TEXT("No combo: x1"), Settings->GetMultiplierForCombo(0), 1.f);
+		TestEqual(TEXT("Huge combo: the last step"), Settings->GetMultiplierForCombo(1000), 2.f);
+		TestEqual(TEXT("New run: no combo"), Combo->GetComboCount(), 0);
+		TestFalse(TEXT("New run: no combo on the HUD"), HUD->IsComboShowing());
+
+		const UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		S->CashValue = Data ? Data->CashValue : 0;
+		S->XPValue = Data ? Data->XPValue : 0;
+		if (!TestTrue(TEXT("MeleeBandit drops cash and XP"), S->CashValue > 0 && S->XPValue > 0) || S->MaxStepCombo <= 0)
+		{
+			return;
+		}
+
+		// Every kill adds one, restarts the window and pays at the step it reaches; XP stays flat.
+		for (int32 Kill = 1; Kill <= S->MaxStepCombo; ++Kill)
+		{
+			const FComboKillDrop Drop = KillForCombo(this);
+			const float Multiplier = Settings->GetMultiplierForCombo(Kill);
+			TestEqual(FString::Printf(TEXT("Kill %d: combo count"), Kill), Combo->GetComboCount(), Kill);
+			TestEqual(FString::Printf(TEXT("Kill %d: multiplier"), Kill), Combo->GetCashMultiplier(), Multiplier);
+			TestEqual(FString::Printf(TEXT("Kill %d: cash drop = round(CashValue x %.2f)"), Kill, Multiplier), Drop.Cash, FMath::RoundToInt(S->CashValue * Multiplier));
+			TestEqual(FString::Printf(TEXT("Kill %d: XP orb = XPValue"), Kill), Drop.XP, S->XPValue);
+			TestEqual(FString::Printf(TEXT("Kill %d: full window"), Kill), Combo->GetTimeRemaining(), Settings->ComboWindow, 0.01f);
+			TestEqual(FString::Printf(TEXT("Kill %d: HUD count"), Kill), HUD->GetDisplayedComboCount(), Kill);
+			TestEqual(FString::Printf(TEXT("Kill %d: HUD multiplier"), Kill), HUD->GetDisplayedComboMultiplier(), Multiplier);
+			TestTrue(FString::Printf(TEXT("Kill %d: HUD shows the combo from %d kills"), Kill, HUD->GetComboMinCountToShow()),
+				HUD->IsComboShowing() == (Kill >= HUD->GetComboMinCountToShow()));
+			S->ExpectedGroundCash += FMath::RoundToInt(S->CashValue * Multiplier);
+		}
+		TestEqual(TEXT("HUD count text"), HUD->GetComboCountText().ToString(), FString::Printf(TEXT("%d COMBO"), S->MaxStepCombo));
+		TestEqual(TEXT("HUD multiplier text"), HUD->GetComboMultiplierText().ToString(), FString(TEXT("x2 CASH")));
+		TestEqual(TEXT("Run stats: best combo"), GetGameState()->GetRunStats()->GetBestCombo(), S->MaxStepCombo);
+
+		// Target dummies aren't enemies: killing one doesn't count.
+		AGSTargetDummy* Dummy = nullptr;
+		for (TActorIterator<AGSTargetDummy> It(GetPIEWorld()); It; ++It)
+		{
+			Dummy = *It;
+			break;
+		}
+		if (TestNotNull(TEXT("A target dummy in the town"), Dummy))
+		{
+			ApplyDamage(UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Dummy), 100000.f, GetPlayerASC());
+			TestEqual(TEXT("A target dummy kill doesn't count"), Combo->GetComboCount(), S->MaxStepCombo);
+		}
+		S->LastKillTime = GetPIEWorld()->GetTimeSeconds();
+	});
+
+	// The window drains with game time; the next kill restarts it.
+	WaitWorldSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		UGSComboComponent* Combo = GetPlayerCombo();
+		const UGSComboSettings* Settings = GetGameMode()->GetComboSettings();
+		const UGSHUDWidget* HUD = GetPC()->GetGSHUD();
+		const float Elapsed = static_cast<float>(GetPIEWorld()->GetTimeSeconds() - S->LastKillTime);
+		TestTrue(TEXT("Combo still running after 1 s"), Combo->IsComboActive());
+		TestEqual(TEXT("The window drains with game time"), Combo->GetTimeRemaining(), Settings->ComboWindow - Elapsed, 0.05f);
+		TestTrue(FString::Printf(TEXT("HUD timer bar drained (%.2f)"), HUD->GetDisplayedComboTimerPercent()),
+			HUD->GetDisplayedComboTimerPercent() > 0.f && HUD->GetDisplayedComboTimerPercent() < 0.9f);
+		TestEqual(TEXT("HUD timer bar follows the window"), HUD->GetDisplayedComboTimerPercent(), Combo->GetTimeRemainingFraction(), 0.15f);
+
+		const FComboKillDrop Drop = KillForCombo(this);
+		TestEqual(TEXT("A kill inside the window continues the combo"), Combo->GetComboCount(), S->MaxStepCombo + 1);
+		TestEqual(TEXT("... and restarts the window"), Combo->GetTimeRemaining(), Settings->ComboWindow, 0.01f);
+		TestEqual(TEXT("Past the last step: still the top multiplier"), Drop.Cash,
+			FMath::RoundToInt(S->CashValue * Settings->GetMultiplierForCombo(S->MaxStepCombo + 1)));
+		S->ExpectedGroundCash += Drop.Cash;
+		S->LastKillTime = GetPIEWorld()->GetTimeSeconds();
+		S->EndedCount = -1;
+	});
+	WaitUntil(this, TEXT("combo window to run out"), []() { return GetPlayerCombo() && !GetPlayerCombo()->IsComboActive(); }, 10.0);
+
+	// Pickups keep the multiplier of the kill that dropped them, though the combo is over.
+	Step([this, S]()
+	{
+		const UGSComboSettings* Settings = GetGameMode()->GetComboSettings();
+		TestEqual(TEXT("Ended: final count"), S->EndedCount, S->MaxStepCombo + 1);
+		TestTrue(TEXT("Ended: timed out"), S->EndedReason == EGSComboEndReason::TimedOut);
+		const double Lasted = S->EndedTime - S->LastKillTime;
+		TestTrue(FString::Printf(TEXT("Ended one window after the last kill (%.2f s)"), Lasted),
+			Lasted >= Settings->ComboWindow - 0.01 && Lasted <= Settings->ComboWindow + 0.5);
+		TestEqual(TEXT("Ended: back to x1"), GetPlayerCombo()->GetCashMultiplier(), 1.f);
+		TestFalse(TEXT("Ended: no combo on the HUD"), GetPC()->GetGSHUD()->IsComboShowing());
+		TestEqual(TEXT("Run stats keep the best combo"), GetGameState()->GetRunStats()->GetBestCombo(), S->MaxStepCombo + 1);
+
+		TestEqual(TEXT("Cash on the ground = the combo's multiplied drops"), SumActiveCash(), S->ExpectedGroundCash);
+		S->CashBefore = GetPlayerCash();
+		GetGameMode()->SetPhase(EGSRoundPhase::RoundClear);
+	});
+	WaitUntil(this, TEXT("vacuumed pickups to arrive"), []() { return GetCashSubsystem()->GetNumActive() == 0; }, 15.0);
+
+	// The window stops while the game is paused (level-up -> upgrade choice).
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Collected after the combo ended: paid at the multipliers of the kills"), GetPlayerCash() - S->CashBefore, S->ExpectedGroundCash);
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRound(1);
+
+		KillForCombo(this);
+		const UGSComboComponent* Combo = GetPlayerCombo();
+		TestEqual(TEXT("New combo"), Combo->GetComboCount(), 1);
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("XPAdd"), { TEXT("100") });
+		TestTrue(TEXT("Level-up opened an upgrade offer and paused the game"), GameMode->IsPausedForUpgradeChoice() && GetPIEWorld()->IsPaused());
+		S->PausedRemaining = Combo->GetTimeRemaining();
+		TestTrue(TEXT("Window running when the pause starts"), S->PausedRemaining > 0.f);
+	});
+	WaitRealSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		const UGSComboComponent* Combo = GetPlayerCombo();
+		TestTrue(TEXT("Still paused"), GetPIEWorld()->IsPaused());
+		TestEqual(TEXT("Paused: the window doesn't drain"), Combo->GetTimeRemaining(), S->PausedRemaining, 0.001f);
+		TestEqual(TEXT("Paused: combo kept"), Combo->GetComboCount(), 1);
+		TestTrue(TEXT("Upgrade picked"), PickAllUpgradeOffers() > 0);
+		TestFalse(TEXT("Picking unpaused the game"), GetPIEWorld()->IsPaused());
+	});
+	WaitWorldSeconds(this, 0.5);
+
+	// Damage, the two options, and the run reset.
+	Step([this, S]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		UGSComboComponent* Combo = GetPlayerCombo();
+		const UGSHUDWidget* HUD = GetPC()->GetGSHUD();
+		TestTrue(TEXT("Unpaused: the window drains again"), Combo->IsComboActive() && Combo->GetTimeRemaining() < S->PausedRemaining - 0.45f);
+
+		KillForCombo(this);
+		TestEqual(TEXT("Second kill"), Combo->GetComboCount(), 2);
+		TestTrue(TEXT("A combo of 2 shows on the HUD"), HUD->IsComboShowing());
+		ApplyDamage(GetPlayerASC(), 5.f);
+		TestEqual(TEXT("God mode blocks the damage: combo kept"), Combo->GetComboCount(), 2);
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		const float HealthBefore = GetHealth(GetPlayerASC());
+		ApplyDamage(GetPlayerASC(), 5.f);
+		TestTrue(TEXT("Player lost health"), GetHealth(GetPlayerASC()) < HealthBefore);
+		TestEqual(TEXT("Damage ends the combo"), Combo->GetComboCount(), 0);
+		TestTrue(TEXT("Ended: damage taken"), S->EndedReason == EGSComboEndReason::DamageTaken);
+		TestFalse(TEXT("Damage: no combo on the HUD"), HUD->IsComboShowing());
+
+		// bEndComboOnDamage off, bApplyComboToXP on.
+		UGSComboSettings* Override = DuplicateObject<UGSComboSettings>(GameMode->GetComboSettings(), GetTransientPackage());
+		Override->bEndComboOnDamage = false;
+		Override->bApplyComboToXP = true;
+		GameMode->SetComboSettingsOverride(Override);
+		const int32 Kills = Override->CashMultiplierSteps.Num() > 1 ? Override->CashMultiplierSteps[1].MinCombo : 1;
+		for (int32 Kill = 1; Kill <= Kills; ++Kill)
+		{
+			const FComboKillDrop Drop = KillForCombo(this);
+			const float Multiplier = Override->GetMultiplierForCombo(Kill);
+			TestEqual(FString::Printf(TEXT("bApplyComboToXP, kill %d: XP orb = round(XPValue x %.2f)"), Kill, Multiplier), Drop.XP, FMath::RoundToInt(S->XPValue * Multiplier));
+			TestEqual(FString::Printf(TEXT("bApplyComboToXP, kill %d: cash still multiplied"), Kill), Drop.Cash, FMath::RoundToInt(S->CashValue * Multiplier));
+		}
+		const float HealthBeforeOption = GetHealth(GetPlayerASC());
+		ApplyDamage(GetPlayerASC(), 5.f);
+		TestTrue(TEXT("Player lost health again"), GetHealth(GetPlayerASC()) < HealthBeforeOption);
+		TestEqual(TEXT("bEndComboOnDamage off: damage keeps the combo"), Combo->GetComboCount(), Kills);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		GameMode->SetComboSettingsOverride(nullptr);
+
+		// A new run ends the combo and clears the best combo.
+		GameMode->RestartRunWithSeed(2202);
+		TestEqual(TEXT("New run: combo ended"), Combo->GetComboCount(), 0);
+		TestTrue(TEXT("New run: ended with Reset"), S->EndedReason == EGSComboEndReason::Reset);
+		TestEqual(TEXT("New run: best combo 0"), GetGameState()->GetRunStats()->GetBestCombo(), 0);
+		TestTrue(TEXT("gs.Run.Stats shows the best combo"), GetGameState()->GetRunStats()->ToDebugString().Contains(TEXT("Best combo")));
+
+		Combo->OnComboEndedNative.Remove(S->EndedHandle);
+		GameMode->SetRoundTimerPaused(false);
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
 	});
 	EndPIE();
 	return true;

@@ -9,6 +9,7 @@
 #include "Framework/Application/SlateApplication.h"
 #include "GameFramework/Pawn.h"
 #include "GSAttributeSet.h"
+#include "GSComboComponent.h"
 #include "GSGameState.h"
 #include "GSLevelRewards.h"
 #include "GSPlayerState.h"
@@ -72,6 +73,10 @@ void UGSHUDWidget::NativeConstruct()
 	{
 		XPBarBaseFillColor = XPBar->GetFillColorAndOpacity();
 	}
+	if (ComboPanel)
+	{
+		ComboPanel->SetVisibility(ESlateVisibility::Collapsed);
+	}
 }
 
 void UGSHUDWidget::NativeDestruct()
@@ -79,7 +84,122 @@ void UGSHUDWidget::NativeDestruct()
 	UnbindAbilitySystem();
 	UnbindCash();
 	UnbindProgression();
+	UnbindCombo();
 	Super::NativeDestruct();
+}
+
+// ---------------------------------------------------------------------------
+// Kill combo (UGSComboComponent)
+// ---------------------------------------------------------------------------
+
+bool UGSHUDWidget::TryBindCombo()
+{
+	const AGSPlayerState* PS = GetOwningPlayerState<AGSPlayerState>();
+	UGSComboComponent* Combo = PS ? PS->GetComboComponent() : nullptr;
+	if (Combo == BoundCombo.Get())
+	{
+		return Combo != nullptr;
+	}
+
+	UnbindCombo();
+	if (!Combo)
+	{
+		return false;
+	}
+	BoundCombo = Combo;
+	Combo->OnComboChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandleComboChanged);
+	DisplayedComboCount = Combo->GetComboCount();
+	DisplayedComboMultiplier = Combo->GetCashMultiplier();
+	RefreshComboDisplay();
+	return true;
+}
+
+void UGSHUDWidget::UnbindCombo()
+{
+	if (UGSComboComponent* Combo = BoundCombo.Get())
+	{
+		Combo->OnComboChanged.RemoveDynamic(this, &UGSHUDWidget::HandleComboChanged);
+	}
+	BoundCombo.Reset();
+}
+
+void UGSHUDWidget::HandleComboChanged(int32 ComboCount, float CashMultiplier)
+{
+	if (ComboCount > DisplayedComboCount)
+	{
+		ComboPunchRemaining = ComboPunchDuration;
+	}
+	if (ComboCount > 0 && CashMultiplier > DisplayedComboMultiplier + KINDA_SMALL_NUMBER)
+	{
+		ComboStepPunchRemaining = ComboStepPunchDuration;
+	}
+	DisplayedComboCount = ComboCount;
+	DisplayedComboMultiplier = CashMultiplier;
+	RefreshComboDisplay();
+}
+
+bool UGSHUDWidget::IsComboShowing() const
+{
+	return DisplayedComboCount >= GetComboMinCountToShow();
+}
+
+FText UGSHUDWidget::GetComboCountText() const
+{
+	return FText::Format(NSLOCTEXT("GSHUD", "ComboCount", "{0} COMBO"), FText::AsNumber(DisplayedComboCount));
+}
+
+FText UGSHUDWidget::GetComboMultiplierText() const
+{
+	FNumberFormattingOptions Options;
+	Options.MinimumFractionalDigits = 0;
+	Options.MaximumFractionalDigits = 2;
+	return FText::Format(NSLOCTEXT("GSHUD", "ComboMultiplier", "x{0} CASH"), FText::AsNumber(DisplayedComboMultiplier, &Options));
+}
+
+void UGSHUDWidget::RefreshComboDisplay()
+{
+	const bool bShow = IsComboShowing();
+	if (ComboPanel)
+	{
+		ComboPanel->SetVisibility(bShow ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+	if (!bShow)
+	{
+		return;
+	}
+	if (ComboCountText)
+	{
+		ComboCountText->SetText(GetComboCountText());
+	}
+	if (ComboMultiplierText)
+	{
+		ComboMultiplierText->SetText(GetComboMultiplierText());
+		ComboMultiplierText->SetColorAndOpacity(FSlateColor(DisplayedComboMultiplier > 1.f + KINDA_SMALL_NUMBER ? ComboBonusMultiplierColor : ComboBaseMultiplierColor));
+	}
+}
+
+void UGSHUDWidget::TickCombo(float DeltaTime)
+{
+	// The window drains continuously, so the bar reads it every tick (game time: it stays put while paused).
+	const UGSComboComponent* Combo = BoundCombo.Get();
+	DisplayedComboTimerPercent = Combo ? Combo->GetTimeRemainingFraction() : 0.f;
+	if (ComboTimerBar && IsComboShowing())
+	{
+		ComboTimerBar->SetPercent(DisplayedComboTimerPercent);
+	}
+
+	auto Punch = [DeltaTime](UWidget* Widget, float& Remaining, float Duration, float PeakScale)
+	{
+		if (Widget && (Remaining > 0.f || !Widget->GetRenderTransform().Scale.Equals(FVector2D::UnitVector)))
+		{
+			Remaining = FMath::Max(Remaining - DeltaTime, 0.f);
+			const float T = Duration > 0.f ? Remaining / Duration : 0.f;
+			const float Scale = FMath::Lerp(1.f, PeakScale, FMath::Sin(T * PI));
+			Widget->SetRenderScale(FVector2D(Scale, Scale));
+		}
+	};
+	Punch(ComboCountText.Get(), ComboPunchRemaining, ComboPunchDuration, ComboPunchScale);
+	Punch(ComboMultiplierText.Get(), ComboStepPunchRemaining, ComboStepPunchDuration, ComboStepPunchScale);
 }
 
 // ---------------------------------------------------------------------------
@@ -504,10 +624,12 @@ void UGSHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	TryBindAbilitySystem();
 	TryBindCash();
 	TryBindProgression();
+	TryBindCombo();
 
 	UpdateWeaponDisplay();
 	TickLevelUpFeedback(InDeltaTime);
 	TickXPPopupPairing(InDeltaTime);
+	TickCombo(InDeltaTime);
 
 	// Level label punch on level-up.
 	if (LevelText && (LevelPunchRemaining > 0.f || !LevelText->GetRenderTransform().Scale.Equals(FVector2D::UnitVector)))

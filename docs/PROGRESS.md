@@ -35,10 +35,10 @@ see **Design update — market, prestige and economy**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–21 are done
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–22 are done
 (11–13 and 17 were design / scope updates and permanent cash).
 
-State at the time of writing: `main` after Prompt 21, not pushed. The build is clean and all 25 automation tests pass.
+State at the time of writing: `main` after Prompt 22, not pushed. The build is clean and all 26 automation tests pass.
 
 | Step | What | Commit |
 |---|---|---|
@@ -66,7 +66,8 @@ State at the time of writing: `main` after Prompt 21, not pushed. The build is c
 | M2 18 | Upgrade offers: 4 rarity tiers, DA_UpgradePool, offer queue, choose / reroll, simulator (log only) | bd0e14c |
 | M2 19 | Level-up choice screen: pause, cards, input lock, keys / gamepad / mouse, reroll button | 9bd1d3b |
 | M2 20 | XP orbs: XP dropped as a pickup and granted at collection | 864d029 |
-| M2 21 | Map boundary: invisible walls + 75 m ceiling around the town (pawns only) | see git log |
+| M2 21 | Map boundary: invisible walls + 75 m ceiling around the town (pawns only) | 92a7bf0 |
+| M2 22 | Kill combo: window, cash multiplier steps, ends on damage, pauses with the game, HUD, best combo | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -134,7 +135,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–21 done)
+## M2 — The run loop (Prompts 1–22 done)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -824,6 +825,52 @@ Docs only; no code changed. Not a numbered step: **Next up** keeps its 18–28 n
 - **Note:** GA_Slide doesn't start during a dash, and the dash's exit speed brakes below the slide minimum within
   ~0.2 s, so a "dash, then slide" combo needs the move key held. That is existing behaviour, not changed here.
 
+### Prompt 22 — Kill combo
+- **`Core/GSComboSettings.h` (`UGSComboSettings`) → `Data/DA_ComboSettings`**, set as `ComboSettings` on
+  BP_GSGameMode. The asset still uses the class defaults:
+  - `ComboWindow` 2.5 s.
+  - `CashMultiplierSteps` (`FGSComboStep` MinCombo → Multiplier): 1 → x1, 3 → x1.25, 6 → x1.5, 10 → x2. The step
+    with the highest MinCombo ≤ the combo applies.
+  - `bEndComboOnDamage` true, `bApplyComboToXP` false.
+- **`Core/GSComboComponent.*` (`UGSComboComponent`, on `AGSPlayerState`, `GetComboComponent()`)** holds the combo.
+  It is run state.
+  - `RegisterKill()` adds 1, takes the multiplier for the new count and restarts the window. It returns the count.
+  - The window is a world timer, so it stops while the game is paused (the upgrade choice screen) and resumes after.
+  - `EndCombo(Reason)`: `EGSComboEndReason` TimedOut, DamageTaken or Reset. `AGSGameMode::StartRun` ends it with
+    Reset.
+  - Read access: `GetComboCount()`, `GetCashMultiplier()`, `GetTimeRemaining()`, `GetTimeRemainingFraction()`.
+  - Events: `OnComboChanged(Count, Multiplier)` (after every kill, and (0, x1) when the combo ends),
+    `OnComboEnded(FinalCount, Reason)` and its native mirror `OnComboEndedNative`.
+  - Not replicated (`TODO(co-op)`). Log prefix `[combo]` (one line per combo kill, one when a combo ends).
+- **Kills** (`AGSGameMode::HandleEnemyKilled`):
+  - Only enemy kills count (`AGSEnemyCharacter`), for the killer's PlayerState. Target dummies don't count.
+  - The combo is counted before the drops, so a kill pays at the step it reaches: cash =
+    round(CashValue × multiplier).
+  - The pickup keeps that value however late it is collected, even after the combo ended.
+  - XP orbs stay XPValue unless `bApplyComboToXP`.
+  - Run stats record the combo after each kill.
+- **Damage:** `AGSGameMode::HandleDamageApplied` (health actually lost) → `UGSComboComponent::HandleDamageTaken`.
+  It ends the combo if `bEndComboOnDamage`. Damage blocked by god mode or dash i-frames doesn't count.
+- **Tests / debug:** `AGSGameMode::GetComboSettings()` returns `SetComboSettingsOverride(Settings)` when one is set,
+  otherwise the asset.
+- **Run stats:** `BestCombo` (`GetBestCombo`, "Best combo" in `gs.Run.Stats`), reset with the run. It is not
+  replicated, unlike the other stats (`TODO(co-op)`), because of the "no new replication" rule.
+- **HUD** (WBP_HUD, built with MCP): VerticalBox `ComboPanel` under the cash counter (top right, 92 px down).
+  - `ComboCountText`: "5 COMBO", orange 28. It punches ×1.3 on every kill.
+  - `ComboMultiplierText`: "x1.25 CASH", size 20. Grey at x1, gold above (`ComboBaseMultiplierColor` /
+    `ComboBonusMultiplierColor`). It punches ×1.6 when a new step is reached.
+  - `ComboTimerBar`: an orange 220×8 bar in a SizeBox. It drains from the combo's remaining window, read every tick
+    (it stays put while paused).
+  - Shown from `ComboMinCountToShow` 2 kills. Tuning is on WBP_HUD's class defaults (HUD|Combo).
+  - Test hooks: `IsComboShowing()`, `GetDisplayedComboCount/Multiplier/TimerPercent()`, `GetComboCountText()`,
+    `GetComboMultiplierText()`.
+- **Debug:** `get_player_attributes` also returns Combo, ComboMultiplier and ComboTimeLeft. There are no new
+  console commands.
+- **Test** `Economy.KillCombo`. `Economy.CashPickups`' kill helper now ends the combo before each kill, so every
+  drop is exactly CashValue.
+- **PIE check** (god mode, round paused): `gs.Spawn MeleeBandit 5` + `gs.KillAll` → Combo 5, x1.25, 2.02 s left
+  0.4 s later. The HUD showed "5 COMBO / x1.25 CASH" with the bar draining under "$880". The combo had ended 3 s later.
+
 ---
 
 ## Console commands and CVars
@@ -872,7 +919,7 @@ Launch arg: `-GSSeed=N` fixes the run seed.
 MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - `spawn_enemies(type, count)` (PIE)
 - `get_player_attributes()` (PIE): attributes plus Ammo, Cash (profile balance), Level, XP, XPForNextLevel, TotalXP,
-  God, Invulnerable, Dead.
+  Combo, ComboMultiplier, ComboTimeLeft, God, Invulnerable, Dead.
 - `list_enemies_alive()` (PIE)
 - `simulate_upgrade_offers(count=10000, seed=1)` (no PIE needed): rolls DA_UpgradePool offers with its own stream and
   returns JSON text with how often each upgrade and rarity appears.
@@ -921,7 +968,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (25, all passing)
+## Automation tests (26, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test starts PIE in L_Town_Graybox, waits for the player, removes enemies, runs
 and ends PIE. Stop PIE before running.
@@ -943,7 +990,8 @@ and ends PIE. Stop PIE before running.
 | `Round.DifficultyScaling` | Round 1 base stats; round 10 = base × curve, full health; GameState multipliers. |
 | `Balance.TimeToKill` | Rifle/pistol shots-to-kill at rounds 1/5/10 vs both bandits via the real fire path (`[ttk]` log). XPGain 0, so kills don't open upgrade offers. |
 | `Run.SeedAndStats` | Same seed replays rolls; restart resets stats; kills per type; damage dealt/taken; rounds cleared. |
-| `Economy.CashPickups` | Exact split; out-of-reach drop stays; radius collects into Cash/CashEarned/HUD + popup; pool reuse; RoundClear vacuum; short lifetime blinks, expires unpaid. Counts cash pickups only (the kills' XP orbs never expire). |
+| `Economy.CashPickups` | Exact split; out-of-reach drop stays; radius collects into Cash/CashEarned/HUD + popup; pool reuse; RoundClear vacuum; short lifetime blinks, expires unpaid. Counts cash pickups only (the kills' XP orbs never expire). Ends the kill combo before each kill, so every drop is exactly CashValue. |
+| `Economy.KillCombo` | DA_ComboSettings on the GameMode (2.5 s, x1/x1.25/x1.5/x2 steps, end on damage, no XP); step lookup at each boundary; kills 1–10 in a row: count +1, multiplier, cash drop = round(CashValue × multiplier), XP orb unchanged, window restarted, HUD count / multiplier / shown from 2, "10 COMBO" / "x2 CASH", best combo; a target dummy kill doesn't count; the window drains with game time and the HUD bar follows; a kill inside the window continues; it times out one window after the last kill (HUD hidden); pickups collected after the combo ended pay the kill-time multipliers; a level-up pause freezes the window (1 s real time), picking resumes it; god mode keeps the combo, health lost ends it (DamageTaken); override bEndComboOnDamage off / bApplyComboToXP on: XP orbs multiplied, damage keeps the combo; a new run ends it (Reset) and clears the best combo; gs.Run.Stats shows it. |
 | `Economy.XPOrbs` | XPOrbLifetime 0; kill → no XP, one orb worth XPValue with the orb mesh / material, no expiry; cash expires (gs.Cash.Lifetime 1.5) but the orb stays, no blink; walking in collects it → XP = XPValue × XPGain 1.5, run stats XPEarned, "+N XP" popup at the collection point; out-of-reach orb waits, RoundClear vacuums it; gs.XP.Add is instant; a new run clears orbs on the ground; a dead player collects nothing. |
 | `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over (HUD level + bar follow); kill gives no XP but one orb; collected orb XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; cap at max level; new run resets. |
 | `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear and the Market District; new run removes stacks and clamps Health; dead player gets the stack but no heal. Takes each upgrade offer (choice 0) so the game unpauses. |
@@ -1013,6 +1061,10 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 
   - Reaching level 10 takes 2579 XP in total. Level 20 needs 5551 from level 19, and level 50 needs 4.48 M.
   - XP per enemy (orb value): MeleeBandit 10, RangedBandit 15. DT_Waves rounds 1–5 drop 40 / 65 / 90 / 115 / 150 XP.
+- **Kill combo** (DA_ComboSettings): 2.5 s window, restarted by every kill. Cash x1 from 1 kill, x1.25 from 3,
+  x1.5 from 6 and x2 from 10. Damage ends it; XP isn't multiplied.
+  - Melee bandit drops: $10 / $13 / $15 / $20.
+  - Ranged bandit drops: $15 / $19 / $23 / $30.
 - **Upgrades** (per stack, additive on the base value): Reload Speed +10%, Damage +10%, Move Speed +8% (Common);
   Extra Jump +1 air jump (Rare). None has a cap.
 - **Upgrade offers** (DA_UpgradePool, placeholders): rarity weights Common 100 / Rare 20 / Epic 6 / Legendary 1,
@@ -1047,7 +1099,10 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   survives it (profile, saved on death).
 - Profile: there are no upgrade steps yet (version 1 is the only layout). A crash between save points loses the cash
   earned since the last RoundClear.
-- Cash drops and enemy XP don't scale with the round. This is by design (flat economy, user decision).
+- Cash drops and enemy XP don't scale with the round. This is by design (flat economy, user decision). The kill
+  combo multiplies the cash of a kill; it depends on kill speed, not the round.
+- Kill combo: no sound or VFX yet (only the HUD panel and its punches). The combo steps are first-pass numbers,
+  not balanced against real fights.
 - The only level-up reward so far is +10 MaxHealth and a full heal. Player death (`?Restart`) reloads the map,
   which also resets levels and their MaxHealth stacks.
 - Level-up feedback is placeholder: an editor chime for the sound and a plain overlay glow, with no VFX or
@@ -1131,7 +1186,7 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
 19. ~~**Choice screen (with reroll).**~~ Done (see Prompt 19).
 20. ~~**XP pickups.**~~ Done (see Prompt 20).
 21. ~~**Map boundary.**~~ Done for the town (see Prompt 21). The hub map gets its own `AGSMapBoundary` in Prompt 25.
-22. **Kill combo.**
+22. ~~**Kill combo.**~~ Done (see Prompt 22).
 23. **Round clear bonus.** The same amount every round (no round scaling; user decision).
 24. **Round HUD.**
 25. **Hub map + hub GameMode.**
@@ -1207,3 +1262,5 @@ Not built now; listed so single-player work stays co-op-ready. Co-op has never b
 - The XP orb's kind isn't replicated, so clients would show it with the cash look.
 - The "+N XP" collection point reaches only the local HUD (`NotifyXPCollected` is not an RPC); a remote client's
   popup falls back to above its pawn.
+- The kill combo (`UGSComboComponent`: count, multiplier, window) and run stats `BestCombo` aren't replicated, so a
+  remote client's HUD shows no combo.

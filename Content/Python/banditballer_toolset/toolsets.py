@@ -51,8 +51,9 @@ class BanditBallerTools(unreal.ToolsetDefinition):
     def get_player_attributes() -> dict[str, float]:
         """Returns the first player's current attribute values.
 
-        Includes the GAS attributes (Health, MaxHealth, MoveSpeed, Damage, FireRate, IncomingDamage)
-        plus Ammo (equipped magazine), God, Invulnerable and Dead as 0/1 flags.
+        Includes the GAS attributes (Health, MaxHealth, MoveSpeed, Damage, FireRate, IncomingDamage, ...)
+        plus Ammo (equipped magazine), Cash (profile), Level, XP, XPForNextLevel, TotalXP, the kill combo
+        (Combo, ComboMultiplier, ComboTimeLeft in seconds), and God, Invulnerable and Dead as 0/1 flags.
 
         Returns:
             Attribute name to current value.
