@@ -223,7 +223,7 @@ void UGSUpgradeChoiceWidget::RebuildCards()
 	{
 		return;
 	}
-	const TArray<UGSUpgradeData*> Choices = Upgrades->GetCurrentChoices();
+	const TArray<FGSUpgradeChoice>& Choices = Upgrades->GetCurrentOffer();
 
 	// Reuse card widgets; create more if the offer is bigger than before.
 	while (Cards.Num() < Choices.Num() && CardWidgetClass)
@@ -243,7 +243,9 @@ void UGSUpgradeChoiceWidget::RebuildCards()
 		Cards[Index]->SetVisibility(bUsed ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 		if (bUsed)
 		{
-			Cards[Index]->SetUpgrade(Choices[Index], Upgrades->GetStacks(Choices[Index]), Index);
+			const FGSUpgradeChoice& Choice = Choices[Index];
+			Cards[Index]->SetChoice(Choice.Upgrade, Choice.Rarity, Upgrades->GetChoiceValue(Choice), Upgrades->GetStacks(Choice.Upgrade),
+				Upgrades->GetTotalValue(Choice.Upgrade), Index);
 		}
 	}
 	// Trim unused cards from the count tests and keys see.

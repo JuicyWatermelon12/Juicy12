@@ -51,7 +51,7 @@ held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds
 M2b + M2c checkpoint (48), which replaces the old M2b checkpoint). Four more weapons and a weapons checkpoint follow
 (49–53). **Then M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Upgrade picks with rarity and value" (Prompt 41), not pushed. The build is clean and all 48 automation tests pass in about 113 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Per-card upgrade roll and cards" (Prompt 42), not pushed. The build is clean and all 48 automation tests pass in about 114 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -107,7 +107,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2b 38 | Floating Gun part 1: level 1 = a gun over the right shoulder that shoots the nearest enemy with pooled projectiles (8 × Damage, crits, 1.5 / s on an exact schedule, 20 m); kept off the crosshair | c7f3d6f |
 | M2b 39 | Floating Gun part 2: level 2 = a second gun over the left shoulder (never more than two), the guns prefer different targets, level 3+ = +10% damage and fire rate each; card text per next level | 062273f |
 | M2c 40 | Design update: upgrade rework (categories, rarity per card, weapons with 3 slots, no pick caps, endless levels); Prompts 41–53 planned (docs only) | fc5bcd2 |
-| M2c 41 | Upgrade picks: category, BaseValue, rarity multipliers in DA_UpgradePool, one GE per upgrade with the total (SetByCaller), FloatingGunPower, `gs.Upgrade.Grant <Name> [Count] [Rarity]`; offered picks still Common | see git log |
+| M2c 41 | Upgrade picks: category, BaseValue, rarity multipliers in DA_UpgradePool, one GE per upgrade with the total (SetByCaller), FloatingGunPower, `gs.Upgrade.Grant <Name> [Count] [Rarity]`; offered picks still Common | f1dbf24 |
+| M2c 42 | Per-card roll: Legendary ability chance 0.8%, then an upgrade by AppearanceWeight and a rarity from its category's weights (whole units: Rare → Common); cards show category, rolled rarity, pick line and "Now:"; simulator by category | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -2300,9 +2301,10 @@ picked. Icon only.
   stacks).
 
 **Open questions** (settled in each prompt; not decided)
-- How a card is rolled: an upgrade first and then its rarity from its category's weights, or a rarity first (as
-  today)? How do the categories share the 3 cards? (42)
-- Whole-unit upgrades: is Rare left out of their roll (assumed above), or does a Rare roll become Common? (42)
+- ~~How a card is rolled~~ Decided in Prompt 42 (user): the Legendary ability chance first, else an upgrade by
+  AppearanceWeight across all three categories, then its rarity from its category's weights.
+- ~~Whole-unit upgrades: is Rare left out of their roll, or does a Rare roll become Common?~~ Decided in Prompt 42
+  (user): a Rare roll counts as Common.
 - Can an offer show the same upgrade twice at different rarities? Today an offer never repeats an upgrade. (42)
 - With fewer than 3 weapons owned, can an offer hold several weapon cards? Does a reroll of the first level-up's offer
   keep a weapon card? (42)
@@ -2398,6 +2400,76 @@ is still granted as Common**, and a Common pick gives exactly what a pick gave b
   345. `gs.Upgrade.List` showed the four groups and the per-rarity picks.
 - **Known issue (cosmetic):** after a refused grant, `gs.Upgrade.Grant` also prints "x0 Rare granted (now 0 pick(s))".
 - **Full suite:** 48 tests, all passing, in 113.0 s.
+
+### Prompt 42 — Offer roll and cards
+- **The roll** (`UGSUpgradePool::RollOffer` → `TArray<FGSUpgradeChoice>`, each card an upgrade and its rolled rarity;
+  run stream as before). For each of the `ChoicesPerOffer` 3 cards:
+  1. Roll `LegendaryAbilityChance` (0.008). On a hit the card is a Legendary ability not yet in the offer, picked by
+     `AppearanceWeight`, at rarity Legendary.
+  2. Otherwise a stat boost, ability or weapon not yet in the offer, by `AppearanceWeight`, then its rarity from its
+     category's weights: `StatBoostRarityWeights` and `WeaponRarityWeights` 100 / 20 / 6 / 1, `AbilityRarityWeights`
+     100 / 10 / 3 / 0.5 (placeholders, DA_UpgradePool class defaults).
+  - **A whole-unit upgrade has no Rare: a Rare roll counts as Common** (`ResolveRarity`). Decided (user).
+  - A hit with no Legendary ability left falls back to step 2, and step 2 with nothing left falls back to a Legendary
+    ability. Upgrades at MaxStacks are still never offered (until Prompt 44).
+  - The old single `RarityWeights` map and the fixed `UGSUpgradeData::Rarity` are gone.
+- **Offers** (`UGSUpgradeComponent`): the open offer is `TArray<FGSUpgradeChoice>` (`GetCurrentOffer()`;
+  `GetCurrentChoices()` still returns just the upgrades). `GetChoiceValue(Choice)` is what taking a card would add.
+  **`ChooseUpgrade` grants the card's rolled rarity.** Rerolls, the queue and events are unchanged. The `[upgrade]
+  offer opened` line lists each card as "DA_Upgrade_Damage (Common Stat Boost: +10% damage, now +15% damage, x1)".
+- **Card text in data** (`UGSUpgradeData`, set on all 15 assets with MCP):
+  - `ValueText`: what a value means, with plurals ("+{Value}% damage", "+{Value} {Value}|plural(one=dash
+    charge,other=dash charges)"). `FormatValueText(Value)` fills it; `FormatValue` (logs, console) uses it too.
+  - `DisplayScale` (0 = automatic: 100 for percent upgrades, 1 otherwise): Loaded Dice 100, Powder Keg 3 (= ChancePerStack
+    in percent), Floating Gun 10 (= DamageBonusPerPower in percent). Values are shown rounded to 0.1 ("+22.5%").
+  - **Descriptions rewritten without numbers** (they never contradict the pick line): e.g. Damage "Every hit from your
+    weapons does more damage.", Floating Shield "A shield circles you and blocks one whole hit, then comes back after a
+    cooldown." Floating Gun's three step texts are "Adds a floating gun over your right shoulder…", "Adds a second
+    floating gun, over your left shoulder." and "Makes both floating guns stronger."
+- **WBP_UpgradeCard** (MCP; `UGSUpgradeCardWidget::SetChoice(Upgrade, Rarity, PickValue, OwnedPicks, OwnedTotal, Index)`):
+  - Top to bottom: key hint, **category** ("STAT BOOST", grey, 12, new `CategoryText`), icon (now 64 px), name,
+    **rarity** (the card's rolled rarity, in its color; the frame too), **pick line** (new `PickText`, gold 22: "+15%
+    damage", "+2 dash charges"; hidden for a Common pick that only gives a weapon or one of its guns), description (15),
+    **"Now: +20% damage"** or "Now: none" (`OwnedText` renamed `NowText`). The card is 480 px tall (was 440).
+  - Test hooks: `GetRarity`, `GetCategoryText`, `GetPickText`, `GetNowText`.
+- **HUD and run summary icons:** still "xN" = picks; the frame takes the rarest pick so far
+  (`FGSUpgradeStack::GetBestRarity`).
+- **Simulator:** `UGSDebugLibrary::SimulateUpgradeOffers` and `simulate_upgrade_offers` add cards per upgrade, cards and
+  offers per category ("Stat Boost", "Ability", "Legendary ability", "Weapon") and each category's rarity split.
+- **Simulation, 10,000 offers, seed 1** (30,000 cards, no short offers):
+
+  | Category | Cards | Offers with one | Common | Rare | Epic | Legendary |
+  |---|---|---|---|---|---|---|
+  | Stat Boost (7) | 49.8% | 90.3% | 78.6% | 15.9% | 4.7% | 0.78% |
+  | Ability (6) | 42.4% | 84.4% | 95.4% | 1.5% (Powder Keg only) | 2.7% | 0.44% |
+  | Legendary ability (Second Wind) | 0.77% | 2.3% | | | | 100% |
+  | Weapon (Floating Gun) | 7.0% | 21.1% | 79.5% | 15.5% | 4.5% | 0.57% |
+
+  - Each of the 14 other upgrades is on 6.9–7.3% of cards (20.7–21.9% of offers); Second Wind on 0.77%.
+  - By rarity: Common 85.2% of cards, Rare 9.6%, Epic 3.8%, Legendary 1.4% (Second Wind included). An offer has a Rare
+    card in 26.2% of offers, an Epic in 10.9%, a Legendary in 4.1%.
+- **Not built here** (Next up's Prompt 42 text listed them; the prompt didn't): `MaxWeapons` and the first level-up's
+  weapon card. With one weapon in the pool they change nothing yet; they move to Prompt 43.
+- **Tests:**
+  - `Upgrades.Offers` rewritten for the per-card roll: category weights and the 0.8% chance; 30,000 offers checked
+    for 3 different cards, Legendary ability cards at 0.8% (always Legendary), even AppearanceWeight spread, each
+    category's rarity split and no Rare whole-unit card; forced Legendary (chance 1 / 0); Rare-only weights giving
+    Rare vs Common to whole units; per-category weights; AppearanceWeight 0; a pick gets the card's rarity and value; the
+    same seed gives the same offer with rarities; simulator categories.
+  - `UI.UpgradeChoice`: every card's category, rarity, pick and Now lines, frame color and description; the pick has the
+    card's rarity.
+  - `Upgrades.PickValues`: every upgrade's Common and Legendary card line (plurals) and number-free descriptions.
+  - Upgrade tests check the category and the Common card line instead of the fixed rarity and the old description;
+    `Upgrades.PowderKeg` and `Upgrades.FloatingGunLevels` check DisplayScale against their settings.
+  - `Run.NewRunResets` picks a card that can't stop its killing blow (it had picked a Floating Shield, which blocked it,
+    as designed).
+- **PIE check** (town, round paused): a Rare Damage pick, then `gs.XP.Add 100` opened Floating Shield / Damage / Dash
+  Charge (all Common). The cards showed "ABILITY · Floating Shield · COMMON · +1 floating shield · … · Now: none",
+  "STAT BOOST · Damage · COMMON · +10% damage · … · Now: +15% damage" and "+1 dash charge". `gs.Upgrade.Choose 1` took
+  Damage to +25%.
+- **Environment:** Windows Smart App Control (switched to On) blocked the freshly built game DLL ("Bad Image",
+  0xc0e90002). The user turned it off; see Environment gotchas.
+- **Full suite:** 48 tests, all passing, in 114.1 s.
 
 ---
 
@@ -2564,7 +2636,7 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over (HUD level + bar follow), one offer open + one queued; kill gives no XP but one orb; collected orb XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; level 10 → cap in one gain queues one offer per level (40); cap at max level; new run resets. |
 | `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear; new run removes stacks and clamps Health; dead player gets the stack but no heal. Takes each upgrade offer (choice 0) so the game unpauses. |
 | `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → no popup, collected orb → "+XPValue XP" at the collection point; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); 3 upgrade offers taken; banner/pulse/glow end. |
-| `UI.UpgradeChoice` | Choice widget from the PlayerController; level-up pauses (GameMode owns the pause) and the cards wait for the banner; cards match the offer (order, rarity color, "Owned: N"); "Reroll (3 left)", cursor shown; key / click ignored during the 0.3 s lock; R, gamepad Y and the button reroll (label 2/1/0, new cards, lock again), greyed out at 0 and R does nothing; key 2 picks the 2nd card, last pick hides, unpauses, cursor off; 1000 XP → 1 open + 3 queued; D-pad selects, A picks; next offer swaps in at once (no banner wait), locked, still paused; click / numpad 1 / key 3 pick the rest; hidden and unpaused after the queue. |
+| `UI.UpgradeChoice` | Choice widget from the PlayerController; level-up pauses (GameMode owns the pause) and the cards wait for the banner; cards match the offer (order; category, rolled rarity text and frame color, pick line, "Now:" line, a description); the pick gets the card's rarity; "Reroll (3 left)", cursor shown; key / click ignored during the 0.3 s lock; R, gamepad Y and the button reroll (label 2/1/0, new cards, lock again), greyed out at 0 and R does nothing; key 2 picks the 2nd card, last pick hides, unpauses, cursor off; 1000 XP → 1 open + 3 queued; D-pad selects, A picks; next offer swaps in at once (no banner wait), locked, still paused; click / numpad 1 / key 3 pick the rest; hidden and unpaused after the queue. |
 | `UI.RoundHUD` | PreRound: "ROUND 1", "PRE-ROUND", countdown "Round 1 in 3…" → "… 2…" a second later, no enemy count, ROUND 1 banner, no icons; gs.Round.Set 2 restarts text + countdown and shows ROUND 2; a level-up hides it and queues it again (LEVEL UP!, offer open, paused); 3.5 s with the cards up: still waiting; the pick replays ROUND 2; icons: picked upgrade x1 → same again x2 (one icon) → another upgrade (two icons); Combat: "COMBAT", no countdown, "N enemies left" = wave, a kill updates it; RoundClear: phase text, no enemy count, ROUND CLEAR banner; a level-up during ROUND CLEAR then round 3 starting with the cards up → queued ROUND CLEAR + ROUND 3 → after LEVEL UP! only ROUND 3 shows (stale one dropped); no frame with a round banner over LEVEL UP! or an open offer; a new run clears the icons. |
 | `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; Combat → RoundClear pays the round-clear bonus into the profile; save when RoundClear ends includes it (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + return to the hub (the hub's HUD shows it); quitting saves it and the next PIE session (new GameInstance) loads it (HUD too); `gs.Profile.Reset` through the console → 0 and no save file. |
 | `Round.ClearBonus` | DA_RoundClearSettings on the GameMode ($20 / $15 / $15, 8 s + 1.5 s per enemy) and the summary widget on the controller; PreRound starts the round's stats (no payout, no summary); Combat records its start and wave size; round 1 killed fast with no damage → base + no damage + fast clear, kills = wave size, profile += bonus + cash collected; summary shows round, title and each line; after the vacuum cash collected ≥ kills × CashValue, XP = kills × XPValue, profile and CashEarned += cash collected + bonus, summary lines follow; round 2 PreRound hides the summary and starts from zero; damage taken + an impossible time limit (override) → base only, "missed" lines, total = base; RoundClear from PreRound pays nothing and shows nothing; round 10 (skip) pays the same as round 1; gs.Run.Stats shows the last bonus; a new run clears payout and round stats. |
@@ -2580,7 +2652,7 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Upgrades.SecondWind` | DA_Upgrade_SecondWind (Legendary, no cap, "+1", GE class, in the pool); DA_CombatSettings 30% / 2 s; SecondWinds 0, can't save; `gs.Upgrade.Grant SecondWind 2` → 2, Owned 2; with a combo running, a 9999 hit from a bandit: not dead, still in the run, Health = 30 (whole points), invulnerable for exactly 2 s (the effect's duration), SecondWinds 1, Owned 1, used once, damage taken += the old Health, combo ended; HUD: strong flash, one sound, "SECOND WIND / 1 left" banner, Health shown as 30, upgrade icon x1; a second killing blow while invulnerable does nothing; the invulnerability doesn't end early; a hit that doesn't kill uses none; a ready Floating Shield blocks a killing blow first (no Second Wind used); the last Second Wind saves again (Health 30, none left, Owned 0, "THAT WAS YOUR LAST", icon gone, two sounds); picked again → 1; a new run → 0, no uses; with none, a killing blow kills (GameOver). Health orbs off. Game time ×4; the HUD flash shortened on this HUD (it fades in real time). |
 | `Upgrades.FloatingGun` | DA_Upgrade_FloatingGun (Epic, no cap, "+1", GE class, in the pool); DA_FloatingGunSettings on the GameMode (8 damage, 1.5 / s, 20 m, 60 m/s, GE_Damage, meshes); level 0: no gun; `gs.Upgrade.Grant FloatingGun` → level 1, one gun on the right: to the right of the player and above the top of the head in the camera's frame, no collision; a frozen bandit 10 m ahead: 4 s of shooting with every frame on the exact schedule (shots = 1 + floor(elapsed / interval)), at least 6 shots, every hit 8; Damage ×1.5 and Loaded Dice 20 → a critical "24"; a bandit at 25 m isn't targeted; one behind a wall isn't; the nearest of two is; hand-fired projectiles pass through the player and hit a bandit behind (7 × Damage 2 = 14), stop at a wall, expire in open air; the pool reuses projectiles (created = prewarm); a safe zone stops it; its kill is the player's (kills, combo 1, XP orb, health orb at chance 1, cash, Leech +1, a Powder Keg blast at 100%); paused: no shots; 24 camera views (shoulder ×2, hip / ADS, pitch −70 to +50): the gun at least 0.9 × the clear radius from the crosshair (logged per view); dead: no shots; a new run → level 0, no projectiles, no gun. Health orbs off except where noted. Game time ×4. |
 | `Upgrades.FloatingGunLevels` | DA_FloatingGunSettings +10% damage and fire rate per level; guns per level 0–6: 0, 1, 2, 2, 2, 2, 2; multipliers x1 at level 2, x1.1 at 3, x1.3 at 5 (added up), 1.95 shots/s at 5; DA_Upgrade_FloatingGun has 3 card texts: "Adds a floating gun…", "Adds a second floating gun…", "+10% floating gun damage and fire rate" (the number matches the settings, damage and fire rate bonus equal), 9 owned repeats the last; the real WBP_UpgradeCard shows the text for 0–3 owned; level 1: one gun; level 2: two guns, the first still right, the second left, mirrored at the same height above the head, no collision, no bonus; one bandit in range: both shoot it; a second bandit: different targets, each takes one gun's damage (about 12 a second over 4 s); one dies: both go to the other; the level 5 pick mid-burst: every frame of both guns on schedule before and after, the schedule switches to the level 5 interval; level 5: still two guns (and two gun actors), 1.95 shots/s and x1.3 each, every hit 10.4, about 40.6 a second from both; logs one gun's DPS next to the rifle's; a new run → level 0, no guns, no gun actors left. Health orbs off. Game time ×4. |
-| `Upgrades.Offers` | DA_UpgradePool on the GameMode (15 upgrades, 100/20/6/1, 3 choices, 3 rerolls), 4 rarities; roll rules: 3000 offers all 3 different, Rare in ~40.2% (exact for these weights with 3 Epics and 1 Legendary), same seed same offers, 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer; simulator deterministic, no short offers, Epic and Legendary choices appear, run stream untouched. |
+| `Upgrades.Offers` | DA_UpgradePool on the GameMode (15 upgrades, weights Stat Boost / Weapon 100/20/6/1, Ability 100/10/3/0.5, Legendary ability chance 0.8%, 3 choices, 3 rerolls), 4 rarities; per-card roll: 30,000 offers all 3 different, Legendary ability cards at ~0.8% and always Legendary, the 14 others even, each category's rarity split, no Rare whole-unit card; chance 1 / 0 for the Legendary ability; Rare-only weights → Rare, but Common for whole units; per-category weights; AppearanceWeight 0 never offered; same seed same offers (with rarities), 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; a pick gets the card's rolled rarity and value; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer (with rarities); simulator deterministic, no short offers, Epic and Legendary cards, every card in a category, no Rare Legendary ability, run stream untouched. |
 | `Upgrades.PickValues` | DA_UpgradePool multipliers 1 / 1.5 / 2 / 3 and whole-unit values 1 / – / 2 / 3; all 15 DA_Upgrade_*: category, Legendary ability, whole units, BaseValue (= the old per-pick value), AppearanceWeight 1, percent or not, in the pool; Floating Gun WeaponGivingPicks 2; card number and FormatValue; ParseRarity; for every stat boost and ability one pick of each rarity: the attribute = base × (1 + total) or base + total after each, a Common pick = exactly the old pick, whole units refuse Rare, picks and total tracked, one active effect; 6 shields, JumpMaxCount 7, Powder Keg 7.5 stacks = 22.5%, crit 37.5%; `gs.Upgrade.Grant Damage 2 Epic` / `Damage Legendary`, ExtraJump Rare refused; Floating Gun Rare → Legendary → Common → Epic: power 0.5 / 2.5 / 3.5 / 5.5, 4 picks, two guns, ×1.55; Second Wind Common / Legendary / Rare = 3 charges, a killing blow uses one (2 picks, total 2, one effect); a new run removes all. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
@@ -2689,15 +2761,14 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   the game). Visuals on BP_GSCharacter's `FloatingShields` component: engine cylinder at (0.45, 0.45, 0.06) with
   M_FloatingShield, orbit 85 cm, 40 cm above the capsule center (chest height), 120°/s; block flash ×1.8 over 0.15 s,
   return pop 0.35 s.
-- **Upgrade offers** (DA_UpgradePool, 15 upgrades; placeholders): rarity weights Common 100 / Rare 20 / Epic 6 /
-  Legendary 1, 3 choices, 3 rerolls per run.
-  - `simulate_upgrade_offers(10000, 1)`, fresh run with no picks (Prompt 38): Move Speed in 39.9% of offers, Magnet
-    39.5%, Reload Speed 39.3%, Damage 39.2%, Bigger Mags 38.9%, Fire Rate 38.9%, Dash Charge 9.7%, Extra Jump 9.6%,
-    Leech 9.6%, Floating Shield 9.5%, Loaded Dice 9.5%, Powder Keg 5.0%, Floating Gun 4.6%, Piercing Rounds 4.5%,
-    Second Wind 2.3%.
-  - The Rare tier is in 40.6% of offers (40.2% expected), shared by five upgrades. The Epic tier (Piercing Rounds,
-    Powder Keg, Floating Gun) is in 13.4%. The Legendary tier (Second Wind) is in 2.3%: about one offer in 44.
-  - By choices: Common 78.6%, Rare 16.0%, Epic 4.7%, Legendary 0.8%. No short offers.
+- **Upgrade offers** (DA_UpgradePool, 15 upgrades; placeholders): per card a 0.8% Legendary ability chance, otherwise an
+  upgrade by AppearanceWeight (all 1) and a rarity from its category's weights: Stat Boosts and Weapons 100 / 20 / 6 / 1,
+  Abilities 100 / 10 / 3 / 0.5 (whole units: Rare → Common). 3 choices, 3 rerolls per run. Pick values ×1 / ×1.5 / ×2 /
+  ×3, whole units +1 / +2 / +3.
+  - `simulate_upgrade_offers(10000, 1)` (Prompt 42): each of the 14 non-Legendary upgrades on 6.9–7.3% of cards,
+    Second Wind on 0.77%. Cards by category: Stat Boost 49.8%, Ability 42.4%, Weapon 7.0%, Legendary ability 0.77%.
+  - By rarity: Common 85.2% of cards, Rare 9.6%, Epic 3.8%, Legendary 1.4%. Offers with a Rare card 26.2%, an Epic
+    10.9%, a Legendary 4.1%. No short offers.
 - **Combo curves**: there is no combo system yet.
 
 ## Known issues, TODOs and deviations
@@ -2858,6 +2929,9 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 `ABanditBallerPlayerController`.
 
 **Environment gotchas**:
+- Windows Smart App Control blocks freshly built unsigned DLLs: the editor shows "Bad Image … 0xc0e90002" and "The game
+  module 'BanditBaller' could not be loaded". Check `Microsoft-Windows-CodeIntegrity/Operational` (events 3077 / 3118). It
+  switched to On on 2026-11-22 and the user turned it off. A shipped build needs code signing (release milestone).
 - There is no Python on this machine (`python` isn't found). Use PowerShell, the Edit tool, or MCP's
   `ProgrammaticToolset`.
 - Bash heredocs with quotes fail. Write to the scratchpad and append instead.
@@ -2969,11 +3043,11 @@ questions). Each prompt updates the tests that assume the old design.
     (×1 / ×1.5 / ×2 / ×3) and whole-unit values (+1 / +2 / +3, no Rare) in data; a pick of a given rarity applies that
     much; weapon power and the per-weapon steps (the Floating Gun's levels become steps); Second Wind as charges.~~
     Done (see Prompt 41): offered picks stay Common until 42; picks 1 and 2 of the Floating Gun give its guns.
-42. **Offer roll and cards:** a rarity rolled per card on the run stream with the category weights (100 / 20 / 6 / 1;
-    Abilities 100 / 10 / 3 / 0.5); the 0.8% Legendary ability chance; MaxWeapons 3 and owned-only weapons after that;
-    a weapon card in the first level-up of a run; cards show the rolled rarity and the pick's value; the simulator.
+42. ~~**Offer roll and cards:** a rarity rolled per card on the run stream with the category weights (100 / 20 / 6 / 1;
+    Abilities 100 / 10 / 3 / 0.5); the 0.8% Legendary ability chance; cards show the rolled rarity and the pick's value;
+    the simulator.~~ Done (see Prompt 42). MaxWeapons and the first level-up's weapon card moved to 43.
 43. **Weapon slots and HUD:** three weapon slots in the top left, like the upgrade icons, filled in pick order (icon
-    only).
+    only); MaxWeapons 3 and owned-only weapons after that; a weapon card in the first level-up of a run (moved from 42).
 44. **Overflow effects and no pick caps:** every MaxStacks removed; Loaded Dice past 100% gives a chance of a
     triple-damage hit, Powder Keg past 100% a chance of a double-size blast.
 45. **Endless levels:** no level cap; the XP needed per level grows by a fixed amount.
@@ -3071,6 +3145,8 @@ Decided (user):
     double-size blast.
   - Endless levels: no level cap; the XP needed per level grows by a fixed amount instead of 25%.
   - HUD: three weapon slots in the top left, like the upgrade icons, filled as weapons are picked. Icon only.
+  - The roll (Prompt 42): per card the Legendary ability chance first, else an upgrade by AppearanceWeight across the
+    three categories and a rarity from its category's weights. A whole-unit upgrade's Rare roll counts as Common.
 - **Casino bets** risk cash only, never owned items.
 - **XP pickups:** XP comes from pickups enemies drop, not instantly on the kill.
 - **Map boundary:** every map has invisible walls around the play area and a ceiling, blocking pawns only.

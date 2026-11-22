@@ -6,7 +6,7 @@
 #include "Components/TextBlock.h"
 #include "Engine/Texture2D.h"
 
-void UGSUpgradeIconWidget::SetUpgrade(const UGSUpgradeData* InUpgrade, int32 InStacks)
+void UGSUpgradeIconWidget::SetUpgrade(const UGSUpgradeData* InUpgrade, int32 InStacks, EGSUpgradeRarity BestRarity)
 {
 	const bool bNewUpgrade = InUpgrade != Upgrade;
 	Upgrade = InUpgrade;
@@ -16,13 +16,13 @@ void UGSUpgradeIconWidget::SetUpgrade(const UGSUpgradeData* InUpgrade, int32 InS
 		return;
 	}
 
+	if (IconBorder)
+	{
+		const FLinearColor* Color = RarityColors.Find(BestRarity);
+		IconBorder->SetBrushColor(Color ? *Color : FLinearColor::White);
+	}
 	if (bNewUpgrade)
 	{
-		if (IconBorder)
-		{
-			const FLinearColor* Color = RarityColors.Find(Upgrade->Rarity);
-			IconBorder->SetBrushColor(Color ? *Color : FLinearColor::White);
-		}
 		if (IconImage)
 		{
 			if (UTexture2D* Texture = Upgrade->Icon.LoadSynchronous())

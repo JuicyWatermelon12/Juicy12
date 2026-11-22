@@ -5,10 +5,16 @@
 
 UGSUpgradePool::UGSUpgradePool()
 {
-	RarityWeights.Add(EGSUpgradeRarity::Common, 100.f);
-	RarityWeights.Add(EGSUpgradeRarity::Rare, 20.f);
-	RarityWeights.Add(EGSUpgradeRarity::Epic, 6.f);
-	RarityWeights.Add(EGSUpgradeRarity::Legendary, 1.f);
+	StatBoostRarityWeights.Add(EGSUpgradeRarity::Common, 100.f);
+	StatBoostRarityWeights.Add(EGSUpgradeRarity::Rare, 20.f);
+	StatBoostRarityWeights.Add(EGSUpgradeRarity::Epic, 6.f);
+	StatBoostRarityWeights.Add(EGSUpgradeRarity::Legendary, 1.f);
+	WeaponRarityWeights = StatBoostRarityWeights;
+
+	AbilityRarityWeights.Add(EGSUpgradeRarity::Common, 100.f);
+	AbilityRarityWeights.Add(EGSUpgradeRarity::Rare, 10.f);
+	AbilityRarityWeights.Add(EGSUpgradeRarity::Epic, 3.f);
+	AbilityRarityWeights.Add(EGSUpgradeRarity::Legendary, 0.5f);
 
 	RarityValueMultipliers.Add(EGSUpgradeRarity::Common, 1.f);
 	RarityValueMultipliers.Add(EGSUpgradeRarity::Rare, 1.5f);
@@ -20,10 +26,68 @@ UGSUpgradePool::UGSUpgradePool()
 	WholeUnitValues.Add(EGSUpgradeRarity::Legendary, 3.f);
 }
 
-float UGSUpgradePool::GetRarityWeight(EGSUpgradeRarity Rarity) const
+const TMap<EGSUpgradeRarity, float>& UGSUpgradePool::GetRarityWeights(EGSUpgradeCategory Category) const
 {
-	const float* Weight = RarityWeights.Find(Rarity);
+	switch (Category)
+	{
+	case EGSUpgradeCategory::Ability: return AbilityRarityWeights;
+	case EGSUpgradeCategory::Weapon: return WeaponRarityWeights;
+	default: return StatBoostRarityWeights;
+	}
+}
+
+float UGSUpgradePool::GetRarityWeight(EGSUpgradeCategory Category, EGSUpgradeRarity Rarity) const
+{
+	const float* Weight = GetRarityWeights(Category).Find(Rarity);
 	return Weight ? FMath::Max(*Weight, 0.f) : 0.f;
+}
+
+EGSUpgradeRarity UGSUpgradePool::ResolveRarity(const UGSUpgradeData* Upgrade, EGSUpgradeRarity Rarity) const
+{
+	return HasRarity(Upgrade, Rarity) ? Rarity : EGSUpgradeRarity::Common;
+}
+
+EGSUpgradeRarity UGSUpgradePool::RollRarity(FRandomStream& Stream, EGSUpgradeCategory Category) const
+{
+	const TArray<EGSUpgradeRarity> Rarities = GetAllRarities();
+	float Total = 0.f;
+	for (const EGSUpgradeRarity Rarity : Rarities)
+	{
+		Total += GetRarityWeight(Category, Rarity);
+	}
+	if (Total <= 0.f)
+	{
+		return EGSUpgradeRarity::Common;
+	}
+	const float Roll = Stream.FRandRange(0.f, Total);
+	float Cumulative = 0.f;
+	EGSUpgradeRarity Last = EGSUpgradeRarity::Common;
+	for (const EGSUpgradeRarity Rarity : Rarities)
+	{
+		const float Weight = GetRarityWeight(Category, Rarity);
+		if (Weight <= 0.f)
+		{
+			continue;
+		}
+		Last = Rarity;
+		Cumulative += Weight;
+		if (Roll < Cumulative)
+		{
+			return Rarity;
+		}
+	}
+	return Last;
+}
+
+TArray<EGSUpgradeCategory> UGSUpgradePool::GetAllCategories()
+{
+	TArray<EGSUpgradeCategory> Result;
+	const UEnum* Enum = StaticEnum<EGSUpgradeCategory>();
+	for (int32 Index = 0; Index < Enum->NumEnums() - 1; ++Index) // last entry is the generated _MAX
+	{
+		Result.Add(static_cast<EGSUpgradeCategory>(Enum->GetValueByIndex(Index)));
+	}
+	return Result;
 }
 
 float UGSUpgradePool::GetRarityValueMultiplier(EGSUpgradeRarity Rarity) const
@@ -78,56 +142,84 @@ TArray<EGSUpgradeRarity> UGSUpgradePool::GetAllRarities()
 	return Result;
 }
 
-TArray<UGSUpgradeData*> UGSUpgradePool::RollOffer(FRandomStream& Stream, TFunctionRef<int32(const UGSUpgradeData*)> GetStacks) const
+namespace
 {
-	// Everything that could be offered right now.
-	TArray<UGSUpgradeData*> Candidates;
+	/** One of Candidates by AppearanceWeight (nullptr if none has a weight above 0). */
+	UGSUpgradeData* PickByWeight(FRandomStream& Stream, const TArray<UGSUpgradeData*>& Candidates)
+	{
+		float Total = 0.f;
+		for (const UGSUpgradeData* Upgrade : Candidates)
+		{
+			Total += FMath::Max(Upgrade->AppearanceWeight, 0.f);
+		}
+		if (Total <= 0.f)
+		{
+			return nullptr;
+		}
+		const float Roll = Stream.FRandRange(0.f, Total);
+		float Cumulative = 0.f;
+		UGSUpgradeData* Last = nullptr;
+		for (UGSUpgradeData* Upgrade : Candidates)
+		{
+			const float Weight = FMath::Max(Upgrade->AppearanceWeight, 0.f);
+			if (Weight <= 0.f)
+			{
+				continue;
+			}
+			Last = Upgrade;
+			Cumulative += Weight;
+			if (Roll < Cumulative)
+			{
+				return Upgrade;
+			}
+		}
+		return Last;
+	}
+}
+
+TArray<FGSUpgradeChoice> UGSUpgradePool::RollOffer(FRandomStream& Stream, TFunctionRef<int32(const UGSUpgradeData*)> GetStacks) const
+{
+	// Everything that could be offered right now, split into Legendary abilities and the rest.
+	TArray<UGSUpgradeData*> Legendary;
+	TArray<UGSUpgradeData*> Normal;
 	for (UGSUpgradeData* Upgrade : Upgrades)
 	{
-		if (Upgrade && Upgrade->Effect && !Candidates.Contains(Upgrade) && Upgrade->CanAddStack(GetStacks(Upgrade)))
+		if (Upgrade && Upgrade->Effect && !Legendary.Contains(Upgrade) && !Normal.Contains(Upgrade) && Upgrade->CanAddStack(GetStacks(Upgrade)))
 		{
-			Candidates.Add(Upgrade);
+			(Upgrade->bLegendaryAbility ? Legendary : Normal).Add(Upgrade);
 		}
 	}
 
-	const TArray<EGSUpgradeRarity> Rarities = GetAllRarities();
-	TArray<UGSUpgradeData*> Offer;
+	TArray<FGSUpgradeChoice> Offer;
 	while (Offer.Num() < ChoicesPerOffer)
 	{
-		// Weight only the rarities that still have something to offer.
-		TArray<TPair<EGSUpgradeRarity, float>> Tiers;
-		float TotalWeight = 0.f;
-		for (const EGSUpgradeRarity Rarity : Rarities)
+		// 1. A Legendary ability (no rarity roll: it always comes as itself).
+		const bool bLegendaryCard = LegendaryAbilityChance > 0.f && Stream.FRand() < LegendaryAbilityChance;
+		UGSUpgradeData* Upgrade = bLegendaryCard ? PickByWeight(Stream, Legendary) : nullptr;
+		EGSUpgradeRarity Rarity = EGSUpgradeRarity::Legendary;
+
+		// 2. Otherwise a stat boost, ability or weapon by AppearanceWeight, then its rarity from its category's weights.
+		if (!Upgrade)
 		{
-			const float Weight = GetRarityWeight(Rarity);
-			if (Weight > 0.f && Candidates.ContainsByPredicate([Rarity](const UGSUpgradeData* U) { return U->Rarity == Rarity; }))
+			Upgrade = PickByWeight(Stream, Normal);
+			if (Upgrade)
 			{
-				Tiers.Emplace(Rarity, Weight);
-				TotalWeight += Weight;
+				Rarity = ResolveRarity(Upgrade, RollRarity(Stream, Upgrade->Category)); // whole units: Rare -> Common
 			}
 		}
-		if (Tiers.Num() == 0)
+		// Nothing but Legendary abilities left: one of those.
+		if (!Upgrade)
+		{
+			Upgrade = PickByWeight(Stream, Legendary);
+			Rarity = EGSUpgradeRarity::Legendary;
+		}
+		if (!Upgrade)
 		{
 			break; // fewer upgrades available than choices
 		}
-
-		const float Roll = Stream.FRandRange(0.f, TotalWeight);
-		EGSUpgradeRarity Picked = Tiers.Last().Key;
-		float Cumulative = 0.f;
-		for (const TPair<EGSUpgradeRarity, float>& Tier : Tiers)
-		{
-			Cumulative += Tier.Value;
-			if (Roll < Cumulative)
-			{
-				Picked = Tier.Key;
-				break;
-			}
-		}
-
-		TArray<UGSUpgradeData*> InTier = Candidates.FilterByPredicate([Picked](const UGSUpgradeData* U) { return U->Rarity == Picked; });
-		UGSUpgradeData* Choice = InTier[Stream.RandRange(0, InTier.Num() - 1)];
-		Offer.Add(Choice);
-		Candidates.Remove(Choice);
+		Offer.Add(FGSUpgradeChoice{ Upgrade, Rarity });
+		Legendary.Remove(Upgrade);
+		Normal.Remove(Upgrade);
 	}
 	return Offer;
 }

@@ -19,9 +19,30 @@ bool UGSUpgradeData::IsPercentUpgrade() const
 
 FString UGSUpgradeData::FormatValue(float Value) const
 {
+	if (!ValueText.IsEmpty())
+	{
+		return FormatValueText(Value).ToString();
+	}
 	const float Shown = ToDisplayValue(Value);
-	FString Number = FString::SanitizeFloat(FMath::RoundToDouble(Shown * 1000.0) / 1000.0, 0);
+	FString Number = FString::SanitizeFloat(Shown, 0);
 	return FString::Printf(TEXT("%s%s%s"), Shown >= 0.f ? TEXT("+") : TEXT(""), *Number, IsPercentUpgrade() ? TEXT("%") : TEXT(""));
+}
+
+FText UGSUpgradeData::FormatValueText(float Value) const
+{
+	const float Shown = ToDisplayValue(Value);
+	const bool bWhole = FMath::IsNearlyEqual(Shown, FMath::RoundToFloat(Shown), 0.001f);
+	// A whole number as an integer, so "1 dash charge" picks the singular; otherwise one decimal ("4.5").
+	const FFormatArgumentValue Number = bWhole ? FFormatArgumentValue(FMath::RoundToInt(Shown)) : FFormatArgumentValue(Shown);
+	if (ValueText.IsEmpty())
+	{
+		FNumberFormattingOptions Options;
+		Options.MaximumFractionalDigits = 1;
+		return FText::AsNumber(Shown, &Options);
+	}
+	FFormatNamedArguments Args;
+	Args.Add(TEXT("Value"), Number);
+	return FText::Format(ValueText, Args);
 }
 
 FText UGSUpgradeData::GetFormattedDescription(int32 OwnedStacks) const

@@ -16,19 +16,25 @@ void UGSUpgradeCardWidget::NativeOnInitialized()
 	}
 }
 
-void UGSUpgradeCardWidget::SetUpgrade(const UGSUpgradeData* InUpgrade, int32 OwnedStacks, int32 Index)
+void UGSUpgradeCardWidget::SetChoice(const UGSUpgradeData* InUpgrade, EGSUpgradeRarity InRarity, float PickValue, int32 OwnedPicks,
+	float OwnedTotal, int32 Index)
 {
 	Upgrade = InUpgrade;
+	Rarity = InRarity;
 	CardIndex = Index;
 	if (!InUpgrade)
 	{
 		return;
 	}
 
-	const FLinearColor Color = GetRarityColor(InUpgrade->Rarity);
+	const FLinearColor Color = GetRarityColor(InRarity);
 	if (CardBorder)
 	{
 		CardBorder->SetBrushColor(Color);
+	}
+	if (CategoryText)
+	{
+		CategoryText->SetText(FText::FromString(InUpgrade->GetCategoryName().ToUpper()));
 	}
 	if (NameText)
 	{
@@ -36,16 +42,25 @@ void UGSUpgradeCardWidget::SetUpgrade(const UGSUpgradeData* InUpgrade, int32 Own
 	}
 	if (RarityText)
 	{
-		RarityText->SetText(FText::FromString(UGSUpgradeData::GetRarityName(InUpgrade->Rarity).ToUpper()));
+		RarityText->SetText(FText::FromString(UGSUpgradeData::GetRarityName(InRarity).ToUpper()));
 		RarityText->SetColorAndOpacity(FSlateColor(Color));
+	}
+	if (PickText)
+	{
+		// A Common pick that only gives a weapon (or one of its guns) adds no value: the description says what it adds.
+		const bool bHasValue = PickValue > 0.f;
+		PickText->SetText(bHasValue ? InUpgrade->FormatValueText(PickValue) : FText::GetEmpty());
+		PickText->SetVisibility(bHasValue ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	}
 	if (DescriptionText)
 	{
-		DescriptionText->SetText(InUpgrade->GetFormattedDescription(OwnedStacks)); // the text for the next pick
+		DescriptionText->SetText(InUpgrade->GetFormattedDescription(OwnedPicks)); // the text for the next pick
 	}
-	if (OwnedText)
+	if (NowText)
 	{
-		OwnedText->SetText(FText::Format(NSLOCTEXT("GSUpgradeCard", "Owned", "Owned: {0}"), FText::AsNumber(OwnedStacks)));
+		NowText->SetText(OwnedPicks > 0
+			? FText::Format(NSLOCTEXT("GSUpgradeCard", "Now", "Now: {0}"), InUpgrade->FormatValueText(OwnedTotal))
+			: NSLOCTEXT("GSUpgradeCard", "NowNone", "Now: none"));
 	}
 	if (KeyHintText)
 	{
@@ -66,15 +81,25 @@ void UGSUpgradeCardWidget::SetSelected(bool bSelected)
 	SetRenderScale(FVector2D(bSelected ? SelectedScale : 1.f));
 }
 
-FLinearColor UGSUpgradeCardWidget::GetRarityColor(EGSUpgradeRarity Rarity) const
+FLinearColor UGSUpgradeCardWidget::GetRarityColor(EGSUpgradeRarity InRarity) const
 {
-	const FLinearColor* Color = RarityColors.Find(Rarity);
+	const FLinearColor* Color = RarityColors.Find(InRarity);
 	return Color ? *Color : FLinearColor::White;
 }
 
-FText UGSUpgradeCardWidget::GetOwnedText() const
+FText UGSUpgradeCardWidget::GetCategoryText() const
 {
-	return OwnedText ? OwnedText->GetText() : FText::GetEmpty();
+	return CategoryText ? CategoryText->GetText() : FText::GetEmpty();
+}
+
+FText UGSUpgradeCardWidget::GetPickText() const
+{
+	return PickText ? PickText->GetText() : FText::GetEmpty();
+}
+
+FText UGSUpgradeCardWidget::GetNowText() const
+{
+	return NowText ? NowText->GetText() : FText::GetEmpty();
 }
 
 FText UGSUpgradeCardWidget::GetDescriptionText() const

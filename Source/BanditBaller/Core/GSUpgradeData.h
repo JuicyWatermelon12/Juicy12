@@ -101,9 +101,20 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Upgrade", meta = (ClampMin = "1", EditCondition = "Category == EGSUpgradeCategory::Weapon"))
 	int32 WeaponGivingPicks = 1;
 
-	/** The rarity offers roll this upgrade at (fixed per upgrade until the per-card roll in Prompt 42). */
+	/**
+	 * What a value of this upgrade means, for the card's pick line and its "Now:" line. "{Value}" is the value as shown
+	 * (x DisplayScale); plurals work: "+{Value} {Value}|plural(one=dash charge,other=dash charges)", "+{Value}% damage".
+	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Upgrade")
-	EGSUpgradeRarity Rarity = EGSUpgradeRarity::Common;
+	FText ValueText;
+
+	/**
+	 * Shown value = value x this. 0 = automatic: 100 for percent upgrades (0.15 -> 15), 1 otherwise. Loaded Dice 100
+	 * (0.05 crit chance -> 5%), Powder Keg 3 (1 stack -> DA_CombatSettings ChancePerStack 3%), Floating Gun 10 (1 power
+	 * -> DA_FloatingGunSettings +10%); the tests check those two match their settings.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Upgrade", meta = (ClampMin = "0"))
+	float DisplayScale = 0.f;
 
 	/** Infinite effect, applied once and updated with the total of every pick (UGSUpgradeEffect subclasses). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Upgrade")
@@ -119,13 +130,20 @@ public:
 	/** True if Effect's values are fractions of the base (Multiply (Additive) on Data.UpgradeMultiplier): 0.1 = +10%. */
 	bool IsPercentUpgrade() const;
 
-	/** Value as shown to the player: x100 for percent upgrades (0.15 -> 15), unchanged otherwise. */
-	float ToDisplayValue(float Value) const { return IsPercentUpgrade() ? Value * 100.f : Value; }
+	/** DisplayScale, or the automatic one (100 for percent upgrades, 1 otherwise). */
+	float GetDisplayScale() const { return DisplayScale > 0.f ? DisplayScale : (IsPercentUpgrade() ? 100.f : 1.f); }
+
+	/** Value as shown to the player (x GetDisplayScale, rounded to 0.1): 0.15 on Damage -> 15, 1.5 on Powder Keg -> 4.5. */
+	float ToDisplayValue(float Value) const { return FMath::RoundToFloat(Value * GetDisplayScale() * 10.f) / 10.f; }
+
+	/** ValueText with Value filled in ("+15% damage", "+2 dash charges"); the raw number if ValueText is empty. */
+	UFUNCTION(BlueprintPure, Category = "Upgrade")
+	FText FormatValueText(float Value) const;
 
 	/** "+15%", "+2", "+0.075" for logs and the console. */
 	FString FormatValue(float Value) const;
 
-	/** One Common pick's value as shown to the player (BaseValue; 0.1 on a percent upgrade -> 10). */
+	/** One Common pick's value as shown to the player (BaseValue x the display scale; 0.1 on a percent upgrade -> 10). */
 	UFUNCTION(BlueprintPure, Category = "Upgrade")
 	float GetPerStackValue() const { return ToDisplayValue(BaseValue); }
 

@@ -363,11 +363,13 @@ void UGSDebugLibrary::PrintUpgradeOffer(AGSPlayerController* PC)
 		return;
 	}
 	FString Text = Upgrades->DescribeOffer();
-	const TArray<UGSUpgradeData*> Choices = Upgrades->GetCurrentChoices();
+	const TArray<FGSUpgradeChoice>& Choices = Upgrades->GetCurrentOffer();
 	for (int32 Index = 0; Index < Choices.Num(); ++Index)
 	{
-		Text += FString::Printf(TEXT("\n  [%d] %s: %s"), Index, *Choices[Index]->DisplayName.ToString(),
-			*Choices[Index]->GetFormattedDescription(Upgrades->GetStacks(Choices[Index])).ToString());
+		const FGSUpgradeChoice& Choice = Choices[Index];
+		Text += FString::Printf(TEXT("\n  [%d] %s %s (%s): %s. %s"), Index, *UGSUpgradeData::GetRarityName(Choice.Rarity),
+			*Choice.Upgrade->DisplayName.ToString(), *Choice.Upgrade->GetCategoryName(), *Choice.Upgrade->FormatValue(Upgrades->GetChoiceValue(Choice)),
+			*Choice.Upgrade->GetFormattedDescription(Upgrades->GetStacks(Choice.Upgrade)).ToString());
 	}
 	TArray<FString> Lines;
 	Text.ParseIntoArrayLines(Lines);
@@ -397,7 +399,8 @@ FGSUpgradeOfferSimulation UGSDebugLibrary::SimulateUpgradeOffers(int32 Count, in
 	Result.Pool = Pool->GetName();
 	Result.ChoicesPerOffer = Pool->ChoicesPerOffer;
 
-	// Every rarity and pooled upgrade starts at 0, so ones that never come up are reported too.
+	// Every rarity, category and pooled upgrade starts at 0, so ones that never come up are reported too.
+	auto CategoryKey = [](const UGSUpgradeData* Upgrade) { return Upgrade->GetCategoryName(); }; // Legendary abilities apart
 	for (const EGSUpgradeRarity Rarity : UGSUpgradePool::GetAllRarities())
 	{
 		Result.RarityChoices.Add(UGSUpgradeData::GetRarityName(Rarity), 0);
@@ -408,6 +411,13 @@ FGSUpgradeOfferSimulation UGSDebugLibrary::SimulateUpgradeOffers(int32 Count, in
 		if (Upgrade)
 		{
 			Result.UpgradeOffers.Add(Upgrade->GetName(), 0);
+			Result.UpgradeChoices.Add(Upgrade->GetName(), 0);
+			Result.CategoryChoices.Add(CategoryKey(Upgrade), 0);
+			Result.CategoryOffers.Add(CategoryKey(Upgrade), 0);
+			for (const EGSUpgradeRarity Rarity : UGSUpgradePool::GetAllRarities())
+			{
+				Result.CategoryRarityChoices.Add(CategoryKey(Upgrade) + TEXT(" / ") + UGSUpgradeData::GetRarityName(Rarity), 0);
+			}
 		}
 	}
 
@@ -415,21 +425,31 @@ FGSUpgradeOfferSimulation UGSDebugLibrary::SimulateUpgradeOffers(int32 Count, in
 	FRandomStream Stream(Seed);
 	for (int32 OfferIndex = 0; OfferIndex < FMath::Max(Count, 0); ++OfferIndex)
 	{
-		const TArray<UGSUpgradeData*> Offer = Pool->RollOffer(Stream, [](const UGSUpgradeData*) { return 0; });
+		const TArray<FGSUpgradeChoice> Offer = Pool->RollOffer(Stream, [](const UGSUpgradeData*) { return 0; });
 		++Result.Offers;
 		Result.TotalChoices += Offer.Num();
 		Result.ShortOffers += Offer.Num() < Pool->ChoicesPerOffer ? 1 : 0;
 
 		TSet<EGSUpgradeRarity> RaritiesInOffer;
-		for (const UGSUpgradeData* Choice : Offer)
+		TSet<FString> CategoriesInOffer;
+		for (const FGSUpgradeChoice& Choice : Offer)
 		{
-			++Result.UpgradeOffers.FindOrAdd(Choice->GetName());
-			++Result.RarityChoices.FindOrAdd(UGSUpgradeData::GetRarityName(Choice->Rarity));
-			RaritiesInOffer.Add(Choice->Rarity);
+			const FString Category = CategoryKey(Choice.Upgrade);
+			++Result.UpgradeOffers.FindOrAdd(Choice.Upgrade->GetName()); // at most once per offer (cards differ)
+			++Result.UpgradeChoices.FindOrAdd(Choice.Upgrade->GetName());
+			++Result.RarityChoices.FindOrAdd(UGSUpgradeData::GetRarityName(Choice.Rarity));
+			++Result.CategoryChoices.FindOrAdd(Category);
+			++Result.CategoryRarityChoices.FindOrAdd(Category + TEXT(" / ") + UGSUpgradeData::GetRarityName(Choice.Rarity));
+			RaritiesInOffer.Add(Choice.Rarity);
+			CategoriesInOffer.Add(Category);
 		}
 		for (const EGSUpgradeRarity Rarity : RaritiesInOffer)
 		{
 			++Result.RarityOffers.FindOrAdd(UGSUpgradeData::GetRarityName(Rarity));
+		}
+		for (const FString& Category : CategoriesInOffer)
+		{
+			++Result.CategoryOffers.FindOrAdd(Category);
 		}
 	}
 	return Result;

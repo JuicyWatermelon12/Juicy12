@@ -214,7 +214,7 @@ void UGSRunSummaryWidget::RefreshUpgrades()
 		}
 		for (int32 Index = 0; Index < UpgradeIcons.Num(); ++Index)
 		{
-			UpgradeIcons[Index]->SetUpgrade(Picked[Index]->Upgrade, Picked[Index]->Stacks);
+			UpgradeIcons[Index]->SetUpgrade(Picked[Index]->Upgrade, Picked[Index]->Stacks, Picked[Index]->GetBestRarity());
 		}
 		UpgradesBox->SetVisibility(Picked.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
 	}

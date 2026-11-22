@@ -22,7 +22,8 @@ class BANDITBALLER_API UGSUpgradeIconWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	void SetUpgrade(const UGSUpgradeData* InUpgrade, int32 InStacks);
+	/** BestRarity tints the frame (the rarest pick of the upgrade so far). */
+	void SetUpgrade(const UGSUpgradeData* InUpgrade, int32 InStacks, EGSUpgradeRarity BestRarity = EGSUpgradeRarity::Common);
 
 	const UGSUpgradeData* GetUpgrade() const { return Upgrade; }
 	int32 GetStacks() const { return Stacks; }

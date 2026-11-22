@@ -214,7 +214,7 @@ const UGSUpgradePool* UGSUpgradeComponent::GetPool() const
 	return GameMode ? GameMode->GetUpgradePool() : nullptr;
 }
 
-TArray<UGSUpgradeData*> UGSUpgradeComponent::RollChoices() const
+TArray<FGSUpgradeChoice> UGSUpgradeComponent::RollChoices() const
 {
 	const UGSUpgradePool* Pool = GetPool();
 	if (!Pool)
@@ -260,7 +260,7 @@ void UGSUpgradeComponent::OpenNextOffer()
 	while (QueuedOffers > 0)
 	{
 		--QueuedOffers;
-		TArray<UGSUpgradeData*> Choices = RollChoices();
+		TArray<FGSUpgradeChoice> Choices = RollChoices();
 		if (Choices.Num() > 0)
 		{
 			CurrentChoices = Choices;
@@ -285,13 +285,14 @@ bool UGSUpgradeComponent::ChooseUpgrade(int32 Index)
 		return false;
 	}
 
-	const UGSUpgradeData* Picked = CurrentChoices[Index];
-	if (!GrantUpgrade(Picked, TEXT("LevelUp")))
+	const FGSUpgradeChoice Choice = CurrentChoices[Index];
+	const UGSUpgradeData* Picked = Choice.Upgrade;
+	if (!GrantUpgrade(Picked, Choice.Rarity, TEXT("LevelUp"))) // the card's rolled rarity
 	{
 		return false; // e.g. capped meanwhile by gs.Upgrade.Grant; the offer stays open
 	}
 
-	UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: chose [%d] %s."), *GetNameSafe(GetOwner()), Index, *Picked->GetName());
+	UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: chose [%d] %s (%s)."), *GetNameSafe(GetOwner()), Index, *Picked->GetName(), *UGSUpgradeData::GetRarityName(Choice.Rarity));
 	CurrentChoices.Reset();
 	// The next queued offer replaces this one (one Opened event); Closed only when nothing is left, so the choice
 	// screen and the pause stay up between queued offers.
@@ -316,7 +317,7 @@ bool UGSUpgradeComponent::RerollOffer()
 		return false;
 	}
 
-	TArray<UGSUpgradeData*> Choices = RollChoices();
+	TArray<FGSUpgradeChoice> Choices = RollChoices();
 	if (Choices.Num() == 0)
 	{
 		return false; // can't happen while the open offer's upgrades are still available; keep the offer
@@ -328,12 +329,17 @@ bool UGSUpgradeComponent::RerollOffer()
 	return true;
 }
 
+float UGSUpgradeComponent::GetChoiceValue(const FGSUpgradeChoice& Choice) const
+{
+	return GetPoolOrDefault()->GetPickValue(Choice.Upgrade, Choice.Rarity, GetStacks(Choice.Upgrade));
+}
+
 TArray<UGSUpgradeData*> UGSUpgradeComponent::GetCurrentChoices() const
 {
 	TArray<UGSUpgradeData*> Result;
-	for (const TObjectPtr<UGSUpgradeData>& Choice : CurrentChoices)
+	for (const FGSUpgradeChoice& Choice : CurrentChoices)
 	{
-		Result.Add(Choice);
+		Result.Add(Choice.Upgrade);
 	}
 	return Result;
 }
@@ -343,8 +349,9 @@ FString UGSUpgradeComponent::DescribeOffer() const
 	FString Text = HasOpenOffer() ? TEXT("Offer:") : TEXT("No offer open.");
 	for (int32 Index = 0; Index < CurrentChoices.Num(); ++Index)
 	{
-		const UGSUpgradeData* Choice = CurrentChoices[Index];
-		Text += FString::Printf(TEXT(" [%d] %s (%s, x%d)"), Index, *Choice->GetName(), *UGSUpgradeData::GetRarityName(Choice->Rarity), GetStacks(Choice));
+		const FGSUpgradeChoice& Choice = CurrentChoices[Index];
+		Text += FString::Printf(TEXT(" [%d] %s (%s %s: %s, now %s, x%d)"), Index, *Choice.Upgrade->GetName(), *UGSUpgradeData::GetRarityName(Choice.Rarity),
+			*Choice.Upgrade->GetCategoryName(), *Choice.Upgrade->FormatValue(GetChoiceValue(Choice)), *Choice.Upgrade->FormatValue(GetTotalValue(Choice.Upgrade)), GetStacks(Choice.Upgrade));
 	}
 	return Text + FString::Printf(TEXT(" | %d queued | %d reroll(s) left"), QueuedOffers, RerollsLeft);
 }

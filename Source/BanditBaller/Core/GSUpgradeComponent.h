@@ -6,6 +6,7 @@
 #include "Components/ActorComponent.h"
 #include "ActiveGameplayEffectHandle.h"
 #include "GSUpgradeData.h"
+#include "GSUpgradePool.h"
 #include "GSUpgradeComponent.generated.h"
 
 class UAbilitySystemComponent;
@@ -48,6 +49,17 @@ struct FGSUpgradeStack
 
 	/** The upgrade's effect on the owner's ASC (applied once, updated on every pick). */
 	FActiveGameplayEffectHandle EffectHandle;
+
+	/** The rarest pick so far (Common with none): the HUD icon's frame color. */
+	EGSUpgradeRarity GetBestRarity() const
+	{
+		EGSUpgradeRarity Best = EGSUpgradeRarity::Common;
+		for (const FGSUpgradePick& Pick : Picks)
+		{
+			Best = FMath::Max(Best, Pick.Rarity);
+		}
+		return Best;
+	}
 };
 
 /** What happened to the current upgrade offer. */
@@ -166,6 +178,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Upgrades")
 	TArray<UGSUpgradeData*> GetCurrentChoices() const;
 
+	/** The open offer's cards with their rolled rarities (empty when none is open). */
+	const TArray<FGSUpgradeChoice>& GetCurrentOffer() const { return CurrentChoices; }
+
+	/** What a pick of Choice would add now (its value at its rarity, after the picks already made). */
+	float GetChoiceValue(const FGSUpgradeChoice& Choice) const;
+
 	/** Offers waiting behind the open one. */
 	UFUNCTION(BlueprintPure, Category = "Upgrades")
 	int32 GetQueuedOffers() const { return QueuedOffers; }
@@ -207,7 +225,7 @@ private:
 
 	/** Apply Entry's effect with its totals, or update the active one in place. False if applying failed. */
 	bool ApplyEntryEffect(UAbilitySystemComponent* ASC, FGSUpgradeStack& Entry) const;
-	TArray<UGSUpgradeData*> RollChoices() const;
+	TArray<FGSUpgradeChoice> RollChoices() const;
 
 	/** Roll queued offers until one has choices (an offer with nothing available is dropped). */
 	void OpenNextOffer();
@@ -220,7 +238,7 @@ private:
 
 	/** The open offer (empty = none). */
 	UPROPERTY()
-	TArray<TObjectPtr<UGSUpgradeData>> CurrentChoices;
+	TArray<FGSUpgradeChoice> CurrentChoices;
 
 	int32 QueuedOffers = 0;
 	int32 RerollsLeft = 0;

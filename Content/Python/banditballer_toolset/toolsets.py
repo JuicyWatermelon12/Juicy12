@@ -77,11 +77,11 @@ class BanditBallerTools(unreal.ToolsetDefinition):
     @toolset_registry.tool_call
     @staticmethod
     def simulate_upgrade_offers(count: int = 10000, seed: int = 1) -> str:
-        """Rolls level-up upgrade offers from DA_UpgradePool and reports how often each upgrade and rarity appears.
+        """Rolls level-up upgrade offers from DA_UpgradePool and reports how often each upgrade, category and rarity appears.
 
-        Uses the same roll as the game (UGSUpgradePool::RollOffer: a rarity by weight, then an upgrade of that
-        rarity, 3 different upgrades per offer) with its own random stream, as for a fresh run with no picks. It never
-        advances the run stream and doesn't need PIE.
+        Uses the same roll as the game (UGSUpgradePool::RollOffer: per card the Legendary ability chance, else an
+        upgrade by AppearanceWeight and a rarity from its category's weights; 3 different upgrades per offer) with its
+        own random stream, as for a fresh run with no picks. It never advances the run stream and doesn't need PIE.
 
         Args:
             count: Offers to roll (1-1,000,000).
@@ -90,8 +90,9 @@ class BanditBallerTools(unreal.ToolsetDefinition):
         Returns:
             A JSON object (as text; the toolset registry needs typed containers) with pool, seed, offers,
             choices_per_offer, total_choices, short_offers (offers with fewer choices than choices_per_offer),
-            upgrades (name -> offers it appeared in and percent of offers), and rarities (name -> choices of that
-            rarity, percent of all choices, offers with at least one, percent of offers).
+            upgrades (name -> cards, percent of cards, percent of offers), categories (name -> cards, percent of cards,
+            offers with one, percent of offers, and the rarity split of its cards in percent), and rarities (name ->
+            choices of that rarity, percent of all choices, offers with at least one, percent of offers).
         """
         if not 1 <= count <= 1_000_000:
             raise ValueError('count must be between 1 and 1,000,000')
@@ -101,9 +102,29 @@ class BanditBallerTools(unreal.ToolsetDefinition):
         offers = max(result.offers, 1)
         choices = max(result.total_choices, 1)
         upgrades = {
-            str(name): {'offers': int(n), 'percent_of_offers': round(100.0 * n / offers, 2)}
+            str(name): {
+                'cards': int(result.upgrade_choices.get(name, 0)),
+                'percent_of_cards': round(100.0 * result.upgrade_choices.get(name, 0) / choices, 2),
+                'offers': int(n),
+                'percent_of_offers': round(100.0 * n / offers, 2),
+            }
             for name, n in sorted(result.upgrade_offers.items(), key=lambda item: -item[1])
         }
+        categories = {}
+        for name, n in result.category_choices.items():
+            with_category = int(result.category_offers.get(name, 0))
+            split = {}
+            for key, cards in result.category_rarity_choices.items():
+                category, _, rarity = str(key).partition(' / ')
+                if category == str(name):
+                    split[rarity] = round(100.0 * cards / max(n, 1), 2)
+            categories[str(name)] = {
+                'cards': int(n),
+                'percent_of_cards': round(100.0 * n / choices, 2),
+                'offers_with': with_category,
+                'percent_of_offers': round(100.0 * with_category / offers, 2),
+                'rarity_percent_of_its_cards': split,
+            }
         rarities = {}
         for name, n in result.rarity_choices.items():
             with_rarity = int(result.rarity_offers.get(name, 0))
@@ -121,5 +142,6 @@ class BanditBallerTools(unreal.ToolsetDefinition):
             'total_choices': int(result.total_choices),
             'short_offers': int(result.short_offers),
             'upgrades': upgrades,
+            'categories': categories,
             'rarities': rarities,
         }, indent=1)

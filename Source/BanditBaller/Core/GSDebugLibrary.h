@@ -81,6 +81,22 @@ struct FGSUpgradeOfferSimulation
 	/** Rarity name -> offers with at least one choice of that rarity. */
 	UPROPERTY(BlueprintReadOnly, Category = "Debug")
 	TMap<FString, int32> RarityOffers;
+
+	/** Upgrade asset name -> cards it was on (the same as UpgradeOffers: an offer never repeats an upgrade). */
+	UPROPERTY(BlueprintReadOnly, Category = "Debug")
+	TMap<FString, int32> UpgradeChoices;
+
+	/** Category ("Stat Boost", "Ability", "Legendary ability", "Weapon") -> cards of that category. */
+	UPROPERTY(BlueprintReadOnly, Category = "Debug")
+	TMap<FString, int32> CategoryChoices;
+
+	/** Category -> offers with at least one card of that category. */
+	UPROPERTY(BlueprintReadOnly, Category = "Debug")
+	TMap<FString, int32> CategoryOffers;
+
+	/** "Ability / Epic" -> cards of that category at that rarity. */
+	UPROPERTY(BlueprintReadOnly, Category = "Debug")
+	TMap<FString, int32> CategoryRarityChoices;
 };
 
 /**

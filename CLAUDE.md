@@ -122,7 +122,7 @@ docs/PROGRESS.md  progress log and reference
   - Every upgrade is a Stat Boost, an Ability (Legendary abilities are a sub-group) or a Weapon.
   - Rarity is rolled for each card on the run stream, not fixed per upgrade. A pick's size is the upgrade's base
     value × the rarity multiplier: ×1 / ×1.5 / ×2 / ×3 for Common / Rare / Epic / Legendary. Whole-unit upgrades
-    (Extra Jump, Dash Charge, Floating Shield, Piercing Rounds, Leech) give +1 / +2 / +3 and have no Rare version.
+    (Extra Jump, Dash Charge, Floating Shield, Piercing Rounds, Leech) give +1 / +2 / +3 and have no Rare version (a Rare roll counts as Common).
   - Rarity weights per card: Stat Boosts and Weapons 100 / 20 / 6 / 1, Abilities 100 / 10 / 3 / 0.5. Weights,
     multipliers and per-pick values live in data, never in code.
   - Legendary abilities have no rarity: each card has a fixed chance (0.8%) to be one, and a pick adds one charge.

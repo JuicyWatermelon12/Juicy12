@@ -2935,11 +2935,11 @@ bool FGSStatUpgradesTest::RunTest(const FString& Parameters)
 			{
 				continue;
 			}
-			TestTrue(FString::Printf(TEXT("%s is Common"), E.Name), Upgrade->Rarity == EGSUpgradeRarity::Common);
+			TestTrue(FString::Printf(TEXT("%s is a Stat Boost"), E.Name), Upgrade->Category == EGSUpgradeCategory::StatBoost);
 			TestEqual(FString::Printf(TEXT("%s has no cap"), E.Name), Upgrade->MaxStacks, 0);
 			TestFalse(FString::Printf(TEXT("%s has a display name"), E.Name), Upgrade->DisplayName.IsEmpty());
 			TestTrue(FString::Printf(TEXT("%s effect is an upgrade effect"), E.Name), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect::StaticClass()));
-			const FString Description = Upgrade->GetFormattedDescription().ToString();
+			const FString Description = Upgrade->FormatValueText(Upgrade->BaseValue).ToString(); // a Common pick's card line
 			TestTrue(FString::Printf(TEXT("%s description '%s' shows %s"), E.Name, *Description, E.Text), Description.Contains(E.Text));
 		}
 
@@ -3081,11 +3081,11 @@ bool FGSFireRateAndMagnetTest::RunTest(const FString& Parameters)
 			{
 				continue;
 			}
-			TestTrue(FString::Printf(TEXT("%s is Common"), E.Name), Upgrade->Rarity == EGSUpgradeRarity::Common);
+			TestTrue(FString::Printf(TEXT("%s is a Stat Boost"), E.Name), Upgrade->Category == EGSUpgradeCategory::StatBoost);
 			TestEqual(FString::Printf(TEXT("%s has no cap"), E.Name), Upgrade->MaxStacks, 0);
 			TestFalse(FString::Printf(TEXT("%s has a display name"), E.Name), Upgrade->DisplayName.IsEmpty());
 			TestTrue(FString::Printf(TEXT("%s effect is GE_Upgrade_%s"), E.Name, E.Name), Upgrade->Effect && Upgrade->Effect->IsChildOf(E.EffectClass));
-			const FString Description = Upgrade->GetFormattedDescription().ToString();
+			const FString Description = Upgrade->FormatValueText(Upgrade->BaseValue).ToString(); // a Common pick's card line
 			TestTrue(FString::Printf(TEXT("%s description '%s' shows %s"), E.Name, *Description, E.Text), Description.Contains(E.Text));
 			TestTrue(FString::Printf(TEXT("%s is in DA_UpgradePool"), E.Name), Pool && Pool->Upgrades.Contains(Upgrade));
 		}
@@ -3235,20 +3235,20 @@ bool FGSBiggerMagsAndLeechTest::RunTest(const FString& Parameters)
 		UGSDebugLibrary::SetGodMode(GetPC(), true);
 
 		const UGSUpgradePool* Pool = GetGameMode()->GetUpgradePool();
-		struct FExpect { const TCHAR* Name; EGSUpgradeRarity Rarity; const TCHAR* Text; UClass* EffectClass; };
-		for (const FExpect& E : { FExpect{ TEXT("BiggerMags"), EGSUpgradeRarity::Common, TEXT("+15%"), UGSUpgradeEffect_BiggerMags::StaticClass() },
-			FExpect{ TEXT("Leech"), EGSUpgradeRarity::Rare, TEXT("+1"), UGSUpgradeEffect_Leech::StaticClass() } })
+		struct FExpect { const TCHAR* Name; EGSUpgradeCategory Category; const TCHAR* Text; UClass* EffectClass; };
+		for (const FExpect& E : { FExpect{ TEXT("BiggerMags"), EGSUpgradeCategory::StatBoost, TEXT("+15%"), UGSUpgradeEffect_BiggerMags::StaticClass() },
+			FExpect{ TEXT("Leech"), EGSUpgradeCategory::Ability, TEXT("+1"), UGSUpgradeEffect_Leech::StaticClass() } })
 		{
 			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(E.Name);
 			if (!TestNotNull(FString::Printf(TEXT("DA_Upgrade_%s exists"), E.Name), Upgrade))
 			{
 				continue;
 			}
-			TestTrue(FString::Printf(TEXT("%s rarity"), E.Name), Upgrade->Rarity == E.Rarity);
+			TestTrue(FString::Printf(TEXT("%s category"), E.Name), Upgrade->Category == E.Category);
 			TestEqual(FString::Printf(TEXT("%s has no cap"), E.Name), Upgrade->MaxStacks, 0);
 			TestFalse(FString::Printf(TEXT("%s has a display name"), E.Name), Upgrade->DisplayName.IsEmpty());
 			TestTrue(FString::Printf(TEXT("%s effect is GE_Upgrade_%s"), E.Name, E.Name), Upgrade->Effect && Upgrade->Effect->IsChildOf(E.EffectClass));
-			const FString Description = Upgrade->GetFormattedDescription().ToString();
+			const FString Description = Upgrade->FormatValueText(Upgrade->BaseValue).ToString(); // a Common pick's card line
 			TestTrue(FString::Printf(TEXT("%s description '%s' shows %s"), E.Name, *Description, E.Text), Description.Contains(E.Text));
 			TestTrue(FString::Printf(TEXT("%s is in DA_UpgradePool"), E.Name), Pool && Pool->Upgrades.Contains(Upgrade));
 		}
@@ -3403,10 +3403,10 @@ bool FGSLoadedDiceTest::RunTest(const FString& Parameters)
 		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("LoadedDice"));
 		if (TestNotNull(TEXT("DA_Upgrade_LoadedDice exists"), Upgrade))
 		{
-			TestTrue(TEXT("Loaded Dice is Rare"), Upgrade->Rarity == EGSUpgradeRarity::Rare);
+			TestTrue(TEXT("Loaded Dice is a Stat Boost"), Upgrade->Category == EGSUpgradeCategory::StatBoost);
 			TestEqual(TEXT("Loaded Dice: MaxStacks 20"), Upgrade->MaxStacks, 20);
 			TestTrue(TEXT("Loaded Dice effect is GE_Upgrade_LoadedDice"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_LoadedDice::StaticClass()));
-			const FString Description = Upgrade->GetFormattedDescription().ToString();
+			const FString Description = Upgrade->FormatValueText(Upgrade->BaseValue).ToString(); // a Common pick's card line
 			TestTrue(FString::Printf(TEXT("Description '%s' shows +5%%"), *Description), Description.Contains(TEXT("+5%")));
 			const UGSUpgradePool* Pool = GetGameMode()->GetUpgradePool();
 			TestTrue(TEXT("Loaded Dice is in DA_UpgradePool"), Pool && Pool->Upgrades.Contains(Upgrade));
@@ -3596,10 +3596,10 @@ bool FGSPiercingRoundsTest::RunTest(const FString& Parameters)
 		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("PiercingRounds"));
 		if (TestNotNull(TEXT("DA_Upgrade_PiercingRounds exists"), Upgrade))
 		{
-			TestTrue(TEXT("Piercing Rounds is Epic"), Upgrade->Rarity == EGSUpgradeRarity::Epic);
+			TestTrue(TEXT("Piercing Rounds is an Ability"), Upgrade->Category == EGSUpgradeCategory::Ability);
 			TestEqual(TEXT("Piercing Rounds has no cap"), Upgrade->MaxStacks, 0);
 			TestTrue(TEXT("Effect is GE_Upgrade_PiercingRounds"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_PiercingRounds::StaticClass()));
-			const FString Description = Upgrade->GetFormattedDescription().ToString();
+			const FString Description = Upgrade->FormatValueText(Upgrade->BaseValue).ToString(); // a Common pick's card line
 			TestTrue(FString::Printf(TEXT("Description '%s' shows +1"), *Description), Description.Contains(TEXT("+1")));
 			const UGSUpgradePool* Pool = GetGameMode()->GetUpgradePool();
 			TestTrue(TEXT("Piercing Rounds is in DA_UpgradePool"), Pool && Pool->Upgrades.Contains(Upgrade));
@@ -3838,13 +3838,16 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("PowderKeg"));
 		if (TestNotNull(TEXT("DA_Upgrade_PowderKeg exists"), Upgrade))
 		{
-			TestTrue(TEXT("Powder Keg is Epic"), Upgrade->Rarity == EGSUpgradeRarity::Epic);
+			TestTrue(TEXT("Powder Keg is an Ability"), Upgrade->Category == EGSUpgradeCategory::Ability);
 			TestEqual(TEXT("MaxStacks 34 (the chance reaches 100%)"), Upgrade->MaxStacks, 34);
 			TestTrue(TEXT("MaxStacks is the first stack count at 100%"),
 				Combat->GetExplodeChance(Upgrade->MaxStacks) >= 1.f && Combat->GetExplodeChance(Upgrade->MaxStacks - 1) < 1.f);
-			const FString Card = Upgrade->GetFormattedDescription().ToString();
-			const FString PerStack = FString::Printf(TEXT("+%d%% chance per stack"), FMath::RoundToInt(Combat->ChancePerStack * 100.f));
-			TestTrue(FString::Printf(TEXT("Card text matches ChancePerStack (%s): %s"), *PerStack, *Card), Card.Contains(PerStack));
+			// The card shows stacks x DisplayScale as the chance, so DisplayScale must be ChancePerStack in percent.
+			TestEqual(TEXT("DisplayScale = ChancePerStack in percent"), Upgrade->GetDisplayScale(), Combat->ChancePerStack * 100.f, 0.0001f);
+			const FString Card = Upgrade->FormatValueText(Upgrade->BaseValue).ToString();
+			const FString PerStack = FString::Printf(TEXT("+%d%% chance"), FMath::RoundToInt(Combat->ChancePerStack * 100.f));
+			TestTrue(FString::Printf(TEXT("A Common pick's card line matches ChancePerStack (%s): %s"), *PerStack, *Card), Card.StartsWith(PerStack));
+			TestTrue(TEXT("A Rare pick (1.5 stacks) reads +4.5%"), Upgrade->FormatValueText(1.5f).ToString().StartsWith(TEXT("+4.5% chance")));
 			TestTrue(TEXT("Effect is GE_Upgrade_PowderKeg"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_PowderKeg::StaticClass()));
 			const UGSUpgradePool* Pool = GameMode->GetUpgradePool();
 			TestTrue(TEXT("Powder Keg is in DA_UpgradePool"), Pool && Pool->Upgrades.Contains(Upgrade));
@@ -4093,10 +4096,10 @@ bool FGSExtraJumpTest::RunTest(const FString& Parameters)
 		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("ExtraJump"));
 		if (TestNotNull(TEXT("DA_Upgrade_ExtraJump exists"), Upgrade))
 		{
-			TestTrue(TEXT("Extra Jump is Rare"), Upgrade->Rarity == EGSUpgradeRarity::Rare);
+			TestTrue(TEXT("Extra Jump is an Ability"), Upgrade->Category == EGSUpgradeCategory::Ability);
 			TestEqual(TEXT("Extra Jump has no cap"), Upgrade->MaxStacks, 0);
 			TestTrue(TEXT("Extra Jump effect is an upgrade effect"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect::StaticClass()));
-			const FString Description = Upgrade->GetFormattedDescription().ToString();
+			const FString Description = Upgrade->FormatValueText(Upgrade->BaseValue).ToString(); // a Common pick's card line
 			TestTrue(FString::Printf(TEXT("Description '%s' shows +1"), *Description), Description.Contains(TEXT("+1")));
 		}
 
@@ -4387,10 +4390,10 @@ bool FGSDashChargeTest::RunTest(const FString& Parameters)
 		const UGSUpgradeData* Upgrade = GetDashChargeUpgrade();
 		if (TestNotNull(TEXT("DA_Upgrade_DashCharge exists"), Upgrade))
 		{
-			TestTrue(TEXT("Dash Charge is Rare"), Upgrade->Rarity == EGSUpgradeRarity::Rare);
+			TestTrue(TEXT("Dash Charge is an Ability"), Upgrade->Category == EGSUpgradeCategory::Ability);
 			TestEqual(TEXT("Dash Charge has no cap"), Upgrade->MaxStacks, 0);
 			TestTrue(TEXT("Dash Charge effect is GE_Upgrade_DashCharge"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_DashCharge::StaticClass()));
-			const FString Description = Upgrade->GetFormattedDescription().ToString();
+			const FString Description = Upgrade->FormatValueText(Upgrade->BaseValue).ToString(); // a Common pick's card line
 			TestTrue(FString::Printf(TEXT("Description '%s' shows +1"), *Description), Description.Contains(TEXT("+1")));
 			const UGSUpgradePool* Pool = GetGameMode()->GetUpgradePool();
 			TestTrue(TEXT("Dash Charge is in DA_UpgradePool"), Pool && Pool->Upgrades.Contains(Upgrade));
@@ -4531,14 +4534,17 @@ namespace GSTests
 		return Pool;
 	}
 
-	UGSUpgradeData* MakeTestUpgrade(const TCHAR* Name, EGSUpgradeRarity Rarity, int32 MaxStacks = 0)
+	UGSUpgradeData* MakeTestUpgrade(const TCHAR* Name, int32 MaxStacks = 0, EGSUpgradeCategory Category = EGSUpgradeCategory::StatBoost,
+		bool bWholeUnits = false, bool bLegendaryAbility = false)
 	{
 		// Unique name: a fixed one would collide when the tests run again in the same editor session.
 		UGSUpgradeData* Upgrade = NewObject<UGSUpgradeData>(GetTransientPackage(),
 			MakeUniqueObjectName(GetTransientPackage(), UGSUpgradeData::StaticClass(), FName(Name)), RF_Transient);
 		Upgrade->Effect = UGSUpgradeEffect_Damage::StaticClass();
 		Upgrade->BaseValue = 0.1f;
-		Upgrade->Rarity = Rarity;
+		Upgrade->Category = Category;
+		Upgrade->bWholeUnits = bWholeUnits;
+		Upgrade->bLegendaryAbility = bLegendaryAbility;
 		Upgrade->MaxStacks = MaxStacks;
 		return Upgrade;
 	}
@@ -4546,6 +4552,21 @@ namespace GSTests
 	bool AllDifferent(const TArray<UGSUpgradeData*>& Offer)
 	{
 		return TSet<UGSUpgradeData*>(Offer).Num() == Offer.Num() && !Offer.Contains(nullptr);
+	}
+
+	bool AllDifferent(const TArray<FGSUpgradeChoice>& Offer)
+	{
+		TArray<UGSUpgradeData*> Upgrades;
+		for (const FGSUpgradeChoice& Choice : Offer)
+		{
+			Upgrades.Add(Choice.Upgrade);
+		}
+		return AllDifferent(Upgrades);
+	}
+
+	bool OfferContains(const TArray<FGSUpgradeChoice>& Offer, const UGSUpgradeData* Upgrade)
+	{
+		return Offer.ContainsByPredicate([Upgrade](const FGSUpgradeChoice& C) { return C.Upgrade == Upgrade; });
 	}
 }
 
@@ -4561,7 +4582,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		float MaxHealthAtOpen = -1.f;
 		float HealthAtOpen = -1.f;
 		float BaseMaxHealth = 0.f;
-		TArray<UGSUpgradeData*> FirstOffer;
+		TArray<FGSUpgradeChoice> FirstOffer;
 	};
 	TSharedRef<FState> S = MakeShared<FState>();
 
@@ -4577,10 +4598,17 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
 		TestEqual(TEXT("Pool has the 15 upgrades"), Pool->Upgrades.Num(), 15);
-		TestEqual(TEXT("Common weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Common), 100.f);
-		TestEqual(TEXT("Rare weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Rare), 20.f);
-		TestEqual(TEXT("Epic weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Epic), 6.f);
-		TestEqual(TEXT("Legendary weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Legendary), 1.f);
+		const float StatWeights[] = { 100.f, 20.f, 6.f, 1.f };
+		const float AbilityWeights[] = { 100.f, 10.f, 3.f, 0.5f };
+		for (const EGSUpgradeRarity Rarity : UGSUpgradePool::GetAllRarities())
+		{
+			const int32 R = static_cast<int32>(Rarity);
+			const FString Name = UGSUpgradeData::GetRarityName(Rarity);
+			TestEqual(FString::Printf(TEXT("Stat Boost %s weight"), *Name), Pool->GetRarityWeight(EGSUpgradeCategory::StatBoost, Rarity), StatWeights[R]);
+			TestEqual(FString::Printf(TEXT("Weapon %s weight"), *Name), Pool->GetRarityWeight(EGSUpgradeCategory::Weapon, Rarity), StatWeights[R]);
+			TestEqual(FString::Printf(TEXT("Ability %s weight"), *Name), Pool->GetRarityWeight(EGSUpgradeCategory::Ability, Rarity), AbilityWeights[R]);
+		}
+		TestEqual(TEXT("Legendary ability chance 0.8%"), Pool->LegendaryAbilityChance, 0.008f, 0.00001f);
 		TestEqual(TEXT("3 choices per offer"), Pool->ChoicesPerOffer, 3);
 		TestEqual(TEXT("3 rerolls per run"), Pool->RerollsPerRun, 3);
 		TestEqual(TEXT("Four rarities"), UGSUpgradePool::GetAllRarities().Num(), 4);
@@ -4594,26 +4622,73 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 
 		auto NoStacks = [](const UGSUpgradeData*) { return 0; };
 
-		// Real pool: always 3 different upgrades. Weights Common 100, Rare 20, Epic 6 (three Epics: Piercing Rounds, Powder
-		// Keg, Floating Gun), Legendary 1 (Second Wind); a tier leaves the weighting once all its upgrades are in the offer.
-		// Five Rares (and three Epics) can't run out early. An offer has no Rare with probability 0.5980 (every C/E/L ordering), so the Rare
-		// tier is in about 40.2% of offers.
+		// Real pool, 30,000 offers (90,000 cards): always 3 different upgrades; Legendary ability cards at the 0.8% chance
+		// (always "Legendary"); the other cards spread evenly over the 14 upgrades (AppearanceWeight 1 each) with their
+		// category's rarity split; a whole-unit upgrade never comes up Rare (its Rare roll counts as Common).
 		FRandomStream Stream(7);
-		int32 WithRare = 0;
-		bool bAllFull = true, bAllDifferent = true;
-		for (int32 i = 0; i < 3000; ++i)
+		constexpr int32 NumOffers = 30000;
+		bool bAllFull = true, bAllDifferent = true, bLegendaryCardsLegendary = true, bWholeNeverRare = true;
+		int32 Cards = 0, LegendaryCards = 0, NormalCards = 0;
+		TMap<const UGSUpgradeData*, int32> PerUpgrade;
+		// [kind][rarity]: 0 stat boosts, 1 abilities (not whole units: Powder Keg), 2 whole-unit abilities, 3 weapons
+		int32 Split[4][4] = {};
+		for (int32 i = 0; i < NumOffers; ++i)
 		{
-			const TArray<UGSUpgradeData*> Offer = Pool->RollOffer(Stream, NoStacks);
+			const TArray<FGSUpgradeChoice> Offer = Pool->RollOffer(Stream, NoStacks);
 			bAllFull &= Offer.Num() == 3;
 			bAllDifferent &= AllDifferent(Offer);
-			WithRare += Offer.ContainsByPredicate([](const UGSUpgradeData* U) { return U->Rarity == EGSUpgradeRarity::Rare; }) ? 1 : 0;
+			for (const FGSUpgradeChoice& Choice : Offer)
+			{
+				++Cards;
+				if (Choice.Upgrade->bLegendaryAbility)
+				{
+					++LegendaryCards;
+					bLegendaryCardsLegendary &= Choice.Rarity == EGSUpgradeRarity::Legendary;
+					continue;
+				}
+				++NormalCards;
+				++PerUpgrade.FindOrAdd(Choice.Upgrade);
+				bWholeNeverRare &= !(Choice.Upgrade->bWholeUnits && Choice.Rarity == EGSUpgradeRarity::Rare);
+				const int32 Kind = Choice.Upgrade->Category == EGSUpgradeCategory::StatBoost ? 0
+					: Choice.Upgrade->Category == EGSUpgradeCategory::Weapon ? 3 : (Choice.Upgrade->bWholeUnits ? 2 : 1);
+				++Split[Kind][static_cast<int32>(Choice.Rarity)];
+			}
 		}
 		TestTrue(TEXT("Every offer has 3 choices"), bAllFull);
 		TestTrue(TEXT("Choices in an offer are different"), bAllDifferent);
-		AddInfo(FString::Printf(TEXT("Rare in %.1f%% of 3000 offers (expected 40.2%%)"), 100.0 * WithRare / 3000.0));
-		TestTrue(TEXT("Rare frequency matches the tier weights"), FMath::Abs(WithRare / 3000.0 - 0.4020) < 0.03);
+		TestTrue(TEXT("Legendary ability cards are Legendary"), bLegendaryCardsLegendary);
+		TestTrue(TEXT("A whole-unit upgrade is never Rare"), bWholeNeverRare);
+		const double LegendaryShare = static_cast<double>(LegendaryCards) / Cards;
+		AddInfo(FString::Printf(TEXT("Legendary ability cards: %d of %d (%.3f%%, chance 0.8%% per card)"), LegendaryCards, Cards, 100.0 * LegendaryShare));
+		TestTrue(TEXT("Legendary ability cards at about 0.8% of cards"), FMath::Abs(LegendaryShare - 0.008) < 0.0015);
+		bool bEven = PerUpgrade.Num() == 14;
+		for (const TPair<const UGSUpgradeData*, int32>& Entry : PerUpgrade)
+		{
+			bEven &= FMath::Abs(static_cast<double>(Entry.Value) / NormalCards - 1.0 / 14.0) < 0.01;
+		}
+		TestTrue(TEXT("The 14 other upgrades come up evenly (AppearanceWeight 1 each)"), bEven);
+		auto Share = [&Split](int32 Kind, EGSUpgradeRarity Rarity)
+		{
+			const int32 Total = Split[Kind][0] + Split[Kind][1] + Split[Kind][2] + Split[Kind][3];
+			return Total > 0 ? static_cast<double>(Split[Kind][static_cast<int32>(Rarity)]) / Total : 0.0;
+		};
+		const TCHAR* KindNames[] = { TEXT("Stat Boost"), TEXT("Ability (Powder Keg)"), TEXT("Whole-unit ability"), TEXT("Weapon") };
+		for (int32 Kind = 0; Kind < 4; ++Kind)
+		{
+			AddInfo(FString::Printf(TEXT("%s cards: Common %.2f%%, Rare %.2f%%, Epic %.2f%%, Legendary %.2f%%"), KindNames[Kind],
+				100.0 * Share(Kind, EGSUpgradeRarity::Common), 100.0 * Share(Kind, EGSUpgradeRarity::Rare),
+				100.0 * Share(Kind, EGSUpgradeRarity::Epic), 100.0 * Share(Kind, EGSUpgradeRarity::Legendary)));
+		}
+		// Expected: 100 / 20 / 6 / 1 of 127; 100 / 10 / 3 / 0.5 of 113.5; whole units (100 + 10) / 0 / 3 / 0.5 of 113.5.
+		TestTrue(TEXT("Stat Boost Rare 15.7%"), FMath::Abs(Share(0, EGSUpgradeRarity::Rare) - 20.0 / 127.0) < 0.01);
+		TestTrue(TEXT("Stat Boost Epic 4.7%"), FMath::Abs(Share(0, EGSUpgradeRarity::Epic) - 6.0 / 127.0) < 0.006);
+		TestTrue(TEXT("Stat Boost Legendary 0.8%"), FMath::Abs(Share(0, EGSUpgradeRarity::Legendary) - 1.0 / 127.0) < 0.003);
+		TestTrue(TEXT("Ability Rare 8.8%"), FMath::Abs(Share(1, EGSUpgradeRarity::Rare) - 10.0 / 113.5) < 0.02);
+		TestTrue(TEXT("Whole-unit ability Common 96.9% (Rare counts as Common)"), FMath::Abs(Share(2, EGSUpgradeRarity::Common) - 110.0 / 113.5) < 0.006);
+		TestTrue(TEXT("Whole-unit ability Epic 2.6%"), FMath::Abs(Share(2, EGSUpgradeRarity::Epic) - 3.0 / 113.5) < 0.005);
+		TestTrue(TEXT("Weapon Rare 15.7%"), FMath::Abs(Share(3, EGSUpgradeRarity::Rare) - 20.0 / 127.0) < 0.02);
 
-		// Same seed -> same offers.
+		// Same seed -> same offers (upgrades and rarities).
 		FRandomStream A(99), B(99);
 		bool bSame = true;
 		for (int32 i = 0; i < 20; ++i)
@@ -4623,20 +4698,66 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Same seed rolls the same offers"), bSame);
 
 		// Fewer upgrades than choices: offer what's left.
-		UGSUpgradePool* Small = MakeTestPool({ MakeTestUpgrade(TEXT("TestUp_A"), EGSUpgradeRarity::Common), MakeTestUpgrade(TEXT("TestUp_B"), EGSUpgradeRarity::Legendary) });
-		const TArray<UGSUpgradeData*> SmallOffer = Small->RollOffer(Stream, NoStacks);
+		UGSUpgradePool* Small = MakeTestPool({ MakeTestUpgrade(TEXT("TestUp_A")), MakeTestUpgrade(TEXT("TestUp_B")) });
+		const TArray<FGSUpgradeChoice> SmallOffer = Small->RollOffer(Stream, NoStacks);
 		TestEqual(TEXT("Two upgrades -> offer of 2"), SmallOffer.Num(), 2);
 		TestTrue(TEXT("Small offer different"), AllDifferent(SmallOffer));
 
+		// A Legendary ability: at chance 1 the first card is one, the next cards fall back (it is already in the offer);
+		// at chance 0 it only comes up when nothing else is left.
+		UGSUpgradeData* TestLegendary = MakeTestUpgrade(TEXT("TestUp_Legendary"), 0, EGSUpgradeCategory::Ability, false, true);
+		UGSUpgradePool* WithLegendary = MakeTestPool({ TestLegendary, MakeTestUpgrade(TEXT("TestUp_F")), MakeTestUpgrade(TEXT("TestUp_G")), MakeTestUpgrade(TEXT("TestUp_H")) });
+		WithLegendary->LegendaryAbilityChance = 1.f;
+		const TArray<FGSUpgradeChoice> Forced = WithLegendary->RollOffer(Stream, NoStacks);
+		TestTrue(TEXT("Chance 1: the first card is the Legendary ability, Legendary"), Forced.Num() == 3 && Forced[0].Upgrade == TestLegendary && Forced[0].Rarity == EGSUpgradeRarity::Legendary);
+		TestTrue(TEXT("Chance 1: it is on one card only"), Forced.Num() == 3 && Forced[1].Upgrade != TestLegendary && Forced[2].Upgrade != TestLegendary);
+		WithLegendary->LegendaryAbilityChance = 0.f;
+		bool bLegendaryNever = true;
+		for (int32 i = 0; i < 200; ++i)
+		{
+			bLegendaryNever &= !OfferContains(WithLegendary->RollOffer(Stream, NoStacks), TestLegendary);
+		}
+		TestTrue(TEXT("Chance 0: never while three others are left"), bLegendaryNever);
+		UGSUpgradePool* OnlyLegendary = MakeTestPool({ TestLegendary, MakeTestUpgrade(TEXT("TestUp_I")) });
+		OnlyLegendary->LegendaryAbilityChance = 0.f;
+		TestTrue(TEXT("Chance 0 but nothing else left: it fills the offer"), OfferContains(OnlyLegendary->RollOffer(Stream, NoStacks), TestLegendary));
+
+		// The rarity roll: a pool that only rolls Rare gives Rare to a normal upgrade and Common to a whole-unit one.
+		UGSUpgradeData* Fractional = MakeTestUpgrade(TEXT("TestUp_Fractional"));
+		UGSUpgradeData* Whole = MakeTestUpgrade(TEXT("TestUp_Whole"), 0, EGSUpgradeCategory::StatBoost, true);
+		UGSUpgradePool* OnlyRare = MakeTestPool({ Fractional, Whole });
+		OnlyRare->StatBoostRarityWeights = { { EGSUpgradeRarity::Rare, 1.f } };
+		const TArray<FGSUpgradeChoice> RareOffer = OnlyRare->RollOffer(Stream, NoStacks);
+		const FGSUpgradeChoice* FractionalCard = RareOffer.FindByPredicate([Fractional](const FGSUpgradeChoice& C) { return C.Upgrade == Fractional; });
+		const FGSUpgradeChoice* WholeCard = RareOffer.FindByPredicate([Whole](const FGSUpgradeChoice& C) { return C.Upgrade == Whole; });
+		TestTrue(TEXT("Only Rare rolls: a normal upgrade is Rare"), FractionalCard && FractionalCard->Rarity == EGSUpgradeRarity::Rare);
+		TestTrue(TEXT("Only Rare rolls: a whole-unit upgrade is Common"), WholeCard && WholeCard->Rarity == EGSUpgradeRarity::Common);
+		OnlyRare->AbilityRarityWeights = { { EGSUpgradeRarity::Epic, 1.f } };
+		Fractional->Category = EGSUpgradeCategory::Ability;
+		const TArray<FGSUpgradeChoice> AbilityOffer = OnlyRare->RollOffer(Stream, NoStacks);
+		const FGSUpgradeChoice* AbilityCard = AbilityOffer.FindByPredicate([Fractional](const FGSUpgradeChoice& C) { return C.Upgrade == Fractional; });
+		TestTrue(TEXT("Each category uses its own weights (Ability: only Epic)"), AbilityCard && AbilityCard->Rarity == EGSUpgradeRarity::Epic);
+
+		// AppearanceWeight: 0 = never offered while others are left.
+		UGSUpgradeData* Hidden = MakeTestUpgrade(TEXT("TestUp_Hidden"));
+		Hidden->AppearanceWeight = 0.f;
+		UGSUpgradePool* WithHidden = MakeTestPool({ Hidden, MakeTestUpgrade(TEXT("TestUp_J")), MakeTestUpgrade(TEXT("TestUp_K")), MakeTestUpgrade(TEXT("TestUp_L")) });
+		bool bHiddenNever = true;
+		for (int32 i = 0; i < 200; ++i)
+		{
+			bHiddenNever &= !OfferContains(WithHidden->RollOffer(Stream, NoStacks), Hidden);
+		}
+		TestTrue(TEXT("AppearanceWeight 0: never offered"), bHiddenNever);
+
 		// An upgrade at MaxStacks is never offered; an empty pool offers nothing.
-		UGSUpgradeData* Capped = MakeTestUpgrade(TEXT("TestUp_Capped"), EGSUpgradeRarity::Common, 1);
-		UGSUpgradePool* WithCapped = MakeTestPool({ Capped, MakeTestUpgrade(TEXT("TestUp_C"), EGSUpgradeRarity::Common),
-			MakeTestUpgrade(TEXT("TestUp_D"), EGSUpgradeRarity::Common), MakeTestUpgrade(TEXT("TestUp_E"), EGSUpgradeRarity::Rare) });
+		UGSUpgradeData* Capped = MakeTestUpgrade(TEXT("TestUp_Capped"), 1);
+		UGSUpgradePool* WithCapped = MakeTestPool({ Capped, MakeTestUpgrade(TEXT("TestUp_C")),
+			MakeTestUpgrade(TEXT("TestUp_D")), MakeTestUpgrade(TEXT("TestUp_E")) });
 		bool bCappedSeen = false;
 		for (int32 i = 0; i < 200; ++i)
 		{
-			const TArray<UGSUpgradeData*> Offer = WithCapped->RollOffer(Stream, [Capped](const UGSUpgradeData* U) { return U == Capped ? 1 : 0; });
-			bCappedSeen |= Offer.Contains(Capped);
+			const TArray<FGSUpgradeChoice> Offer = WithCapped->RollOffer(Stream, [Capped](const UGSUpgradeData* U) { return U == Capped ? 1 : 0; });
+			bCappedSeen |= OfferContains(Offer, Capped);
 			bAllFull &= Offer.Num() == 3;
 		}
 		TestFalse(TEXT("Upgrade at MaxStacks is never offered"), bCappedSeen);
@@ -4699,9 +4820,15 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("Index out of range refused"), GetGameMode()->ChooseUpgrade(PS, 5));
 		TestTrue(TEXT("Bad index keeps the offer"), Upgrades->GetCurrentChoices() == AfterRerolls);
 		const UGSUpgradeData* Picked = AfterRerolls[1];
+		const FGSUpgradeChoice PickedCard = Upgrades->GetCurrentOffer()[1];
+		const float PickedValue = Upgrades->GetChoiceValue(PickedCard);
 		S->Changes.Reset();
 		TestTrue(TEXT("Choose 1"), GetGameMode()->ChooseUpgrade(PS, 1));
-		TestEqual(TEXT("Chosen upgrade got a stack"), Upgrades->GetStacks(Picked), 1);
+		TestEqual(TEXT("Chosen upgrade got a pick"), Upgrades->GetStacks(Picked), 1);
+		const FGSUpgradeStack* PickedEntry = Upgrades->FindEntry(Picked);
+		TestTrue(TEXT("The pick has the card's rolled rarity"), PickedEntry && PickedEntry->Picks.Num() == 1 && PickedEntry->Picks[0].Rarity == PickedCard.Rarity);
+		TestEqual(TEXT("The pick adds the card's value"), Upgrades->GetTotalValue(Picked), PickedValue, 0.0001f);
+		AddInfo(FString::Printf(TEXT("Picked %s %s: %s"), *UGSUpgradeData::GetRarityName(PickedCard.Rarity), *Picked->GetName(), *Picked->FormatValue(PickedValue)));
 		TestTrue(TEXT("The next queued offer replaced it (one Opened, no Closed)"), S->Changes == TArray<EGSUpgradeOfferChange>({ EGSUpgradeOfferChange::Opened }));
 		TestEqual(TEXT("One left in the queue"), Upgrades->GetQueuedOffers(), 1);
 		TestTrue(TEXT("Choose 0"), GetGameMode()->ChooseUpgrade(PS, 0));
@@ -4728,10 +4855,10 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 
 		// Same run seed -> same first offer (the roll uses the run stream).
 		GetGameMode()->AwardXP(PS, 100.f, false);
-		S->FirstOffer = Upgrades->GetCurrentChoices();
+		S->FirstOffer = Upgrades->GetCurrentOffer();
 		GetGameMode()->RestartRunWithSeed(31);
 		GetGameMode()->AwardXP(PS, 100.f, false);
-		TestTrue(TEXT("Same seed -> same first offer"), Upgrades->GetCurrentChoices() == S->FirstOffer);
+		TestTrue(TEXT("Same seed -> same first offer (upgrades and rarities)"), Upgrades->GetCurrentOffer() == S->FirstOffer);
 
 		// The simulator uses its own stream: same result for the same seed, run stream untouched.
 		const int32 RunSeedState = GetGameMode()->GetRunStream().GetCurrentSeed();
@@ -4741,9 +4868,18 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Simulated offers"), Sim1.Offers, 2000);
 		TestEqual(TEXT("Simulated choices"), Sim1.TotalChoices, 6000);
 		TestEqual(TEXT("No short offers"), Sim1.ShortOffers, 0);
-		TestTrue(TEXT("Simulator is deterministic"), Sim1.UpgradeOffers.OrderIndependentCompareEqual(Sim2.UpgradeOffers));
-		TestTrue(TEXT("Epic choices now appear (Piercing Rounds)"), Sim1.RarityChoices.FindRef(TEXT("Epic")) > 0);
-		TestTrue(TEXT("Legendary choices now appear (Second Wind)"), Sim1.RarityChoices.FindRef(TEXT("Legendary")) > 0);
+		TestTrue(TEXT("Simulator is deterministic"), Sim1.UpgradeOffers.OrderIndependentCompareEqual(Sim2.UpgradeOffers)
+			&& Sim1.RarityChoices.OrderIndependentCompareEqual(Sim2.RarityChoices));
+		TestTrue(TEXT("Simulator: Epic and Legendary cards"), Sim1.RarityChoices.FindRef(TEXT("Epic")) > 0 && Sim1.RarityChoices.FindRef(TEXT("Legendary")) > 0);
+		int32 CategoryCards = 0;
+		for (const TPair<FString, int32>& Entry : Sim1.CategoryChoices)
+		{
+			CategoryCards += Entry.Value;
+		}
+		TestEqual(TEXT("Simulator: every card has a category"), CategoryCards, Sim1.TotalChoices);
+		TestTrue(TEXT("Simulator: all four categories counted"), Sim1.CategoryChoices.FindRef(TEXT("Stat Boost")) > 0 && Sim1.CategoryChoices.FindRef(TEXT("Ability")) > 0
+			&& Sim1.CategoryChoices.FindRef(TEXT("Weapon")) > 0 && Sim1.CategoryChoices.Contains(TEXT("Legendary ability")));
+		TestEqual(TEXT("Simulator: no Rare Legendary ability"), Sim1.CategoryRarityChoices.FindRef(TEXT("Legendary ability / Rare")), 0);
 	});
 	EndPIE();
 	return true;
@@ -4777,21 +4913,40 @@ namespace GSTests
 		}, 10.0);
 	}
 
-	/** The cards show the open offer, in order, with rarity colors and owned stacks. */
+	/**
+	 * The cards show the open offer, in order: category, the card's rolled rarity (text and frame color), what the pick
+	 * gives and what the player has now.
+	 */
 	bool CardsMatchOffer(FAutomationTestBase* Test, const TCHAR* What)
 	{
 		const UGSUpgradeChoiceWidget* Widget = GetChoiceWidget();
 		const UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
-		const TArray<UGSUpgradeData*> Choices = Upgrades->GetCurrentChoices();
+		const TArray<FGSUpgradeChoice>& Choices = Upgrades->GetCurrentOffer();
 		bool bOk = Test->TestEqual(FString::Printf(TEXT("%s: one card per choice"), What), Widget->GetCardCount(), Choices.Num());
 		for (int32 i = 0; bOk && i < Choices.Num(); ++i)
 		{
+			const FGSUpgradeChoice& Choice = Choices[i];
 			const UGSUpgradeCardWidget* Card = Widget->GetCard(i);
-			bOk &= Test->TestTrue(FString::Printf(TEXT("%s: card %d shows choice %d"), What, i, i), Card && Card->GetUpgrade() == Choices[i]);
-			bOk &= Test->TestTrue(FString::Printf(TEXT("%s: card %d border is the rarity color"), What, i),
-				Card && Card->GetBorderColor().Equals(Card->GetRarityColor(Choices[i]->Rarity)));
-			bOk &= Test->TestEqual(FString::Printf(TEXT("%s: card %d owned text"), What, i), Card ? Card->GetOwnedText().ToString() : FString(),
-				FString::Printf(TEXT("Owned: %d"), Upgrades->GetStacks(Choices[i])));
+			if (!Test->TestTrue(FString::Printf(TEXT("%s: card %d shows choice %d"), What, i, i), Card && Card->GetUpgrade() == Choice.Upgrade))
+			{
+				return false;
+			}
+			const float Value = Upgrades->GetChoiceValue(Choice);
+			const int32 Picks = Upgrades->GetStacks(Choice.Upgrade);
+			const FString Expected[] = {
+				Choice.Upgrade->GetCategoryName().ToUpper(),
+				UGSUpgradeData::GetRarityName(Choice.Rarity).ToUpper(),
+				Value > 0.f ? Choice.Upgrade->FormatValueText(Value).ToString() : FString(),
+				Picks > 0 ? TEXT("Now: ") + Choice.Upgrade->FormatValueText(Upgrades->GetTotalValue(Choice.Upgrade)).ToString() : FString(TEXT("Now: none")) };
+			const FString Shown[] = { Card->GetCategoryText().ToString(), Card->GetRarityText().ToString(), Card->GetPickText().ToString(), Card->GetNowText().ToString() };
+			const TCHAR* Lines[] = { TEXT("category"), TEXT("rarity"), TEXT("pick"), TEXT("now") };
+			for (int32 Line = 0; Line < 4; ++Line)
+			{
+				bOk &= Test->TestEqual(FString::Printf(TEXT("%s: card %d %s line"), What, i, Lines[Line]), Shown[Line], Expected[Line]);
+			}
+			bOk &= Test->TestTrue(FString::Printf(TEXT("%s: card %d rolled rarity"), What, i), Card->GetRarity() == Choice.Rarity);
+			bOk &= Test->TestTrue(FString::Printf(TEXT("%s: card %d border is the rarity color"), What, i), Card->GetBorderColor().Equals(Card->GetRarityColor(Choice.Rarity)));
+			bOk &= Test->TestFalse(FString::Printf(TEXT("%s: card %d has a description"), What, i), Card->GetDescriptionText().IsEmpty());
 		}
 		return bOk;
 	}
@@ -4874,8 +5029,11 @@ bool FGSUpgradeChoiceUITest::RunTest(const FString& Parameters)
 
 		// Key 2 picks the second card; the last offer closes: hidden, unpaused, game input back.
 		S->Picked = Before[1];
+		const EGSUpgradeRarity CardRarity = Widget->GetCard(1) ? Widget->GetCard(1)->GetRarity() : EGSUpgradeRarity::Common;
 		TestTrue(TEXT("Key 2 consumed"), Widget->HandleChoiceKey(EKeys::Two));
 		TestEqual(TEXT("Second card picked"), GetPlayerUpgrades()->GetStacks(S->Picked), 1);
+		const FGSUpgradeStack* Entry = GetPlayerUpgrades()->FindEntry(S->Picked);
+		TestTrue(TEXT("The pick has the card's rarity"), Entry && Entry->Picks.Num() == 1 && Entry->Picks[0].Rarity == CardRarity);
 		TestFalse(TEXT("Cards hidden after the last pick"), Widget->AreCardsShowing());
 		TestFalse(TEXT("Game unpaused"), IsWorldPaused());
 		TestFalse(TEXT("Mouse cursor hidden"), GetPC()->ShouldShowMouseCursor());
@@ -6674,7 +6832,20 @@ bool FGSRunNewRunResetsTest::RunTest(const FString& Parameters)
 		GameMode->AwardXP(PS, 225.f, false);
 		TestEqual(TEXT("Level 3"), PS->GetProgressionComponent()->GetLevel(), 3);
 		TestTrue(TEXT("A reroll used"), GameMode->RerollUpgradeOffer(PS));
-		TestEqual(TEXT("Both offers picked"), PickAllUpgradeOffers(), 2);
+		// Pick a card that can't stop the killing blow below (a Floating Shield or Second Wind would, as designed).
+		int32 Picked = 0;
+		while (Upgrades->HasOpenOffer() && Picked < 10)
+		{
+			const TArray<FGSUpgradeChoice>& Offer = Upgrades->GetCurrentOffer();
+			const int32 Safe = Offer.IndexOfByPredicate([](const FGSUpgradeChoice& C)
+			{
+				return !C.Upgrade->Effect->IsChildOf(UGSUpgradeEffect_FloatingShield::StaticClass())
+					&& !C.Upgrade->Effect->IsChildOf(UGSUpgradeEffect_SecondWind::StaticClass());
+			});
+			GameMode->ChooseUpgrade(PS, FMath::Max(Safe, 0));
+			++Picked;
+		}
+		TestEqual(TEXT("Both offers picked"), Picked, 2);
 		UGSDebugLibrary::ExecuteDebugCommand(PC, TEXT("UpgradeGrant"), { TEXT("ExtraJump"), TEXT("2") });
 		UGSDebugLibrary::ExecuteDebugCommand(PC, TEXT("UpgradeGrant"), { TEXT("Damage"), TEXT("2") });
 		GameMode->AdvancePhase(); // Combat
@@ -7170,11 +7341,11 @@ bool FGSFloatingShieldTest::RunTest(const FString& Parameters)
 		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingShield"));
 		if (TestNotNull(TEXT("DA_Upgrade_FloatingShield exists"), Upgrade))
 		{
-			TestTrue(TEXT("Floating Shield is Rare"), Upgrade->Rarity == EGSUpgradeRarity::Rare);
+			TestTrue(TEXT("Floating Shield is an Ability"), Upgrade->Category == EGSUpgradeCategory::Ability);
 			TestEqual(TEXT("Floating Shield has no cap"), Upgrade->MaxStacks, 0);
 			TestTrue(TEXT("Effect is GE_Upgrade_FloatingShield"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_FloatingShield::StaticClass()));
-			TestTrue(FString::Printf(TEXT("Card says +1 shield: %s"), *Upgrade->GetFormattedDescription().ToString()),
-				Upgrade->GetFormattedDescription().ToString().Contains(TEXT("+1")));
+			TestTrue(FString::Printf(TEXT("Card says +1 shield: %s"), *Upgrade->FormatValueText(Upgrade->BaseValue).ToString()),
+				Upgrade->FormatValueText(Upgrade->BaseValue).ToString().Contains(TEXT("+1")));
 			const UGSUpgradePool* Pool = GameMode->GetUpgradePool();
 			TestTrue(TEXT("Floating Shield is in DA_UpgradePool"), Pool && Pool->Upgrades.Contains(Upgrade));
 		}
@@ -7435,11 +7606,11 @@ bool FGSSecondWindTest::RunTest(const FString& Parameters)
 		{
 			return;
 		}
-		TestTrue(TEXT("Second Wind is Legendary"), S->Upgrade->Rarity == EGSUpgradeRarity::Legendary);
+		TestTrue(TEXT("Second Wind is a Legendary ability"), S->Upgrade->Category == EGSUpgradeCategory::Ability && S->Upgrade->bLegendaryAbility);
 		TestEqual(TEXT("Second Wind has no cap"), S->Upgrade->MaxStacks, 0);
 		TestTrue(TEXT("Effect is GE_Upgrade_SecondWind"), S->Upgrade->Effect && S->Upgrade->Effect->IsChildOf(UGSUpgradeEffect_SecondWind::StaticClass()));
-		TestTrue(FString::Printf(TEXT("Card says +1: %s"), *S->Upgrade->GetFormattedDescription().ToString()),
-			S->Upgrade->GetFormattedDescription().ToString().Contains(TEXT("+1")));
+		TestTrue(FString::Printf(TEXT("Card says +1: %s"), *S->Upgrade->FormatValueText(S->Upgrade->BaseValue).ToString()),
+			S->Upgrade->FormatValueText(S->Upgrade->BaseValue).ToString().Contains(TEXT("+1")));
 		const UGSUpgradePool* Pool = GameMode->GetUpgradePool();
 		TestTrue(TEXT("Second Wind is in DA_UpgradePool"), Pool && Pool->Upgrades.Contains(S->Upgrade));
 		const UGSCombatSettings* Combat = GameMode->GetCombatSettings();
@@ -7645,7 +7816,7 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
 		if (TestNotNull(TEXT("DA_Upgrade_FloatingGun exists"), Upgrade))
 		{
-			TestTrue(TEXT("Floating Gun is Epic"), Upgrade->Rarity == EGSUpgradeRarity::Epic);
+			TestTrue(TEXT("Floating Gun is a Weapon"), Upgrade->Category == EGSUpgradeCategory::Weapon);
 			TestEqual(TEXT("Floating Gun has no cap"), Upgrade->MaxStacks, 0);
 			TestTrue(TEXT("Effect is GE_Upgrade_FloatingGun"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_FloatingGun::StaticClass()));
 			const UGSUpgradePool* Pool = GameMode->GetUpgradePool();
@@ -8074,22 +8245,32 @@ bool FGSFloatingGunLevelsTest::RunTest(const FString& Parameters)
 		AddInfo(FString::Printf(TEXT("[gun] cards: \"%s\" / \"%s\" / \"%s\""), *Text0, *Text1, *Text2));
 		TestTrue(TEXT("None owned: \"Adds a floating gun\""), Text0.StartsWith(TEXT("Adds a floating gun")));
 		TestTrue(TEXT("One owned: \"Adds a second floating gun\""), Text1.StartsWith(TEXT("Adds a second floating gun")));
+		TestFalse(TEXT("Two owned: a text without numbers (the pick line has them)"), Text2.IsEmpty() || Text2.Contains(TEXT("%")));
+		// The pick line shows power x DisplayScale as the bonus, so DisplayScale must be the bonus per power in percent.
+		TestEqual(TEXT("DisplayScale = DamageBonusPerPower in percent"), Upgrade->GetDisplayScale(), Settings->DamageBonusPerPower * 100.f, 0.0001f);
 		const FString Bonus = FString::Printf(TEXT("+%.0f%% floating gun damage and fire rate"), Settings->DamageBonusPerPower * 100.f);
-		TestTrue(FString::Printf(TEXT("Two owned: \"%s\" (matches DA_FloatingGunSettings)"), *Bonus), Text2.StartsWith(Bonus));
+		TestEqual(TEXT("One point of power reads +10% (matches DA_FloatingGunSettings)"), Upgrade->FormatValueText(1.f).ToString(), Bonus);
 		TestEqual(TEXT("Damage and fire rate bonus are the same (one number on the card)"), Settings->FireRateBonusPerPower, Settings->DamageBonusPerPower, 0.0001f);
 		TestEqual(TEXT("Nine owned: the last text again"), Text9, Text2);
 
-		// The real card shows the text for the next pick.
+		// The real card: the description for the next pick, the pick line only when the pick adds power.
 		const TSubclassOf<UGSUpgradeCardWidget> CardClass = LoadClass<UGSUpgradeCardWidget>(nullptr, TEXT("/Game/BanditBaller/UI/WBP_UpgradeCard.WBP_UpgradeCard_C"));
 		UGSUpgradeCardWidget* Card = CardClass ? CreateWidget<UGSUpgradeCardWidget>(GetPC(), CardClass) : nullptr;
 		if (TestNotNull(TEXT("WBP_UpgradeCard"), Card))
 		{
+			const UGSUpgradePool* Pool = GameMode->GetUpgradePool();
 			const FString Texts[] = { Text0, Text1, Text2, Text2 };
 			for (int32 Owned = 0; Owned < 4; ++Owned)
 			{
-				Card->SetUpgrade(Upgrade, Owned, 0);
-				TestEqual(FString::Printf(TEXT("Card with %d owned"), Owned), Card->GetDescriptionText().ToString(), Texts[Owned]);
+				const float Common = Pool->GetPickValue(Upgrade, EGSUpgradeRarity::Common, Owned);
+				Card->SetChoice(Upgrade, EGSUpgradeRarity::Common, Common, Owned, FMath::Max(Owned - 2, 0), 0);
+				TestEqual(FString::Printf(TEXT("Card with %d owned: description"), Owned), Card->GetDescriptionText().ToString(), Texts[Owned]);
+				TestEqual(FString::Printf(TEXT("Card with %d owned: Common pick line"), Owned), Card->GetPickText().ToString(), Owned < 2 ? FString() : Bonus);
+				TestEqual(FString::Printf(TEXT("Card with %d owned: category"), Owned), Card->GetCategoryText().ToString(), FString(TEXT("WEAPON")));
 			}
+			Card->SetChoice(Upgrade, EGSUpgradeRarity::Rare, Pool->GetPickValue(Upgrade, EGSUpgradeRarity::Rare, 0), 0, 0.f, 0);
+			TestEqual(TEXT("A Rare first pick: the gun and +5%"), Card->GetPickText().ToString(), FString(TEXT("+5% floating gun damage and fire rate")));
+			TestEqual(TEXT("Nothing owned: Now: none"), Card->GetNowText().ToString(), FString(TEXT("Now: none")));
 		}
 
 		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FloatingGun") });
@@ -8367,7 +8548,41 @@ bool FGSUpgradePickValuesTest::RunTest(const FString& Parameters)
 		// Card numbers are unchanged (they show BaseValue).
 		const UGSUpgradeData* Damage = UGSDebugLibrary::FindUpgradeData(TEXT("Damage"));
 		TestEqual(TEXT("Damage card: 10 per pick"), Damage ? Damage->GetPerStackValue() : 0.f, 10.f, 0.001f);
-		TestEqual(TEXT("FormatValue: +25%"), Damage ? Damage->FormatValue(0.25f) : FString(), FString(TEXT("+25%")));
+		TestEqual(TEXT("FormatValue: +25% damage"), Damage ? Damage->FormatValue(0.25f) : FString(), FString(TEXT("+25% damage")));
+
+		// What every upgrade's card line reads for a Common pick and for its Legendary pick (plurals included).
+		struct FText2 { const TCHAR* Name; const TCHAR* Common; const TCHAR* Legendary; };
+		for (const FText2& E : {
+			FText2{ TEXT("Damage"), TEXT("+10% damage"), TEXT("+30% damage") },
+			FText2{ TEXT("FireRate"), TEXT("+8% fire rate"), TEXT("+24% fire rate") },
+			FText2{ TEXT("ReloadSpeed"), TEXT("+10% reload speed"), TEXT("+30% reload speed") },
+			FText2{ TEXT("MoveSpeed"), TEXT("+8% move speed"), TEXT("+24% move speed") },
+			FText2{ TEXT("Magnet"), TEXT("+15% pickup radius"), TEXT("+45% pickup radius") },
+			FText2{ TEXT("BiggerMags"), TEXT("+15% magazine size"), TEXT("+45% magazine size") },
+			FText2{ TEXT("LoadedDice"), TEXT("+5% critical hit chance"), TEXT("+15% critical hit chance") },
+			FText2{ TEXT("ExtraJump"), TEXT("+1 air jump"), TEXT("+3 air jumps") },
+			FText2{ TEXT("DashCharge"), TEXT("+1 dash charge"), TEXT("+3 dash charges") },
+			FText2{ TEXT("FloatingShield"), TEXT("+1 floating shield"), TEXT("+3 floating shields") },
+			FText2{ TEXT("PiercingRounds"), TEXT("+1 enemy pierced per shot"), TEXT("+3 enemies pierced per shot") },
+			FText2{ TEXT("Leech"), TEXT("+1 health per kill"), TEXT("+3 health per kill") },
+			FText2{ TEXT("PowderKeg"), TEXT("+3% chance that a kill explodes"), TEXT("+9% chance that a kill explodes") },
+			FText2{ TEXT("SecondWind"), TEXT("+1 Second Wind"), TEXT("+1 Second Wind") },
+			FText2{ TEXT("FloatingGun"), TEXT("+10% floating gun damage and fire rate"), TEXT("+30% floating gun damage and fire rate") } })
+		{
+			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(E.Name);
+			if (!Upgrade)
+			{
+				continue;
+			}
+			// Picks after the weapon's guns, so the Floating Gun line shows its full multiplier.
+			const int32 Before = Upgrade->Category == EGSUpgradeCategory::Weapon ? Upgrade->WeaponGivingPicks : 0;
+			TestEqual(FString::Printf(TEXT("%s Common card line"), E.Name), Upgrade->FormatValueText(Pool->GetPickValue(Upgrade, EGSUpgradeRarity::Common, Before)).ToString(), FString(E.Common));
+			TestEqual(FString::Printf(TEXT("%s Legendary card line"), E.Name), Upgrade->FormatValueText(Pool->GetPickValue(Upgrade, EGSUpgradeRarity::Legendary, Before)).ToString(), FString(E.Legendary));
+			TestFalse(FString::Printf(TEXT("%s description has no numbers"), E.Name),
+				Upgrade->GetFormattedDescription(Before).ToString().Contains(TEXT("%")) || Upgrade->GetFormattedDescription(Before).ToString().Contains(TEXT("+")));
+		}
+		const UGSUpgradeData* Magnet = UGSDebugLibrary::FindUpgradeData(TEXT("Magnet"));
+		TestEqual(TEXT("A Rare Magnet pick: +22.5%"), Magnet ? Magnet->FormatValueText(0.225f).ToString() : FString(), FString(TEXT("+22.5% pickup radius")));
 		EGSUpgradeRarity Parsed = EGSUpgradeRarity::Common;
 		TestTrue(TEXT("ParseRarity epic"), UGSUpgradeData::ParseRarity(TEXT("epic"), Parsed) && Parsed == EGSUpgradeRarity::Epic);
 		TestTrue(TEXT("ParseRarity L"), UGSUpgradeData::ParseRarity(TEXT("L"), Parsed) && Parsed == EGSUpgradeRarity::Legendary);

@@ -8,14 +8,32 @@
 #include "GSUpgradeData.h"
 #include "GSUpgradePool.generated.h"
 
+/** One card of an offer: the upgrade and the rarity rolled for this card. */
+USTRUCT(BlueprintType)
+struct FGSUpgradeChoice
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Upgrades")
+	TObjectPtr<UGSUpgradeData> Upgrade;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Upgrades")
+	EGSUpgradeRarity Rarity = EGSUpgradeRarity::Common;
+
+	bool operator==(const FGSUpgradeChoice& Other) const { return Upgrade == Other.Upgrade && Rarity == Other.Rarity; }
+};
+
 /**
- * The level-up upgrade pool (DA_UpgradePool, set as UpgradePool on BP_GSGameMode): which upgrades can be offered, how
- * likely each rarity is, how many choices an offer has and how many rerolls a run starts with.
+ * The level-up upgrade pool (DA_UpgradePool, set as UpgradePool on BP_GSGameMode): which upgrades can be offered, the
+ * rarity weights per category, how much bigger a rarer pick is, how many choices an offer has and how many rerolls a
+ * run starts with.
  *
- * An offer picks ChoicesPerOffer different upgrades, one at a time: first a rarity by weight, then a random upgrade of
- * that rarity. A rarity with nothing available right now (no upgrades, all at MaxStacks, or all already in this offer)
- * is left out of the weighting, so empty tiers never waste a pick. If fewer upgrades are available than choices, the
- * offer has fewer choices.
+ * An offer rolls ChoicesPerOffer cards, one at a time, each with a different upgrade (M2c):
+ * 1. Roll LegendaryAbilityChance. On a hit the card is a Legendary ability (by AppearanceWeight) not yet in the offer.
+ * 2. Otherwise pick a stat boost, ability or weapon not yet in the offer, by AppearanceWeight, then roll its rarity with
+ *    its category's weights. A whole-unit upgrade has no Rare: a Rare roll counts as Common.
+ * Upgrades at MaxStacks are never offered. A hit with no Legendary ability left falls back to step 2 (and step 2 with
+ * nothing left falls back to a Legendary ability). With nothing available at all the offer is shorter.
  */
 UCLASS(BlueprintType, Const)
 class BANDITBALLER_API UGSUpgradePool : public UPrimaryDataAsset
@@ -29,9 +47,21 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pool")
 	TArray<TObjectPtr<UGSUpgradeData>> Upgrades;
 
-	/** Relative chance of each rarity per pick (placeholders: Common 100, Rare 20, Epic 6, Legendary 1). 0 = never. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pool")
-	TMap<EGSUpgradeRarity, float> RarityWeights;
+	/** Chance per card (0..1) to be a Legendary ability instead (placeholder 0.008, about the Legendary rate 1 / 127). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Roll", meta = (ClampMin = "0", ClampMax = "1"))
+	float LegendaryAbilityChance = 0.008f;
+
+	/** Rarity weights of a Stat Boost card (placeholders: Common 100, Rare 20, Epic 6, Legendary 1). 0 = never. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Roll")
+	TMap<EGSUpgradeRarity, float> StatBoostRarityWeights;
+
+	/** Rarity weights of an Ability card (placeholders: 100 / 10 / 3 / 0.5: strong ability picks are rarer). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Roll")
+	TMap<EGSUpgradeRarity, float> AbilityRarityWeights;
+
+	/** Rarity weights of a Weapon card (placeholders: 100 / 20 / 6 / 1). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Roll")
+	TMap<EGSUpgradeRarity, float> WeaponRarityWeights;
 
 	/** How much bigger a pick of each rarity is: its value = BaseValue x this (placeholders: 1 / 1.5 / 2 / 3). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pick values")
@@ -44,7 +74,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pick values")
 	TMap<EGSUpgradeRarity, float> WholeUnitValues;
 
-	/** Different upgrades per offer. */
+	/** Cards per offer (each a different upgrade). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pool", meta = (ClampMin = "1"))
 	int32 ChoicesPerOffer = 3;
 
@@ -52,13 +82,20 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pool", meta = (ClampMin = "0"))
 	int32 RerollsPerRun = 3;
 
-	float GetRarityWeight(EGSUpgradeRarity Rarity) const;
+	/** The rarity weights of Category's cards. */
+	const TMap<EGSUpgradeRarity, float>& GetRarityWeights(EGSUpgradeCategory Category) const;
+
+	/** One rarity's weight for Category (0 if missing or negative). */
+	float GetRarityWeight(EGSUpgradeCategory Category, EGSUpgradeRarity Rarity) const;
 
 	/** RarityValueMultipliers[Rarity] (0 if missing). */
 	float GetRarityValueMultiplier(EGSUpgradeRarity Rarity) const;
 
 	/** False if Upgrade can't come at Rarity: a whole-unit upgrade with no WholeUnitValues entry (Rare). */
 	bool HasRarity(const UGSUpgradeData* Upgrade, EGSUpgradeRarity Rarity) const;
+
+	/** The rarity a card of Upgrade gets for a rolled Rarity: a rarity it has no version of counts as Common. */
+	EGSUpgradeRarity ResolveRarity(const UGSUpgradeData* Upgrade, EGSUpgradeRarity Rarity) const;
 
 	/**
 	 * The value of one pick of Upgrade at Rarity when the player already has PicksBefore picks of it:
@@ -72,11 +109,17 @@ public:
 	float GetPickValue(const UGSUpgradeData* Upgrade, EGSUpgradeRarity Rarity, int32 PicksBefore) const;
 
 	/**
-	 * Roll one offer from Stream. GetStacks returns how many stacks the player already has of an upgrade (for
+	 * Roll one offer from Stream. GetStacks returns how many picks the player already has of an upgrade (for
 	 * MaxStacks). Pure apart from Stream: the run stream for real offers, a private stream for simulations.
 	 */
-	TArray<UGSUpgradeData*> RollOffer(FRandomStream& Stream, TFunctionRef<int32(const UGSUpgradeData*)> GetStacks) const;
+	TArray<FGSUpgradeChoice> RollOffer(FRandomStream& Stream, TFunctionRef<int32(const UGSUpgradeData*)> GetStacks) const;
+
+	/** Roll a rarity for Category's weights (Common if every weight is 0). */
+	EGSUpgradeRarity RollRarity(FRandomStream& Stream, EGSUpgradeCategory Category) const;
 
 	/** Every rarity value, in order (Common, Rare, Epic, Legendary). */
 	static TArray<EGSUpgradeRarity> GetAllRarities();
+
+	/** Every category, in order (Stat Boost, Ability, Weapon). */
+	static TArray<EGSUpgradeCategory> GetAllCategories();
 };

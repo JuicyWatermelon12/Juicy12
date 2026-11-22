@@ -427,6 +427,9 @@ void UGSHUDWidget::SetUpgradeIcon(const UGSUpgradeData* Upgrade, int32 Stacks)
 	{
 		return;
 	}
+	const UGSUpgradeComponent* Upgrades = BoundUpgrades.Get();
+	const FGSUpgradeStack* Entry = Upgrades ? Upgrades->FindEntry(Upgrade) : nullptr;
+	const EGSUpgradeRarity BestRarity = Entry ? Entry->GetBestRarity() : EGSUpgradeRarity::Common;
 	const int32 Index = UpgradeIcons.IndexOfByPredicate([Upgrade](const UGSUpgradeIconWidget* Icon) { return Icon && Icon->GetUpgrade() == Upgrade; });
 	if (Stacks <= 0)
 	{
@@ -439,7 +442,7 @@ void UGSHUDWidget::SetUpgradeIcon(const UGSUpgradeData* Upgrade, int32 Stacks)
 	}
 	if (Index != INDEX_NONE)
 	{
-		UpgradeIcons[Index]->SetUpgrade(Upgrade, Stacks);
+		UpgradeIcons[Index]->SetUpgrade(Upgrade, Stacks, BestRarity);
 		return;
 	}
 	if (!UpgradeIconsBox || !UpgradeIconWidgetClass)
@@ -451,7 +454,7 @@ void UGSHUDWidget::SetUpgradeIcon(const UGSUpgradeData* Upgrade, int32 Stacks)
 	{
 		return;
 	}
-	Icon->SetUpgrade(Upgrade, Stacks);
+	Icon->SetUpgrade(Upgrade, Stacks, BestRarity);
 	if (UHorizontalBoxSlot* IconSlot = Cast<UHorizontalBoxSlot>(UpgradeIconsBox->AddChild(Icon)))
 	{
 		IconSlot->SetPadding(FMargin(0.f, 0.f, UpgradeIconSpacing, 0.f));
