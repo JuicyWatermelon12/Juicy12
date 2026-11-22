@@ -70,6 +70,9 @@ public:
 	/** Cash currently shown by CashText (from UGSProfileSubsystem::OnCashChanged). */
 	int32 GetDisplayedCash() const { return DisplayedCash; }
 
+	/** The ammo line as shown ("28 / 35"); empty without AmmoText or a weapon (tests). */
+	FString GetAmmoText() const;
+
 	/** Sum of the "+$N" popups currently on screen (tests). */
 	int32 GetActiveCashPopupTotal() const;
 

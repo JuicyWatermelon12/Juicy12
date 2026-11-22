@@ -221,13 +221,22 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 	}
 	if (ASC)
 	{
-		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, FireRate %.2f, MoveSpeed %.0f, PickupRadius %.0f, ExtraJumps %.0f"),
+		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, FireRate %.2f, MoveSpeed %.0f, PickupRadius %.0f, ExtraJumps %.0f, MagazineSizeMultiplier %.2f, HealthOnKill %.0f"),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetReloadSpeedAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetFireRateAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetMoveSpeedAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetPickupRadiusAttribute()),
-			ASC->GetNumericAttribute(UGSAttributeSet::GetExtraJumpsAttribute()));
+			ASC->GetNumericAttribute(UGSAttributeSet::GetExtraJumpsAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetMagazineSizeMultiplierAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetHealthOnKillAttribute()));
+		if (const AGSCharacter* Character = Cast<AGSCharacter>(PC->GetPawn()))
+		{
+			if (const UGSWeaponComponent* Weapons = Character->GetWeaponComponent())
+			{
+				Text += FString::Printf(TEXT("\n  Magazine: %d / %d"), Weapons->GetCurrentAmmo(), Weapons->GetCurrentMagazineSize());
+			}
+		}
 		if (const UGSGameplayAbility_Dash* Dash = UGSGameplayAbility_Dash::FindGrantedDash(ASC))
 		{
 			const UGSDashSettings* DashSettings = Dash->GetSettings();

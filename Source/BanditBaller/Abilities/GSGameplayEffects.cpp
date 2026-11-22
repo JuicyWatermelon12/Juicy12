@@ -149,6 +149,34 @@ UGSUpgradeEffect_Magnet::UGSUpgradeEffect_Magnet(const FObjectInitializer& Objec
 	AddMultiplierModifier(UGSAttributeSet::GetPickupRadiusAttribute(), 0.15f);
 }
 
+UGSUpgradeEffect_BiggerMags::UGSUpgradeEffect_BiggerMags(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddMultiplierModifier(UGSAttributeSet::GetMagazineSizeMultiplierAttribute(), 0.15f);
+}
+
+UGSUpgradeEffect_Leech::UGSUpgradeEffect_Leech(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddAdditiveModifier(UGSAttributeSet::GetHealthOnKillAttribute(), 1.f);
+}
+
+UGSHealthOnKillEffect::UGSHealthOnKillEffect(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	DurationPolicy = EGameplayEffectDurationType::Instant;
+
+	FAttributeBasedFloat HealthOnKill;
+	HealthOnKill.Coefficient = FScalableFloat(1.f);
+	HealthOnKill.BackingAttribute = FGameplayEffectAttributeCaptureDefinition(
+		UGSAttributeSet::GetHealthOnKillAttribute(), EGameplayEffectAttributeCaptureSource::Target, /*bSnapshot*/ false);
+
+	FGameplayModifierInfo& Modifier = Modifiers.AddDefaulted_GetRef();
+	Modifier.Attribute = UGSAttributeSet::GetHealthAttribute();
+	Modifier.ModifierOp = EGameplayModOp::Additive;
+	Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(HealthOnKill);
+}
+
 UGSFullHealEffect::UGSFullHealEffect(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

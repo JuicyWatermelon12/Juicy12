@@ -1,7 +1,10 @@
 // BanditBaller
 
 #include "GSWeaponComponent.h"
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemGlobals.h"
 #include "BanditBaller.h"
+#include "GSAttributeSet.h"
 #include "GameFramework/Character.h"
 #include "GSWeapon.h"
 #include "GSWeaponData.h"
@@ -71,10 +74,28 @@ int32 UGSWeaponComponent::GetCurrentAmmo() const
 	return Slots.IsValidIndex(CurrentIndex) ? Slots[CurrentIndex].Ammo : 0;
 }
 
+int32 UGSWeaponComponent::GetMagazineSize(const UGSWeaponData* WeaponData) const
+{
+	if (!WeaponData)
+	{
+		return 0;
+	}
+	const UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GetOwner());
+	const FGameplayAttribute Attribute = UGSAttributeSet::GetMagazineSizeMultiplierAttribute();
+	const float Multiplier = ASC && ASC->HasAttributeSetForAttribute(Attribute) ? ASC->GetNumericAttribute(Attribute) : 1.f;
+	// Rounded up; the small margin keeps float noise on an exact product (30 x 1.6 = 48) from adding a round.
+	return FMath::Max(1, FMath::CeilToInt(WeaponData->MagazineSize * Multiplier - 1e-3f));
+}
+
+int32 UGSWeaponComponent::GetCurrentMagazineSize() const
+{
+	return GetMagazineSize(GetCurrentWeaponData());
+}
+
 bool UGSWeaponComponent::IsCurrentMagazineFull() const
 {
 	const UGSWeaponData* Data = GetCurrentWeaponData();
-	return !Data || GetCurrentAmmo() >= Data->MagazineSize;
+	return !Data || GetCurrentAmmo() >= GetMagazineSize(Data);
 }
 
 bool UGSWeaponComponent::AddWeapon(const UGSWeaponData* WeaponData)
@@ -87,7 +108,7 @@ bool UGSWeaponComponent::AddWeapon(const UGSWeaponData* WeaponData)
 
 	FGSWeaponSlot NewSlot;
 	NewSlot.Data = WeaponData;
-	NewSlot.Ammo = WeaponData->MagazineSize;
+	NewSlot.Ammo = GetMagazineSize(WeaponData);
 
 	if (WeaponActorClass)
 	{
@@ -194,7 +215,7 @@ void UGSWeaponComponent::RefillCurrentMagazine()
 		return;
 	}
 
-	Slots[CurrentIndex].Ammo = Data->MagazineSize;
+	Slots[CurrentIndex].Ammo = GetMagazineSize(Data);
 	NotifyChanged();
 }
 

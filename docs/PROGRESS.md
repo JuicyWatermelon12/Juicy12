@@ -41,10 +41,10 @@ the hub map replaces them.
 **M2 — the run loop is complete** (rounds, waves, scaling, economy, progression; Prompts 1–28 and 26b; 11–13 and 17
 were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **Next: M2b**, eleven more
 level-up upgrades (Prompts 29–40; 29 is the docs-only plan, then Dash Charge (30), Fire Rate + Magnet (31) and the
-held-fire fix (31b); all done). **Then M3** (shop, owned items, gear loadout,
+held-fire fix (31b) and Bigger Mags + Leech (32); all done). **Then M3** (shop, owned items, gear loadout,
 two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Fix: exact fire rate for held fire" (Prompt 31b), not pushed. The build is clean and all 38 automation tests pass in about 91 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Bigger Mags and Leech upgrades" (Prompt 32), not pushed. The build is clean and all 39 automation tests pass in about 92 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -88,7 +88,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2b 29 | Design update: the M2b upgrade list (11 upgrades, pool 4 → 15) and its rules; Prompts 30–40 planned (docs only) | 691d54e |
 | M2b 30 | Dash Charge upgrade (ExtraDashCharges → GA_Dash max charges, live); the player starts with 1 dash charge | 252bd0b |
 | M2b 31 | Fire Rate (+8% FireRate) and Magnet (+15% PickupRadius) upgrades, both Common | 6a78abe |
-| M2b 31b | Fix: exact fire rate for held fire (the burst stays inside GA_Fire on an exact shot schedule) | see git log |
+| M2b 31b | Fix: exact fire rate for held fire (the burst stays inside GA_Fire on an exact shot schedule) | 0e245f6 |
+| M2b 32 | Bigger Mags (magazine × MagazineSizeMultiplier, rounded up) and Leech (heal HealthOnKill per kill) | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -1427,8 +1428,8 @@ data.
 - Player shots are hitscan and stop at the first hit. Piercing and the Floating Gun's projectile are new.
 
 **Open questions** (settled in each upgrade's prompt; not decided)
-- Bigger Mags: how the size rounds (rifle 30 × 1.15 = 34.5, pistol 12 × 1.15 = 13.8). Does a pick fill the extra
-  rounds at once?
+- ~~Bigger Mags: how the size rounds (rifle 30 × 1.15 = 34.5, pistol 12 × 1.15 = 13.8). Does a pick fill the extra
+  rounds at once?~~ Decided in Prompt 32: rounded up; a pick doesn't refill.
 - Floating Shield:
   - Does a hit that a shield takes end the kill combo or cost the no-damage round bonus? Today both follow health
     actually lost, so it would count as no damage.
@@ -1573,6 +1574,49 @@ after each refire interval and the character's next tick re-activated it.
   - No warnings from the fire code.
 - **Full suite:** 38 tests, all passing, in 91.4 s.
 
+### Prompt 32 — Bigger Mags + Leech
+- **Bigger Mags (Common, no cap):**
+  - New attribute `MagazineSizeMultiplier` (default 1, clamped to ≥ 0.1; not replicated, `TODO(co-op)`).
+  - `UGSWeaponComponent::GetMagazineSize(Data)` = ceil(`MagazineSize` × multiplier), read live from the owner's ASC.
+    Owners without the attribute get the plain MagazineSize. A small margin (−0.001) keeps float noise on an exact
+    product from adding a round (30 × 1.6 = 48, not 49).
+  - It is used for a new weapon's first magazine, reload refills (`RefillCurrentMagazine`), "magazine full" (so a
+    reload is offered again after a pick) and the HUD's "ammo / magazine" (read every frame, so it follows a pick at
+    once). New `GetCurrentMagazineSize()`. It applies to both weapons.
+  - **A pick doesn't refill:** the rounds in the magazine stay; the next reload fills to the new size.
+  - `UGSUpgradeEffect_BiggerMags` → `Abilities/GE_Upgrade_BiggerMags` (×1.15 per stack, additive like the other %
+    upgrades). `Data/Upgrades/DA_Upgrade_BiggerMags`: "+{PerStack}% magazine size per stack (all weapons, rounded up)."
+  - Sizes: rifle 30 → 35 / 39 / 44 / 48 for 1–4 stacks; pistol 12 → 14 / 16 / 18 / 20.
+- **Leech (Rare, no cap):**
+  - New attribute `HealthOnKill` (default 0, clamped to ≥ 0; not replicated, `TODO(co-op)`).
+  - `AGSGameMode::HandleEnemyKilled`: for an enemy kill credited to a player (the same killer the combo uses; target
+    dummies don't count), applies `HealthOnKillEffect` to the killer.
+    - The effect is `UGSHealthOnKillEffect`, a native instant GE: Health + the target's own HealthOnKill, captured live.
+      It is set on AGSGameMode in C++ and can be overridden on BP_GSGameMode.
+    - Health's existing clamp keeps it at or below MaxHealth. It is skipped with HealthOnKill 0 or a dead killer.
+    - Log: `[upgrade] <PS>: Leech +N on kill -> Health A -> B`.
+  - Kills by the Floating Gun and Powder Keg will heal too, once they go through this kill path (M2b rule).
+  - `UGSUpgradeEffect_Leech` → `Abilities/GE_Upgrade_Leech` (+1 HealthOnKill per stack). `Data/Upgrades/DA_Upgrade_Leech`:
+    "Heal +{PerStack} health per kill, per stack."
+- **Pool:** both added to DA_UpgradePool (9 upgrades: 6 Common, 3 Rare).
+- **Debug:**
+  - `gs.Upgrade.Grant BiggerMags` / `Leech`.
+  - `gs.Upgrade.List` adds MagazineSizeMultiplier and HealthOnKill to its Stats line, and a "Magazine: ammo / size" line.
+  - HUD test hook `GetAmmoText()`.
+- **Offer odds** (10,000 offers, seed 1): each Common ~42% of offers, each Rare ~16.5%. The Rare tier is still 41.7%.
+- **Tests:**
+  - New `Upgrades.BiggerMagsAndLeech`.
+  - `Upgrades.Offers` expects 9 upgrades; its Rare check still holds (6 Commons, 3 Rares).
+  - The held-fire helper's magazine size reads the weapon component.
+  - First run note: holding fire "for 2 shots" right after PIE started fired 10, because a long first frame at ×4 made
+    the burst catch up (correct behaviour). The test now taps twice instead.
+- **PIE check** (town, round paused):
+  - `gs.Upgrade.Grant BiggerMags 2`, `gs.Upgrade.Grant Leech 3`, `gs.Damage.Self 20` (god off), `gs.Spawn MeleeBandit 1`
+    + `gs.KillAll`.
+  - Log: "Leech +3 on kill -> Health 80 -> 83", "MagazineSizeMultiplier 1.30, HealthOnKill 3", "Magazine: 30 / 39".
+  - The HUD showed "83 / 100" and the rifle at "30 / 39" (not refilled).
+- **Full suite:** 39 tests, all passing, in 92.0 s.
+
 ---
 
 ## Console commands and CVars
@@ -1586,8 +1630,8 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.God [0\|1]` | Toggle/set damage immunity (one `State.Invulnerable` count). |
 | `gs.GiveWeapon <Weapon>` | Equip `Rifle` / `Pistol` / `BanditCarbine` with a full mag (replaces the equipped one if both slots are full). |
 | `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain, ReloadSpeed). |
-| `gs.Upgrade.Grant <Name> [Count=1]` | Add stacks of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed`, `FireRate`, `Magnet`, `ExtraJump`, `DashCharge` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`. |
-| `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps and the dash charges (max = base + ExtraDashCharges, ready now). |
+| `gs.Upgrade.Grant <Name> [Count=1]` | Add stacks of an upgrade (`ReloadSpeed`, `Damage`, `MoveSpeed`, `FireRate`, `Magnet`, `BiggerMags`, `ExtraJump`, `DashCharge`, `Leech` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`. |
+| `gs.Upgrade.List` | List every upgrade with rarity, this run's stacks / cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps / MagazineSizeMultiplier / HealthOnKill, the magazine (ammo / size) and the dash charges (max = base + ExtraDashCharges, ready now). |
 | `gs.Upgrade.Offer` | Queue a level-up offer without the level (opens at once if none is open) and print the open offer. Refused in GameOver. |
 | `gs.Upgrade.Choose <0-2>` | Take a choice of the open offer; the next queued offer opens. |
 | `gs.Upgrade.Reroll` | Reroll the open offer for one of this run's rerolls (refused with none left or no offer). |
@@ -1641,6 +1685,8 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | ReloadSpeed | Reload time divisor for GA_Reload (constructor default 1.0, min 0.1). Not replicated yet. |
 | ExtraJumps | Air jumps; AGSCharacter keeps JumpMaxCount = 1 + ExtraJumps (constructor default 0, min 0). Not replicated yet. |
 | ExtraDashCharges | Dash charges on top of DA_DashSettings MaxCharges; GA_Dash reads it live (constructor default 0, min 0). Not replicated yet. |
+| MagazineSizeMultiplier | Magazine = ceil(weapon MagazineSize × it) for every player weapon, read live by UGSWeaponComponent (constructor default 1, min 0.1). Raised by Bigger Mags. Not replicated yet. |
+| HealthOnKill | Health healed per enemy kill credited to the player (UGSHealthOnKillEffect, never above MaxHealth; constructor default 0, min 0). Raised by Leech. Not replicated yet. |
 | IncomingDamage | Meta attribute: GE_Damage writes it, the set converts it to Health loss and records the instigator. |
 
 **Gameplay tags** (native, `Abilities/GSGameplayTags.*`; none in config):
@@ -1670,12 +1716,15 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | `GE_Upgrade_DashCharge` | `UGSUpgradeEffect_DashCharge` | Infinite, stacking; Additive +1 ExtraDashCharges per stack. |
 | `GE_Upgrade_FireRate` | `UGSUpgradeEffect_FireRate` | Infinite, stacking; Multiply (Additive) 1.08 on FireRate → +8% of base per stack. |
 | `GE_Upgrade_Magnet` | `UGSUpgradeEffect_Magnet` | Infinite, stacking; Multiply (Additive) 1.15 on PickupRadius → +15% of base per stack. |
+| `GE_Upgrade_BiggerMags` | `UGSUpgradeEffect_BiggerMags` | Infinite, stacking; Multiply (Additive) 1.15 on MagazineSizeMultiplier → +15% per stack. |
+| `GE_Upgrade_Leech` | `UGSUpgradeEffect_Leech` | Infinite, stacking; Additive +1 HealthOnKill per stack. |
+| (native, no asset) | `UGSHealthOnKillEffect` | Instant; Health + the target's HealthOnKill (captured live). AGSGameMode applies it to the killer per enemy kill (`HealthOnKillEffect`). |
 
 **Abilities:**
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (38, all passing, about 91 s)
+## Automation tests (39, all passing, about 92 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
@@ -1721,9 +1770,10 @@ runs its magnet part at ×4. `Weapons.HeldFire` runs at ×4, and ×16 for its sl
 | `Round.ClearBonus` | DA_RoundClearSettings on the GameMode ($20 / $15 / $15, 8 s + 1.5 s per enemy) and the summary widget on the controller; PreRound starts the round's stats (no payout, no summary); Combat records its start and wave size; round 1 killed fast with no damage → base + no damage + fast clear, kills = wave size, profile += bonus + cash collected; summary shows round, title and each line; after the vacuum cash collected ≥ kills × CashValue, XP = kills × XPValue, profile and CashEarned += cash collected + bonus, summary lines follow; round 2 PreRound hides the summary and starts from zero; damage taken + an impossible time limit (override) → base only, "missed" lines, total = base; RoundClear from PreRound pays nothing and shows nothing; round 10 (skip) pays the same as round 1; gs.Run.Stats shows the last bonus; a new run clears payout and round stats. |
 | `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
 | `Upgrades.FireRateAndMagnet` | DA_Upgrade_FireRate (+8%) and DA_Upgrade_Magnet (+15%): Common, no cap, their GE classes, in DA_UpgradePool; FireRate 1 and PickupRadius 300 at start; rifle held for 12 shots: on the exact schedule every frame, 0.100 s apart on average (within a frame over the burst); `gs.Upgrade.Grant FireRate 10` → FireRate 1.8, refire interval / 1.8 (0.0556 s), 16 held shots on that schedule, 1.8 times as fast; a bandit's drop (cash + XP orb) lands 380–660 cm away: nothing flies in at radius 300; `gs.Upgrade.Grant Magnet 10` → PickupRadius 750, the cash and the orb fly in (cash += CashValue, XP += XPValue); a new run resets both. |
+| `Upgrades.BiggerMagsAndLeech` | DA_Upgrade_BiggerMags (Common, +15%) and DA_Upgrade_Leech (Rare, +1): no cap, their GE classes, in DA_UpgradePool; multiplier 1, HealthOnKill 0, rifle magazine 30, HUD "30 / 30"; two taps → 28, one Bigger Mags stack (console) → ×1.15, magazine 35, still 28 rounds (no refill, not full), HUD "28 / 35"; a reload fills 35; 4 stacks → ×1.6: rifle exactly 48, pistol ceil(19.2) = 20, rifle still 35 rounds, HUD "35 / 48"; the pistol equips with 20 ("20 / 20"); Leech: damaged to 70, a kill without Leech heals nothing, x1 → +1 per kill, x5 → +5, a kill that isn't the player's heals nothing, at 98 a kill stops at MaxHealth 100; a new run resets both (multiplier 1, magazine 30, HealthOnKill 0). Game time ×4. |
 | `Upgrades.DashCharge` | DA_DashSettings MaxCharges 1; DA_Upgrade_DashCharge (Rare, no cap, "+1", GE_Upgrade_DashCharge, in DA_UpgradePool); ExtraDashCharges 0, 1 max charge, icon READY; a dash uses it, a second press inside the recharge is refused, icon shows the countdown with no count; a pick (console) during the recharge: ExtraDashCharges 1, max 2 and one charge ready at once, icon "1/2" a frame later, the second dash works; charges come back one recharge (3 s) after the first dash and one more recharge later; `gs.Upgrade.Grant DashCharge 2` → 3 stacks, 4 charges all ready, icon "4/4", four dashes in a row, the 5th refused, icon "0/4"; a new run → ExtraDashCharges 0, 1 max charge, no stacks. Game time ×4. |
 | `Upgrades.ExtraJump` | DA_Upgrade_ExtraJump (Rare, no cap, "+1"); no air jump without it; ×3 → ExtraJumps 3, JumpMaxCount 4; three air jumps (rising, falling, falling fast) each set AirJumpZVelocity, 4th refused, one puff/sound each; landing resets; coyote jump is the ground jump; late jump after walking off uses an air jump; slide-hop then air jump; jump during an air dash is queued and becomes an air jump at the dash end; jump during a ground dash becomes the ground jump; 25 more stacks (no cap) → ExtraJumps = stacks, JumpMaxCount = 1 + stacks; new run → 0 / 1. |
-| `Upgrades.Offers` | DA_UpgradePool on the GameMode (7 upgrades, 100/20/6/1, 3 choices, 3 rerolls), 4 rarities; roll rules: 3000 offers all 3 different, Rare in ~42%, same seed same offers, 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer; simulator deterministic, no short offers, no Epic / Legendary, run stream untouched. |
+| `Upgrades.Offers` | DA_UpgradePool on the GameMode (9 upgrades, 100/20/6/1, 3 choices, 3 rerolls), 4 rarities; roll rules: 3000 offers all 3 different, Rare in ~42%, same seed same offers, 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer; simulator deterministic, no short offers, no Epic / Legendary, run stream untouched. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
@@ -1800,15 +1850,16 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Round 1 pays $40 of drops (more with the combo), so a perfect clear more than doubles it there. The bonus
     matters less as waves grow.
 - **Upgrades** (per stack, additive on the base value): Reload Speed +10%, Damage +10%, Move Speed +8%, Fire Rate
-  +8%, Magnet +15% pickup radius (Common); Extra Jump +1 air jump and Dash Charge +1 dash charge (Rare). None has a
-  cap.
-- **Upgrade offers** (DA_UpgradePool, 7 upgrades; placeholders): rarity weights Common 100 / Rare 20 / Epic 6 /
+  +8%, Magnet +15% pickup radius, Bigger Mags +15% magazine size (rounded up) (Common); Extra Jump +1 air jump, Dash
+  Charge +1 dash charge, Leech +1 health per kill (Rare). None has a cap.
+- **Upgrade offers** (DA_UpgradePool, 9 upgrades; placeholders): rarity weights Common 100 / Rare 20 / Epic 6 /
   Legendary 1, 3 choices, 3 rerolls per run.
-  - `simulate_upgrade_offers(10000, 1)`, fresh run with no picks (Prompt 31): Fire Rate in 50.6% of offers, Move
-    Speed 50.5%, Damage 50.2%, Reload Speed 50.0%, Magnet 49.7%, Dash Charge 24.6%, Extra Jump 24.5%.
-  - The Rare tier is in 41.7% of offers (1 − (5/6)³ = 42.1%), shared by two upgrades. Each Common was in ~86% of
-    offers with 3 Commons (M2), ~84% after Prompt 30 and ~50% now with 5.
-  - By choices: Common 83.6%, Rare 16.4%, Epic and Legendary 0 (empty tiers). No short offers.
+  - `simulate_upgrade_offers(10000, 1)`, fresh run with no picks (Prompt 32): Move Speed in 42.6% of offers, Magnet
+    41.9%, Reload Speed 41.7%, Damage 41.7%, Bigger Mags 41.4%, Fire Rate 41.2%, Extra Jump 16.7%, Dash Charge 16.4%,
+    Leech 16.4%.
+  - The Rare tier is in 41.7% of offers (1 − (5/6)³ = 42.1%), shared by three upgrades. Each Common was in ~86% of
+    offers with 3 Commons (M2), ~50% with 5 (Prompt 31) and ~42% now with 6.
+  - By choices: Common 83.5%, Rare 16.5%, Epic and Legendary 0 (empty tiers). No short offers.
 - **Combo curves**: there is no combo system yet.
 
 ## Known issues, TODOs and deviations
@@ -1816,6 +1867,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 **Not built yet / stubs**
 - No upgrade is Epic or Legendary yet; those tiers are empty and never offered. M2b adds Floating Gun, Piercing
   Rounds and Powder Keg (Epic) and Second Wind (Legendary).
+- Bigger Mags (Prompt 32): after a run restart in the same map (`gs.Run.Seed`, debug) the magazine can hold more
+  rounds than its new, smaller size until it is fired down; it counts as full meanwhile. A real run loads a fresh town.
 - Dash Charge (Prompt 30): charges spent before a run restart in the same map (`gs.Run.Seed`, debug) keep
   recharging after the Dash Charge stacks are removed. Until enough of them come back the player can have 0 of 1
   charges for a few seconds. A real run loads a fresh town, so this only happens with the debug restart.
@@ -1992,8 +2045,8 @@ smaller pool.
     Done (see Prompt 31).
 31b. ~~**Fix: exact fire rate for held fire.**~~ Done (see Prompt 31b): a held burst stays inside GA_Fire on an exact
     shot schedule; the rifle fires exactly 600 rounds a minute.
-32. **Bigger Mags + Leech** (Common, Rare): +15% magazine size per pick (rounding decided here); heal 1 health per kill
-    per pick.
+32. ~~**Bigger Mags + Leech** (Common, Rare): +15% magazine size per pick (rounding decided here); heal 1 health per
+    kill per pick.~~ Done (see Prompt 32): rounded up, no refill on a pick.
 33. **Loaded Dice** (Rare, MaxStacks 20): +5% chance per pick for a shot to deal double damage, rolled on the run
     stream.
 34. **Piercing Rounds** (Epic): shots pass through 1 more enemy per pick.

@@ -28,6 +28,7 @@
 #include "GSComboComponent.h"
 #include "GSComboSettings.h"
 #include "GSDifficultyCurve.h"
+#include "GSGameplayEffects.h"
 #include "GSGameplayTags.h"
 #include "GSProgressionComponent.h"
 #include "GSUpgradeComponent.h"
@@ -48,6 +49,7 @@ AGSGameMode::AGSGameMode()
 	DefaultPawnClass = AGSCharacter::StaticClass();
 
 	WaveDirector = CreateDefaultSubobject<UGSWaveDirector>(TEXT("WaveDirector"));
+	HealthOnKillEffect = UGSHealthOnKillEffect::StaticClass();
 }
 
 namespace
@@ -111,6 +113,19 @@ void AGSGameMode::HandleEnemyKilled(AActor* Enemy, AActor* Killer)
 	if (Stats && ComboCount > 0)
 	{
 		Stats->RecordCombo(ComboCount);
+	}
+
+	// Leech: the killer heals its HealthOnKill (enemy kills only, like the combo; never above MaxHealth, never if dead).
+	if (UAbilitySystemComponent* KillerASC = KillerState ? KillerState->GetAbilitySystemComponent() : nullptr)
+	{
+		const float HealthOnKill = KillerASC->GetNumericAttribute(UGSAttributeSet::GetHealthOnKillAttribute());
+		if (HealthOnKill > 0.f && HealthOnKillEffect && !KillerASC->HasMatchingGameplayTag(GSGameplayTags::State_Dead))
+		{
+			const float Before = KillerASC->GetNumericAttribute(UGSAttributeSet::GetHealthAttribute());
+			KillerASC->ApplyGameplayEffectToSelf(HealthOnKillEffect->GetDefaultObject<UGameplayEffect>(), 1.f, KillerASC->MakeEffectContext());
+			UE_LOG(LogBanditBaller, Log, TEXT("[upgrade] %s: Leech +%.0f on kill -> Health %.0f -> %.0f"), *GetNameSafe(KillerState), HealthOnKill,
+				Before, KillerASC->GetNumericAttribute(UGSAttributeSet::GetHealthAttribute()));
+		}
 	}
 
 	// Drops before the broadcast: if this kill clears the wave, RoundClear's vacuum includes them. Cash and XP per

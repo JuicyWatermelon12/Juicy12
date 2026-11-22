@@ -14,6 +14,8 @@ UGSAttributeSet::UGSAttributeSet()
 	InitReloadSpeed(1.f);
 	InitExtraJumps(0.f);
 	InitExtraDashCharges(0.f);
+	InitMagazineSizeMultiplier(1.f);
+	InitHealthOnKill(0.f);
 }
 
 void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -47,13 +49,18 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 		|| Attribute == GetPickupRadiusAttribute()
 		|| Attribute == GetXPGainAttribute()
 		|| Attribute == GetExtraJumpsAttribute()
-		|| Attribute == GetExtraDashChargesAttribute())
+		|| Attribute == GetExtraDashChargesAttribute()
+		|| Attribute == GetHealthOnKillAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}
 	else if (Attribute == GetReloadSpeedAttribute())
 	{
 		NewValue = FMath::Max(NewValue, MinReloadSpeed);
+	}
+	else if (Attribute == GetMagazineSizeMultiplierAttribute())
+	{
+		NewValue = FMath::Max(NewValue, MinMagazineSizeMultiplier);
 	}
 }
 

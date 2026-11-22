@@ -493,11 +493,11 @@ namespace GSTests
 		return Weapons ? Weapons->GetCurrentAmmo() : -1;
 	}
 
+	/** The equipped weapon's magazine for the player (MagazineSize x MagazineSizeMultiplier, rounded up). */
 	int32 GetPlayerMagazineSize()
 	{
 		const AGSCharacter* Player = GetPlayer();
-		const UGSWeaponData* Data = Player ? Player->GetWeaponComponent()->GetCurrentWeaponData() : nullptr;
-		return Data ? Data->MagazineSize : -1;
+		return Player ? Player->GetWeaponComponent()->GetCurrentMagazineSize() : -1;
 	}
 
 	bool IsPlayerFiring()
@@ -3187,6 +3187,168 @@ bool FGSFireRateAndMagnetTest::RunTest(const FString& Parameters)
 }
 
 // ---------------------------------------------------------------------------
+// Bigger Mags and Leech: magazine size x multiplier (rounded up, no refill, HUD), heal per credited kill
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	FString GetHUDAmmoText()
+	{
+		const UGSHUDWidget* HUD = GetHUD();
+		return HUD ? HUD->GetAmmoText() : FString(TEXT("<no HUD>"));
+	}
+
+	/** Enqueue: wait until the HUD's ammo line reads Expected (it's read every frame). */
+	void WaitHUDAmmo(FAutomationTestBase* Test, const FString& Expected)
+	{
+		WaitUntil(Test, FString::Printf(TEXT("the HUD ammo to read \"%s\""), *Expected), [Expected]() { return GetHUDAmmoText() == Expected; }, 5.0);
+	}
+
+	/** Kill a fresh MeleeBandit with damage from Source (the player's ASC credits the kill to the player). */
+	void KillEnemyWithSource(FAutomationTestBase* Test, UAbilitySystemComponent* Source)
+	{
+		AGSEnemyCharacter* Enemy = SpawnTestEnemy();
+		UAbilitySystemComponent* EnemyASC = Enemy ? Enemy->GetAbilitySystemComponent() : nullptr;
+		if (Test->TestNotNull(TEXT("Spawned an enemy to kill"), EnemyASC))
+		{
+			ApplyDamage(EnemyASC, GetMaxHealth(EnemyASC) + 100.f, Source ? Source : EnemyASC);
+			Test->TestTrue(TEXT("The enemy died"), Enemy->GetHealthComponent()->IsDead());
+		}
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSBiggerMagsAndLeechTest, "BanditBaller.Upgrades.BiggerMagsAndLeech", GSTests::TestFlags)
+bool FGSBiggerMagsAndLeechTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	// Data and base values.
+	Step([this]()
+	{
+		SpeedUpWorld(4.f);
+		GetGameMode()->SetRoundTimerPaused(true); // stay in PreRound: no wave
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		const UGSUpgradePool* Pool = GetGameMode()->GetUpgradePool();
+		struct FExpect { const TCHAR* Name; EGSUpgradeRarity Rarity; const TCHAR* Text; UClass* EffectClass; };
+		for (const FExpect& E : { FExpect{ TEXT("BiggerMags"), EGSUpgradeRarity::Common, TEXT("+15%"), UGSUpgradeEffect_BiggerMags::StaticClass() },
+			FExpect{ TEXT("Leech"), EGSUpgradeRarity::Rare, TEXT("+1"), UGSUpgradeEffect_Leech::StaticClass() } })
+		{
+			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(E.Name);
+			if (!TestNotNull(FString::Printf(TEXT("DA_Upgrade_%s exists"), E.Name), Upgrade))
+			{
+				continue;
+			}
+			TestTrue(FString::Printf(TEXT("%s rarity"), E.Name), Upgrade->Rarity == E.Rarity);
+			TestEqual(FString::Printf(TEXT("%s has no cap"), E.Name), Upgrade->MaxStacks, 0);
+			TestFalse(FString::Printf(TEXT("%s has a display name"), E.Name), Upgrade->DisplayName.IsEmpty());
+			TestTrue(FString::Printf(TEXT("%s effect is GE_Upgrade_%s"), E.Name, E.Name), Upgrade->Effect && Upgrade->Effect->IsChildOf(E.EffectClass));
+			const FString Description = Upgrade->GetFormattedDescription().ToString();
+			TestTrue(FString::Printf(TEXT("%s description '%s' shows %s"), E.Name, *Description, E.Text), Description.Contains(E.Text));
+			TestTrue(FString::Printf(TEXT("%s is in DA_UpgradePool"), E.Name), Pool && Pool->Upgrades.Contains(Upgrade));
+		}
+
+		TestEqual(TEXT("MagazineSizeMultiplier starts at 1"), GetAttr(UGSAttributeSet::GetMagazineSizeMultiplierAttribute()), 1.f, 0.001f);
+		TestEqual(TEXT("HealthOnKill starts at 0"), GetAttr(UGSAttributeSet::GetHealthOnKillAttribute()), 0.f, 0.001f);
+		const UGSWeaponData* Rifle = GetPlayer()->GetWeaponComponent()->GetCurrentWeaponData();
+		TestTrue(TEXT("The rifle is equipped"), Rifle && Rifle->MagazineSize == 30);
+		TestEqual(TEXT("Rifle magazine 30"), GetPlayerMagazineSize(), 30);
+		TestEqual(TEXT("Pistol data magazine 12"), UGSDebugLibrary::FindWeaponData(TEXT("Pistol"))->MagazineSize, 12);
+	});
+	WaitHUDAmmo(this, TEXT("30 / 30"));
+
+	// Bigger Mags: spend 2 rounds, then one stack: magazine ceil(30 x 1.15) = 35, the 28 rounds stay (no refill), the HUD
+	// follows at once. A reload fills to 35.
+	// Two taps, one round each (a held burst could catch up several shots in one long frame).
+	for (int32 Tap = 0; Tap < 2; ++Tap)
+	{
+		Step([]() { TapInput(GSGameplayTags::Ability_Fire); });
+		WaitUntil(this, TEXT("firing to end"), []() { return !IsPlayerFiring(); });
+	}
+	Step([this]()
+	{
+		TestEqual(TEXT("2 rounds spent"), GetPlayerAmmo(), 28);
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("BiggerMags") });
+		TestEqual(TEXT("MagazineSizeMultiplier = 1.15"), GetAttr(UGSAttributeSet::GetMagazineSizeMultiplierAttribute()), 1.15f, 0.001f);
+		TestEqual(TEXT("Rifle magazine ceil(30 x 1.15) = 35"), GetPlayerMagazineSize(), 35);
+		TestEqual(TEXT("The pick doesn't refill"), GetPlayerAmmo(), 28);
+		TestFalse(TEXT("The magazine isn't full any more"), GetPlayer()->GetWeaponComponent()->IsCurrentMagazineFull());
+	});
+	WaitHUDAmmo(this, TEXT("28 / 35"));
+	Step([]() { TapInput(GSGameplayTags::Ability_Reload); });
+	WaitUntil(this, TEXT("the reload to fill 35 rounds"), []() { return !IsPlayerReloading() && GetPlayerAmmo() == 35; });
+	WaitHUDAmmo(this, TEXT("35 / 35"));
+
+	// Four stacks: x1.6. Rifle 30 x 1.6 = 48 exactly (no extra round from float noise), pistol ceil(12 x 1.6) = 20.
+	Step([this]()
+	{
+		TestTrue(TEXT("Full at 35: a reload is refused"), GetPlayer()->GetWeaponComponent()->IsCurrentMagazineFull());
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("BiggerMags"), TEXT("3") });
+		TestEqual(TEXT("4 stacks"), GetPlayerUpgrades()->GetStacks(UGSDebugLibrary::FindUpgradeData(TEXT("BiggerMags"))), 4);
+		TestEqual(TEXT("MagazineSizeMultiplier = 1 + 4 x 15%"), GetAttr(UGSAttributeSet::GetMagazineSizeMultiplierAttribute()), 1.6f, 0.001f);
+		TestEqual(TEXT("Rifle magazine 30 x 1.6 = 48"), GetPlayerMagazineSize(), 48);
+		TestEqual(TEXT("Still no refill"), GetPlayerAmmo(), 35);
+		TestEqual(TEXT("Pistol magazine ceil(12 x 1.6) = 20"),
+			GetPlayer()->GetWeaponComponent()->GetMagazineSize(UGSDebugLibrary::FindWeaponData(TEXT("Pistol"))), 20);
+	});
+	WaitHUDAmmo(this, TEXT("35 / 48"));
+	Step([this]()
+	{
+		UGSDebugLibrary::GiveWeaponTo(GetPC(), UGSDebugLibrary::FindWeaponData(TEXT("Pistol")));
+		TestEqual(TEXT("Pistol equipped with its bigger magazine"), GetPlayerAmmo(), 20);
+		TestEqual(TEXT("Pistol magazine 20"), GetPlayerMagazineSize(), 20);
+	});
+	WaitHUDAmmo(this, TEXT("20 / 20"));
+	Step([this]()
+	{
+		UGSDebugLibrary::GiveWeaponTo(GetPC(), UGSDebugLibrary::FindWeaponData(TEXT("Rifle")));
+		TestEqual(TEXT("Rifle again: magazine 48"), GetPlayerMagazineSize(), 48);
+	});
+
+	// Leech: no heal without it; +1 per stack per kill credited to the player; never above MaxHealth; kills that aren't
+	// the player's don't heal.
+	Step([this]()
+	{
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		UGSAbilitySystemComponent* ASC = GetPlayerASC();
+		ApplyDamage(ASC, 30.f);
+		TestEqual(TEXT("Damaged to 70"), GetHealth(ASC), 70.f, 0.01f);
+
+		KillEnemyWithSource(this, ASC);
+		TestEqual(TEXT("No Leech: a kill heals nothing"), GetHealth(ASC), 70.f, 0.01f);
+
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Leech") });
+		TestEqual(TEXT("HealthOnKill = 1"), GetAttr(UGSAttributeSet::GetHealthOnKillAttribute()), 1.f, 0.001f);
+		KillEnemyWithSource(this, ASC);
+		TestEqual(TEXT("Leech x1: a kill heals 1"), GetHealth(ASC), 71.f, 0.01f);
+
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Leech"), TEXT("4") });
+		TestEqual(TEXT("HealthOnKill = 5"), GetAttr(UGSAttributeSet::GetHealthOnKillAttribute()), 5.f, 0.001f);
+		KillEnemyWithSource(this, ASC);
+		TestEqual(TEXT("Leech x5: a kill heals 5"), GetHealth(ASC), 76.f, 0.01f);
+
+		KillEnemyWithSource(this, nullptr); // the enemy's own damage: not the player's kill
+		TestEqual(TEXT("A kill that isn't the player's heals nothing"), GetHealth(ASC), 76.f, 0.01f);
+
+		ApplyHeal(ASC, 100.f);
+		ApplyDamage(ASC, 2.f);
+		TestEqual(TEXT("Damaged to 98"), GetHealth(ASC), 98.f, 0.01f);
+		KillEnemyWithSource(this, ASC);
+		TestEqual(TEXT("Leech stops at MaxHealth"), GetHealth(ASC), GetMaxHealth(ASC), 0.01f);
+		TestEqual(TEXT("MaxHealth unchanged"), GetMaxHealth(ASC), 100.f, 0.01f);
+
+		// A new run removes both upgrades.
+		GetGameMode()->RestartRunWithSeed(91);
+		TestEqual(TEXT("New run: MagazineSizeMultiplier 1"), GetAttr(UGSAttributeSet::GetMagazineSizeMultiplierAttribute()), 1.f, 0.001f);
+		TestEqual(TEXT("New run: rifle magazine 30"), GetPlayerMagazineSize(), 30);
+		TestEqual(TEXT("New run: HealthOnKill 0"), GetAttr(UGSAttributeSet::GetHealthOnKillAttribute()), 0.f, 0.001f);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
 // Extra Jump: JumpMaxCount sync, consistent air jumps, coyote / slide-hop / dash, landing reset
 // ---------------------------------------------------------------------------
 
@@ -3746,7 +3908,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
-		TestEqual(TEXT("Pool has the 7 upgrades"), Pool->Upgrades.Num(), 7);
+		TestEqual(TEXT("Pool has the 9 upgrades"), Pool->Upgrades.Num(), 9);
 		TestEqual(TEXT("Common weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Common), 100.f);
 		TestEqual(TEXT("Rare weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Rare), 20.f);
 		TestEqual(TEXT("Epic weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Epic), 6.f);
@@ -3765,8 +3927,8 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		auto NoStacks = [](const UGSUpgradeData*) { return 0; };
 
 		// Real pool: always 3 different upgrades (empty Epic / Legendary tiers never waste a pick), and the Rare tier
-		// (Extra Jump, Dash Charge) shows up in about 1 - (100/120)^3 = 42% of offers: with 5 Commons and 2 Rares neither
-		// tier runs out within one offer, so each choice is Rare with 20/120.
+		// (Extra Jump, Dash Charge, Leech) shows up in about 1 - (100/120)^3 = 42% of offers: with 6 Commons and 3 Rares
+		// neither tier runs out within one offer, so each choice is Rare with 20/120.
 		FRandomStream Stream(7);
 		int32 WithRare = 0;
 		bool bAllFull = true, bAllDifferent = true;

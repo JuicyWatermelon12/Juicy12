@@ -86,6 +86,24 @@ public:
 	FGameplayAttributeData ExtraDashCharges;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, ExtraDashCharges)
 
+	/**
+	 * Magazine size multiplier for every player weapon: UGSWeaponComponent uses ceil(MagazineSize x it). Default 1,
+	 * clamped to >= 0.1. Raised by the Bigger Mags upgrade.
+	 * TODO(co-op): not replicated (single-player first); replicate it in M6 so a client's HUD and reload checks match.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData MagazineSizeMultiplier;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, MagazineSizeMultiplier)
+
+	/**
+	 * Health healed for each enemy kill credited to this player (AGSGameMode::HandleEnemyKilled), never above MaxHealth.
+	 * Default 0, clamped to >= 0. Raised by the Leech upgrade.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Health")
+	FGameplayAttributeData HealthOnKill;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, HealthOnKill)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;
@@ -93,6 +111,9 @@ public:
 
 	/** Lowest ReloadSpeed allowed (keeps the reload time finite). */
 	static constexpr float MinReloadSpeed = 0.1f;
+
+	/** Lowest MagazineSizeMultiplier allowed (a magazine keeps at least one round). */
+	static constexpr float MinMagazineSizeMultiplier = 0.1f;
 
 	/** Server: who dealt the most recent damage (effect causer, else instigator). Used to report killers. */
 	AActor* GetLastDamageInstigator() const { return LastDamageInstigator.Get(); }

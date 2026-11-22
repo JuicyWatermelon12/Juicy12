@@ -172,6 +172,39 @@ public:
 	UGSUpgradeEffect_Magnet(const FObjectInitializer& ObjectInitializer);
 };
 
+/** +15% MagazineSizeMultiplier per stack (GE_Upgrade_BiggerMags); magazines are ceil(MagazineSize x it). */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_BiggerMags : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_BiggerMags(const FObjectInitializer& ObjectInitializer);
+};
+
+/** +1 HealthOnKill per stack (GE_Upgrade_Leech). */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_Leech : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_Leech(const FObjectInitializer& ObjectInitializer);
+};
+
+/**
+ * Instant: adds the target's own HealthOnKill to its Health (captured live, not snapshotted). AGSGameMode applies it to
+ * the killer for each enemy kill (Leech). Health's clamp keeps it at or below MaxHealth.
+ */
+UCLASS()
+class BANDITBALLER_API UGSHealthOnKillEffect : public UGameplayEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSHealthOnKillEffect(const FObjectInitializer& ObjectInitializer);
+};
+
 /** Instant: overrides Health with the target's current MaxHealth (GE_FullHeal; used after level-up rewards). */
 UCLASS()
 class BANDITBALLER_API UGSFullHealEffect : public UGameplayEffect

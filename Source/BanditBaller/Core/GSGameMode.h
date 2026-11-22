@@ -237,6 +237,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Difficulty")
 	TSubclassOf<UGameplayEffect> EnemyRoundScalingEffect;
 
+	/** Leech: instant heal of the killer's own HealthOnKill, applied for each enemy kill (UGSHealthOnKillEffect). */
+	UPROPERTY(EditDefaultsOnly, Category = "Upgrades")
+	TSubclassOf<UGameplayEffect> HealthOnKillEffect;
+
 	/** Cash drops: split, scatter, lifetime, magnet, looks (DA_CashSettings). */
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")
 	TObjectPtr<UGSCashSettings> CashSettings;

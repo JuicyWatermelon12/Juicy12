@@ -59,6 +59,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Weapon")
 	int32 GetNumWeapons() const { return Slots.Num(); }
 
+	/**
+	 * Magazine size of WeaponData for this owner: ceil(MagazineSize x the owner's MagazineSizeMultiplier attribute),
+	 * read live (Bigger Mags). Owners without the attribute get MagazineSize.
+	 */
+	int32 GetMagazineSize(const UGSWeaponData* WeaponData) const;
+
+	/** GetMagazineSize of the equipped weapon (0 without one). */
+	UFUNCTION(BlueprintPure, Category = "Weapon")
+	int32 GetCurrentMagazineSize() const;
+
 	bool IsCurrentMagazineFull() const;
 
 	// --- Server-only mutations ---

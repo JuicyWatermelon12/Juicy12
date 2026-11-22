@@ -1196,12 +1196,17 @@ UGSWeaponComponent* UGSHUDWidget::FindWeaponComponent() const
 	return Pawn ? Pawn->FindComponentByClass<UGSWeaponComponent>() : nullptr;
 }
 
+FString UGSHUDWidget::GetAmmoText() const
+{
+	return AmmoText ? AmmoText->GetText().ToString() : FString();
+}
+
 void UGSHUDWidget::UpdateWeaponDisplay()
 {
 	const UGSWeaponComponent* Weapons = FindWeaponComponent();
 	const UGSWeaponData* Data = Weapons ? Weapons->GetCurrentWeaponData() : nullptr;
 	const int32 Ammo = Weapons ? Weapons->GetCurrentAmmo() : 0;
-	const int32 Magazine = Data ? Data->MagazineSize : 0;
+	const int32 Magazine = Weapons ? Weapons->GetCurrentMagazineSize() : 0; // read every frame: follows Bigger Mags at once
 
 	if (Data == LastWeaponData.Get() && Ammo == LastAmmo && Magazine == LastMagazine)
 	{
