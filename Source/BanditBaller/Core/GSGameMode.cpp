@@ -12,6 +12,7 @@
 #include "GSEnemyData.h"
 #include "GSRunRandom.h"
 #include "GSRunStats.h"
+#include "GSProjectileSubsystem.h"
 #include "GSSecondWindComponent.h"
 #include "GSShieldComponent.h"
 #include "GSRunSummaryWidget.h"
@@ -651,10 +652,14 @@ void AGSGameMode::StartRun(int32 Seed, const TCHAR* Source)
 	PendingPowderKegs.Reset();
 	PowderKegBlasts = 0;
 
-	// A fresh run starts with no cash on the ground.
+	// A fresh run starts with no cash on the ground and no Floating Gun shots in flight.
 	if (UGSCashPickupSubsystem* Cash = GetWorld()->GetSubsystem<UGSCashPickupSubsystem>())
 	{
 		Cash->ReleaseAll();
+	}
+	if (UGSProjectileSubsystem* Projectiles = GetWorld()->GetSubsystem<UGSProjectileSubsystem>())
+	{
+		Projectiles->ReleaseAll();
 	}
 
 	if (AGSGameState* GS = GetGameState<AGSGameState>())

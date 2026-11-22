@@ -57,7 +57,8 @@ Source/BanditBaller/
               debug library + cheat commands, profile subsystem + save (permanent cash),
               map boundary (AGSMapBoundary) + collision channels
   Abilities/  GAS: ASC, AttributeSet, tags, abilities, effects, ability sets
-  Combat/     weapons, health/death component, target dummy, hit camera shake
+  Combat/     weapons, health/death component, target dummy, hit camera shake, critical hits, projectile + pool,
+              floating gun (gun actor + character component + settings)
   AI/         enemies, AI controller, StateTree tasks/builder, spawn finder, wave director, spawn telegraph
   Economy/    enemy-drop pickups: cash pieces, XP orbs and health orbs (actor, pool subsystem, settings)
   UI/         UMG C++ bases (HUD, run summary, ability icon, enemy health bar, upgrade choice screen + card,
@@ -155,7 +156,7 @@ docs/PROGRESS.md  progress log and reference
 - Debug commands: `gs.` prefix, cheat-only, implemented in `UGSDebugLibrary` and registered in
   `GSCheatCommands.cpp`. Clients forward them through `ServerExecDebugCommand`. Debug toggles are `gs.Debug.*`
   cvars.
-- Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`, `[xp]`, `[profile]`, `[upgrade]`, `[combo]`, `[blast]`, `[heal]`, `[shield]`, `[secondwind]`, `[round]` one line per finished round).
+- Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`, `[xp]`, `[profile]`, `[upgrade]`, `[combo]`, `[blast]`, `[heal]`, `[shield]`, `[secondwind]`, `[gun]`, `[round]` one line per finished round).
 - Tests: PIE-based latent tests in `Tests/GSGameplayTests.cpp`, built from the `GSTests` helpers (`BeginPIE`,
   `WaitUntil`, `Step`, `EndPIE`, …). `BeginPIE` opens `L_Town_Graybox` first (pass `HubMap` for the hub), since the
   editor starts in the hub. `EndPIE` only requests the end: before a second `BeginPIE` in the same test, wait for

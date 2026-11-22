@@ -83,7 +83,11 @@
 #include "GSMovementAbilitySettings.h"
 #include "GSMovementSettings.h"
 #include "Editor/EditorPerformanceSettings.h"
+#include "GSFloatingGun.h"
+#include "GSFloatingGunComponent.h"
+#include "GSFloatingGunSettings.h"
 #include "GSFloatingShieldsComponent.h"
+#include "GSProjectileSubsystem.h"
 #include "GSSecondWindComponent.h"
 #include "GSShieldComponent.h"
 #include "GSUpgradeComponent.h"
@@ -4581,7 +4585,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
-		TestEqual(TEXT("Pool has the 14 upgrades"), Pool->Upgrades.Num(), 14);
+		TestEqual(TEXT("Pool has the 15 upgrades"), Pool->Upgrades.Num(), 15);
 		TestEqual(TEXT("Common weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Common), 100.f);
 		TestEqual(TEXT("Rare weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Rare), 20.f);
 		TestEqual(TEXT("Epic weight"), Pool->GetRarityWeight(EGSUpgradeRarity::Epic), 6.f);
@@ -4599,9 +4603,9 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 
 		auto NoStacks = [](const UGSUpgradeData*) { return 0; };
 
-		// Real pool: always 3 different upgrades. Weights Common 100, Rare 20, Epic 6 (two Epics: Piercing Rounds, Powder
-		// Keg), Legendary 1 (Second Wind); a tier leaves the weighting once all its upgrades are in the offer. Five Rares
-		// can't run out within an offer. An offer has no Rare with probability 0.5980 (every C/E/L ordering), so the Rare
+		// Real pool: always 3 different upgrades. Weights Common 100, Rare 20, Epic 6 (three Epics: Piercing Rounds, Powder
+		// Keg, Floating Gun), Legendary 1 (Second Wind); a tier leaves the weighting once all its upgrades are in the offer.
+		// Five Rares (and three Epics) can't run out early. An offer has no Rare with probability 0.5980 (every C/E/L ordering), so the Rare
 		// tier is in about 40.2% of offers.
 		FRandomStream Stream(7);
 		int32 WithRare = 0;
@@ -7554,6 +7558,432 @@ bool FGSSecondWindTest::RunTest(const FString& Parameters)
 		ApplyDamage(GetPlayerASC(), 9999.f);
 		TestTrue(TEXT("No Second Wind: a killing blow kills"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
 		TestTrue(TEXT("No Second Wind: game over"), GetGameState()->GetRoundPhase() == EGSRoundPhase::GameOver);
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Floating Gun, part 1 (Prompt 38): a gun over the right shoulder shoots the nearest enemy with pooled projectiles
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	AGSFloatingGun* GetFloatingGun()
+	{
+		const AGSCharacter* Player = GetPlayer();
+		const UGSFloatingGunComponent* Guns = Player ? Player->GetFloatingGuns() : nullptr;
+		return Guns ? Guns->GetGun(0) : nullptr;
+	}
+
+	UGSProjectileSubsystem* GetProjectiles()
+	{
+		return GetPIEWorld() ? GetPIEWorld()->GetSubsystem<UGSProjectileSubsystem>() : nullptr;
+	}
+
+	/** A frozen MeleeBandit with a lot of Health (the gun can shoot it for a while). */
+	AGSEnemyCharacter* SpawnToughBandit(const FVector& Location)
+	{
+		AGSEnemyCharacter* Bandit = SpawnFrozenBandit(Location);
+		if (Bandit)
+		{
+			Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetMaxHealthAttribute(), 100000.f);
+			Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 100000.f);
+		}
+		return Bandit;
+	}
+
+	AStaticMeshActor* SpawnTestWall(const FVector& Location, const FVector& Scale)
+	{
+		AStaticMeshActor* Wall = GetPIEWorld()->SpawnActor<AStaticMeshActor>(Location, FRotator::ZeroRotator);
+		if (Wall)
+		{
+			Wall->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+			Wall->GetStaticMeshComponent()->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")));
+			Wall->GetStaticMeshComponent()->SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
+			Wall->SetActorScale3D(Scale);
+		}
+		return Wall;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSFloatingGunTest, "BanditBaller.Upgrades.FloatingGun", GSTests::TestFlags)
+bool FGSFloatingGunTest::RunTest(const FString& Parameters)
+{
+	struct FGunState
+	{
+		TWeakObjectPtr<AGSEnemyCharacter> Bandit;
+		TWeakObjectPtr<AGSEnemyCharacter> Near;
+		TWeakObjectPtr<AStaticMeshActor> Wall;
+		double WindowEnd = 0.0;
+		int32 ScheduleChecks = 0;
+		int32 ScheduleMisses = 0;
+		int32 ShotsBefore = 0;
+		int32 HitsBefore = 0;
+		float BanditHealthBefore = 0.f;
+		int32 CritNumbersBefore = 0;
+		FActiveGameplayEffectHandle SafeZone;
+		int32 Config = 0;
+		float WorstDistance = 1.f;
+		// Kill credit.
+		int32 KillsBefore = 0;
+		int32 XPOrbsBefore = 0;
+		int32 HealthOrbsBefore = 0;
+		int32 BlastsBefore = 0;
+		float PlayerHealthBefore = 0.f;
+	};
+	TSharedRef<FGunState> S = MakeShared<FGunState>();
+	auto Now = []() { return GetPIEWorld() ? GetPIEWorld()->GetTimeSeconds() : 0.0; };
+	auto Health = [](const TWeakObjectPtr<AGSEnemyCharacter>& Bandit) { return Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f; };
+	const FVector Home(0.f, 0.f, 100.f);
+
+	BeginPIE(this);
+
+	// Data; no gun at level 0; one gun at level 1.
+	Step([this, Home]()
+	{
+		SpeedUpWorld(4.f);
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->SetHealthOrbDropChanceOverride(0.f);
+		GetPlayer()->TeleportTo(Home, FRotator::ZeroRotator);
+		GetPC()->SetControlRotation(FRotator::ZeroRotator);
+
+		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
+		if (TestNotNull(TEXT("DA_Upgrade_FloatingGun exists"), Upgrade))
+		{
+			TestTrue(TEXT("Floating Gun is Epic"), Upgrade->Rarity == EGSUpgradeRarity::Epic);
+			TestEqual(TEXT("Floating Gun has no cap"), Upgrade->MaxStacks, 0);
+			TestTrue(TEXT("Effect is GE_Upgrade_FloatingGun"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_FloatingGun::StaticClass()));
+			const UGSUpgradePool* Pool = GameMode->GetUpgradePool();
+			TestTrue(TEXT("Floating Gun is in DA_UpgradePool"), Pool && Pool->Upgrades.Contains(Upgrade));
+		}
+		const UGSFloatingGunSettings* Settings = GameMode->GetFloatingGunSettings();
+		if (TestNotNull(TEXT("DA_FloatingGunSettings on the GameMode"), Settings))
+		{
+			TestEqual(TEXT("8 damage per hit"), Settings->Damage, 8.f);
+			TestEqual(TEXT("1.5 shots per second"), Settings->ShotsPerSecond, 1.5f);
+			TestEqual(TEXT("20 m range"), Settings->Range, 2000.f);
+			TestEqual(TEXT("60 m/s projectiles"), Settings->ProjectileSpeed, 6000.f);
+			TestNotNull(TEXT("Damage effect set"), Settings->DamageEffect.Get());
+			TestNotNull(TEXT("Gun mesh set"), Settings->GunMesh.Get());
+			TestNotNull(TEXT("Projectile mesh set"), Settings->ProjectileMesh.Get());
+		}
+		TestEqual(TEXT("FloatingGunLevel starts at 0"), GetAttr(UGSAttributeSet::GetFloatingGunLevelAttribute()), 0.f, 0.001f);
+		TestEqual(TEXT("No gun at level 0"), GetPlayer()->GetFloatingGuns()->GetGuns().Num(), 0);
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FloatingGun") });
+		TestEqual(TEXT("FloatingGunLevel 1"), GetAttr(UGSAttributeSet::GetFloatingGunLevelAttribute()), 1.f, 0.001f);
+	});
+	WaitWorldSeconds(this, 0.5);
+
+	// Placement: over the right shoulder, above the head; no collision; nothing to shoot yet.
+	Step([this, S, Health]()
+	{
+		const AGSFloatingGun* Gun = GetFloatingGun();
+		TestEqual(TEXT("Level 1: one gun"), GetPlayer()->GetFloatingGuns()->GetGuns().Num(), 1);
+		if (!TestNotNull(TEXT("The gun"), Gun))
+		{
+			return;
+		}
+		TestEqual(TEXT("Right shoulder"), Gun->GetSide(), 1.f);
+		TestEqual(TEXT("No collision"), static_cast<int32>(Gun->GetMesh()->GetCollisionEnabled()), static_cast<int32>(ECollisionEnabled::NoCollision));
+		const FVector Center = GetPlayer()->GetActorLocation();
+		const float HeadTop = Center.Z + GetPlayer()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		const FVector Rest = Gun->GetRestLocation();
+		AddInfo(FString::Printf(TEXT("[gun] rest offset from the capsule center: %s (head top +%.0f)"), *(Rest - Center).ToCompactString(), HeadTop - Center.Z));
+		TestTrue(TEXT("To the right of the player (camera yaw 0: +Y)"), Rest.Y - Center.Y > 30.f);
+		TestTrue(TEXT("Higher than the top of the head"), Rest.Z > HeadTop);
+		TestTrue(TEXT("It has followed to where it should be"), Gun->GetActorLocation().Equals(Rest + Gun->GetCrosshairAvoidOffset(), 5.f));
+		TestNull(TEXT("No enemies: no target"), Gun->GetTarget());
+		TestEqual(TEXT("No enemies: no shots"), Gun->GetShotsFired(), 0);
+
+		// A tough frozen bandit 10 m ahead.
+		S->Bandit = SpawnToughBandit(FVector(1000.f, 0.f, 0.f));
+		S->BanditHealthBefore = Health(S->Bandit);
+		S->HitsBefore = GetProjectiles() ? GetProjectiles()->GetNumHitTargets() : 0;
+	});
+	WaitUntil(this, TEXT("the first shot"), []() { return GetFloatingGun() && GetFloatingGun()->GetShotsFired() > 0; }, 10.0);
+
+	// The schedule: in every frame, shots in the burst == 1 + floor(elapsed / interval), for 4 s of game time.
+	Step([this, S, Now]()
+	{
+		TestTrue(TEXT("It targets the bandit"), GetFloatingGun()->GetTarget() == S->Bandit.Get());
+		S->WindowEnd = Now() + 4.0;
+	});
+	WaitUntil(this, TEXT("4 s of shooting"), [this, S, Now]()
+	{
+		const AGSFloatingGun* Gun = GetFloatingGun();
+		const double Interval = GetGameMode()->GetFloatingGunSettings()->GetShotInterval();
+		const int32 Expected = 1 + FMath::FloorToInt((Now() - Gun->GetBurstStartTime()) / Interval + 1e-6);
+		++S->ScheduleChecks;
+		if (Gun->GetBurstShots() != Expected)
+		{
+			++S->ScheduleMisses;
+			AddError(FString::Printf(TEXT("Schedule: %d shots at %.3f s into the burst, expected %d"), Gun->GetBurstShots(), Now() - Gun->GetBurstStartTime(), Expected));
+		}
+		return Now() >= S->WindowEnd;
+	}, 30.0);
+	Step([this, S, Health]()
+	{
+		const AGSFloatingGun* Gun = GetFloatingGun();
+		AddInfo(FString::Printf(TEXT("[gun] %d shots in the burst, %d frames checked against the schedule"), Gun->GetBurstShots(), S->ScheduleChecks));
+		TestTrue(TEXT("About 1.5 shots a second (at least 6 in 4 s)"), Gun->GetBurstShots() >= 6);
+		TestEqual(TEXT("Every frame on schedule"), S->ScheduleMisses, 0);
+		const int32 Hits = GetProjectiles()->GetNumHitTargets() - S->HitsBefore;
+		const float Dealt = S->BanditHealthBefore - Health(S->Bandit);
+		AddInfo(FString::Printf(TEXT("[gun] %d hits, %.0f damage"), Hits, Dealt));
+		TestTrue(TEXT("Its projectiles hit the bandit"), Hits >= 5);
+		TestEqual(TEXT("8 damage per hit (Damage 1, no crits)"), Dealt, Hits * 8.f, 0.01f);
+	});
+	// The damage is set when a shot is fired (the crit is rolled when it hits), so grant with no shot in the air.
+	WaitUntil(this, TEXT("no projectile in flight"), []() { return GetProjectiles()->GetNumActive() == 0; }, 10.0);
+	Step([this, S]()
+	{
+		// Damage x the player's Damage (x1.5) and Loaded Dice (20 stacks: every hit critical, x2) -> 24.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Damage"), TEXT("5") });
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("LoadedDice"), TEXT("20") });
+		S->CritNumbersBefore = GetPC()->GetGSHUD()->GetCriticalDamageNumbersAdded();
+	});
+	WaitUntil(this, TEXT("a critical hit from the gun"), [S]() { return GetPC()->GetGSHUD()->GetCriticalDamageNumbersAdded() > S->CritNumbersBefore; }, 10.0);
+	Step([this, S, Home]()
+	{
+		const UGSHUDWidget* HUD = GetPC()->GetGSHUD();
+		TestEqual(TEXT("Damage x1.5 and a crit: 8 x 1.5 x 2 = 24"), HUD->GetLastDamageNumber(), 24.f, 0.01f);
+		TestTrue(TEXT("Shown as a critical number"), HUD->WasLastDamageNumberCritical());
+
+		// Out of range: 25 m away, no target.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandit = SpawnToughBandit(FVector(2500.f, 0.f, 0.f));
+		S->ShotsBefore = GetFloatingGun()->GetShotsFired();
+	});
+	WaitWorldSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		TestNull(TEXT("25 m: out of range, no target"), GetFloatingGun()->GetTarget());
+		TestEqual(TEXT("25 m: no shots"), GetFloatingGun()->GetShotsFired(), S->ShotsBefore);
+
+		// No clear line: a wall between the gun and a bandit 10 m away.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandit = SpawnToughBandit(FVector(1000.f, 0.f, 0.f));
+		S->Wall = SpawnTestWall(FVector(500.f, 0.f, 200.f), FVector(0.2f, 3.f, 4.f));
+		S->ShotsBefore = GetFloatingGun()->GetShotsFired();
+	});
+	WaitWorldSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		TestNull(TEXT("Behind a wall: no target"), GetFloatingGun()->GetTarget());
+		TestEqual(TEXT("Behind a wall: no shots"), GetFloatingGun()->GetShotsFired(), S->ShotsBefore);
+		if (S->Wall.IsValid())
+		{
+			S->Wall->Destroy();
+		}
+		// A nearer bandit (6 m, off to the side) is the one it picks.
+		S->Near = SpawnToughBandit(FVector(600.f, 300.f, 0.f));
+	});
+	WaitWorldSeconds(this, 0.5);
+	Step([this, S, Health]()
+	{
+		TestTrue(TEXT("The nearest bandit is the target"), GetFloatingGun()->GetTarget() == S->Near.Get());
+		TestTrue(TEXT("Wall gone: it shoots again"), GetFloatingGun()->GetShotsFired() > S->ShotsBefore);
+
+		// Projectile rules, fired by hand: through the player into a bandit; into a wall; into the sky (expires).
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandit = SpawnToughBandit(FVector(600.f, 0.f, 0.f));
+		S->BanditHealthBefore = Health(S->Bandit);
+		const UGSFloatingGunSettings* Settings = GetGameMode()->GetFloatingGunSettings();
+		FGSProjectileLaunch Launch;
+		Launch.Start = GetPlayer()->GetActorLocation() - FVector(300.f, 0.f, 0.f);
+		Launch.Direction = FVector(1.f, 0.f, 0.f);
+		Launch.Speed = Settings->ProjectileSpeed;
+		Launch.Lifetime = Settings->ProjectileLifetime;
+		Launch.Radius = Settings->ProjectileRadius;
+		Launch.Damage = 7.f;
+		Launch.SourceASC = GetPlayerASC();
+		Launch.DamageEffect = Settings->DamageEffect;
+		Launch.Mesh = Settings->ProjectileMesh;
+		S->HitsBefore = GetProjectiles()->GetNumHitTargets();
+		S->ShotsBefore = GetProjectiles()->GetNumFired();
+		GetProjectiles()->FireProjectile(Launch);
+		// Keep the gun from shooting meanwhile: it sits in a safe zone.
+		const TSubclassOf<UGameplayEffect> SafeZoneClass = LoadClass<UGameplayEffect>(nullptr, TEXT("/Game/BanditBaller/Abilities/GE_SafeZone.GE_SafeZone_C"));
+		if (TestNotNull(TEXT("GE_SafeZone"), SafeZoneClass.Get()))
+		{
+			S->SafeZone = GetPlayerASC()->ApplyGameplayEffectToSelf(SafeZoneClass->GetDefaultObject<UGameplayEffect>(), 1.f, GetPlayerASC()->MakeEffectContext());
+		}
+	});
+	WaitUntil(this, TEXT("the hand-fired projectile to land"), []() { return GetProjectiles()->GetNumActive() == 0; }, 10.0);
+	Step([this, S, Health]()
+	{
+		TestEqual(TEXT("Through the player into the bandit: one target hit"), GetProjectiles()->GetNumHitTargets(), S->HitsBefore + 1);
+		TestEqual(TEXT("... for its damage (7, Loaded Dice x2 = 14)"), S->BanditHealthBefore - Health(S->Bandit), 14.f, 0.01f);
+		TestEqual(TEXT("Safe zone: the gun fired nothing meanwhile"), GetProjectiles()->GetNumFired(), S->ShotsBefore + 1);
+
+		// Into a wall: stops there, the bandit behind it untouched.
+		S->Wall = SpawnTestWall(FVector(300.f, 0.f, 150.f), FVector(0.2f, 3.f, 3.f));
+		S->BanditHealthBefore = Health(S->Bandit);
+		S->HitsBefore = GetProjectiles()->GetNumHitWorld();
+		const UGSFloatingGunSettings* Settings = GetGameMode()->GetFloatingGunSettings();
+		FGSProjectileLaunch Launch;
+		Launch.Start = FVector(0.f, 0.f, 150.f);
+		Launch.Direction = FVector(1.f, 0.f, 0.f);
+		Launch.Speed = Settings->ProjectileSpeed;
+		Launch.Lifetime = Settings->ProjectileLifetime;
+		Launch.Radius = Settings->ProjectileRadius;
+		Launch.Damage = 7.f;
+		Launch.SourceASC = GetPlayerASC();
+		Launch.DamageEffect = Settings->DamageEffect;
+		GetProjectiles()->FireProjectile(Launch);
+	});
+	WaitUntil(this, TEXT("the projectile at the wall"), []() { return GetProjectiles()->GetNumActive() == 0; }, 10.0);
+	Step([this, S, Health]()
+	{
+		TestEqual(TEXT("World geometry stops it"), GetProjectiles()->GetNumHitWorld(), S->HitsBefore + 1);
+		TestEqual(TEXT("The bandit behind the wall is untouched"), Health(S->Bandit), S->BanditHealthBefore, 0.01f);
+		if (S->Wall.IsValid())
+		{
+			S->Wall->Destroy();
+		}
+
+		// Straight up: nothing to hit, it expires.
+		S->HitsBefore = GetProjectiles()->GetNumExpired();
+		const UGSFloatingGunSettings* Settings = GetGameMode()->GetFloatingGunSettings();
+		FGSProjectileLaunch Launch;
+		Launch.Start = GetPlayer()->GetActorLocation() + FVector(0.f, 0.f, 300.f);
+		Launch.Direction = FVector(0.f, 0.f, 1.f);
+		Launch.Speed = Settings->ProjectileSpeed;
+		Launch.Lifetime = Settings->ProjectileLifetime;
+		Launch.SourceASC = GetPlayerASC();
+		Launch.DamageEffect = Settings->DamageEffect;
+		GetProjectiles()->FireProjectile(Launch);
+		S->ShotsBefore = GetProjectiles()->GetNumCreated();
+	});
+	WaitUntil(this, TEXT("the projectile to expire"), []() { return GetProjectiles()->GetNumActive() == 0; }, 10.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Into the sky: it expires"), GetProjectiles()->GetNumExpired(), S->HitsBefore + 1);
+		TestEqual(TEXT("Pooled: no projectile created beyond the prewarmed ones"), GetProjectiles()->GetNumCreated(), GetGameMode()->GetFloatingGunSettings()->ProjectilePoolPrewarm);
+		TestTrue(TEXT("Safe zone: the gun has no target"), GetFloatingGun()->GetTarget() == nullptr);
+
+		// Leave the safe zone. Kill credit: a weak bandit, Leech, a sure health orb, Powder Keg at 100%.
+		GetPlayerASC()->RemoveActiveGameplayEffect(S->SafeZone);
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Leech") });
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("PowderKeg"), TEXT("34") });
+		GetGameMode()->SetHealthOrbDropChanceOverride(1.f);
+		ApplyDamage(GetPlayerASC(), 10.f);
+		S->PlayerHealthBefore = GetHealth(GetPlayerASC());
+		GetPlayerCombo()->EndCombo(EGSComboEndReason::Reset);
+		S->KillsBefore = GetGameState()->GetRunStats()->GetTotalKills();
+		S->XPOrbsBefore = GetCashSubsystem()->GetNumXPOrbsDropped();
+		S->HealthOrbsBefore = GetCashSubsystem()->GetNumHealthOrbsDropped();
+		S->BlastsBefore = GetGameMode()->GetPowderKegBlasts();
+		S->Bandit = SpawnFrozenBandit(FVector(800.f, 0.f, 0.f));
+		if (S->Bandit.IsValid())
+		{
+			S->Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 5.f);
+		}
+	});
+	WaitUntil(this, TEXT("the gun to kill the bandit"), [S]() { return !S->Bandit.IsValid() || S->Bandit->GetHealthComponent()->IsDead(); }, 10.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Gun kill: counted in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), S->KillsBefore + 1);
+		TestEqual(TEXT("Gun kill: counts for the combo"), GetPlayerCombo()->GetComboCount(), 1);
+		TestEqual(TEXT("Gun kill: an XP orb"), GetCashSubsystem()->GetNumXPOrbsDropped(), S->XPOrbsBefore + 1);
+		TestEqual(TEXT("Gun kill: rolls the health orb chance (1: one orb)"), GetCashSubsystem()->GetNumHealthOrbsDropped(), S->HealthOrbsBefore + 1);
+		TestTrue(TEXT("Gun kill: a cash drop"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash) > 0);
+		TestEqual(TEXT("Gun kill: Leech heals"), GetHealth(GetPlayerASC()), S->PlayerHealthBefore + 1.f, 0.01f);
+		TestEqual(TEXT("Gun kill: Powder Keg explodes"), GetGameMode()->GetPowderKegBlasts(), S->BlastsBefore + 1);
+		GetGameMode()->SetHealthOrbDropChanceOverride(0.f);
+
+		// Paused: no shots (a tough bandit in range).
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandit = SpawnToughBandit(FVector(800.f, 0.f, 0.f));
+	});
+	WaitUntil(this, TEXT("shooting the next bandit"), [S]() { return GetFloatingGun()->GetTarget() == S->Bandit.Get(); }, 10.0);
+	Step([this, S]()
+	{
+		S->ShotsBefore = GetFloatingGun()->GetShotsFired();
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), true);
+	});
+	WaitRealSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Paused: no shots"), GetFloatingGun()->GetShotsFired(), S->ShotsBefore);
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), false);
+
+		// The crosshair: both shoulders, hip and ADS, looking from steeply down to up.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Config = 0;
+	});
+	for (int32 Config = 0; Config < 24; ++Config)
+	{
+		const float Pitch = TArray<float>{ -70.f, -50.f, -30.f, 0.f, 25.f, 50.f }[Config % 6];
+		const bool bAim = (Config / 6) % 2 == 1;
+		const bool bLeft = Config >= 12;
+		Step([this, Pitch, bAim, bLeft]()
+		{
+			AGSCharacter* Player = GetPlayer();
+			if ((Player->GetShoulderSide() < 0.f) != bLeft)
+			{
+				Player->SwapShoulderForDebug();
+			}
+			Player->SetAimingForDebug(bAim);
+			GetPC()->SetControlRotation(FRotator(Pitch, 0.f, 0.f));
+		});
+		WaitWorldSeconds(this, 1.0); // the camera blends in, the gun follows and slides off the crosshair
+		Step([this, S, Pitch, bAim, bLeft]()
+		{
+			const AGSFloatingGun* Gun = GetFloatingGun();
+			const float Distance = Gun->GetCrosshairDistance();
+			const float Radius = GetGameMode()->GetFloatingGunSettings()->CrosshairClearRadius;
+			AddInfo(FString::Printf(TEXT("[gun] %s shoulder, %s, pitch %+.0f: %.3f of the screen height from the crosshair (clear radius %.2f), pushed %.0f cm"),
+				bLeft ? TEXT("left") : TEXT("right"), bAim ? TEXT("ADS") : TEXT("hip"), Pitch, Distance, Radius, Gun->GetCrosshairAvoidOffset().Size()));
+			if (Distance >= 0.f)
+			{
+				S->WorstDistance = FMath::Min(S->WorstDistance, Distance);
+				TestTrue(FString::Printf(TEXT("Off the crosshair (%s, %s, pitch %+.0f): %.3f"), bLeft ? TEXT("left") : TEXT("right"), bAim ? TEXT("ADS") : TEXT("hip"), Pitch, Distance),
+					Distance >= Radius * 0.9f);
+			}
+		});
+	}
+	Step([this, S]()
+	{
+		AddInfo(FString::Printf(TEXT("[gun] closest to the crosshair in any view: %.3f of the screen height"), S->WorstDistance));
+		AGSCharacter* Player = GetPlayer();
+		Player->SetAimingForDebug(false);
+		if (Player->GetShoulderSide() < 0.f)
+		{
+			Player->SwapShoulderForDebug();
+		}
+		GetPC()->SetControlRotation(FRotator::ZeroRotator);
+
+		// Dead: no shots.
+		S->Bandit = SpawnToughBandit(FVector(800.f, 0.f, 0.f));
+	});
+	WaitUntil(this, TEXT("shooting before death"), [S]() { return GetFloatingGun()->GetTarget() == S->Bandit.Get(); }, 10.0);
+	Step([this, S]()
+	{
+		ApplyDamage(GetPlayerASC(), 100000.f);
+		TestTrue(TEXT("The player is dead"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
+		S->ShotsBefore = GetFloatingGun()->GetShotsFired();
+	});
+	WaitWorldSeconds(this, 2.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Dead: no shots"), GetFloatingGun()->GetShotsFired(), S->ShotsBefore);
+
+		// A new run: level 0, the gun is gone.
+		RemoveAllEnemies(GetPIEWorld());
+		GetGameMode()->RestartRunWithSeed(38);
+		TestEqual(TEXT("New run: FloatingGunLevel 0"), GetAttr(UGSAttributeSet::GetFloatingGunLevelAttribute()), 0.f, 0.001f);
+		TestEqual(TEXT("New run: no projectiles in flight"), GetProjectiles()->GetNumActive(), 0);
+	});
+	WaitFrames(this, 2);
+	Step([this]()
+	{
+		TestEqual(TEXT("New run: no gun"), GetPlayer()->GetFloatingGuns()->GetGuns().Num(), 0);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
 		RestoreWorldSpeed();
 	});

@@ -14,6 +14,7 @@ class UGSInputConfig;
 class UCameraShakeBase;
 class UGSHealthComponent;
 class UGSFloatingShieldsComponent;
+class UGSFloatingGunComponent;
 class UGSDashSettings;
 class UGSMovementSettings;
 class UGSSlideSettings;
@@ -59,6 +60,15 @@ public:
 
 	/** The Floating Shields you see (visual only; the shields' state is the PlayerState's UGSShieldComponent). */
 	UGSFloatingShieldsComponent* GetFloatingShields() const { return FloatingShields; }
+
+	/** The Floating Guns (spawned from the FloatingGunLevel attribute). */
+	UGSFloatingGunComponent* GetFloatingGuns() const { return FloatingGuns; }
+
+	// --- Camera debug / tests (local player): the same as the aim and shoulder-swap inputs ---
+	void SetAimingForDebug(bool bAim) { bAim ? OnAimStarted() : OnAimCompleted(); }
+	void SwapShoulderForDebug() { OnShoulderSwap(); }
+	/** +1 camera over the right shoulder, -1 over the left. */
+	float GetShoulderSide() const { return ShoulderSide; }
 
 	/** True while the pawn turns to face the camera (aiming or firing). */
 	UFUNCTION(BlueprintPure, Category = "Movement")
@@ -148,6 +158,10 @@ protected:
 	/** Floating Shield visuals: mesh, material, orbit and block / return feedback are set on BP_GSCharacter. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
 	TObjectPtr<UGSFloatingShieldsComponent> FloatingShields;
+
+	/** Floating Gun: spawns the guns for the player's FloatingGunLevel (tuning in DA_FloatingGunSettings). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
+	TObjectPtr<UGSFloatingGunComponent> FloatingGuns;
 
 	/** Played on the local player's camera when they take damage (CS_PlayerHit). */
 	UPROPERTY(EditDefaultsOnly, Category = "Health")

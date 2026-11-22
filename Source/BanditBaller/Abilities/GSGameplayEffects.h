@@ -212,6 +212,16 @@ public:
 	UGSUpgradeEffect_FloatingShield(const FObjectInitializer& ObjectInitializer);
 };
 
+/** +1 FloatingGunLevel per stack (GE_Upgrade_FloatingGun): level 1 = a gun over the right shoulder. */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_FloatingGun : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_FloatingGun(const FObjectInitializer& ObjectInitializer);
+};
+
 /** +1 SecondWinds per stack (GE_Upgrade_SecondWind): survive one more killing blow. Using one removes a stack. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_SecondWind : public UGSUpgradeEffect

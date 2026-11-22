@@ -25,6 +25,7 @@ UGSAttributeSet::UGSAttributeSet()
 	InitPowderKeg(0.f);
 	InitShields(0.f);
 	InitSecondWinds(0.f);
+	InitFloatingGunLevel(0.f);
 }
 
 void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -63,7 +64,8 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 		|| Attribute == GetPierceAttribute()
 		|| Attribute == GetPowderKegAttribute()
 		|| Attribute == GetShieldsAttribute()
-		|| Attribute == GetSecondWindsAttribute())
+		|| Attribute == GetSecondWindsAttribute()
+		|| Attribute == GetFloatingGunLevelAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}

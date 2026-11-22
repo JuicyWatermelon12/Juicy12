@@ -173,6 +173,12 @@ UGSUpgradeEffect_FloatingShield::UGSUpgradeEffect_FloatingShield(const FObjectIn
 	AddAdditiveModifier(UGSAttributeSet::GetShieldsAttribute(), 1.f);
 }
 
+UGSUpgradeEffect_FloatingGun::UGSUpgradeEffect_FloatingGun(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddAdditiveModifier(UGSAttributeSet::GetFloatingGunLevelAttribute(), 1.f);
+}
+
 UGSUpgradeEffect_SecondWind::UGSUpgradeEffect_SecondWind(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

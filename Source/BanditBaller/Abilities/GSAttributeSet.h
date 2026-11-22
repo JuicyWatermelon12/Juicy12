@@ -152,6 +152,16 @@ public:
 	FGameplayAttributeData SecondWinds;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, SecondWinds)
 
+	/**
+	 * Floating Gun level: from 1 a gun floats over the player's right shoulder and shoots enemies on its own
+	 * (UGSFloatingGunComponent on the character, AGSFloatingGun, DA_FloatingGunSettings). Default 0, clamped to >= 0,
+	 * rounded when read. Raised by the Floating Gun upgrade. (Level 2+ is Prompt 39.)
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData FloatingGunLevel;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, FloatingGunLevel)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;

@@ -13,6 +13,7 @@ class UGSSpawnSettings;
 class UGSWaveDirector;
 class UGSDifficultyCurve;
 class UGSCashSettings;
+class UGSFloatingGunSettings;
 class UGSComboSettings;
 class UGSCombatSettings;
 class UGSRoundClearSettings;
@@ -176,6 +177,9 @@ public:
 	/** DA_CombatSettings (crit multiplier); may be null (callers fall back to the class defaults). */
 	const UGSCombatSettings* GetCombatSettings() const;
 
+	/** Floating Gun tuning (DA_FloatingGunSettings); no guns if unset. */
+	const UGSFloatingGunSettings* GetFloatingGunSettings() const { return FloatingGunSettings; }
+
 	// --- Powder Keg (server) ---
 
 	/**
@@ -298,6 +302,10 @@ protected:
 	/** Player combat tuning: crit multiplier (DA_CombatSettings). The class defaults apply if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Combat")
 	TObjectPtr<UGSCombatSettings> CombatSettings;
+
+	/** Floating Gun: damage, fire rate, range, projectile, placement, crosshair clearance, look (DA_FloatingGunSettings). */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat")
+	TObjectPtr<UGSFloatingGunSettings> FloatingGunSettings;
 
 	/** Round-clear bonus: base, no damage, fast clear (DA_RoundClearSettings). No bonus if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")
