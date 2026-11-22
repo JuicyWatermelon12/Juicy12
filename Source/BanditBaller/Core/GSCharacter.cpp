@@ -610,6 +610,17 @@ void AGSCharacter::RestoreFriction()
 	}
 }
 
+float AGSCharacter::GetMoveSpeedRatio() const
+{
+	const UAbilitySystemComponent* ASC = CachedAbilitySystem.Get();
+	const float BaseSpeed = MovementSettings ? MovementSettings->MaxWalkSpeed : 0.f;
+	if (!ASC || BaseSpeed <= 0.f || !ASC->HasAttributeSetForAttribute(UGSAttributeSet::GetMoveSpeedAttribute()))
+	{
+		return 1.f;
+	}
+	return FMath::Max(ASC->GetNumericAttribute(UGSAttributeSet::GetMoveSpeedAttribute()) / BaseSpeed, 1.f);
+}
+
 bool AGSCharacter::CanStartSlide(float MinSpeed) const
 {
 	const UCharacterMovementComponent* CMC = GetCharacterMovement();
@@ -626,7 +637,9 @@ void AGSCharacter::StartSlide(const UGSSlideSettings& Settings)
 	UCharacterMovementComponent* CMC = GetCharacterMovement();
 	const FVector FlatVelocity(CMC->Velocity.X, CMC->Velocity.Y, 0.f);
 	SlideDirection = FlatVelocity.IsNearlyZero() ? GetActorForwardVector() : FlatVelocity.GetSafeNormal();
-	SlideStartSpeed = FMath::Min(FlatVelocity.Size() + Settings.SpeedBoost, Settings.MaxSpeed);
+	// Faster than the base walk speed (Move Speed picks): the boost, cap and end speed grow with it for this slide.
+	SlideSpeedRatio = GetMoveSpeedRatio();
+	SlideStartSpeed = FMath::Min(FlatVelocity.Size() + Settings.GetSpeedBoost(SlideSpeedRatio), Settings.GetMaxSpeed(SlideSpeedRatio));
 	SlideElapsed = 0.f;
 	ActiveSlide = &Settings;
 
@@ -654,7 +667,8 @@ void AGSCharacter::TickSlide(float DeltaSeconds)
 
 	SlideElapsed += DeltaSeconds;
 	const float Alpha = FMath::Clamp(SlideElapsed / Settings->Duration, 0.f, 1.f);
-	const float Speed = Settings->EndSpeed + (SlideStartSpeed - Settings->EndSpeed) * FMath::Pow(1.f - Alpha, Settings->DecayExponent);
+	const float EndSpeed = Settings->GetEndSpeed(SlideSpeedRatio);
+	const float Speed = EndSpeed + (SlideStartSpeed - EndSpeed) * FMath::Pow(1.f - Alpha, Settings->DecayExponent);
 
 	// Gentle steering toward the movement input.
 	const FVector Input = GetMovementInputDirection();
@@ -760,6 +774,9 @@ void AGSCharacter::StartDash(const FVector& Direction, const UGSDashSettings& Se
 	DashStartLocation = GetActorLocation();
 	DashLastTraveled = 0.f;
 	DashLastRequested = 0.f;
+	// Faster than the base walk speed (Move Speed picks): the distance and exit speed grow with it for this dash,
+	// the duration doesn't.
+	DashSpeedRatio = GetMoveSpeedRatio();
 	ActiveDash = &Settings;
 
 	UCharacterMovementComponent* CMC = GetCharacterMovement();
@@ -783,7 +800,7 @@ void AGSCharacter::TickDash(float DeltaSeconds)
 
 	// Measure actual progress along the dash, so frame hitches and collisions can't skew the distance.
 	const float Traveled = FVector::DotProduct(GetActorLocation() - DashStartLocation, DashDirection);
-	const float Remaining = Settings->Distance - Traveled;
+	const float Remaining = Settings->GetDistance(DashSpeedRatio) - Traveled;
 
 	// Blocked: last frame asked for real movement but we barely moved (wall / obstacle).
 	const bool bBlocked = DashLastRequested > 5.f && (Traveled - DashLastTraveled) < DashLastRequested * 0.1f;
@@ -796,7 +813,7 @@ void AGSCharacter::TickDash(float DeltaSeconds)
 	}
 
 	// Frame-rate independent: never move further this frame than the distance left.
-	const float Speed = Settings->GetDashSpeed();
+	const float Speed = Settings->GetDashSpeed(DashSpeedRatio);
 	const float FrameSpeed = DeltaSeconds > 0.f ? FMath::Min(Speed, Remaining / DeltaSeconds) : Speed;
 
 	GetCharacterMovement()->Velocity = DashDirection * FrameSpeed;
@@ -814,7 +831,7 @@ void AGSCharacter::StopDash()
 	}
 
 	UCharacterMovementComponent* CMC = GetCharacterMovement();
-	const float ExitSpeed = Settings ? FMath::Min(Settings->ExitSpeed, Settings->GetDashSpeed()) : 0.f;
+	const float ExitSpeed = Settings ? FMath::Min(Settings->GetExitSpeed(DashSpeedRatio), Settings->GetDashSpeed(DashSpeedRatio)) : 0.f;
 	CMC->Velocity = DashDirection * ExitSpeed;
 	CMC->GravityScale = SavedGravityScale;
 

@@ -71,6 +71,7 @@
 #include "GSGameplayEffects.h"
 #include "GSGameplayAbility_Dash.h"
 #include "GSGameplayAbility_Reload.h"
+#include "GSGameplayAbility_Slide.h"
 #include "GSAbilityIconWidget.h"
 #include "GSCombatSettings.h"
 #include "GSCriticalHit.h"
@@ -9104,6 +9105,551 @@ bool FGSWeaponSlotsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Summary: weapons held"), Summary->GetWeaponsText().ToString(), FString(TEXT("Floating Gun")));
 		TestEqual(TEXT("Summary: upgrades without the weapon"), Summary->GetUpgradesText().ToString(), FString(TEXT("Damage x1")));
 		TestEqual(TEXT("Summary: one upgrade icon (no weapon icon)"), Summary->GetUpgradeIconCount(), 1);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Move Speed: the slide and the dash scale with the speed ratio (Prompt 44b)
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	struct FMoveSpeedTrial
+	{
+		// Slide
+		float SlideRunSpeed = 0.f;
+		float SlideStartSpeed = 0.f;
+		float SlideEndSpeed = -1.f;
+		float SlideRatio = 0.f;
+		// Dash
+		FVector DashStart = FVector::ZeroVector;
+		double DashStartTime = 0.0;
+		FVector DashEnd = FVector::ZeroVector;
+		double DashEndTime = 0.0;
+		float DashExitSpeed = -1.f;
+		float DashRatio = 0.f;
+	};
+
+	struct FMoveSpeedState
+	{
+		TWeakObjectPtr<const UGSSlideSettings> Slide;
+		TWeakObjectPtr<const UGSDashSettings> Dash;
+		float BaseWalk = 0.f;
+		FVector LaneStart = FVector::ZeroVector;
+		FVector LaneDir = FVector::ForwardVector;
+		bool bLaneFound = false;
+		FMoveSpeedTrial Trials[2]; // [0] x1, [1] x2
+		int32 Current = 0;
+		FDelegateHandle SlideHandle;
+		FDelegateHandle DashHandle;
+	};
+
+	void SetMoveSpeedBase(float Value)
+	{
+		if (UGSAbilitySystemComponent* ASC = GetPlayerASC())
+		{
+			ASC->SetNumericAttributeBase(UGSAttributeSet::GetMoveSpeedAttribute(), Value);
+		}
+	}
+
+	/** A straight, flat stretch of town with no cover for Length cm (capsule sweep), for the slide and dash runs. */
+	bool FindClearLane(float Length, FVector& OutStart, FVector& OutDir)
+	{
+		UWorld* World = GetPIEWorld();
+		const AGSCharacter* Player = GetPlayer();
+		if (!World || !Player)
+		{
+			return false;
+		}
+		const UCapsuleComponent* Capsule = Player->GetCapsuleComponent();
+		const FCollisionShape Shape = FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius() + 20.f, Capsule->GetScaledCapsuleHalfHeight());
+		const float Z = Capsule->GetScaledCapsuleHalfHeight() + 5.f;
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(GSMoveSpeedLane), false, Player);
+		// The ring road (77-89 m out) and the side streets are kept clear of cover.
+		const TPair<FVector, FVector> Candidates[] = {
+			{ FVector(8300.f, -3000.f, Z), FVector(0.f, 1.f, 0.f) },
+			{ FVector(-8300.f, -3000.f, Z), FVector(0.f, 1.f, 0.f) },
+			{ FVector(-3000.f, 8300.f, Z), FVector(1.f, 0.f, 0.f) },
+			{ FVector(-3000.f, -8300.f, Z), FVector(1.f, 0.f, 0.f) },
+		};
+		for (const TPair<FVector, FVector>& Candidate : Candidates)
+		{
+			FHitResult Hit;
+			if (!World->SweepSingleByChannel(Hit, Candidate.Key, Candidate.Key + Candidate.Value * Length, FQuat::Identity, ECC_Pawn, Shape, Params))
+			{
+				OutStart = Candidate.Key;
+				OutDir = Candidate.Value;
+				return true;
+			}
+		}
+		return false;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSMoveSpeedSlideDashTest, "BanditBaller.Upgrades.MoveSpeedSlideDash", GSTests::TestFlags)
+bool FGSMoveSpeedSlideDashTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	TSharedRef<FMoveSpeedState> S = MakeShared<FMoveSpeedState>();
+
+	// Settings, the ratio rule, a clear lane. Normal game speed (the dash time is measured), editor throttling off.
+	Step([this, S]()
+	{
+		SpeedUpWorld(1.f);
+		GetGameMode()->SetRoundTimerPaused(true);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		AGSCharacter* Player = GetPlayer();
+		const UGSGameplayAbility_Slide* SlideAbility = UGSGameplayAbility_Slide::FindGrantedSlide(GetPlayerASC());
+		const UGSGameplayAbility_Dash* DashAbility = UGSGameplayAbility_Dash::FindGrantedDash(GetPlayerASC());
+		if (!TestNotNull(TEXT("GA_Slide granted"), SlideAbility) || !TestNotNull(TEXT("GA_Dash granted"), DashAbility)
+			|| !TestNotNull(TEXT("Slide settings"), SlideAbility->GetSettings()) || !TestNotNull(TEXT("Dash settings"), DashAbility->GetSettings())
+			|| !TestNotNull(TEXT("Movement settings"), Player->GetMovementSettings()))
+		{
+			return;
+		}
+		S->Slide = SlideAbility->GetSettings();
+		S->Dash = DashAbility->GetSettings();
+		S->BaseWalk = Player->GetMovementSettings()->MaxWalkSpeed;
+		TestEqual(TEXT("MoveSpeed starts at the base walk speed"), GetAttr(UGSAttributeSet::GetMoveSpeedAttribute()), S->BaseWalk, 0.01f);
+		TestEqual(TEXT("Base Move Speed: ratio exactly 1"), Player->GetMoveSpeedRatio(), 1.f);
+
+		// The settings' scaled getters are the plain values at 1 and scale linearly.
+		const UGSSlideSettings* Slide = S->Slide.Get();
+		const UGSDashSettings* Dash = S->Dash.Get();
+		TestEqual(TEXT("Slide boost at x1"), Slide->GetSpeedBoost(1.f), Slide->SpeedBoost);
+		TestEqual(TEXT("Slide cap at x1"), Slide->GetMaxSpeed(1.f), Slide->MaxSpeed);
+		TestEqual(TEXT("Slide end speed at x1"), Slide->GetEndSpeed(1.f), Slide->EndSpeed);
+		TestEqual(TEXT("Dash distance at x1"), Dash->GetDistance(1.f), Dash->Distance);
+		TestEqual(TEXT("Dash exit speed at x1"), Dash->GetExitSpeed(1.f), Dash->ExitSpeed);
+		TestEqual(TEXT("Dash speed at x2 is twice"), Dash->GetDashSpeed(2.f), Dash->GetDashSpeed() * 2.f, 0.01f);
+
+		// Never below 1: a slower player keeps the base slide and dash.
+		SetMoveSpeedBase(S->BaseWalk * 0.5f);
+		TestEqual(TEXT("Half Move Speed: ratio stays 1"), Player->GetMoveSpeedRatio(), 1.f);
+		SetMoveSpeedBase(S->BaseWalk * 2.f);
+		TestEqual(TEXT("Move Speed x2: ratio 2"), Player->GetMoveSpeedRatio(), 2.f, 0.0001f);
+		SetMoveSpeedBase(S->BaseWalk);
+
+		// The Move Speed upgrade raises it too (Common +8%).
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("MoveSpeed") });
+		TestTrue(TEXT("A Move Speed pick raises the ratio above 1"), Player->GetMoveSpeedRatio() > 1.05f);
+		GetGameMode()->RestartRunWithSeed(4401);
+		GetGameMode()->SetRoundTimerPaused(true);
+		TestEqual(TEXT("A new run: ratio 1 again"), Player->GetMoveSpeedRatio(), 1.f);
+
+		const float LaneLength = FMath::Max(Dash->Distance * 2.f, Slide->MaxSpeed * 2.f * Slide->Duration) + 800.f;
+		S->bLaneFound = FindClearLane(LaneLength, S->LaneStart, S->LaneDir);
+		TestTrue(FString::Printf(TEXT("A clear %.0f m lane in the town"), LaneLength / 100.f), S->bLaneFound);
+
+		// Record the slide's end speed and the dash's end (position, time, exit speed) when they finish.
+		S->SlideHandle = Player->OnSlideFinished.AddLambda([S]()
+		{
+			S->Trials[S->Current].SlideEndSpeed = GetPlayer()->GetCharacterMovement()->Velocity.Size2D();
+		});
+		S->DashHandle = Player->OnDashFinished.AddLambda([S]()
+		{
+			FMoveSpeedTrial& T = S->Trials[S->Current];
+			T.DashEnd = GetPlayer()->GetActorLocation();
+			T.DashEndTime = GetPIEWorld()->GetTimeSeconds();
+			T.DashExitSpeed = GetPlayer()->GetCharacterMovement()->Velocity.Size2D();
+		});
+	});
+
+	// One slide and one dash at x1, then at x2 (MoveSpeed base value; MaxWalkSpeed follows).
+	for (int32 TrialIndex = 0; TrialIndex < 2; ++TrialIndex)
+	{
+		const float Ratio = TrialIndex == 0 ? 1.f : 2.f;
+		Step([S, TrialIndex, Ratio]()
+		{
+			S->Current = TrialIndex;
+			SetMoveSpeedBase(S->BaseWalk * Ratio);
+			GetPlayer()->GetCharacterMovement()->Velocity = FVector::ZeroVector;
+			GetPlayer()->TeleportTo(S->LaneStart, S->LaneDir.Rotation());
+		});
+		WaitFrames(this, 2);
+		WaitUntil(this, TEXT("standing on the lane before the slide"), []() { return GetPlayer()->GetCharacterMovement()->IsMovingOnGround(); }, 5.0);
+		Step([this, S, TrialIndex]()
+		{
+			// A full run, then the slide.
+			FMoveSpeedTrial& T = S->Trials[TrialIndex];
+			UCharacterMovementComponent* CMC = GetPlayer()->GetCharacterMovement();
+			TestTrue(TEXT("On the ground before the slide"), CMC->IsMovingOnGround());
+			T.SlideRunSpeed = CMC->MaxWalkSpeed;
+			CMC->Velocity = S->LaneDir * T.SlideRunSpeed;
+			if (const UGSSlideSettings* Slide = S->Slide.Get())
+			{
+				GetPlayer()->StartSlide(*Slide);
+			}
+			T.SlideStartSpeed = GetPlayer()->GetSlideStartSpeed();
+			T.SlideRatio = GetPlayer()->GetSlideSpeedRatio();
+			TestTrue(TEXT("Sliding"), GetPlayer()->IsSliding());
+		});
+		WaitUntil(this, TEXT("the slide to end"), []() { return !GetPlayer()->IsSliding(); }, 5.0);
+		Step([S]()
+		{
+			GetPlayer()->GetCharacterMovement()->Velocity = FVector::ZeroVector;
+			GetPlayer()->TeleportTo(S->LaneStart, S->LaneDir.Rotation());
+		});
+		WaitFrames(this, 2);
+		WaitUntil(this, TEXT("standing on the lane before the dash"), []() { return GetPlayer()->GetCharacterMovement()->IsMovingOnGround(); }, 5.0);
+		Step([S, TrialIndex]()
+		{
+			FMoveSpeedTrial& T = S->Trials[TrialIndex];
+			AGSCharacter* Player = GetPlayer();
+			Player->GetCharacterMovement()->Velocity = FVector::ZeroVector;
+			T.DashStart = Player->GetActorLocation();
+			T.DashStartTime = GetPIEWorld()->GetTimeSeconds();
+			if (const UGSDashSettings* Dash = S->Dash.Get())
+			{
+				Player->StartDash(S->LaneDir, *Dash);
+			}
+			T.DashRatio = Player->GetDashSpeedRatio();
+		});
+		WaitUntil(this, TEXT("the dash to end"), []() { return !GetPlayer()->IsDashing(); }, 5.0);
+	}
+
+	Step([this, S]()
+	{
+		const UGSSlideSettings* Slide = S->Slide.Get();
+		const UGSDashSettings* Dash = S->Dash.Get();
+		if (!Slide || !Dash)
+		{
+			return;
+		}
+		for (int32 TrialIndex = 0; TrialIndex < 2; ++TrialIndex)
+		{
+			const FMoveSpeedTrial& T = S->Trials[TrialIndex];
+			const float R = TrialIndex == 0 ? 1.f : 2.f;
+			const FString Tag = FString::Printf(TEXT("x%.0f"), R);
+			TestEqual(Tag + TEXT(": the slide kept ratio"), T.SlideRatio, R, 0.0001f);
+			TestEqual(Tag + TEXT(": the dash kept ratio"), T.DashRatio, R, 0.0001f);
+
+			// Slide: start = min(run + boost x R, cap x R), end = EndSpeed x R.
+			const float ExpectedStart = FMath::Min(T.SlideRunSpeed + Slide->SpeedBoost * R, Slide->MaxSpeed * R);
+			TestEqual(Tag + TEXT(": slide start speed"), T.SlideStartSpeed, ExpectedStart, 0.5f);
+			TestTrue(Tag + TEXT(": the slide starts faster than running"), T.SlideStartSpeed > T.SlideRunSpeed);
+			TestEqual(Tag + TEXT(": slide end speed = EndSpeed x ratio"), T.SlideEndSpeed, Slide->EndSpeed * R, 0.5f);
+
+			// Dash: Distance x R in Duration; exit = min(ExitSpeed, dash speed) x R = the running speed.
+			const float Traveled = FVector::Dist2D(T.DashStart, T.DashEnd);
+			const double Time = T.DashEndTime - T.DashStartTime;
+			AddInfo(FString::Printf(TEXT("%s: slide %.0f -> %.0f -> %.0f cm/s; dash %.1f cm in %.3f s, exit %.0f cm/s"), *Tag,
+				T.SlideRunSpeed, T.SlideStartSpeed, T.SlideEndSpeed, Traveled, Time, T.DashExitSpeed));
+			TestEqual(Tag + TEXT(": dash distance = Distance x ratio"), Traveled, Dash->Distance * R, 3.f);
+			TestTrue(FString::Printf(TEXT("%s: the dash takes its Duration (%.3f s for %.3f s)"), *Tag, Time, Dash->Duration),
+				Time >= Dash->Duration - 0.02 && Time <= Dash->Duration + 0.06);
+			TestEqual(Tag + TEXT(": dash exit speed"), T.DashExitSpeed, FMath::Min(Dash->ExitSpeed, Dash->GetDashSpeed()) * R, 0.5f);
+			TestEqual(Tag + TEXT(": the dash ends at the running speed"), T.DashExitSpeed, S->BaseWalk * R, 0.5f);
+		}
+
+		// x1 is exactly the old slide and dash.
+		const FMoveSpeedTrial& Base = S->Trials[0];
+		TestEqual(TEXT("x1: slide start as before (min(run + SpeedBoost, MaxSpeed))"), Base.SlideStartSpeed, FMath::Min(Base.SlideRunSpeed + Slide->SpeedBoost, Slide->MaxSpeed));
+		TestEqual(TEXT("x1: slide end as before (EndSpeed)"), Base.SlideEndSpeed, Slide->EndSpeed, 0.5f);
+		TestEqual(TEXT("x1: dash exit as before (min(ExitSpeed, dash speed))"), Base.DashExitSpeed, FMath::Min(Dash->ExitSpeed, Dash->GetDashSpeed()), 0.5f);
+
+		// x2: twice the distance in the same time.
+		const FMoveSpeedTrial& Fast = S->Trials[1];
+		const float BaseDist = FVector::Dist2D(Base.DashStart, Base.DashEnd);
+		const float FastDist = FVector::Dist2D(Fast.DashStart, Fast.DashEnd);
+		TestEqual(TEXT("x2: the dash covers twice the distance"), FastDist, BaseDist * 2.f, 5.f);
+		TestTrue(TEXT("x2: in the same time (within 0.05 s)"),
+			FMath::Abs((Fast.DashEndTime - Fast.DashStartTime) - (Base.DashEndTime - Base.DashStartTime)) <= 0.05);
+		TestEqual(TEXT("x2: the slide ends at twice the base EndSpeed"), Fast.SlideEndSpeed, Slide->EndSpeed * 2.f, 0.5f);
+
+		// Move Speed x33 into the east boundary wall.
+		AGSMapBoundary* Boundary = GetBoundary();
+		if (!TestNotNull(TEXT("Boundary"), Boundary))
+		{
+			return;
+		}
+		SetMoveSpeedBase(S->BaseWalk * 33.f);
+		TestEqual(TEXT("x33: ratio 33"), GetPlayer()->GetMoveSpeedRatio(), 33.f, 0.001f);
+		const FBox Bounds = Boundary->GetPlayBounds();
+		GetPlayer()->TeleportTo(FVector(Bounds.Max.X - 300.f, Bounds.GetCenter().Y - 600.f, Boundary->GetGroundZ() + 120.f), FRotator::ZeroRotator);
+	});
+	WaitFrames(this, 3);
+	Step([S]()
+	{
+		GetPlayer()->GetCharacterMovement()->Velocity = FVector::ZeroVector;
+		if (const UGSDashSettings* Dash = S->Dash.Get())
+		{
+			GetPlayer()->StartDash(FVector(1.f, 0.f, 0.f), *Dash);
+		}
+	});
+	WaitUntil(this, TEXT("the x33 dash into the wall to end"), []() { return !GetPlayer()->IsDashing(); }, 5.0);
+	WaitFrames(this, 3);
+	Step([this, S]()
+	{
+		const FVector Location = GetPlayer()->GetActorLocation();
+		AddInfo(FString::Printf(TEXT("x33 dash (%.0f cm) into the east wall stopped at x = %.1f (wall at %.0f)"),
+			S->Dash.IsValid() ? S->Dash->GetDistance(33.f) : 0.f, Location.X, GetBoundary()->GetPlayBounds().Max.X));
+		TestTrue(TEXT("x33: the dash stopped inside the boundary"), GetBoundary()->IsInside(Location));
+
+		// And a slide from a x33 run into the same wall.
+		const FBox Bounds = GetBoundary()->GetPlayBounds();
+		GetPlayer()->TeleportTo(FVector(Bounds.Max.X - 400.f, Bounds.GetCenter().Y - 1200.f, GetBoundary()->GetGroundZ() + 120.f), FRotator::ZeroRotator);
+	});
+	WaitFrames(this, 3);
+	Step([S]()
+	{
+		UCharacterMovementComponent* CMC = GetPlayer()->GetCharacterMovement();
+		CMC->Velocity = FVector(CMC->MaxWalkSpeed, 0.f, 0.f);
+		if (const UGSSlideSettings* Slide = S->Slide.Get())
+		{
+			GetPlayer()->StartSlide(*Slide);
+		}
+	});
+	WaitUntil(this, TEXT("the x33 slide to end"), []() { return !GetPlayer()->IsSliding(); }, 5.0);
+	WaitFrames(this, 3);
+	Step([this, S]()
+	{
+		const FVector Location = GetPlayer()->GetActorLocation();
+		AddInfo(FString::Printf(TEXT("x33 slide (start %.0f cm/s) into the east wall stopped at x = %.1f"), GetPlayer()->GetSlideStartSpeed(), Location.X));
+		TestTrue(TEXT("x33: the slide stopped inside the boundary"), GetBoundary()->IsInside(Location));
+
+		SetMoveSpeedBase(S->BaseWalk);
+		GetPlayer()->OnSlideFinished.Remove(S->SlideHandle);
+		GetPlayer()->OnDashFinished.Remove(S->DashHandle);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+namespace GSTests
+{
+	/** One piece of town cover and a clear approach to it: from Start along Dir, the first thing a capsule meets is it. */
+	struct FCoverTarget
+	{
+		FString Kind;
+		TWeakObjectPtr<AActor> Actor;
+		FVector Start = FVector::ZeroVector;
+		FVector Dir = FVector::ForwardVector;
+		float FaceDistance = 0.f; // capsule sweep distance from Start to the cover's face
+	};
+
+	/** Finds the cover piece of each kind (by size) with a clear 6 m run-up from one of the four axis directions. */
+	TArray<FCoverTarget> FindCoverTargets()
+	{
+		TArray<FCoverTarget> Targets;
+		UWorld* World = GetPIEWorld();
+		const AGSCharacter* Player = GetPlayer();
+		if (!World || !Player)
+		{
+			return Targets;
+		}
+		const UCapsuleComponent* Capsule = Player->GetCapsuleComponent();
+		const float HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+		const FCollisionShape Shape = FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius(), HalfHeight);
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(GSMoveSpeedCover), false, Player);
+
+		struct FKind { const TCHAR* Name; float MinHeight; float MaxHeight; float MaxThin; FName Tag; };
+		const FKind Kinds[] = {
+			{ TEXT("crate (1.5 m)"), 130.f, 170.f, 1e9f, NAME_None },
+			{ TEXT("low wall (1.8 m)"), 170.f, 200.f, 120.f, NAME_None },
+			{ TEXT("shack (4 m)"), 380.f, 420.f, 1e9f, NAME_None },
+			{ TEXT("tower (12 m)"), 1150.f, 1250.f, 1e9f, NAME_None },
+			{ TEXT("silo (east landmark)"), 0.f, 1e9f, 1e9f, FName(TEXT("Landmark_East")) },
+		};
+		const FVector Dirs[] = { FVector(1.f, 0.f, 0.f), FVector(-1.f, 0.f, 0.f), FVector(0.f, 1.f, 0.f), FVector(0.f, -1.f, 0.f) };
+		for (const FKind& Kind : Kinds)
+		{
+			bool bFound = false;
+			for (TActorIterator<AStaticMeshActor> It(World); It && !bFound; ++It)
+			{
+				AStaticMeshActor* Actor = *It;
+				FVector Origin, Extent;
+				Actor->GetActorBounds(true, Origin, Extent);
+				const float Height = Origin.Z + Extent.Z; // from the ground (Z 0) to the top
+				const bool bMatches = Kind.Tag.IsNone()
+					? (Height >= Kind.MinHeight && Height <= Kind.MaxHeight && FMath::Min(Extent.X, Extent.Y) * 2.f <= Kind.MaxThin
+						&& Origin.Z - Extent.Z < 5.f && FVector2D(Origin).Size() > 9000.f) // standing on the ground, in the outskirts
+					: Actor->ActorHasTag(Kind.Tag) && Height > 2000.f;
+				if (!bMatches)
+				{
+					continue;
+				}
+				for (const FVector& Dir : Dirs)
+				{
+					const float Half = FMath::Abs(Dir.X) > 0.5f ? Extent.X : Extent.Y;
+					const FVector Center(Origin.X, Origin.Y, HalfHeight + 5.f);
+					const FVector Start = Center - Dir * (Half + 600.f);
+					FHitResult Hit;
+					// The run-up spot itself is clear, and the first thing on the way is this piece.
+					if (World->OverlapAnyTestByChannel(Start, FQuat::Identity, ECC_Pawn, Shape, Params)
+						|| !World->SweepSingleByChannel(Hit, Start, Center, FQuat::Identity, ECC_Pawn, Shape, Params)
+						|| Hit.GetActor() != Actor || Hit.Distance < 300.f)
+					{
+						continue;
+					}
+					FCoverTarget Target;
+					Target.Kind = Kind.Name;
+					Target.Actor = Actor;
+					Target.Start = Start;
+					Target.Dir = Dir;
+					Target.FaceDistance = Hit.Distance;
+					Targets.Add(Target);
+					bFound = true;
+					break;
+				}
+			}
+		}
+		return Targets;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSMoveSpeedCoverTest, "BanditBaller.Upgrades.MoveSpeedCover", GSTests::TestFlags)
+bool FGSMoveSpeedCoverTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+
+	struct FState
+	{
+		TArray<FCoverTarget> Targets;
+		TWeakObjectPtr<const UGSSlideSettings> Slide;
+		TWeakObjectPtr<const UGSDashSettings> Dash;
+		float BaseWalk = 0.f;
+		TArray<FVector> Path; // the player's location every frame of the current run
+	};
+	TSharedRef<FState> S = MakeShared<FState>();
+
+	Step([this, S]()
+	{
+		SpeedUpWorld(3.f); // movement x3: longer frame steps, which only makes the wall checks harder
+		GetGameMode()->SetRoundTimerPaused(true);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		const UGSGameplayAbility_Slide* Slide = UGSGameplayAbility_Slide::FindGrantedSlide(GetPlayerASC());
+		const UGSGameplayAbility_Dash* Dash = UGSGameplayAbility_Dash::FindGrantedDash(GetPlayerASC());
+		S->Slide = Slide ? Slide->GetSettings() : nullptr;
+		S->Dash = Dash ? Dash->GetSettings() : nullptr;
+		S->BaseWalk = GetPlayer()->GetMovementSettings() ? GetPlayer()->GetMovementSettings()->MaxWalkSpeed : 0.f;
+		TestTrue(TEXT("Slide and dash settings"), S->Slide.IsValid() && S->Dash.IsValid() && S->BaseWalk > 0.f);
+		S->Targets = FindCoverTargets();
+		TestEqual(TEXT("A crate, a low wall, a shack, a tower and the silo with a clear run-up"), S->Targets.Num(), 5);
+	});
+
+	// For each piece: a dash from 6 m out, then a slide from a full run, at Move Speed x1, x5 and x33. The player must
+	// never overlap the piece, stays on the ground, and only ends up behind it by going round it.
+	const float Ratios[] = { 1.f, 5.f, 33.f };
+	for (const float Ratio : Ratios)
+	for (int32 Index = 0; Index < 5; ++Index)
+	{
+		for (int32 Move = 0; Move < 2; ++Move)
+		{
+			Step([S, Index, Ratio]()
+			{
+				SetMoveSpeedBase(S->BaseWalk * Ratio);
+				S->Path.Reset();
+				if (S->Targets.IsValidIndex(Index))
+				{
+					GetPlayer()->GetCharacterMovement()->Velocity = FVector::ZeroVector;
+					GetPlayer()->TeleportTo(S->Targets[Index].Start, S->Targets[Index].Dir.Rotation());
+				}
+			});
+			WaitFrames(this, 2);
+			WaitUntil(this, TEXT("standing at the run-up"), []() { return GetPlayer()->GetCharacterMovement()->IsMovingOnGround(); }, 5.0);
+			Step([S, Index, Move]()
+			{
+				if (!S->Targets.IsValidIndex(Index) || !S->Slide.IsValid() || !S->Dash.IsValid())
+				{
+					return;
+				}
+				const FCoverTarget& T = S->Targets[Index];
+				UCharacterMovementComponent* CMC = GetPlayer()->GetCharacterMovement();
+				if (Move == 0)
+				{
+					CMC->Velocity = FVector::ZeroVector;
+					GetPlayer()->StartDash(T.Dir, *S->Dash.Get());
+				}
+				else
+				{
+					CMC->Velocity = T.Dir * CMC->MaxWalkSpeed;
+					GetPlayer()->StartSlide(*S->Slide.Get());
+				}
+			});
+			// Sample the path every frame until the move is over and the player has stopped (at most 200 frames).
+			Step([S]() { S->Path.Add(GetPlayer()->GetActorLocation()); });
+			WaitUntil(this, TEXT("the dash / slide to end and the player to stop"), [S]()
+			{
+				S->Path.Add(GetPlayer()->GetActorLocation());
+				const bool bMoving = GetPlayer()->IsDashing() || GetPlayer()->IsSliding() || GetPlayer()->GetVelocity().Size2D() > 10.f;
+				return (!bMoving && S->Path.Num() > 3) || S->Path.Num() > 200;
+			}, 10.0);
+			Step([this, S, Index, Move, Ratio]()
+			{
+				if (!S->Targets.IsValidIndex(Index) || !S->Targets[Index].Actor.IsValid() || S->Path.Num() < 2)
+				{
+					return;
+				}
+				const FCoverTarget& T = S->Targets[Index];
+				const AStaticMeshActor* MeshActor = Cast<AStaticMeshActor>(T.Actor.Get());
+				const UStaticMeshComponent* Comp = MeshActor ? MeshActor->GetStaticMeshComponent() : nullptr;
+				const UStaticMesh* Mesh = Comp ? Comp->GetStaticMesh() : nullptr;
+				if (!TestNotNull(TEXT("Cover mesh"), Mesh))
+				{
+					return;
+				}
+				// Work in the piece's own frame (cover is rotated), in cm: the mesh box scaled by the component.
+				const FTransform Xf = Comp->GetComponentTransform();
+				const FBox LocalBox = Mesh->GetBoundingBox();
+				const FVector Center = LocalBox.GetCenter() * Xf.GetScale3D();
+				const FVector Half = LocalBox.GetExtent() * Xf.GetScale3D().GetAbs();
+				const bool bRound = Mesh->GetName().Contains(TEXT("Cylinder"));
+				// The local axis facing the run-up, and the side axis.
+				const float DotX = FVector::DotProduct(Xf.GetUnitAxis(EAxis::X), T.Dir);
+				const float DotY = FVector::DotProduct(Xf.GetUnitAxis(EAxis::Y), T.Dir);
+				const int32 AxisA = FMath::Abs(DotX) >= FMath::Abs(DotY) ? 0 : 1;
+				const int32 AxisB = 1 - AxisA;
+				const float SignA = (AxisA == 0 ? DotX : DotY) >= 0.f ? 1.f : -1.f;
+				const float Radius = GetPlayer()->GetCapsuleComponent()->GetScaledCapsuleRadius();
+
+				// Wrong = a frame where the capsule overlaps the piece. Sweeps can't skip a piece without a frame inside it
+				// unless the player ends up behind it; then it must have been out to its side at some point (went round).
+				const float HalfAlong = bRound ? Half.X : Half[AxisA];
+				const float HalfSide = bRound ? Half.X : Half[AxisB];
+				int32 WrongFrames = 0;
+				FString WrongSamples;
+				float MaxAlong = -1e9f, MaxSide = 0.f, MaxZ = -1e9f;
+				for (int32 i = 0; i < S->Path.Num(); ++i)
+				{
+					const FVector& P = S->Path[i];
+					const FVector L = Xf.InverseTransformPositionNoScale(P) - Center;
+					const float A = SignA * L[AxisA];
+					const float B = L[AxisB];
+					MaxAlong = FMath::Max(MaxAlong, A);
+					MaxSide = FMath::Max(MaxSide, FMath::Abs(B));
+					MaxZ = FMath::Max(MaxZ, static_cast<float>(P.Z));
+					const float Gap = bRound
+						? FVector2D(L.X, L.Y).Size() - Half.X
+						: FVector2D(FMath::Max(FMath::Abs(A) - HalfAlong, 0.f), FMath::Max(FMath::Abs(B) - HalfSide, 0.f)).Size();
+					const bool bWrong = Gap < Radius - 2.f && P.Z < 150.f;
+					WrongFrames += bWrong ? 1 : 0;
+					if (bWrong && WrongFrames <= 6)
+					{
+						WrongSamples += FString::Printf(TEXT(" [frame %d: %.0f along, %.0f side, Z %.0f]"), i, A, B, P.Z);
+					}
+				}
+				const FVector LEnd = Xf.InverseTransformPositionNoScale(S->Path.Last()) - Center;
+				const FString What = FString::Printf(TEXT("x%.0f %s into the %s (%s, yaw %.0f)"), Ratio, Move == 0 ? TEXT("dash") : TEXT("slide"), *T.Kind,
+					*GetNameSafe(T.Actor.Get()), Xf.Rotator().Yaw);
+				AddInfo(FString::Printf(TEXT("%s: in its frame contact at %.0f, furthest %.0f along / %.0f to the side (half width %.0f), top Z %.0f, end (%.0f, %.0f), %d frames, %d wrong%s"),
+					*What, -(bRound ? Half.X : Half[AxisA]) - Radius, MaxAlong, MaxSide, bRound ? Half.X : Half[AxisB], MaxZ, SignA * LEnd[AxisA], LEnd[AxisB], S->Path.Num(), WrongFrames, *WrongSamples));
+				TestEqual(What + TEXT(": frames overlapping it"), WrongFrames, 0);
+				const bool bEndedBehind = SignA * LEnd[AxisA] > HalfAlong;
+				TestTrue(What + TEXT(": if it ended behind it, it went round it"), !bEndedBehind || MaxSide >= HalfSide + Radius - 2.f);
+				TestTrue(What + TEXT(": stayed on the ground (didn't go over it)"), MaxZ < 150.f);
+			});
+		}
+	}
+
+	Step([S]()
+	{
+		SetMoveSpeedBase(S->BaseWalk);
+		RestoreWorldSpeed();
 	});
 	EndPIE();
 	return true;

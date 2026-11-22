@@ -23,6 +23,7 @@
 #include "GSSecondWindComponent.h"
 #include "GSShieldComponent.h"
 #include "GSGameplayAbility_Dash.h"
+#include "GSGameplayAbility_Slide.h"
 #include "GSGameplayTags.h"
 #include "GSMovementAbilitySettings.h"
 #include "GSGameState.h"
@@ -295,6 +296,15 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 			ASC->GetNumericAttribute(UGSAttributeSet::GetFloatingGunPowerAttribute()));
 		if (const AGSCharacter* Character = Cast<AGSCharacter>(PC->GetPawn()))
 		{
+			// Slide and dash scale with Move Speed (at least x1); a slide or dash keeps the ratio it started with.
+			const float SpeedRatio = Character->GetMoveSpeedRatio();
+			const UGSGameplayAbility_Slide* Slide = UGSGameplayAbility_Slide::FindGrantedSlide(ASC);
+			const UGSGameplayAbility_Dash* Dash = UGSGameplayAbility_Dash::FindGrantedDash(ASC);
+			const UGSSlideSettings* SlideSettings = Slide ? Slide->GetSettings() : nullptr;
+			const UGSDashSettings* DashSettings = Dash ? Dash->GetSettings() : nullptr;
+			Text += FString::Printf(TEXT(", speed ratio x%.2f, slide cap %.0f cm/s, dash distance %.0f cm"), SpeedRatio,
+				SlideSettings ? SlideSettings->GetMaxSpeed(SpeedRatio) : 0.f, DashSettings ? DashSettings->GetDistance(SpeedRatio) : 0.f);
+
 			if (const UGSWeaponComponent* Weapons = Character->GetWeaponComponent())
 			{
 				Text += FString::Printf(TEXT("\n  Magazine: %d / %d"), Weapons->GetCurrentAmmo(), Weapons->GetCurrentMagazineSize());

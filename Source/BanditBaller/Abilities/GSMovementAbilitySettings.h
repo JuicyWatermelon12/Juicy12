@@ -6,13 +6,21 @@
 #include "Engine/DataAsset.h"
 #include "GSMovementAbilitySettings.generated.h"
 
-/** Tuning for GA_Slide (DA_SlideSettings). */
+/**
+ * Tuning for GA_Slide (DA_SlideSettings). The speeds are the values at the base Move Speed: AGSCharacter scales
+ * SpeedBoost, MaxSpeed and EndSpeed by its speed ratio (MoveSpeed / base walk speed, at least 1) when a slide starts.
+ */
 UCLASS(BlueprintType, Const)
 class BANDITBALLER_API UGSSlideSettings : public UPrimaryDataAsset
 {
 	GENERATED_BODY()
 
 public:
+	/** SpeedBoost, MaxSpeed and EndSpeed for a speed ratio (AGSCharacter::GetMoveSpeedRatio). */
+	float GetSpeedBoost(float SpeedRatio) const { return SpeedBoost * SpeedRatio; }
+	float GetMaxSpeed(float SpeedRatio) const { return MaxSpeed * SpeedRatio; }
+	float GetEndSpeed(float SpeedRatio) const { return EndSpeed * SpeedRatio; }
+
 	/** Minimum ground speed (cm/s) needed to start a slide. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Slide", meta = (ClampMin = "0", Units = "cm/s"))
 	float MinStartSpeed = 300.f;
@@ -58,14 +66,21 @@ public:
 	float Cooldown = 1.f;
 };
 
-/** Tuning for GA_Dash (DA_DashSettings). */
+/**
+ * Tuning for GA_Dash (DA_DashSettings). Distance and ExitSpeed are the values at the base Move Speed: AGSCharacter
+ * scales them by its speed ratio (MoveSpeed / base walk speed, at least 1) when a dash starts. Duration doesn't
+ * scale, so a faster player's dash covers more ground in the same time.
+ */
 UCLASS(BlueprintType, Const)
 class BANDITBALLER_API UGSDashSettings : public UPrimaryDataAsset
 {
 	GENERATED_BODY()
 
 public:
-	float GetDashSpeed() const { return Distance / FMath::Max(Duration, 0.01f); }
+	/** Distance, ExitSpeed and the dash's speed (distance / duration) for a speed ratio (AGSCharacter::GetMoveSpeedRatio). */
+	float GetDistance(float SpeedRatio = 1.f) const { return Distance * SpeedRatio; }
+	float GetExitSpeed(float SpeedRatio = 1.f) const { return ExitSpeed * SpeedRatio; }
+	float GetDashSpeed(float SpeedRatio = 1.f) const { return GetDistance(SpeedRatio) / FMath::Max(Duration, 0.01f); }
 
 	/** Distance covered by one dash. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Dash", meta = (ClampMin = "0", Units = "cm"))

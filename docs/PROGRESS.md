@@ -47,11 +47,11 @@ were design / scope updates and permanent cash). See **M2 checkpoint** under Pro
 level-up upgrades, is built (Prompts 29–39; 29 is the docs-only plan, then Dash Charge (30), Fire Rate + Magnet (31) and the
 held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds (34), Powder Keg (35), Floating Shield (36), Second Wind (37) and Floating Gun (38, 39)). Health orbs (35b) were added between 35 and 36; they aren't an upgrade. Powder Keg became a chance to explode in 35c.
 **Next: M2c**, the upgrade rework (Prompts 40–48; 40 is the docs-only plan, then upgrade data (41), the offer roll
-(42), weapon slots (43), overflow effects (44), endless levels (45), Razor Cards (46), Barbed Wire (47) and the
+(42), weapon slots (43), overflow effects (44), the Move Speed fix for the slide and dash (44b), endless levels (45), Razor Cards (46), Barbed Wire (47) and the
 M2b + M2c checkpoint (48), which replaces the old M2b checkpoint). Four more weapons and a weapons checkpoint follow
 (49–53). **Then M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "No pick caps; triple crits and double blasts" (Prompt 44), not pushed. The build is clean and all 49 automation tests pass in about 114 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Fix: slide and dash scale with Move Speed" (Prompt 44b), not pushed. The build is clean and all 51 automation tests pass in about 123 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -110,7 +110,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2c 41 | Upgrade picks: category, BaseValue, rarity multipliers in DA_UpgradePool, one GE per upgrade with the total (SetByCaller), FloatingGunPower, `gs.Upgrade.Grant <Name> [Count] [Rarity]`; offered picks still Common | f1dbf24 |
 | M2c 42 | Per-card roll: Legendary ability chance 0.8%, then an upgrade by AppearanceWeight and a rarity from its category's weights (whole units: Rare → Common); cards show category, rolled rarity, pick line and "Now:"; simulator by category | 8602397 |
 | M2c 43 | Weapon slots: MaxWeapons 3 in DA_UpgradePool, a weapon card in the first offer (kept by its rerolls), "NEW WEAPON" / "WEAPON UPGRADE" cards, three HUD weapon slots (icon only), weapons line in the run summary | e20b92f |
-| M2c 44 | No pick caps (MaxStacks removed); Loaded Dice past 100% = triple-hit chance (x3, own damage number), Powder Keg past 100% = double-size blast chance (6 m); overflow on cards and gs.Upgrade.List; high-value stat check | see git log |
+| M2c 44 | No pick caps (MaxStacks removed); Loaded Dice past 100% = triple-hit chance (x3, own damage number), Powder Keg past 100% = double-size blast chance (6 m); overflow on cards and gs.Upgrade.List; high-value stat check | 7247435 |
+| M2c 44b | Fix: slide and dash scale with Move Speed (speed ratio = MoveSpeed / base walk speed, at least 1, kept per slide / dash); x33 checked against the boundary and town cover | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -2548,7 +2549,7 @@ is still granted as Common**, and a Common pick gives exactly what a pick gave b
   |---|---|---|
   | Fire Rate | ×100 (rifle 60,000 rounds a minute) | Works: 85 shots in 6 frames (0.094 s), about 900 a second, frame avg 8.9 ms at 112 fps (one 51 ms spike). The burst fires several shots per frame on the exact schedule (`Weapons.HeldFire` covers that). Limits: at most 256 shots per frame (`MaxShotsPerUpdate`), so the rate tops out at 256 × fps (rifle FireRate ~2,500 at 60 fps); recoil is applied per shot, so at high rates the view climbs fast; every shot traces and plays its impact effect and sound, so the cost grows with the rate. A 30-round magazine is gone in 0.03 s. |
   | Reload Speed | ×1000 | Works: the reload ends the next frame (1.8 ms). Only the attribute's minimum (0.1) is clamped. |
-  | Move Speed | ×33 (30,000 cm/s) | MaxWalkSpeed follows. A 300 m/s launch into the east wall stopped at x = 14,956.75 (wall face minus the capsule radius): no tunnelling through the boundary. **Design snags:** the slide starts at most at `DA_SlideSettings.MaxSpeed` 1,600 cm/s, so once walking is faster (after about 11 Common Move Speed picks: 900 × 1.88 = 1,692) a slide slows the player down; the dash (fixed 4,000 cm/s, then `ExitSpeed`) does too, past about 44 picks. Acceleration stays 6,000 cm/s², so top speed takes v / 6,000 s to reach (5 s at 30,000). |
+  | Move Speed | ×33 (30,000 cm/s) | MaxWalkSpeed follows. A 300 m/s launch into the east wall stopped at x = 14,956.75 (wall face minus the capsule radius): no tunnelling through the boundary. **Design snags** (the slide and dash part is fixed in Prompt 44b: both scale with Move Speed now): the slide starts at most at `DA_SlideSettings.MaxSpeed` 1,600 cm/s, so once walking is faster (after about 11 Common Move Speed picks: 900 × 1.88 = 1,692) a slide slows the player down; the dash (fixed 4,000 cm/s, then `ExitSpeed`) does too, past about 44 picks. Acceleration stays 6,000 cm/s², so top speed takes v / 6,000 s to reach (5 s at 30,000). |
   | Magnet | 100,000 cm (1 km) | Works: a 10-kill wave's drops all came in within about 2 s; the check is one distance test per pickup per tick. **Quirk:** a pickup more than `MaxMagnetDistance` 100 m from its target is paid at once (a rule for teleports), so with a radius over 100 m, far drops pay out instantly instead of flying. |
   | Bigger Mags | ×1000 | Works: a 30,000-round magazine, the reload filled it, the HUD read "29,705 / 30,000". The int magazine size would only overflow past a ×70,000,000 multiplier (hundreds of millions of picks). |
 
@@ -2569,6 +2570,48 @@ is still granted as Common**, and a Common pick gives exactly what a pick gave b
   rerolled offer showed the Powder Keg card's wrapped Now line (above), next to a Legendary Second Wind.
 - **Full suite:** 49 tests, all passing, in 114.0 s.
 
+### Prompt 44b — Fix: slide and dash scale with Move Speed
+Fixes the Move Speed snag found in Prompt 44: the slide and the dash used fixed speeds, so once Move Speed picks made
+running faster than them, sliding and dashing slowed the player down.
+- **Speed ratio** (`AGSCharacter::GetMoveSpeedRatio`): the MoveSpeed attribute ÷ `DA_PlayerMovementSettings.MaxWalkSpeed`,
+  never below 1 (also 1 without an ASC or settings). It is read when a slide or a dash starts and kept for that slide or
+  dash (`GetSlideSpeedRatio` / `GetDashSpeedRatio`), so a pick in the middle of one doesn't change it.
+- **Slide:** SpeedBoost, MaxSpeed and EndSpeed × the ratio (`UGSSlideSettings::GetSpeedBoost / GetMaxSpeed / GetEndSpeed`).
+  MinStartSpeed, Duration, the decay curve, steering, the slide-hop multiplier and the cooldown are unchanged.
+- **Dash:** Distance and ExitSpeed × the ratio (`UGSDashSettings::GetDistance / GetExitSpeed`; `GetDashSpeed(Ratio)` =
+  scaled distance ÷ Duration). Duration, the invulnerability, the charges and the recharge are unchanged, so a dash still
+  takes 0.15 s, covers more ground at a higher Move Speed and ends at the running speed (ExitSpeed 900 = the base walk
+  speed, × the ratio).
+- DA_SlideSettings and DA_DashSettings keep their values as the base; the scaling is done where they are read. At the
+  base Move Speed the ratio is exactly 1 and every number is as before.
+- **`gs.Upgrade.List`:** the Stats line ends with "speed ratio x2.20, slide cap 3520 cm/s, dash distance 1320 cm"
+  (new `UGSGameplayAbility_Slide::FindGrantedSlide` / `GetSettings`, like the dash's).
+- **Measured** (`Upgrades.MoveSpeedSlideDash`, real slide and dash from a full run on the ring road):
+
+  | Move Speed | Slide (run → start → end) | Dash |
+  |---|---|---|
+  | ×1 (900) | 900 → 1,500 → 600 cm/s | 600 cm in 0.158 s, exit 900 cm/s |
+  | ×2 (1,800) | 1,800 → 3,000 → 1,200 cm/s | 1,200 cm in 0.158 s, exit 1,800 cm/s |
+  | ×33 (29,700) | start 49,500 cm/s into the east wall: stopped at x = 14,956.6 | 19,800 cm (198 m) into the east wall: stopped at x = 14,956.8 (wall at 15,000) |
+
+- **×33 against town cover** (`Upgrades.MoveSpeedCover`: a dash from 6 m out and a slide from a full run into a crate,
+  a low wall, a shack, a tower and the silo, at ×1, ×5 and ×33, sampling every frame in the piece's own frame):
+  - **Nothing passes through.** No frame had the capsule inside a piece, the player never left the ground (top Z 98–100),
+    and wherever it ended up behind a piece it had gone round it first.
+  - **Head-on, flat faces stop it dead** (the silo at yaw 0: the ×33 dash stopped at 557 cm, its face at 558).
+  - **Turned cover deflects it.** Most cover is turned a few degrees (jitter), so the dash or slide slides along the
+    face, round the corner and keeps going: the ×33 dash into the shack (yaw −18°) ended 184 m further on and 67 m to the
+    side; the ×33 slide past the tower went 127 m. At ×1 the same hits stop at the face or slide off by under 70 cm. Not
+    limited (as asked); see Known issues.
+- **Tests:** new `Upgrades.MoveSpeedSlideDash` and `Upgrades.MoveSpeedCover`. Every existing test passed unchanged.
+  - Two test-only fixes while building: the slide test started a slide in the frame the player landed from the teleport
+    (it ended at once); both tests now wait until the player stands. The cover test's first "through" check used
+    axis-aligned bounds, which flagged skidding round turned cover; it now works in each piece's own frame.
+- **PIE check** (town, god mode, round paused): `gs.Upgrade.Grant MoveSpeed 15` → MoveSpeed 1980, MaxWalkSpeed 1980,
+  `gs.Upgrade.List` "speed ratio x2.20, slide cap 3520 cm/s, dash distance 1320 cm". `GSPress Ability.Dash` from the
+  PlayerStart moved the player 13.8 m (the 13.2 m dash plus a short coast at the 1,980 cm/s exit speed).
+- **Full suite:** 51 tests, all passing, in 122.6 s.
+
 ---
 
 ## Console commands and CVars
@@ -2583,7 +2626,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.GiveWeapon <Weapon>` | Equip `Rifle` / `Pistol` / `BanditCarbine` with a full mag (replaces the equipped one if both slots are full). |
 | `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain, ReloadSpeed). |
 | `gs.Upgrade.Grant <Name> [Count=1] [Rarity=Common]` | Add picks of an upgrade at a rarity (Common, Rare, Epic, Legendary or C / R / E / L; Count and Rarity in any order; whole-unit upgrades have no Rare) (`ReloadSpeed`, `Damage`, `MoveSpeed`, `FireRate`, `Magnet`, `BiggerMags`, `ExtraJump`, `DashCharge`, `Leech`, `LoadedDice`, `PiercingRounds`, `PowderKeg`, `FloatingShield`, `SecondWind`, `FloatingGun` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`, `gs.Upgrade.Grant Damage 2 Epic`. |
-| `gs.Upgrade.List` | List every upgrade by category (Stat Boosts, Abilities, Legendary abilities, Weapons) with this run's picks by rarity, total value, Common pick value, cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps / MagazineSizeMultiplier / HealthOnKill / CritChance / Pierce / PowderKeg / Shields / SecondWinds / FloatingGunLevel / FloatingGunPower, the magazine (ammo / size), the dash charges (max = base + ExtraDashCharges, ready now), the floating shields (ready / each recharge / hits blocked), the Floating Gun (picks, power, guns, shots and target), Second Wind (left / used this run) and Powder Keg (stacks, chance per kill, blast damage and radius). |
+| `gs.Upgrade.List` | List every upgrade by category (Stat Boosts, Abilities, Legendary abilities, Weapons) with this run's picks by rarity, total value, Common pick value, cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps / MagazineSizeMultiplier / HealthOnKill / CritChance / Pierce / PowderKeg / Shields / SecondWinds / FloatingGunLevel / FloatingGunPower, the magazine (ammo / size), the dash charges (max = base + ExtraDashCharges, ready now), the floating shields (ready / each recharge / hits blocked), the Floating Gun (picks, power, guns, shots and target), Second Wind (left / used this run) and Powder Keg (stacks, chance per kill, blast damage and radius). The Stats line also shows the slide / dash speed ratio (MoveSpeed / base walk speed, at least 1), the current slide speed cap and dash distance. |
 | `gs.Upgrade.Offer` | Queue a level-up offer without the level (opens at once if none is open) and print the open offer. Refused in GameOver. |
 | `gs.Upgrade.Choose <0-2>` | Take a choice of the open offer; the next queued offer opens. |
 | `gs.Upgrade.Reroll` | Reroll the open offer for one of this run's rerolls (refused with none left or no offer). |
@@ -2693,14 +2736,14 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (49, all passing, about 114 s)
+## Automation tests (51, all passing, about 123 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
 the area's tests; run the full suite once per prompt before the commit (see **Workflow update — faster test runs**).
 `UI.RoundHUD`, `Round.PhaseLoop`, `Round.ClearBonus`, `Map.TownLayout` and `Upgrades.DashCharge` run game time ×4 and
 `Upgrades.ExtraJump` ×3 (`SpeedUpWorld`). `Economy.HealthOrbs` also runs ×4. `Upgrades.FireRateAndMagnet` measures its shots at ×1 (throttling off) and
-runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLevels` run at ×4. `Weapons.HeldFire` runs at ×4, and ×16 for its slow-frame burst. `UI.RoundHUD` also shortens its HUD's banners.
+runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLevels` run at ×4. `Weapons.HeldFire` runs at ×4, and ×16 for its slow-frame burst. `Upgrades.MoveSpeedSlideDash` measures at ×1 (throttling off) and `Upgrades.MoveSpeedCover` runs at ×3. `UI.RoundHUD` also shortens its HUD's banners.
 
 | Test | Checks |
 |---|---|
@@ -2753,14 +2796,19 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Upgrades.Offers` | DA_UpgradePool on the GameMode (15 upgrades, weights Stat Boost / Weapon 100/20/6/1, Ability 100/10/3/0.5, Legendary ability chance 0.8%, 3 choices, 3 rerolls), 4 rarities; per-card roll: 30,000 offers all 3 different, Legendary ability cards at ~0.8% and always Legendary, the 14 others even, each category's rarity split, no Rare whole-unit card; chance 1 / 0 for the Legendary ability; Rare-only weights → Rare, but Common for whole units; per-category weights; AppearanceWeight 0 never offered; same seed same offers (with rarities), 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; a pick gets the card's rolled rarity and value; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer (with rarities); simulator deterministic, no short offers, Epic and Legendary cards, every card in a category, no Rare Legendary ability, run stream untouched. |
 | `Upgrades.PickValues` | DA_UpgradePool multipliers 1 / 1.5 / 2 / 3 and whole-unit values 1 / – / 2 / 3; all 15 DA_Upgrade_*: category, Legendary ability, whole units, BaseValue (= the old per-pick value), AppearanceWeight 1, percent or not, in the pool; Floating Gun WeaponGivingPicks 2; card number and FormatValue; ParseRarity; for every stat boost and ability one pick of each rarity: the attribute = base × (1 + total) or base + total after each, a Common pick = exactly the old pick, whole units refuse Rare, picks and total tracked, one active effect; 6 shields, JumpMaxCount 7, Powder Keg 7.5 stacks = 22.5%, crit 37.5%; `gs.Upgrade.Grant Damage 2 Epic` / `Damage Legendary`, ExtraJump Rare refused; Floating Gun Rare → Legendary → Common → Epic: power 0.5 / 2.5 / 3.5 / 5.5, 4 picks, two guns, ×1.55; Second Wind Common / Legendary / Rare = 3 charges, a killing blow uses one (2 picks, total 2, one effect); a new run removes all. |
 | `Upgrades.WeaponSlots` | MaxWeapons 3; test pool with two test weapons, MaxWeapons 1: none owned → both offered, one owned → the other never offered (CanOfferWeapon false) and the owned one still offered, MaxWeapons 2 → offered again; the first offer's weapon card in 400 of 400 offers, 3 different cards, at all three positions, Common and Rare both rolled; slots full → it is the owned weapon; MaxWeapons 0 → no weapon card, 3 cards; card labels NEW WEAPON / WEAPON UPGRADE / STAT BOOST; real run: first offer has the Floating Gun, 3 rerolls keep a weapon card, after the first pick not pending and later offers mostly without one, a new run → pending; a copy of the pool with a test weapon and MaxWeapons 1 (`SetUpgradePoolOverride`): one HUD slot, 30 offers + rerolls never offer the test weapon but offer the Floating Gun, the first one includes it; MaxWeapons 3: the test weapon is offered and picked, slots Floating Gun / test weapon / empty, no weapon in the upgrade row; real pool HUD: 3 empty slots without an icon, Damage in the upgrade row, two Epic Floating Gun picks → slot 1 shows it (icon, no count), the others empty, no Floating Gun in the upgrade row; a new run empties the slots; death → summary weapons line "Floating Gun", upgrades "Damage x1", one upgrade icon. |
+| `Upgrades.MoveSpeedSlideDash` | Base Move Speed: ratio exactly 1, the scaled settings getters equal the plain values at 1; half Move Speed → ratio 1 (never below), ×2 → 2; a Move Speed pick raises it, a new run resets it; on a clear 34 m lane of the ring road, a slide from a full run and a dash at ×1 and ×2: each keeps its start ratio; slide start = min(run + SpeedBoost × r, MaxSpeed × r) and faster than running, end = EndSpeed × r; dash = Distance × r in its Duration (±0.02 / +0.06 s), exit = min(ExitSpeed, dash speed) × r = the running speed; ×1 = the old numbers exactly; ×2 = twice the distance in the same time (within 0.05 s), the slide ends at twice EndSpeed; ×33: a dash and a slide into the east boundary wall stop inside. |
+| `Upgrades.MoveSpeedCover` | A crate, a low wall, a shack, a tower and the silo, each with a clear 6 m run-up; at Move Speed ×1, ×5 and ×33, a dash and a slide from a full run into each, the player's location sampled every frame in the piece's own frame: no frame overlaps the piece, the player stays on the ground, and if it ends behind the piece it went round it. Logs each path. Game time ×3. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
 ## Tuning values (current)
 
 - **Player**: walk 900 cm/s, accel 6000, jump 800, air jump 800 (~1.87 m each), gravity ×1.75, coyote 0.12 s; camera arm 350 / FOV 90, ADS 180 /
-  65. Slide: +600 boost, max 1600, 0.8 s, 1 s cooldown. Dash: 600 cm in 0.15 s, 0.25 s i-frames, 1 charge (+1 per
-  Dash Charge pick), 3 s recharge each, one after another.
+  65. Slide: +600 boost, max 1600, end 600, 0.8 s, 1 s cooldown. Dash: 600 cm in 0.15 s, exit 900 cm/s, 0.25 s
+  i-frames, 1 charge (+1 per Dash Charge pick), 3 s recharge each, one after another. Since Prompt 44b the slide's boost,
+  max and end speed and the dash's distance and exit speed are × the speed ratio (MoveSpeed / 900, at least 1, taken
+  when the slide or dash starts): at Move Speed ×2 the slide caps at 3,200 and ends at 1,200 cm/s, the dash covers
+  12 m in the same 0.15 s and exits at 1,800 cm/s.
 - **Weapons** (damage / RPM / mag / reload):
   - Rifle: 20 / 600 auto / 30 / 1.8 s, spread hip 2° and ADS 0.5°. Held fire is exactly 600 rounds a minute
     (0.100 s apart, Prompt 31b), at any frame rate.
@@ -2875,8 +2923,11 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 ## Known issues, TODOs and deviations
 
 **Not built yet / stubs**
-- The M2c upgrade rework is built up to Prompt 41 (picks with a rarity and a value). Until Prompts 42–45 the code keeps one rarity and a
-  MaxStacks per upgrade for the offer roll, every offered pick is Common, MaxLevel 50 and +25% XP per level stay.
+- The M2c upgrade rework is built up to Prompt 44 (rarity per card, weapon slots, no pick caps; plus the 44b fix). Until
+  Prompt 45, MaxLevel 50 and +25% XP per level stay.
+- Move Speed (Prompt 44b): at a high Move Speed a dash or slide into cover that is turned a few degrees skids round it and
+  keeps going (×33: 127–184 m past a tower or shack); it never passes through. A ×33 dash covers 198 m, two-thirds of the
+  town. No limit was added (44b asked only for a report); revisit with real play.
 - Floating Shield (Prompt 36):
   - The shields are flat placeholder discs, and the block and return sounds are editor sounds that may not cook.
   - There is no HUD readout of ready shields or their recharge (only the discs, and `gs.Upgrade.List`).
@@ -3152,6 +3203,8 @@ questions). Each prompt updates the tests that assume the old design.
     Done (see Prompt 43).
 44. ~~**Overflow effects and no pick caps:** every MaxStacks removed; Loaded Dice past 100% gives a chance of a
     triple-damage hit, Powder Keg past 100% a chance of a double-size blast.~~ Done (see Prompt 44).
+44b. ~~**Fix: slide and dash scale with Move Speed** (the snag found in 44): SpeedBoost / MaxSpeed / EndSpeed and the dash's
+    Distance / ExitSpeed × MoveSpeed ÷ base walk speed (at least 1), kept per slide or dash.~~ Done (see Prompt 44b).
 45. **Endless levels:** no level cap; the XP needed per level grows by a fixed amount.
 46. **Razor Cards** (weapon).
 47. **Barbed Wire** (weapon).

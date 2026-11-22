@@ -87,6 +87,18 @@ public:
 	void StopDash();
 	bool IsDashing() const { return ActiveDash.IsValid(); }
 
+	/**
+	 * Speed ratio for the slide and dash: the MoveSpeed attribute / DA_PlayerMovementSettings MaxWalkSpeed, never
+	 * below 1 (1 without an ASC or settings). Read live; a slide or dash keeps the value it started with.
+	 */
+	float GetMoveSpeedRatio() const;
+
+	/** The ratio the current (or last) slide / dash started with (tests / debug). */
+	float GetSlideSpeedRatio() const { return SlideSpeedRatio; }
+	float GetDashSpeedRatio() const { return DashSpeedRatio; }
+	/** Speed the current (or last) slide started at, after its MaxSpeed cap. */
+	float GetSlideStartSpeed() const { return SlideStartSpeed; }
+
 	/** Fired when the slide/dash ends for any reason. */
 	FSimpleMulticastDelegate OnSlideFinished;
 	FSimpleMulticastDelegate OnDashFinished;
@@ -238,6 +250,10 @@ private:
 	FVector SlideDirection = FVector::ForwardVector;
 	float SlideStartSpeed = 0.f;
 	float SlideElapsed = 0.f;
+	/** GetMoveSpeedRatio() when the slide started; scales SpeedBoost, MaxSpeed and EndSpeed for the whole slide. */
+	float SlideSpeedRatio = 1.f;
+	/** GetMoveSpeedRatio() when the dash started; scales Distance and ExitSpeed for the whole dash. */
+	float DashSpeedRatio = 1.f;
 
 	TWeakObjectPtr<const UGSDashSettings> ActiveDash;
 	FVector DashDirection = FVector::ForwardVector;

@@ -1,6 +1,7 @@
 // BanditBaller
 
 #include "GSGameplayAbility_Slide.h"
+#include "AbilitySystemComponent.h"
 #include "GSCharacter.h"
 #include "GSGameplayEffects.h"
 #include "GSGameplayTags.h"
@@ -14,6 +15,22 @@ UGSGameplayAbility_Slide::UGSGameplayAbility_Slide()
 	ActivationBlockedTags.AddTag(GSGameplayTags::State_Dead);
 	ActivationBlockedTags.AddTag(GSGameplayTags::State_Dashing);
 	CooldownGameplayEffectClass = UGSCooldownEffect_Slide::StaticClass();
+}
+
+const UGSGameplayAbility_Slide* UGSGameplayAbility_Slide::FindGrantedSlide(const UAbilitySystemComponent* ASC)
+{
+	if (!ASC)
+	{
+		return nullptr;
+	}
+	for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		if (const UGSGameplayAbility_Slide* Slide = Cast<UGSGameplayAbility_Slide>(Spec.Ability))
+		{
+			return Slide;
+		}
+	}
+	return nullptr;
 }
 
 float UGSGameplayAbility_Slide::GetCooldownDuration(const FGameplayAbilityActorInfo* ActorInfo) const

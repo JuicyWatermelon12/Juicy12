@@ -27,6 +27,11 @@ public:
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 		const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
 
+	const UGSSlideSettings* GetSettings() const { return Settings; }
+
+	/** The GA_Slide granted on this ASC (debug and tests), or null. */
+	static const UGSGameplayAbility_Slide* FindGrantedSlide(const UAbilitySystemComponent* ASC);
+
 protected:
 	virtual float GetCooldownDuration(const FGameplayAbilityActorInfo* ActorInfo) const override;
 
