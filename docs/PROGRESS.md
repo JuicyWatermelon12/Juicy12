@@ -25,22 +25,25 @@ first**; 2–4 player listen-server co-op is planned for **M6** (see **Later —
 - **Per-run progression** (reset on death): XP, level, and level-up upgrades.
   - Each level-up fully heals, adds MaxHealth, and offers 3 random upgrades in four rarity tiers (Common, Rare, Epic,
     Legendary).
+  - The upgrade pool grows from 4 to 15 in **M2b**, a block of eleven upgrades after M2 and before the market (M3);
+    see **Design update — M2b upgrades**.
   - The player must take one (no skip) but can reroll the choices a limited number of times per run (3 to start).
   - The game pauses while the player chooses.
 
 The design changed after M2 Prompt 10; see **Design change — permanent cash, hub market, level-up upgrades**. The
 scope then changed to single-player first; see **Scope change — single-player first**. Five more decisions came
 before M3; see **Design update — decisions before M3**. The market, prestige and economy were settled after that;
-see **Design update — market, prestige and economy**.
+see **Design update — market, prestige and economy**. After M2, eleven more level-up upgrades were planned as block
+**M2b**, before M3; see **Design update — M2b upgrades**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
 **M2 — the run loop is complete** (rounds, waves, scaling, economy, progression; Prompts 1–28 and 26b; 11–13 and 17
-were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **Next milestone: M3** (shop,
-owned items, gear loadout, two-layer save); not planned in detail yet.
+were design / scope updates and permanent cash). See **M2 checkpoint** under Prompt 28. **Next: M2b**, eleven more
+level-up upgrades (Prompts 29–40; 29 is the docs-only plan, done). **Then M3** (shop, owned items, gear loadout,
+two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Workflow: faster test runs" (after Prompt 28, "M2 complete"), not
-pushed. The build is clean and all 35 automation tests pass in about 80 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Docs: M2b upgrade list" (Prompt 29, after "M2 complete"), not pushed. The build is clean and all 35 automation tests pass in about 80 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -80,7 +83,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2 26b | Bigger town: 300 × 300 m, streets, outskirts cover, a landmark per side, NavMesh without islands | 97d2045 |
 | M2 27 | Run end: GameOver on death (wave stopped), run summary, Return to Market → hub | d2891c4 |
 | M2 28 | Tests for the M2 rules, two PIE loops, M2 checkpoint ("M2 complete") | b3dbae2 |
-| Workflow | Faster test runs: area tests while working, full suite once per prompt, short PIE checks; five slowest tests sped up (suite 118 → 80 s) | see git log |
+| Workflow | Faster test runs: area tests while working, full suite once per prompt, short PIE checks; five slowest tests sped up (suite 118 → 80 s) | 84bc97f |
+| M2b 29 | Design update: the M2b upgrade list (11 upgrades, pool 4 → 15) and its rules; Prompts 30–40 planned (docs only) | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -1348,6 +1352,98 @@ Not a numbered step. Docs and test code only; no gameplay, tuning or asset chang
   `Economy.KillCombo` (6.3 s), `UI.RoundHUD` (6.1 s), `Economy.XPOrbs` (5.9 s), `Balance.TimeToKill` (5.1 s) and
   `Economy.CashPickups` (5.0 s).
 
+## Design update — M2b upgrades
+
+Prompt 29. Docs only; no code changed. **M2b** is a block of eleven level-up upgrades after M2 (complete) and before
+the market (M3). It grows DA_UpgradePool from 4 to 15 upgrades.
+
+**The upgrades (user).** All of them stack with no cap unless noted. Every number is a starting value and lives in
+data.
+
+| Upgrade | Rarity | Per pick | MaxStacks | Attribute | Prompt |
+|---|---|---|---|---|---|
+| Fire Rate | Common | +8% FireRate | none | `FireRate` (exists) | 31 |
+| Magnet | Common | +15% PickupRadius (cash and XP orbs) | none | `PickupRadius` (exists) | 31 |
+| Bigger Mags | Common | +15% magazine size | none | new | 32 |
+| Dash Charge | Rare | +1 dash charge. The player now starts with 1 charge instead of 2 | none | new | 30 |
+| Floating Shield | Rare | +1 shield | none | new | 36 |
+| Loaded Dice | Rare | +5% chance for a shot to deal double damage | 20 (= 100%) | new | 33 |
+| Leech | Rare | Heal 1 health per kill | none | new | 32 |
+| Floating Gun | Epic | 1st pick: a gun over the right shoulder; 2nd: a gun over the left; 3rd and later: +10% damage and +10% fire rate for the guns | none | new | 38, 39 |
+| Piercing Rounds | Epic | Shots pass through 1 more enemy | none | new | 34 |
+| Powder Keg | Epic | Enemies the player kills explode and damage enemies nearby; each pick makes the blast bigger | none | new | 35 |
+| Second Wind | Legendary | Survive one killing blow and come back at 30% health | none | new | 37 |
+
+- After M2b the pool holds Common 6 (Reload Speed, Damage, Move Speed + 3), Rare 5 (Extra Jump + 4), Epic 3 and
+  Legendary 1. The Epic and Legendary tiers are no longer empty, so all four rarity weights (100 / 20 / 6 / 1, still
+  placeholders) start to matter.
+- **Floating Shield:** the shields float around the player. Any attack that would damage the player uses up one
+  shield instead, and that shield comes back after 10 s.
+- **Floating Gun:** the first gun floats above the player's right shoulder, slightly higher than the head, and fires
+  projectiles at enemies on its own. The second floats above the left shoulder at the same height. From the 3rd pick
+  on, each pick gives the guns +10% damage and +10% fire rate.
+- **Second Wind:** one killing blow survived per pick, so each pick is used up when it saves the player.
+
+**Rules for every M2b upgrade (user)**
+1. **The Extra Jump pattern:**
+   - an attribute changed by an infinite, stacking upgrade effect (`GE_Upgrade_<Name>`, a `UGSUpgradeEffect`
+     subclass);
+   - a `DA_Upgrade_<Name>` asset with the name, a description with the per-pick value, the rarity and MaxStacks;
+   - an entry in DA_UpgradePool;
+   - a short name for `gs.Upgrade.Grant` (the asset suffix, e.g. `gs.Upgrade.Grant PowderKeg`; the lookup already
+     accepts it);
+   - a line in `gs.Upgrade.List`.
+2. **The order when the player is attacked:**
+   1. dash invulnerability (`State.Invulnerable`) blocks the hit;
+   2. otherwise a Floating Shield takes it;
+   3. otherwise it comes off Health;
+   4. if the hit would kill, Second Wind saves the player.
+3. **Kills by the Floating Gun and Powder Keg count as the player's kills:** cash drop, XP orb, combo and Leech.
+4. **Randomness and damage:** new random rolls use the run stream (`UGSRunRandom`), e.g. the Loaded Dice roll. All
+   damage goes through GE_Damage, including the Floating Gun's projectiles and Powder Keg blasts.
+5. **Single-player only, co-op-ready as usual:** no new RPCs or replication. New attributes are not replicated, like
+   ReloadSpeed and ExtraJumps, and the gaps get `TODO(co-op)`.
+
+**Changes to existing values and tests**
+- Dash: the player starts with 1 charge instead of 2 (`MaxCharges` 2 in DA_DashSettings today; Prompt 30).
+  - With one charge the dash icon shows no "N/M" count, since `UGSAbilityIconWidget` only shows it above 1.
+  - Tests that dash more than once within the 3 s recharge need checking in Prompt 30.
+- Tests and the simulator that assume the 4-upgrade pool (`Upgrades.Offers`: 4 upgrades, Rare in ~42% of offers,
+  no Epic / Legendary) change in the prompt that adds each upgrade.
+
+**Already in the code** (checked for this plan)
+- `FireRate` already scales the player's refire interval (`UGSWeaponData::GetRefireInterval`, GA_Fire).
+- `PickupRadius` drives the magnet that cash and XP orbs share.
+- The magazine size is `UGSWeaponData::MagazineSize`. `UGSWeaponComponent` (new weapon, reload, "mag full") and the
+  HUD's ammo counter read it directly; no attribute scales it yet.
+- Dash charges come from `UGSDashSettings::MaxCharges`; GA_Dash allows a dash while its GE_Cooldown_Dash stacks are
+  below that.
+- Crits are stubbed. `UGSAttributeSet` passes `bCritical = false` to the damage numbers (`TODO(crits)`), and the HUD
+  already draws critical damage numbers. Loaded Dice's double damage can use that path.
+- Player shots are hitscan and stop at the first hit. Piercing and the Floating Gun's projectile are new.
+
+**Open questions** (settled in each upgrade's prompt; not decided)
+- Bigger Mags: how the size rounds (rifle 30 × 1.15 = 34.5, pistol 12 × 1.15 = 13.8). Does a pick fill the extra
+  rounds at once?
+- Floating Shield:
+  - Does a hit that a shield takes end the kill combo or cost the no-damage round bonus? Today both follow health
+    actually lost, so it would count as no damage.
+  - Does the 10 s recharge pause with the game, like the combo window?
+- Loaded Dice and Piercing Rounds: do they also apply to the Floating Gun's projectiles? Is a piercing shot one dice
+  roll for every enemy it hits?
+- Powder Keg: does an enemy killed by a blast explode too (a chain)? Does "bigger" mean the radius only, or the
+  damage too?
+- Floating Gun: do the player's Damage and Fire Rate upgrades also scale the guns? Which enemy does a gun target?
+- Second Wind: is there a short invulnerability after coming back?
+
+**Docs changed**
+- CLAUDE.md: the game summary says the upgrade pool grows to 15 in M2b.
+- This file:
+  - the game summary, the intro and the step table;
+  - this entry;
+  - **Decided (user)** and **Next up** (the M2b block, Prompts 29–40, before M3);
+  - the known issue about empty Epic and Legendary tiers.
+
 ---
 
 ## Console commands and CVars
@@ -1578,7 +1674,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 ## Known issues, TODOs and deviations
 
 **Not built yet / stubs**
-- No upgrade is Epic or Legendary yet; those tiers are empty and never offered.
+- No upgrade is Epic or Legendary yet; those tiers are empty and never offered. M2b adds Floating Gun, Piercing
+  Rounds and Powder Keg (Epic) and Second Wind (Legendary).
 - **Not yet built for the decisions before M3:**
   - Owned items in `OwnedItems`, item types (usable items, gear) and the gear loadout (M3/M4).
 - Prestige and the two-layer profile (playthrough data + prestige data) are a later milestone; the save layout
@@ -1738,7 +1835,29 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
     summary, and "Return to Market" (button, R, Start / Y) with a fade back to the hub.
 28. ~~**Tests + M2 checkpoint.**~~ Done (see Prompt 28 and **M2 checkpoint**). **M2 is complete.**
 
-**Next: M3** (not planned in detail yet; each item needs its own prompt). From the decisions so far:
+**Next: M2b — more level-up upgrades** (after M2, before M3; see **Design update — M2b upgrades** for the list, the
+rules and the open questions). Each prompt adds its upgrades to DA_UpgradePool and updates the tests that assume the
+smaller pool.
+
+29. ~~**M2b docs.**~~ Done (see **Design update — M2b upgrades**; docs only).
+30. **Dash Charge** (Rare): +1 dash charge per pick; the player starts with 1 charge instead of 2.
+31. **Fire Rate + Magnet** (Common): +8% FireRate and +15% PickupRadius per pick, on the existing attributes.
+32. **Bigger Mags + Leech** (Common, Rare): +15% magazine size per pick (rounding decided here); heal 1 health per kill
+    per pick.
+33. **Loaded Dice** (Rare, MaxStacks 20): +5% chance per pick for a shot to deal double damage, rolled on the run
+    stream.
+34. **Piercing Rounds** (Epic): shots pass through 1 more enemy per pick.
+35. **Powder Keg** (Epic): enemies the player kills explode and damage enemies nearby; the blast grows per pick.
+    Blast kills count as the player's.
+36. **Floating Shield** (Rare): +1 shield per pick; a shield takes a hit and comes back after 10 s. The damage order
+    starts here (dash invulnerability → shield → Health).
+37. **Second Wind** (Legendary): survive one killing blow per pick at 30% health; the last step of the damage order.
+38. **Floating Gun, part 1** (Epic): the projectile and the first gun (right shoulder). Its kills count as the
+    player's.
+39. **Floating Gun, part 2:** the second gun (left shoulder) and the +10% damage / fire rate picks from the 3rd on.
+40. **M2b tests + checkpoint:** tests for the M2b rules and a PIE checkpoint, like Prompt 28.
+
+**Then M3** (after M2b; not planned in detail yet; each item needs its own prompt). From the decisions so far:
 - The two-layer save (playthrough data: cash, owned items, loadout, total cash earned; prestige data, empty until
   prestige), with an upgrade step from save version 1.
 - Item types: usable items (consumables, bought again to restock, used up in a run) and gear (bought once, one per
@@ -1767,8 +1886,24 @@ Decided (user):
   save layout changes in M3.
 - **Flat economy:** cash and XP per enemy are the same every round, and so is the round clear bonus. There is no
   round scaling for drops.
-- **Epic / Legendary upgrades:** which upgrades get these tiers is decided later; the rarity weights are
-  placeholders.
+- **Epic / Legendary upgrades:** Floating Gun, Piercing Rounds and Powder Keg are Epic and Second Wind is Legendary
+  (M2b). The rarity weights are still placeholders.
+- **M2b upgrades** (after M2, before M3; the pool grows from 4 to 15). Every number is a starting value in data; no
+  cap unless noted.
+  - Common: Fire Rate (+8% FireRate), Magnet (+15% PickupRadius, cash and XP orbs), Bigger Mags (+15% magazine
+    size).
+  - Rare: Dash Charge (+1 charge; the player starts with 1 instead of 2), Floating Shield (+1 shield; a hit uses one
+    up, and it comes back after 10 s), Loaded Dice (+5% double-damage chance per shot, MaxStacks 20 = 100%), Leech
+    (heal 1 per kill).
+  - Epic: Floating Gun (a gun over the right shoulder, then one over the left, then +10% gun damage and fire rate
+    per pick), Piercing Rounds (+1 enemy pierced), Powder Keg (kills explode and damage nearby enemies; bigger per
+    pick).
+  - Legendary: Second Wind (survive one killing blow per pick at 30% health).
+  - Rules: the Extra Jump pattern (attribute + infinite stacking GE, DA_Upgrade_* asset, DA_UpgradePool,
+    `gs.Upgrade.Grant` short name, `gs.Upgrade.List` line). Damage order: dash invulnerability → Floating Shield →
+    Health → Second Wind on a killing blow. Floating Gun and Powder Keg kills are the player's (cash, XP orb,
+    combo, Leech). New rolls use the run stream; all damage goes through GE_Damage. Single-player only,
+    co-op-ready.
 - **Upgrade rarities and rerolls:** four tiers (Common, Rare, Epic, Legendary). The 3 choices can be rerolled a
   limited number of times per run (3 to start). There is no skip.
 - **Casino bets** risk cash only, never owned items.

@@ -27,6 +27,8 @@ listen-server co-op is planned for **M6**, after single-player is finished or ne
   not instantly on the kill.
   - Each level-up fully heals, adds MaxHealth, and offers 3 random upgrades in four rarity tiers (Common, Rare, Epic,
     Legendary).
+  - The upgrade pool grows from 4 to 15 in **M2b**, a block of eleven upgrades after M2 and before the market (M3).
+    The list and its rules are in `docs/PROGRESS.md` (**Design update — M2b upgrades**).
   - The player must take one (no skip), but can reroll the 3 choices a limited number of times per run (3 to start).
   - The game pauses while the player chooses (the co-op party pause is M6).
 
