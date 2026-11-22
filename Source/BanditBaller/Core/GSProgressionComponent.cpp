@@ -32,7 +32,9 @@ void UGSProgressionComponent::BeginPlay()
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
 		const UGSXPCurve* Curve = GetXPCurve();
-		if (!Curve)
+		// The hub (AGSHubGameMode) has no run and no XP on purpose; only a round GameMode without a curve is a mistake.
+		const UWorld* World = GetWorld();
+		if (!Curve && World && World->GetAuthGameMode<AGSGameMode>())
 		{
 			UE_LOG(LogBanditBaller, Warning, TEXT("[xp] %s: no XP curve on the GameMode (set XPCurve on BP_GSGameMode); levels won't advance."), *GetNameSafe(GetOwner()));
 		}

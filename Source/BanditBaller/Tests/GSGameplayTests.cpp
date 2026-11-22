@@ -1,8 +1,8 @@
 // BanditBaller
 //
-// Gameplay automation tests. Each test starts PIE in the editor's current map (L_Town_Graybox),
-// waits for the local player, removes placed enemies so nothing interferes, runs its checks against
-// the real GAS / weapon setup, and ends PIE.
+// Gameplay automation tests. Each test opens L_Town_Graybox in the editor if needed (the startup map is the hub,
+// L_Hub_Graybox; Map.Hub opens that instead), starts PIE, waits for the local player, removes placed enemies so
+// nothing interferes, runs its checks against the real GAS / weapon setup, and ends PIE.
 //
 // Run: Session Frontend > Automation > "BanditBaller", or `Automation RunTests BanditBaller`.
 // Stop PIE before running.
@@ -42,6 +42,7 @@
 #include "GSComboSettings.h"
 #include "GSRoundClearSettings.h"
 #include "GSRoundSummaryWidget.h"
+#include "GSHubGameMode.h"
 #include "GSTargetDummy.h"
 #include "AbilitySystemGlobals.h"
 #include "GSHUDWidget.h"
@@ -243,8 +244,27 @@ namespace GSTests
 		ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Body]() -> bool { Body(); return true; }));
 	}
 
-	void BeginPIE(FAutomationTestBase* Test)
+	/** The run map most tests play in, and the hub (the editor's startup map). */
+	const FString TownMap = TEXT("/Game/BanditBaller/Maps/L_Town_Graybox");
+	const FString HubMap = TEXT("/Game/BanditBaller/Maps/L_Hub_Graybox");
+
+	/** Enqueue: open MapPath in the editor unless it already is the editor's map. */
+	void OpenEditorMap(const FString& MapPath)
 	{
+		Step([MapPath]()
+		{
+			const UWorld* EditorWorld = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+			if (!EditorWorld || EditorWorld->GetOutermost()->GetName() != MapPath)
+			{
+				FAutomationEditorCommonUtils::LoadMap(MapPath);
+			}
+		});
+	}
+
+	/** Open MapPath (the town by default; the startup map is the hub), start PIE and wait for the player. */
+	void BeginPIE(FAutomationTestBase* Test, const FString& MapPath = TownMap)
+	{
+		OpenEditorMap(MapPath);
 		ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
 		WaitUntil(Test, TEXT("PIE player ready (pawn, ASC, weapon, grounded)"), &IsPlayerReady, 30.0);
 		Step([]() { if (UWorld* World = GetPIEWorld()) { RemoveAllEnemies(World); } });
@@ -3960,6 +3980,101 @@ bool FGSRoundHUDTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: no upgrade icons"), GetHUD()->GetUpgradeIconCount(), 0);
 		GetGameMode()->SetRoundTimerPaused(false);
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Hub map (L_Hub_Graybox + AGSHubGameMode)
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSHubMapTest, "BanditBaller.Map.Hub", GSTests::TestFlags)
+bool FGSHubMapTest::RunTest(const FString& Parameters)
+{
+	TSharedRef<int32> AmmoBefore = MakeShared<int32>(0);
+
+	BeginPIE(this, HubMap);
+	Step([this, AmmoBefore]()
+	{
+		UWorld* World = GetPIEWorld();
+		TestTrue(TEXT("PIE runs the hub map"), World && World->GetOutermost()->GetName().EndsWith(TEXT("L_Hub_Graybox")));
+		const AGSHubGameMode* Hub = World ? World->GetAuthGameMode<AGSHubGameMode>() : nullptr;
+		const AGSGameState* GS = World ? World->GetGameState<AGSGameState>() : nullptr;
+		if (!TestNotNull(TEXT("Hub GameMode (BP_GSHubGameMode from the map's World Settings)"), Hub) || !TestNotNull(TEXT("AGSGameState"), GS))
+		{
+			return;
+		}
+		TestNull(TEXT("No round GameMode in the hub"), World->GetAuthGameMode<AGSGameMode>());
+		TestTrue(TEXT("Hub area is the Market District"), GS->GetCurrentArea() == EGSArea::MarketDistrict);
+		TestTrue(TEXT("No round loop (round 0, WaitingToStart)"), GS->GetRoundNumber() == 0 && GS->GetRoundPhase() == EGSRoundPhase::WaitingToStart);
+
+		// The district's content, moved into the hub.
+		TestEqual(TEXT("Casino"), CountTagged(World, TEXT("Casino")), 1);
+		TestEqual(TEXT("4 market stalls"), CountTagged(World, TEXT("MarketStall")), 4);
+		TestEqual(TEXT("MarketArrival"), CountTagged(World, AGSGameMode::MarketArrivalTag), 1);
+		TestEqual(TEXT("MarketExitPortalSpot"), CountTagged(World, TEXT("MarketExitPortalSpot")), 1);
+		const AActor* Arrival = AGSGameMode::FindTaggedActor(World, AGSGameMode::MarketArrivalTag);
+		const AGSCharacter* Player = GetPlayer();
+		if (Arrival && Player)
+		{
+			const float Distance = FVector::Dist2D(Player->GetActorLocation(), Arrival->GetActorLocation());
+			TestTrue(FString::Printf(TEXT("Player starts at MarketArrival (%.0f cm away)"), Distance), Distance < 150.f);
+			TestFalse(TEXT("No NavMesh in the hub"), IsOnNavMesh(World, Arrival->GetActorLocation()));
+		}
+
+		// Boundary around the square.
+		const AGSMapBoundary* Boundary = AGSMapBoundary::Find(World);
+		if (TestNotNull(TEXT("AGSMapBoundary in the hub"), Boundary) && Player)
+		{
+			TestTrue(TEXT("Player inside the boundary"), Boundary->IsInside(Player->GetActorLocation()));
+			const AActor* Casino = nullptr;
+			for (TActorIterator<AActor> It(World); It; ++It)
+			{
+				if (It->ActorHasTag(TEXT("Casino")))
+				{
+					Casino = *It;
+				}
+			}
+			TestTrue(TEXT("Casino inside the boundary"), Casino && Boundary->IsInside(Casino->GetActorLocation()));
+		}
+
+		// No enemies here.
+		TestEqual(TEXT("No enemy spawns in the hub"), UGSDebugLibrary::SpawnEnemiesAround(GetPC(), UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit")), 1).Num(), 0);
+		TestEqual(TEXT("No enemies alive"), CountLivingEnemies(), 0);
+
+		// Safe zone: no damage, no shooting.
+		UGSAbilitySystemComponent* ASC = GetPlayerASC();
+		TestTrue(TEXT("Hub has a SafeZoneEffect (GE_SafeZone)"), Hub->GetSafeZoneEffect() != nullptr);
+		TestTrue(TEXT("Player has State.SafeZone"), ASC && ASC->HasMatchingGameplayTag(GSGameplayTags::State_SafeZone));
+		const float HealthBefore = GetHealth(ASC);
+		ApplyDamage(ASC, 30.f);
+		TestEqual(TEXT("GE_Damage is blocked in the safe zone"), GetHealth(ASC), HealthBefore);
+		UGSWeaponComponent* Weapons = Player ? Player->GetWeaponComponent() : nullptr;
+		if (TestNotNull(TEXT("Weapon component"), Weapons) && ASC)
+		{
+			*AmmoBefore = Weapons->GetCurrentAmmo();
+			ASC->AbilityInputTagPressed(GSGameplayTags::Ability_Fire);
+			ASC->AbilityInputTagReleased(GSGameplayTags::Ability_Fire);
+			TestFalse(TEXT("GA_Fire doesn't activate (no State.Firing)"), ASC->HasMatchingGameplayTag(GSGameplayTags::State_Firing));
+		}
+
+		// HUD: cash only, no combat elements.
+		const UGSHUDWidget* HUD = GetHUD();
+		if (TestNotNull(TEXT("HUD"), HUD))
+		{
+			TestTrue(TEXT("HUD knows it's in the safe area"), HUD->IsInSafeArea());
+			TestTrue(TEXT("HUD hides the round / combat elements"), HUD->AreCombatElementsHidden());
+			TestTrue(TEXT("HUD shows the cash counter"), HUD->IsCashShown());
+			TestEqual(TEXT("HUD cash = profile balance"), HUD->GetDisplayedCash(), GetPlayerCash());
+		}
+	});
+	WaitWorldSeconds(this, 0.5);
+	Step([this, AmmoBefore]()
+	{
+		const AGSCharacter* Player = GetPlayer();
+		TestEqual(TEXT("No shot fired: ammo unchanged"), Player ? Player->GetWeaponComponent()->GetCurrentAmmo() : -1, *AmmoBefore);
+		TestEqual(TEXT("Still no round loop half a second later"), GetGameState()->GetRoundNumber(), 0);
 	});
 	EndPIE();
 	return true;

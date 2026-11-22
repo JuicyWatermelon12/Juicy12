@@ -89,6 +89,84 @@ void UGSHUDWidget::NativeConstruct()
 			Widget->SetVisibility(ESlateVisibility::Collapsed);
 		}
 	}
+	for (UWidget* Widget : GetStaticCombatWidgets())
+	{
+		CombatWidgetVisibility.Add(Widget, Widget->GetVisibility());
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Safe area (the hub): combat elements hidden
+// ---------------------------------------------------------------------------
+
+TArray<UWidget*> UGSHUDWidget::GetStaticCombatWidgets() const
+{
+	TArray<UWidget*> Widgets;
+	for (UWidget* Widget : { static_cast<UWidget*>(Crosshair.Get()), static_cast<UWidget*>(WeaponNameText.Get()), static_cast<UWidget*>(AmmoText.Get()),
+		static_cast<UWidget*>(HealthBar.Get()), static_cast<UWidget*>(HealthText.Get()), static_cast<UWidget*>(LevelText.Get()),
+		static_cast<UWidget*>(XPBar.Get()), static_cast<UWidget*>(XPText.Get()), static_cast<UWidget*>(UpgradeIconsBox.Get()) })
+	{
+		if (Widget)
+		{
+			Widgets.Add(Widget);
+		}
+	}
+	return Widgets;
+}
+
+bool UGSHUDWidget::IsInSafeArea() const
+{
+	const AGSGameState* GS = BoundGameState.Get();
+	return GS && GS->GetCurrentArea() == EGSArea::MarketDistrict;
+}
+
+void UGSHUDWidget::RefreshAreaVisibility()
+{
+	const bool bSafe = IsInSafeArea();
+	for (UWidget* Widget : GetStaticCombatWidgets())
+	{
+		const ESlateVisibility* Designed = CombatWidgetVisibility.Find(Widget);
+		Widget->SetVisibility(bSafe ? ESlateVisibility::Collapsed : (Designed ? *Designed : ESlateVisibility::HitTestInvisible));
+	}
+}
+
+void UGSHUDWidget::HandleAreaChanged(EGSArea OldArea, EGSArea NewArea)
+{
+	RefreshAreaVisibility();
+	RefreshRoundInfo();
+	RefreshComboDisplay();
+	if (IsInSafeArea())
+	{
+		InterruptRoundBanner(); // waits in the queue; dropped if its round / phase is over by then
+	}
+	else
+	{
+		TryShowNextRoundBanner();
+	}
+}
+
+bool UGSHUDWidget::AreCombatElementsHidden() const
+{
+	for (const UWidget* Widget : GetStaticCombatWidgets())
+	{
+		if (Widget->IsVisible())
+		{
+			return false;
+		}
+	}
+	for (const UWidget* Widget : { static_cast<const UWidget*>(ComboPanel.Get()), static_cast<const UWidget*>(RoundInfoPanel.Get()), static_cast<const UWidget*>(RoundBanner.Get()) })
+	{
+		if (Widget && Widget->IsVisible())
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+bool UGSHUDWidget::IsCashShown() const
+{
+	return CashText && CashText->IsVisible();
 }
 
 void UGSHUDWidget::NativeDestruct()
@@ -124,7 +202,10 @@ bool UGSHUDWidget::TryBindGameState()
 	GS->OnPhaseChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandlePhaseChanged);
 	GS->OnRoundChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandleRoundChanged);
 	GS->OnWaveCountsChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandleWaveCountsChanged);
+	GS->OnAreaChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandleAreaChanged);
+	RefreshAreaVisibility();
 	RefreshRoundInfo();
+	RefreshComboDisplay();
 	UpdateCountdown();
 	// The first PreRound starts before the HUD has bound.
 	if (GS->GetRoundPhase() == EGSRoundPhase::PreRound)
@@ -141,6 +222,7 @@ void UGSHUDWidget::UnbindGameState()
 		GS->OnPhaseChanged.RemoveDynamic(this, &UGSHUDWidget::HandlePhaseChanged);
 		GS->OnRoundChanged.RemoveDynamic(this, &UGSHUDWidget::HandleRoundChanged);
 		GS->OnWaveCountsChanged.RemoveDynamic(this, &UGSHUDWidget::HandleWaveCountsChanged);
+		GS->OnAreaChanged.RemoveDynamic(this, &UGSHUDWidget::HandleAreaChanged);
 	}
 	if (UWorld* World = GetWorld())
 	{
@@ -233,7 +315,7 @@ void UGSHUDWidget::RefreshRoundInfo()
 	}
 	if (RoundInfoPanel)
 	{
-		RoundInfoPanel->SetVisibility(GS->GetRoundNumber() > 0 ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		RoundInfoPanel->SetVisibility(GS->GetRoundNumber() > 0 && !IsInSafeArea() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	}
 	if (RoundText)
 	{
@@ -416,7 +498,7 @@ void UGSHUDWidget::QueueRoundBanner(bool bRoundClear, int32 Round)
 bool UGSHUDWidget::CanShowRoundBanner() const
 {
 	const UGSUpgradeComponent* Upgrades = BoundUpgrades.Get();
-	return LevelUpBannerRemaining <= 0.f && !(Upgrades && Upgrades->HasOpenOffer());
+	return LevelUpBannerRemaining <= 0.f && !(Upgrades && Upgrades->HasOpenOffer()) && !IsInSafeArea();
 }
 
 bool UGSHUDWidget::IsRoundBannerValid(const FRoundBannerRequest& Request) const
@@ -596,7 +678,7 @@ FText UGSHUDWidget::GetComboMultiplierText() const
 
 void UGSHUDWidget::RefreshComboDisplay()
 {
-	const bool bShow = IsComboShowing();
+	const bool bShow = IsComboShowing() && !IsInSafeArea();
 	if (ComboPanel)
 	{
 		ComboPanel->SetVisibility(bShow ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);

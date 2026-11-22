@@ -11,6 +11,7 @@ namespace GSGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Reloading, "State.Reloading", "Weapon is reloading.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Invulnerable, "State.Invulnerable", "Damage effects are blocked (e.g. dash i-frames).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Attacking, "State.Attacking", "Enemy is performing an attack.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_SafeZone, "State.SafeZone", "In the safe hub (GE_SafeZone): can't fire, damage effects are blocked.");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Fire, "Ability.Fire", "Fire the equipped weapon.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Reload, "Ability.Reload", "Reload the equipped weapon.");

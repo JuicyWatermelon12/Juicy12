@@ -155,5 +155,18 @@ UGSDamageEffect::UGSDamageEffect(const FObjectInitializer& ObjectInitializer)
 		CreateDefaultSubobject<UTargetTagRequirementsGameplayEffectComponent>(TEXT("DamageTargetRequirements"));
 	Requirements->ApplicationTagRequirements.IgnoreTags.AddTag(GSGameplayTags::State_Invulnerable);
 	Requirements->ApplicationTagRequirements.IgnoreTags.AddTag(GSGameplayTags::State_Dead);
+	Requirements->ApplicationTagRequirements.IgnoreTags.AddTag(GSGameplayTags::State_SafeZone);
 	GEComponents.Add(Requirements);
+}
+
+UGSSafeZoneEffect::UGSSafeZoneEffect(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	DurationPolicy = EGameplayEffectDurationType::Infinite;
+
+	UTargetTagsGameplayEffectComponent* TagsComponent = CreateDefaultSubobject<UTargetTagsGameplayEffectComponent>(TEXT("SafeZoneTags"));
+	FInheritedTagContainer Tags;
+	Tags.Added.AddTag(GSGameplayTags::State_SafeZone);
+	TagsComponent->SetAndApplyTargetTagChanges(Tags);
+	GEComponents.Add(TagsComponent);
 }

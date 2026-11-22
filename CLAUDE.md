@@ -4,9 +4,9 @@ Read @docs/PROGRESS.md at the start of every session. After finishing any prompt
 
 Third-person roguelike shooter in an off-grid bandit gambling town. **Single-player first**; 2–4 player
 listen-server co-op is planned for **M6**, after single-player is finished or nearly finished.
-- **Hub:** the game starts in the safe **Market District** (shop + casino). It is a separate hub map (planned
-  `L_Hub_Graybox`; today it is still the streamed sublevel `L_MarketDistrict_Graybox` in the town map). A "Start
-  Run" portal sends the player to the town.
+- **Hub:** the game starts in the safe **Market District** (shop + casino), its own map `L_Hub_Graybox`
+  (`AGSHubGameMode`; the startup map). The old streamed copy `L_MarketDistrict_Graybox` is still in the town map as a
+  debug area until it is removed. A "Start Run" portal (not built yet) sends the player to the town.
 - **Run:** PreRound → Combat → RoundClear → PreRound … in the town until the player dies. There are no market visits
   during a run. Enemies drop cash and XP as pickups: a **flat amount per enemy type, the same in every round**.
   Income grows because later rounds spawn more enemies and the player kills faster.
@@ -49,7 +49,7 @@ Systems, commands, GAS reference, tuning and known issues live in `docs/PROGRESS
 ## Layout
 ```
 Source/BanditBaller/
-  Core/       GameMode (round loop, run seed, area travel), GameState, PlayerState, PlayerController,
+  Core/       GameMode (round loop, run seed, area travel), hub GameMode, GameState, PlayerState, PlayerController,
               character, settings data classes, run random/stats, progression (XP/levels/rewards, upgrades),
               kill combo,
               debug library + cheat commands, profile subsystem + save (permanent cash),
@@ -109,13 +109,14 @@ docs/PROGRESS.md  progress log and reference
   GameplayEffects and GameplayAbilities with GameplayTags. Damage always goes through `GE_Damage`
   (SetByCaller `Data.Damage`).
 - **Combat only in the town.** Enemies spawn, path and fight only in `L_Town_Graybox` (NavMesh covers the town
-  only). The Market District hub map is safe: no spawns, no NavMesh, no round loop. Shop and casino actors live only
-  in the hub.
+  only). The Market District hub map is safe: no spawns, no NavMesh, no round loop, and players there have
+  `State.SafeZone` (GE_SafeZone: no firing, no damage). Shop and casino actors live only in the hub.
 - **Every map has a boundary**: invisible walls around the play area and a ceiling (`AGSMapBoundary`, object type
   `GSCollision::MapBoundary`). It blocks pawns only (players and enemies); shots, traces, pickups and the camera pass
   through. The ceiling is what limits Extra Jump height (Extra Jump has no cap). Spawns stay inside it.
-- **Hub and run are separate maps with separate GameModes** (planned: a hub GameMode for shop, casino and portal; a
-  run GameMode for the round loop).
+- **Hub and run are separate maps with separate GameModes**: `AGSHubGameMode` (`BP_GSHubGameMode`, set in
+  `L_Hub_Graybox`'s World Settings) for the shop, casino and portal; `AGSGameMode` (`BP_GSGameMode`, the global default)
+  for the town's round loop.
   - Single-player travels between them with `OpenLevel`. Seamless / server travel and "the whole party travels
     together" are M6.
   - Each run loads a fresh town, so run state resets by being rebuilt, not by hand-written cleanup.
@@ -145,7 +146,8 @@ docs/PROGRESS.md  progress log and reference
   cvars.
 - Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`, `[xp]`, `[profile]`, `[upgrade]`, `[combo]`).
 - Tests: PIE-based latent tests in `Tests/GSGameplayTests.cpp`, built from the `GSTests` helpers (`BeginPIE`,
-  `WaitUntil`, `Step`, `EndPIE`, …). When appending, keep the closing `#endif` last.
+  `WaitUntil`, `Step`, `EndPIE`, …). `BeginPIE` opens `L_Town_Graybox` first (pass `HubMap` for the hub), since the
+  editor starts in the hub. When appending, keep the closing `#endif` last.
 - Commit messages: short imperative title, then a body listing what changed.
 
 ## Unreal MCP notes

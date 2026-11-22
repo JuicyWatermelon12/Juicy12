@@ -35,10 +35,12 @@ see **Design update — market, prestige and economy**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–24 are done
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–25 are done
 (11–13 and 17 were design / scope updates and permanent cash).
 
-State at the time of writing: `main` after Prompt 24, not pushed. The build is clean and all 28 automation tests pass.
+State at the time of writing: `main` after Prompt 25, not pushed. The build is clean and all 29 automation tests pass.
+The game and the editor start in the hub (`L_Hub_Graybox`). It has no Start Run portal yet (Prompt 26), so to play a
+run open `L_Town_Graybox` in the editor.
 
 | Step | What | Commit |
 |---|---|---|
@@ -69,7 +71,8 @@ State at the time of writing: `main` after Prompt 24, not pushed. The build is c
 | M2 21 | Map boundary: invisible walls + 75 m ceiling around the town (pawns only) | 92a7bf0 |
 | M2 22 | Kill combo: window, cash multiplier steps, ends on damage, pauses with the game, HUD, best combo | cfcf0fc |
 | M2 23 | Round-clear bonus (base + no damage + fast clear, flat) and the RoundClear summary | b04209d |
-| M2 24 | Round HUD: round / phase / countdown / enemies left, upgrade icons, queued round banners | see git log |
+| M2 24 | Round HUD: round / phase / countdown / enemies left, upgrade icons, queued round banners | 6be7fe1 |
+| M2 25 | Hub map L_Hub_Graybox + AGSHubGameMode (safe zone, no round loop); startup map | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -137,7 +140,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–24 done)
+## M2 — The run loop (Prompts 1–25 done)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -969,6 +972,51 @@ Everything below is in WBP_HUD (`UGSHUDWidget`), built with MCP and driven by de
   - `gs.Round.Set 4`: "ROUND 4 / PRE-ROUND / Round 4 in 2…" and the "ROUND 4 / GET READY" banner.
   - The 3 s PreRounds of rounds 1–3 passed between MCP scripts, so that is why PreRound was captured in round 4.
 
+### Prompt 25 — Hub map + hub GameMode
+- **`Maps/L_Hub_Graybox`** (built with MCP):
+  - A copy of `L_MarketDistrict_Graybox`, moved from X = +200000 to the origin. It holds:
+    - the 70 m ground slab, the walled 50×50 m square (4 m walls);
+    - `Casino`, 4 `MarketStall`s and the `MarketArrival` / `MarketExitPortalSpot` Target Points, with their tags;
+    - the warm PostProcessVolume and the point light.
+  - Its own lighting, in folder Lighting, with the town's settings:
+    - Sun (DirectionalLight: movable, intensity 6, atmosphere sun, the town's rotation);
+    - SkyLight (movable, real-time capture), SkyAtmosphere, HeightFog (density 0.0436, falloff 0.2) and
+      VolumetricCloud.
+  - `PlayerStart` at MarketArrival (0, −500, 100), facing the Casino (yaw 90).
+  - `AGSMapBoundary` at the square's center with `PlayAreaSize` 5000 × 5000 (the walls' inner faces) and the
+    default 75 m ceiling. It also blocks jumping over the walls.
+  - No NavMesh and no EnemySpawn points.
+  - World Settings `DefaultGameMode` = `BP_GSHubGameMode`.
+  - **The streamed `L_MarketDistrict_Graybox` is unchanged** and still used by the town's debug teleport: nothing is
+    removed from the town yet (Prompt 26).
+- **`Core/GSHubGameMode.*` (`AGSHubGameMode`, `AGameModeBase`) → `Core/BP_GSHubGameMode`:**
+  - It uses the same GameState / PlayerState / controller / character Blueprints as BP_GSGameMode.
+  - No round loop: no phases, waves, drops or run seed. The GameState stays at round 0, WaitingToStart.
+  - `StartPlay` sets `CurrentArea = MarketDistrict`. `gs.Spawn` and the spawn finder already refuse there.
+  - Every player gets `SafeZoneEffect` = `Abilities/GE_SafeZone` (new `UGSSafeZoneEffect`: infinite, grants the new
+    native tag `State.SafeZone`). It is applied in `HandleStartingNewPlayer` / `RestartPlayer`, once per PlayerState.
+  - `GA_Fire` has `State.SafeZone` in its ActivationBlockedTags, so the player can't shoot. `GE_Damage`
+    (`UGSDamageEffect`) ignores targets with it, so the player takes no damage.
+  - Code that looks for `AGSGameMode` (progression, upgrades, combo, run random, debug commands) already handles its
+    absence. The progression component's "no XP curve" warning now only fires under a round GameMode.
+- **HUD in the safe area** (`CurrentArea == MarketDistrict`, from `AGSGameState::OnAreaChanged`):
+  - Hidden: crosshair (new optional binding `Crosshair`), weapon + ammo, health, level + XP, upgrade icons, combo,
+    round info and round banners. The always-on ones get their designed visibility back when the area changes.
+  - Visible: the total cash and the slide / dash icons (movement still works).
+  - The town's debug Market District teleport hides the same elements.
+  - Test hooks `IsInSafeArea()`, `AreCombatElementsHidden()`, `IsCashShown()`.
+- **Startup map:** `GameDefaultMap` and `EditorStartupMap` = `L_Hub_Graybox` (`Config/DefaultEngine.ini`).
+  `GlobalDefaultGameMode` stays BP_GSGameMode, so `L_Town_Graybox` (no override) keeps running the round loop.
+- **Tests:**
+  - `BeginPIE(Test, MapPath = TownMap)` opens the map in the editor first if it isn't already the editor's map
+    (`FAutomationEditorCommonUtils::LoadMap`). Every existing test still plays in the town.
+  - New `Map.Hub`.
+- **PIE check:** the editor started in the hub. PIE spawned the player at MarketArrival (0, −500) facing the Casino:
+  the warm-lit walled square under a cloudy sky, and only "$1,340" plus the slide / dash icons on the HUD.
+- **Fixed while building:** moving the copied actors with location-only transforms reset their scale to 1, and the
+  PlayerStart's location reset too. The player then fell through a 1 m ground cube. Scales and yaws were restored
+  from the original bounds and the hub test passed after that.
+
 ---
 
 ## Console commands and CVars
@@ -1040,7 +1088,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 
 **Gameplay tags** (native, `Abilities/GSGameplayTags.*`; none in config):
 - State: `State.Dead`, `State.Sliding`, `State.Dashing`, `State.Firing`, `State.Reloading`,
-  `State.Invulnerable`, `State.Attacking`
+  `State.Invulnerable`, `State.Attacking`, `State.SafeZone` (hub: blocks GA_Fire, GE_Damage ignores the target)
 - Ability: `Ability.Fire`, `Ability.Reload`, `Ability.Slide`, `Ability.Dash`, `Ability.SwapWeapon`,
   `Ability.Attack.Melee`, `Ability.Attack.Ranged`
 - Cooldown: `Cooldown.Slide`, `Cooldown.Dash`
@@ -1051,7 +1099,8 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | GE | Class | What it does |
 |---|---|---|
 | `GE_InitPlayerStats` | UGameplayEffect | Instant overrides: MaxHealth 100, Health 100, Damage 1, FireRate 1, PickupRadius 300, XPGain 1. Granted through DA_PlayerAbilitySet. |
-| `GE_Damage` | `UGSDamageEffect` | SetByCaller `Data.Damage` → IncomingDamage. Blocked by `State.Invulnerable` / `State.Dead`. All damage uses it. |
+| `GE_Damage` | `UGSDamageEffect` | SetByCaller `Data.Damage` → IncomingDamage. Blocked by `State.Invulnerable` / `State.Dead` / `State.SafeZone`. All damage uses it. |
+| `GE_SafeZone` | `UGSSafeZoneEffect` | Infinite; grants `State.SafeZone`. AGSHubGameMode applies it to every player in the hub. |
 | `GE_Cooldown_Slide` | `UGSCooldownEffect_Slide` | Duration from `Data.Cooldown`; grants `Cooldown.Slide`. |
 | `GE_Cooldown_Dash` | `UGSCooldownEffect_Dash` | One stack per spent charge; grants `Cooldown.Dash`. |
 | `GE_EnemyRoundScaling` | `UGSEnemyRoundScalingEffect` | Infinite; MultiplyCompound MaxHealth / Damage from `Data.HealthMultiplier` / `Data.DamageMultiplier`. |
@@ -1066,10 +1115,10 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (28, all passing)
+## Automation tests (29, all passing)
 
-`Tests/GSGameplayTests.cpp`. Each test starts PIE in L_Town_Graybox, waits for the player, removes enemies, runs
-and ends PIE. Stop PIE before running.
+`Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
+starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running.
 
 | Test | Checks |
 |---|---|
@@ -1078,6 +1127,7 @@ and ends PIE. Stop PIE before running.
 | `GAS.DeathAddsStateDead` | Death adds `State.Dead`. |
 | `Weapons.FireConsumesAmmoReloadRefills` | GA_Fire uses ammo, GA_Reload refills. |
 | `Abilities.DashInvulnerabilityBlocksDamage` | Dash i-frames block damage. |
+| `Map.Hub` | PIE in L_Hub_Graybox: AGSHubGameMode (no AGSGameMode), area MarketDistrict, round 0 / WaitingToStart; Casino, 4 stalls, MarketArrival, MarketExitPortalSpot; player starts at MarketArrival; no NavMesh; AGSMapBoundary contains the player and the Casino; gs.Spawn refused, no enemies; State.SafeZone (GE_SafeZone) on the player, GE_Damage blocked, the fire input fires nothing (no State.Firing, ammo unchanged); HUD in the safe area hides every combat element and shows the cash (= profile); still no round half a second later. |
 | `Map.TownAndMarketDistrict` | Town tags/NavMesh, district contents, teleport there and back, no spawning there. |
 | `Map.Boundary` | AGSMapBoundary in the town (ceiling 7500), player inside, cvar exists; 5 boxes: MapBoundary object type, block Pawn, ignore Visibility/Camera/WorldStatic/WorldDynamic/PhysicsBody, no NavMesh effect; player and enemy capsules block MapBoundary; Visibility / Camera / enemy-shot / pickup traces pass through a wall and the ceiling, a pawn sweep doesn't; spawn points near a corner are inside; player and a frozen enemy launched at a wall stay inside; dash and slide into the wall stop inside; a launch up stops at the ceiling (no damage, same XY); gs.Upgrade.Grant ExtraJump 3; an air jump under the ceiling works and is stopped by it. |
 | `Round.PhaseLoop` | PreRound on start, timer → Combat; no market phases in the enum; RoundClear timer → round 2 PreRound; skips round 2 → round 3 PreRound; gs.Round.Set. |
@@ -1185,7 +1235,7 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 
 **Not built yet / stubs**
 - **Not yet built for the design change:**
-  - Hub start and Start Run portal.
+  - Start Run portal (the game already starts in the hub; Prompt 26).
   - Run summary and return to the hub.
 - No upgrade is Epic or Legendary yet; those tiers are empty and never offered.
 - **Not yet built for the decisions before M3:**
@@ -1197,8 +1247,11 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   single-player / host path exists (`TODO(co-op)`).
 - `Balance.TimeToKill` failed once in a full run (round 1 melee vs rifle: 4 shots instead of 3, the first case
   after PIE starts) and passed when re-run alone and in the next full run. Probably a missed first shot; watch it.
-- **Still in the code until the hub map (Prompts 25–26):** the streamed `L_MarketDistrict_Graybox`,
-  `TravelToMarketDistrict` / `ReturnToTown` and `gs.Market.Teleport` / `Return` (debug only).
+- **Still in the code until Prompt 26:** the streamed `L_MarketDistrict_Graybox`, `TravelToMarketDistrict` /
+  `ReturnToTown` and `gs.Market.Teleport` / `Return` (debug only). The hub map has its own copy of the district
+  content.
+- The hub has no way into a run yet. The Start Run portal is Prompt 26; until then open `L_Town_Graybox` in the
+  editor to play a run.
 - No shop or casino logic yet (M3/M4); CashSpent is never used.
 - Crits are stubbed (`TODO(crits)` in `GSAttributeSet.cpp`; damage numbers support them, nothing sets them).
 - The `GameOver` phase exists but is unused. Player death reloads the whole map (`?Restart`); the cash balance
@@ -1306,13 +1359,13 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
 23. ~~**Round clear bonus.**~~ Done (see Prompt 23): flat base + no-damage + fast-clear bonuses and the RoundClear
     summary.
 24. ~~**Round HUD.**~~ Done (see Prompt 24).
-25. **Hub map + hub GameMode.**
+25. ~~**Hub map + hub GameMode.**~~ Done (see Prompt 25). Original plan:
     - **Hub map** `Maps/L_Hub_Graybox`: the district content moves out of the sublevel, gets its own lighting, sky,
       boundary (walls + ceiling) and a PlayerStart at `MarketArrival`. It becomes `GameDefaultMap` /
       `EditorStartupMap`.
     - **GameModes:** a hub GameMode (no rounds; shop, casino and portal later) with its own Blueprint. The current
       `AGSGameMode` keeps the round loop as the town map's GameMode.
-    - **Tests** open `L_Town_Graybox` explicitly, since the startup map changes.
+    - **Tests** open `L_Town_Graybox` explicitly, since the startup map changes (done: `BeginPIE`).
 26. **Start Run portal + town cleanup.**
     - A portal actor at `MarketExitPortalSpot` opens `L_Town_Graybox` (`OpenLevel`). The run (seed, stats, round 1)
       starts when the town loads.

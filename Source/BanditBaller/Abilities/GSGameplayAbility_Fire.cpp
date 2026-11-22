@@ -25,6 +25,7 @@ UGSGameplayAbility_Fire::UGSGameplayAbility_Fire()
 	ActivationOwnedTags.AddTag(GSGameplayTags::State_Firing);
 	ActivationBlockedTags.AddTag(GSGameplayTags::State_Dead);
 	ActivationBlockedTags.AddTag(GSGameplayTags::State_Reloading);
+	ActivationBlockedTags.AddTag(GSGameplayTags::State_SafeZone); // no shooting in the hub
 }
 
 bool UGSGameplayAbility_Fire::ShouldRetriggerWhileInputHeld(const FGameplayAbilityActorInfo* ActorInfo) const

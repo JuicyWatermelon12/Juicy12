@@ -47,6 +47,9 @@ enum class EGSUpgradeOfferChange : uint8;
  *   at a time. They wait while the "LEVEL UP!" banner shows or an upgrade offer is open (the choice cards), and a
  *   level-up (or an offer opening) puts a showing round banner back at the front of the queue. A queued banner that no
  *   longer fits the round / phase is dropped.
+ * - Safe area (AGSGameState::CurrentArea == MarketDistrict: the hub, OnAreaChanged): the combat elements are collapsed
+ *   (crosshair, weapon + ammo, health, level + XP, upgrade icons, combo, round info, round banners). The cash counter
+ *   and the slide / dash icons stay.
  * Tuning values are editable on WBP_HUD's class defaults.
  */
 UCLASS(Abstract)
@@ -120,6 +123,14 @@ public:
 	int32 GetRoundBannersShown() const { return RoundBannersShown; }
 	int32 GetUpgradeIconCount() const { return UpgradeIcons.Num(); }
 	const UGSUpgradeIconWidget* FindUpgradeIcon(const UGSUpgradeData* Upgrade) const;
+
+	// --- Safe area (tests) ---
+	/** The party is in the Market District (the hub): combat elements are hidden. */
+	bool IsInSafeArea() const;
+	/** Every combat element (crosshair, weapon, ammo, health, level, XP, upgrades, combo, round info, banners) is hidden. */
+	bool AreCombatElementsHidden() const;
+	/** The cash counter is on screen. */
+	bool IsCashShown() const;
 
 protected:
 	virtual void NativeConstruct() override;
@@ -223,6 +234,10 @@ protected:
 	/** Owned upgrade icons are created into this panel (a HorizontalBox). */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UPanelWidget> UpgradeIconsBox;
+
+	/** The crosshair (WBP_Crosshair); hidden in the safe area. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> Crosshair;
 
 	// --- Tuning ---
 
@@ -475,6 +490,13 @@ private:
 	UFUNCTION()
 	void HandleWaveCountsChanged(int32 Total, int32 Remaining, int32 Alive);
 
+	UFUNCTION()
+	void HandleAreaChanged(EGSArea OldArea, EGSArea NewArea);
+
+	/** Collapse the always-on combat elements in the safe area, restore them elsewhere. */
+	void RefreshAreaVisibility();
+	TArray<UWidget*> GetStaticCombatWidgets() const;
+
 	// Owned upgrade icons + open offers (UGSUpgradeComponent on the PlayerState).
 	bool TryBindUpgrades();
 	void UnbindUpgrades();
@@ -557,6 +579,9 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UGSUpgradeIconWidget>> UpgradeIcons;
+
+	/** Designer visibility of the always-on combat elements (restored when leaving the safe area). */
+	TMap<TWeakObjectPtr<UWidget>, ESlateVisibility> CombatWidgetVisibility;
 
 	TArray<FRoundBannerRequest> RoundBannerQueue;
 	FRoundBannerRequest ActiveRoundBanner;

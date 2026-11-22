@@ -152,7 +152,7 @@ public:
 	UGSFullHealEffect(const FObjectInitializer& ObjectInitializer);
 };
 
-/** Base for damage effects: cannot be applied to targets with State.Invulnerable or State.Dead. */
+/** Base for damage effects: cannot be applied to targets with State.Invulnerable, State.Dead or State.SafeZone. */
 UCLASS()
 class BANDITBALLER_API UGSDamageEffect : public UGameplayEffect
 {
@@ -160,4 +160,17 @@ class BANDITBALLER_API UGSDamageEffect : public UGameplayEffect
 
 public:
 	UGSDamageEffect(const FObjectInitializer& ObjectInitializer);
+};
+
+/**
+ * Infinite: grants State.SafeZone (GE_SafeZone; AGSHubGameMode applies it to every player in the hub). GA_Fire is
+ * blocked by the tag and damage effects ignore targets that have it.
+ */
+UCLASS()
+class BANDITBALLER_API UGSSafeZoneEffect : public UGameplayEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSSafeZoneEffect(const FObjectInitializer& ObjectInitializer);
 };
