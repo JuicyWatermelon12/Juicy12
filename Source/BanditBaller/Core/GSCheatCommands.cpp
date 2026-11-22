@@ -10,10 +10,11 @@
 //   gs.GiveWeapon <WeaponDataName>                      e.g. gs.GiveWeapon Pistol
 //   gs.SetAttr <Attribute> <Value>                      e.g. gs.SetAttr MoveSpeed 900
 //   gs.Perf [Seconds=5]                                 log avg/max frame, game, render and GPU time
-//   gs.Market.Teleport / gs.Market.Return               temporary area travel (AGSGameMode)
+//   gs.Market.Teleport / gs.Market.Return               open the hub map (from a run) / start a run (from the hub)
 //   gs.Round.Skip / gs.Round.Set <N>                    round loop control (AGSGameMode)
 //   gs.Debug.Round 1                                    on-screen round / phase / time left (AGSGameState)
-//   gs.Run.Seed [N]                                     print seed / restart the run with seed N
+//   gs.Run.Seed [N]                                     town: print seed / restart the run with seed N;
+//                                                       hub: print / set the next run's seed
 //   gs.Run.Stats                                        print run stats (local replicated copy)
 //   gs.XP.Add <N> / gs.XP.SetLevel <N>                  grant raw XP / jump to a level (UGSProgressionComponent)
 //   gs.Upgrade.Grant <Name> [N] / gs.Upgrade.List       add upgrade stacks / list upgrades (UGSUpgradeComponent)
@@ -90,17 +91,17 @@ namespace GSCheats
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("SetAttr"), Args, World); }),
 		ECVF_Cheat);
 
-	// --- Market District travel: debug only, not part of the run loop (retired with the hub map, Prompt 26) ---
+	// --- Hub <-> run map travel (debug shortcuts; the portal is the real way in) ---
 
 	FAutoConsoleCommandWithWorldAndArgs MarketTeleportCommand(
 		TEXT("gs.Market.Teleport"),
-		TEXT("Temporary: stream in the Market District, fade, move the party to MarketArrival (CurrentArea = MarketDistrict)."),
+		TEXT("Leave the run: open the hub map (L_Hub_Graybox, AGSGameMode::OpenHubMap). Only in a run."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("MarketTeleport"), Args, World); }),
 		ECVF_Cheat);
 
 	FAutoConsoleCommandWithWorldAndArgs MarketReturnCommand(
 		TEXT("gs.Market.Return"),
-		TEXT("Temporary: fade, move the party to TownReturn, unload the Market District (CurrentArea = Town)."),
+		TEXT("Start a run from the hub, like the Start Run portal (AGSHubGameMode::StartRun). Only in the hub."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("MarketReturn"), Args, World); }),
 		ECVF_Cheat);
 
@@ -128,7 +129,7 @@ namespace GSCheats
 
 	FAutoConsoleCommandWithWorldAndArgs RunSeedCommand(
 		TEXT("gs.Run.Seed"),
-		TEXT("Print the run seed, or restart the run (stream + stats, round 1) with a fixed seed. Usage: gs.Run.Seed [N]"),
+		TEXT("Town: print the run seed, or restart the run (stream + stats, round 1) with seed N. Hub: print / set the next run's seed (0 = random). Usage: gs.Run.Seed [N]"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("RunSeed"), Args, World); }),
 		ECVF_Cheat);
 

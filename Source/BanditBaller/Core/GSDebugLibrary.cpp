@@ -19,6 +19,7 @@
 #include "GSGameplayTags.h"
 #include "GSGameState.h"
 #include "GSHealthComponent.h"
+#include "GSHubGameMode.h"
 #include "GSPlayerController.h"
 #include "GSPlayerState.h"
 #include "GSProfileSubsystem.h"
@@ -677,25 +678,42 @@ void UGSDebugLibrary::ExecuteDebugCommand(AGSPlayerController* PC, const FString
 		}
 		PrintUpgradeOffer(PC);
 	}
-	else if (Command == TEXT("MarketTeleport") || Command == TEXT("MarketReturn"))
+	else if (Command == TEXT("MarketTeleport"))
 	{
+		// gs.Market.Teleport: leave the run for the hub map.
 		AGSGameMode* GameMode = PC->GetWorld()->GetAuthGameMode<AGSGameMode>();
 		if (!GameMode)
 		{
-			UE_LOG(LogBanditBaller, Warning, TEXT("gs.Market.*: no AGSGameMode on the server."));
+			UE_LOG(LogBanditBaller, Warning, TEXT("gs.Market.Teleport: not in a run (already in the hub?)."));
 			return;
 		}
-		if (Command == TEXT("MarketTeleport"))
+		GameMode->OpenHubMap();
+	}
+	else if (Command == TEXT("MarketReturn"))
+	{
+		// gs.Market.Return: start a run from the hub, as the Start Run portal does.
+		AGSHubGameMode* Hub = PC->GetWorld()->GetAuthGameMode<AGSHubGameMode>();
+		if (!Hub)
 		{
-			GameMode->TravelToMarketDistrict();
+			UE_LOG(LogBanditBaller, Warning, TEXT("gs.Market.Return: not in the hub (already in a run?)."));
+			return;
 		}
-		else
-		{
-			GameMode->ReturnToTown();
-		}
+		Hub->StartRun(PC);
 	}
 	else if (Command == TEXT("RunSeed"))
 	{
+		// In the hub: choose the next run's seed (the portal passes it on).
+		if (AGSHubGameMode* Hub = PC->GetWorld()->GetAuthGameMode<AGSHubGameMode>())
+		{
+			if (Args.Num() < 1)
+			{
+				UE_LOG(LogBanditBaller, Log, TEXT("gs.Run.Seed: the next run uses %s. Usage: gs.Run.Seed <N> (0 = random)."),
+					Hub->GetNextRunSeed() > 0 ? *FString::Printf(TEXT("seed %d"), Hub->GetNextRunSeed()) : TEXT("a random seed"));
+				return;
+			}
+			Hub->SetNextRunSeed(FCString::Atoi(*Args[0]));
+			return;
+		}
 		AGSGameMode* GameMode = PC->GetWorld()->GetAuthGameMode<AGSGameMode>();
 		if (!GameMode)
 		{

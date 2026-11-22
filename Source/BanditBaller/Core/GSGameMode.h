@@ -21,15 +21,15 @@ class UGSUpgradePool;
 class AGSPlayerState;
 class UGameplayEffect;
 class AGSEnemyCharacter;
-class ULevelStreaming;
 class UUserWidget;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnEnemyKilledSignature, AActor*, Enemy, AActor*, Killer);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGSOnPlayerDiedSignature, APawn*, Player, AActor*, Killer);
 
 /**
- * Server-only game rules. Runs the round loop as a state machine over EGSRoundPhase (SetPhase /
- * AdvancePhase) and owns area travel between the Town and the Market District.
+ * Server-only game rules of the town map (L_Town_Graybox; the global default GameMode). A run starts when the map
+ * loads (StartPlay: seed from ?GSSeed=N, -GSSeed=N or random; run stats; round 1). Runs the round loop as a state
+ * machine over EGSRoundPhase (SetPhase / AdvancePhase). The hub is its own map with AGSHubGameMode.
  * Replicated round state lives in AGSGameState.
  * Receives deaths from UGSHealthComponent: an enemy kill counts towards the killer's combo (UGSComboComponent), the
  * enemy drops cash (x the combo's multiplier) and an XP orb (UGSCashPickupSubsystem) and OnEnemyKilled is broadcast;
@@ -191,27 +191,16 @@ public:
 
 	bool IsPausedForUpgradeChoice() const { return bPausedForUpgradeChoice; }
 
-	// --- Area travel (server) ---
+	// --- Map travel ---
 
 	/**
-	 * Fade out, stream in the Market District sublevel, move every player to the "MarketArrival"
-	 * target point, set CurrentArea = MarketDistrict, fade in. Returns false if travel can't start.
+	 * Leave the run for the hub map (HubMap). Single-player: OpenLevel. Used by gs.Market.Teleport for now; the death
+	 * flow will use it too. TODO(co-op): ServerTravel so the whole party goes (M6).
 	 */
-	bool TravelToMarketDistrict();
+	bool OpenHubMap();
 
-	/** Fade out, move every player to the "TownReturn" target point, unload the district, CurrentArea = Town. */
-	bool ReturnToTown();
-
-	bool IsAreaTravelInProgress() const { return TravelTimer.IsValid(); }
-
-	/** Streaming level of the Market District in this world (nullptr if the map has none). */
-	ULevelStreaming* GetMarketDistrictStreamingLevel() const;
-
-	/** First actor in any visible level with Tag (e.g. "MarketArrival", "TownReturn"). */
-	static AActor* FindTaggedActor(const UWorld* World, FName Tag);
-
-	static const FName TownReturnTag;
-	static const FName MarketArrivalTag;
+	/** URL option (?GSSeed=N) the hub's Start Run portal passes when gs.Run.Seed chose the next run's seed. */
+	static const TCHAR* RunSeedOption;
 
 protected:
 	/** Shown to a player when they die (WBP_DeathScreen). */
@@ -270,21 +259,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Round")
 	bool bAutoStartRounds = true;
 
-	/** Short package name of the Market District sublevel in the town map. */
-	UPROPERTY(EditDefaultsOnly, Category = "Market District")
-	FName MarketDistrictLevelName = TEXT("L_MarketDistrict_Graybox");
-
-	/** Fade out / in time for area teleports. */
-	UPROPERTY(EditDefaultsOnly, Category = "Market District", meta = (ClampMin = "0", Units = "s"))
-	float AreaFadeTime = 0.35f;
-
-	/** Give up (and fade back in where we are) if the district hasn't streamed in by then. */
-	UPROPERTY(EditDefaultsOnly, Category = "Market District", meta = (ClampMin = "1", Units = "s"))
-	float AreaStreamTimeout = 10.f;
-
-	/** Players are placed in a ring of this radius around the arrival point. */
-	UPROPERTY(EditDefaultsOnly, Category = "Market District", meta = (ClampMin = "0", Units = "cm"))
-	float PartySpawnSpacing = 150.f;
+	/** The hub map (L_Hub_Graybox) the run returns to. */
+	UPROPERTY(EditDefaultsOnly, Category = "Travel")
+	TSoftObjectPtr<UWorld> HubMap;
 
 private:
 	const UGSRoundSettings& GetRoundSettings() const;
@@ -317,13 +294,4 @@ private:
 	int32 RunSeed = 0;
 
 	UGSRunStats* GetRunStats() const;
-
-	void FadeAllPlayers(bool bFadeOut) const;
-	void MovePartyTo(const AActor& Destination) const;
-	void TickTravelToMarket();
-	void TickReturnToTown();
-	void FinishTravel();
-
-	FTimerHandle TravelTimer;
-	double TravelStartTime = 0.0;
 };

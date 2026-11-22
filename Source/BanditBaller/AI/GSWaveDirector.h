@@ -96,6 +96,13 @@ public:
 	/** Not yet killed (alive + telegraphing + still to spawn). */
 	int32 GetRemaining() const { return FMath::Max(0, Total - Killed - Lost); }
 
+	// Spawn-point stats of the current (or last) wave, from UGSSpawnLocationFinder (tests, the wave-end log).
+	int32 GetFallbackSpawns() const { return FallbackSpawns; }
+	int32 GetOnScreenSpawns() const { return OnScreenSpawns; }
+	/** Closest / farthest chosen spawn point from its player (cm); 0 before the first spawn of the wave. */
+	float GetClosestSpawnDistance() const { return MinSpawnDistance < TNumericLimits<float>::Max() ? MinSpawnDistance : 0.f; }
+	float GetFarthestSpawnDistance() const { return MaxSpawnDistance; }
+
 	/** Alive cap in effect (gs.Wave.MaxAlive overrides DA_WaveSettings). */
 	int32 GetMaxAlive() const;
 
@@ -170,4 +177,5 @@ private:
 	int32 OnScreenSpawns = 0;
 	int32 FallbackSpawns = 0;
 	float MinSpawnDistance = 0.f;
+	float MaxSpawnDistance = 0.f;
 };

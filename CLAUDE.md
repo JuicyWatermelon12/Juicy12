@@ -5,8 +5,8 @@ Read @docs/PROGRESS.md at the start of every session. After finishing any prompt
 Third-person roguelike shooter in an off-grid bandit gambling town. **Single-player first**; 2–4 player
 listen-server co-op is planned for **M6**, after single-player is finished or nearly finished.
 - **Hub:** the game starts in the safe **Market District** (shop + casino), its own map `L_Hub_Graybox`
-  (`AGSHubGameMode`; the startup map). The old streamed copy `L_MarketDistrict_Graybox` is still in the town map as a
-  debug area until it is removed. A "Start Run" portal (not built yet) sends the player to the town.
+  (`AGSHubGameMode`; the startup map). The "Start Run" portal (`AGSStartRunPortal`) opens the town map
+  (`L_Town_Graybox`), and the run starts when it loads.
 - **Run:** PreRound → Combat → RoundClear → PreRound … in the town until the player dies. There are no market visits
   during a run. Enemies drop cash and XP as pickups: a **flat amount per enemy type, the same in every round**.
   Income grows because later rounds spawn more enemies and the player kills faster.
@@ -49,7 +49,7 @@ Systems, commands, GAS reference, tuning and known issues live in `docs/PROGRESS
 ## Layout
 ```
 Source/BanditBaller/
-  Core/       GameMode (round loop, run seed, area travel), hub GameMode, GameState, PlayerState, PlayerController,
+  Core/       GameMode (round loop, run seed, map travel), hub GameMode, GameState, PlayerState, PlayerController,
               character, settings data classes, run random/stats, progression (XP/levels/rewards, upgrades),
               kill combo,
               debug library + cheat commands, profile subsystem + save (permanent cash),
@@ -61,11 +61,12 @@ Source/BanditBaller/
   UI/         UMG C++ bases (HUD, death screen, ability icon, enemy health bar, upgrade choice screen + card,
               upgrade icon, RoundClear summary)
   Tests/      GSGameplayTests.cpp (editor-only, PIE-based)
-  Market/, Casino/   planned (not created yet)
+  Market/     hub actors (Start Run portal; shop later)
+  Casino/     planned (not created yet)
   Variant_*/  template sample code, reference only
 Content/BanditBaller/
   Core (framework BPs), Abilities (GA_/GE_/ability sets), Data (DA_/DT_ tuning), Enemies, Weapons, Input,
-  UI (WBP_), Materials, Maps, Characters
+  UI (WBP_), Materials, Maps (L_Hub_Graybox, L_Town_Graybox), Characters, Hub (hub actors: BP_GSStartRunPortal)
 Content/Python/   init_unreal.py + banditballer_toolset/ (project MCP toolset; restart the editor after edits)
 docs/PROGRESS.md  progress log and reference
 ```
@@ -124,10 +125,11 @@ docs/PROGRESS.md  progress log and reference
     the GameInstance.
 - **Area travel** (single-player: `OpenLevel`; co-op server travel is M6).
   - The game starts in the hub.
-  - The "Start Run" portal starts a run and travels the player to the town.
+  - The "Start Run" portal starts a run and travels the player to the town (`AGSHubGameMode::StartRun`). The only
+    thing passed along is the seed chosen with `gs.Run.Seed` in the hub (`?GSSeed=N`).
   - Death → run summary → travel back to the hub.
-  - There is no travel to the market during a run (`gs.Market.Teleport` / `Return` are debug tools only until the
-    hub map replaces them).
+  - There is no travel to the hub during a run. `gs.Market.Teleport` (open the hub) / `gs.Market.Return` (start a
+    run) are debug shortcuts.
 - **Tooling split**: Unreal MCP (`unreal-mcp`, http://127.0.0.1:8000/mcp, see `.mcp.json`) for editor and asset
   work; file edits for C++.
 - **Make one MCP call at a time**; wait for each result before the next (batch with `ProgrammaticToolset` instead).

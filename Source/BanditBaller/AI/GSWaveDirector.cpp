@@ -159,6 +159,7 @@ void UGSWaveDirector::StartWave(int32 Round)
 	PeakAlive = 0;
 	bLoggedCapThisWave = false;
 	MinSpawnDistance = TNumericLimits<float>::Max();
+	MaxSpawnDistance = 0.f;
 	SpawnQueue.Reset();
 	WaveEnemies.Reset();
 
@@ -343,6 +344,7 @@ void UGSWaveDirector::SpawnNextBatch()
 		OnScreenSpawns += Point.bOnScreen ? 1 : 0;
 		FallbackSpawns += Point.bFallback ? 1 : 0;
 		MinSpawnDistance = FMath::Min(MinSpawnDistance, Point.DistanceToPlayer);
+		MaxSpawnDistance = FMath::Max(MaxSpawnDistance, Point.DistanceToPlayer);
 		Batch += FString::Printf(TEXT("%s%s %.1f m%s%s"), Batch.IsEmpty() ? TEXT("") : TEXT(", "), *EnemyShortName(Pending.EnemyData),
 			Point.DistanceToPlayer / 100.f, Point.bOnScreen ? TEXT(" ON-SCREEN") : TEXT(""), Point.bFallback ? TEXT(" FALLBACK") : TEXT(""));
 	}

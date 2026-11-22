@@ -23,7 +23,9 @@
 #include "GSDebugLibrary.h"
 #include "GSEnemyCharacter.h"
 #include "Engine/GameViewportClient.h"
-#include "Engine/LevelStreaming.h"
+#include "Misc/PackageName.h"
+#include "Camera/PlayerCameraManager.h"
+#include "GSStartRunPortal.h"
 #include "GSEnemyData.h"
 #include "GSGameMode.h"
 #include "GSGameplayTags.h"
@@ -474,36 +476,66 @@ namespace GSTests
 		return NavSys && NavSys->ProjectPointToNavigation(Location, Out, FVector(500.f, 500.f, 1000.f));
 	}
 
-	bool IsInMarketDistrictLevel(const AActor* Actor)
+	/** First actor with Tag in World (nullptr if none). */
+	const AActor* FindTagged(const UWorld* World, FName Tag)
 	{
-		return Actor && Actor->GetLevel() && Actor->GetLevel()->GetOutermost()->GetName().Contains(TEXT("L_MarketDistrict_Graybox"));
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			if (It->ActorHasTag(Tag))
+			{
+				return *It;
+			}
+		}
+		return nullptr;
 	}
 
 	AGSGameMode* GetGameMode() { return GetPIEWorld() ? GetPIEWorld()->GetAuthGameMode<AGSGameMode>() : nullptr; }
 	AGSGameState* GetGameState() { return GetPIEWorld() ? GetPIEWorld()->GetGameState<AGSGameState>() : nullptr; }
+	AGSHubGameMode* GetHubGameMode() { return GetPIEWorld() ? GetPIEWorld()->GetAuthGameMode<AGSHubGameMode>() : nullptr; }
+
+	UGSHUDWidget* GetHUD()
+	{
+		return GetPC() ? GetPC()->GetGSHUD() : nullptr;
+	}
+
+	/** Enqueue: wait until PIE has moved to a new world of MapPath (map travel) with a ready player. */
+	void WaitForMapTravel(FAutomationTestBase* Test, TSharedRef<TWeakObjectPtr<UWorld>> FromWorld, const FString& MapPath)
+	{
+		WaitUntil(Test, FString::Printf(TEXT("PIE to open %s with a ready player"), *MapPath), [FromWorld, MapPath]()
+		{
+			const UWorld* World = GetPIEWorld();
+			return World && World != FromWorld->Get() && World->GetOutermost()->GetName().EndsWith(FPackageName::GetShortName(MapPath)) && IsPlayerReady();
+		}, 30.0);
+	}
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSMapTownAndMarketTest, "BanditBaller.Map.TownAndMarketDistrict", GSTests::TestFlags)
-bool FGSMapTownAndMarketTest::RunTest(const FString& Parameters)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSMapTownTest, "BanditBaller.Map.Town", GSTests::TestFlags)
+bool FGSMapTownTest::RunTest(const FString& Parameters)
 {
+	TSharedRef<TWeakObjectPtr<UWorld>> PreviousWorld = MakeShared<TWeakObjectPtr<UWorld>>();
+
 	BeginPIE(this);
 
-	// Town: travel anchors + spawns present, no shop/casino left in the plaza, district not loaded.
-	Step([this]()
+	// The town: the run's map. Spawns and NavMesh, no hub content, no sublevels, no market travel points.
+	Step([this, PreviousWorld]()
 	{
 		UWorld* World = GetPIEWorld();
 		AGSGameMode* GameMode = GetGameMode();
 		AGSGameState* GameState = GetGameState();
-		if (!TestNotNull(TEXT("AGSGameMode"), GameMode) || !TestNotNull(TEXT("AGSGameState"), GameState))
+		if (!TestNotNull(TEXT("AGSGameMode (BP_GSGameMode, the global default)"), GameMode) || !TestNotNull(TEXT("AGSGameState"), GameState))
 		{
 			return;
 		}
-		TestTrue(TEXT("Starts in the town"), GameState->GetCurrentArea() == EGSArea::Town);
-
-		const AActor* TownReturn = AGSGameMode::FindTaggedActor(World, TEXT("TownReturn"));
-		TestNotNull(TEXT("Town has a TownReturn point"), TownReturn);
-		TestNotNull(TEXT("Town has a MarketPortalSpot point"), AGSGameMode::FindTaggedActor(World, TEXT("MarketPortalSpot")));
-		TestTrue(TEXT("TownReturn is on the town navmesh"), TownReturn && IsOnNavMesh(World, TownReturn->GetActorLocation()));
+		TestTrue(TEXT("PIE runs the town map"), World->GetOutermost()->GetName().EndsWith(TEXT("L_Town_Graybox")));
+		TestNull(TEXT("No hub GameMode in the town"), GetHubGameMode());
+		TestTrue(TEXT("Area is the town"), GameState->GetCurrentArea() == EGSArea::Town);
+		TestTrue(TEXT("The run started (round 1 or later)"), GameState->GetRoundNumber() >= 1);
+		TestEqual(TEXT("No sublevels (the Market District is the hub map now)"), World->GetStreamingLevels().Num(), 0);
+		for (const TCHAR* Tag : { TEXT("TownReturn"), TEXT("MarketPortalSpot"), TEXT("MarketArrival"), TEXT("MarketExitPortalSpot"),
+			TEXT("Casino"), TEXT("MarketStall"), TEXT("Market") })
+		{
+			TestEqual(FString::Printf(TEXT("No '%s' actor in the town"), Tag), CountTagged(World, Tag), 0);
+		}
 		TestTrue(TEXT("Town has EnemySpawn points"), CountTagged(World, TEXT("EnemySpawn")) > 0);
 		for (TActorIterator<AActor> It(World); It; ++It)
 		{
@@ -512,60 +544,31 @@ bool FGSMapTownAndMarketTest::RunTest(const FString& Parameters)
 				TestTrue(FString::Printf(TEXT("%s is on the town navmesh"), *It->GetActorNameOrLabel()), IsOnNavMesh(World, It->GetActorLocation()));
 			}
 		}
-		TestEqual(TEXT("No Casino in the town"), CountTagged(World, TEXT("Casino")), 0);
-		TestEqual(TEXT("No MarketStall in the town"), CountTagged(World, TEXT("MarketStall")), 0);
-		TestEqual(TEXT("No legacy Market tags in the town"), CountTagged(World, TEXT("Market")), 0);
+		TestTrue(TEXT("NavMesh under the player"), GetPlayer() && IsOnNavMesh(World, GetPlayer()->GetActorLocation()));
+		TestNotNull(TEXT("Town has its AGSMapBoundary"), AGSMapBoundary::Find(World));
+		TestFalse(TEXT("No safe zone in the town"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_SafeZone));
+		TestFalse(TEXT("HUD: not a safe area"), GetHUD() && GetHUD()->IsInSafeArea());
 
-		ULevelStreaming* District = GameMode->GetMarketDistrictStreamingLevel();
-		if (TestNotNull(TEXT("Town map has the L_MarketDistrict_Graybox sublevel"), District))
-		{
-			TestFalse(TEXT("Market District is unloaded at start"), District->IsLevelLoaded());
-		}
-
-		TestTrue(TEXT("Travel to the Market District starts"), GameMode->TravelToMarketDistrict());
+		// gs.Market.Teleport (repointed): leave the run for the hub map.
+		*PreviousWorld = World;
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("MarketTeleport"), {});
 	});
-	WaitUntil(this, TEXT("party to arrive in the Market District"), []()
+	WaitForMapTravel(this, PreviousWorld, HubMap);
+	Step([this, PreviousWorld]()
 	{
-		const AGSGameState* GameState = GetGameState();
-		return GameState && GameState->GetCurrentArea() == EGSArea::MarketDistrict;
-	});
+		TestNotNull(TEXT("gs.Market.Teleport opened the hub (AGSHubGameMode)"), GetHubGameMode());
+		TestTrue(TEXT("Hub area"), GetGameState() && GetGameState()->GetCurrentArea() == EGSArea::MarketDistrict);
 
-	// Market District contents, safety, and arrival.
+		// gs.Market.Return (repointed): start a run from the hub, as the portal does.
+		*PreviousWorld = GetPIEWorld();
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("MarketReturn"), {});
+		TestTrue(TEXT("gs.Market.Return starts a run"), GetHubGameMode() && GetHubGameMode()->IsStartingRun());
+	});
+	WaitForMapTravel(this, PreviousWorld, TownMap);
 	Step([this]()
 	{
-		UWorld* World = GetPIEWorld();
-		const AActor* Arrival = AGSGameMode::FindTaggedActor(World, TEXT("MarketArrival"));
-		const AActor* Exit = AGSGameMode::FindTaggedActor(World, TEXT("MarketExitPortalSpot"));
-		const AActor* Casino = AGSGameMode::FindTaggedActor(World, TEXT("Casino"));
-		TestTrue(TEXT("MarketArrival is in the district sublevel"), IsInMarketDistrictLevel(Arrival));
-		TestTrue(TEXT("MarketExitPortalSpot is in the district sublevel"), IsInMarketDistrictLevel(Exit));
-		TestTrue(TEXT("Casino is in the district sublevel"), IsInMarketDistrictLevel(Casino));
-		TestTrue(TEXT("District has at least 3 MarketStalls"), CountTagged(World, TEXT("MarketStall")) >= 3);
-
-		TestFalse(TEXT("No navmesh at MarketArrival (enemies can't path in)"), Arrival && IsOnNavMesh(World, Arrival->GetActorLocation()));
-		TestFalse(TEXT("No navmesh at the Casino"), Casino && IsOnNavMesh(World, Casino->GetActorLocation()));
-
-		const APawn* Player = GetPlayer();
-		TestTrue(TEXT("Player teleported to MarketArrival"), Player && Arrival && FVector::Dist2D(Player->GetActorLocation(), Arrival->GetActorLocation()) < 300.f);
-
-		const TArray<AGSEnemyCharacter*> Spawned = UGSDebugLibrary::SpawnEnemiesAround(GetPC(), UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit")), 3);
-		TestEqual(TEXT("Enemy spawning is refused in the Market District"), Spawned.Num(), 0);
-
-		TestTrue(TEXT("Return to town starts"), GetGameMode()->ReturnToTown());
-	});
-	WaitUntil(this, TEXT("party back in town and district unloaded"), []()
-	{
-		const AGSGameState* GameState = GetGameState();
-		const ULevelStreaming* District = GetGameMode() ? GetGameMode()->GetMarketDistrictStreamingLevel() : nullptr;
-		return GameState && GameState->GetCurrentArea() == EGSArea::Town && District && !District->IsLevelLoaded();
-	});
-	Step([this]()
-	{
-		UWorld* World = GetPIEWorld();
-		const AActor* TownReturn = AGSGameMode::FindTaggedActor(World, TEXT("TownReturn"));
-		const APawn* Player = GetPlayer();
-		TestTrue(TEXT("Player returned to TownReturn"), Player && TownReturn && FVector::Dist2D(Player->GetActorLocation(), TownReturn->GetActorLocation()) < 300.f);
-		TestEqual(TEXT("District actors gone after unload"), CountTagged(World, TEXT("Casino")), 0);
+		TestNotNull(TEXT("gs.Market.Return opened the town (AGSGameMode)"), GetGameMode());
+		TestTrue(TEXT("A fresh run: round 1"), GetGameState() && GetGameState()->GetRoundNumber() == 1);
 	});
 	EndPIE();
 	return true;
@@ -836,22 +839,7 @@ bool FGSSpawnLocationFinderTest::RunTest(const FString& Parameters)
 			bSame = A[Index].Location.Equals(B[Index].Location, 0.1);
 		}
 		TestTrue(TEXT("Same run seed picks the same points"), bSame);
-
-		TestTrue(TEXT("Travel to the Market District starts"), GetGameMode()->TravelToMarketDistrict());
-	});
-	WaitUntil(this, TEXT("party in the Market District"), []()
-	{
-		return GetGameState() && GetGameState()->GetCurrentArea() == EGSArea::MarketDistrict;
-	});
-	Step([this]()
-	{
-		FGSSpawnSearchStats Stats;
-		TestEqual(TEXT("No spawn points while in the Market District"), UGSSpawnLocationFinder::FindSpawnLocations(GetPC(), 5, &Stats).Num(), 0);
-		GetGameMode()->ReturnToTown();
-	});
-	WaitUntil(this, TEXT("party back in town"), []()
-	{
-		return GetGameState() && GetGameState()->GetCurrentArea() == EGSArea::Town;
+		// (No spawn points in the Market District: covered by Map.Hub, the hub map.)
 	});
 	EndPIE();
 	return true;
@@ -1995,19 +1983,7 @@ bool FGSLevelUpRewardsTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("In RoundClear"), GetGameState()->GetRoundPhase() == EGSRoundPhase::RoundClear);
 	});
 	Step([LevelUpOnceDamaged]() { LevelUpOnceDamaged(TEXT("RoundClear"), 25.f, 3); });
-
-	// Market District visit works the same.
-	Step([this]() { TestTrue(TEXT("Travel to the Market District starts"), GetGameMode()->TravelToMarketDistrict()); });
-	WaitUntil(this, TEXT("party in the Market District"), []()
-	{
-		return GetGameState() && GetGameState()->GetCurrentArea() == EGSArea::MarketDistrict && !GetGameMode()->IsAreaTravelInProgress();
-	});
-	Step([LevelUpOnceDamaged]() { LevelUpOnceDamaged(TEXT("Market District"), 40.f, 4); });
-	Step([]() { GetGameMode()->ReturnToTown(); });
-	WaitUntil(this, TEXT("party back in town"), []()
-	{
-		return GetGameState() && GetGameState()->GetCurrentArea() == EGSArea::Town && !GetGameMode()->IsAreaTravelInProgress();
-	});
+	// (The in-town Market District visit is gone: the hub is its own map with no XP.)
 
 	Step([this, State, GetContext]()
 	{
@@ -3790,11 +3766,6 @@ bool FGSRoundClearBonusTest::RunTest(const FString& Parameters)
 
 namespace GSTests
 {
-	UGSHUDWidget* GetHUD()
-	{
-		return GetPC() ? GetPC()->GetGSHUD() : nullptr;
-	}
-
 	/** A round banner on screen together with "LEVEL UP!" or an open upgrade offer (the choice cards). */
 	bool IsRoundBannerOverlapping()
 	{
@@ -4012,9 +3983,9 @@ bool FGSHubMapTest::RunTest(const FString& Parameters)
 		// The district's content, moved into the hub.
 		TestEqual(TEXT("Casino"), CountTagged(World, TEXT("Casino")), 1);
 		TestEqual(TEXT("4 market stalls"), CountTagged(World, TEXT("MarketStall")), 4);
-		TestEqual(TEXT("MarketArrival"), CountTagged(World, AGSGameMode::MarketArrivalTag), 1);
+		TestEqual(TEXT("MarketArrival"), CountTagged(World, TEXT("MarketArrival")), 1);
 		TestEqual(TEXT("MarketExitPortalSpot"), CountTagged(World, TEXT("MarketExitPortalSpot")), 1);
-		const AActor* Arrival = AGSGameMode::FindTaggedActor(World, AGSGameMode::MarketArrivalTag);
+		const AActor* Arrival = FindTagged(World, TEXT("MarketArrival"));
 		const AGSCharacter* Player = GetPlayer();
 		if (Arrival && Player)
 		{
@@ -4075,6 +4046,102 @@ bool FGSHubMapTest::RunTest(const FString& Parameters)
 		const AGSCharacter* Player = GetPlayer();
 		TestEqual(TEXT("No shot fired: ammo unchanged"), Player ? Player->GetWeaponComponent()->GetCurrentAmmo() : -1, *AmmoBefore);
 		TestEqual(TEXT("Still no round loop half a second later"), GetGameState()->GetRoundNumber(), 0);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Start Run portal: hub -> town, the run starts when the town loads
+// ---------------------------------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSStartRunPortalTest, "BanditBaller.Map.StartRunPortal", GSTests::TestFlags)
+bool FGSStartRunPortalTest::RunTest(const FString& Parameters)
+{
+	TSharedRef<TWeakObjectPtr<UWorld>> HubWorld = MakeShared<TWeakObjectPtr<UWorld>>();
+	TSharedRef<int32> CashBefore = MakeShared<int32>(0);
+	static constexpr int32 ChosenSeed = 4242;
+
+	BeginPIE(this, HubMap);
+	Step([this, HubWorld, CashBefore]()
+	{
+		UWorld* World = GetPIEWorld();
+		AGSHubGameMode* Hub = GetHubGameMode();
+		AGSStartRunPortal* Portal = nullptr;
+		for (TActorIterator<AGSStartRunPortal> It(World); It; ++It)
+		{
+			Portal = *It;
+		}
+		if (!TestNotNull(TEXT("Hub GameMode"), Hub) || !TestNotNull(TEXT("A Start Run portal in the hub"), Portal))
+		{
+			return;
+		}
+		const AActor* Spot = FindTagged(World, TEXT("MarketExitPortalSpot"));
+		TestTrue(TEXT("Portal stands at MarketExitPortalSpot"), Spot && FVector::Dist2D(Portal->GetActorLocation(), Spot->GetActorLocation()) < 50.f);
+		TestEqual(TEXT("Portal prompt"), Portal->GetPromptText().ToString(), FString(TEXT("START RUN")));
+		TestEqual(TEXT("Portal opens the town (RunMap)"), Hub->GetRunMap().ToSoftObjectPath().GetLongPackageName(), TownMap);
+
+		// gs.Run.Seed in the hub picks the next run's seed.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("RunSeed"), { FString::FromInt(ChosenSeed) });
+		TestEqual(TEXT("gs.Run.Seed in the hub sets the next run's seed"), Hub->GetNextRunSeed(), ChosenSeed);
+
+		// Walk in.
+		*HubWorld = World;
+		*CashBefore = GetPlayerCash();
+		TestFalse(TEXT("No run starting yet"), Hub->IsStartingRun());
+		GetPlayer()->TeleportTo(Portal->GetActorLocation() + FVector(0.f, 0.f, 100.f), GetPlayer()->GetActorRotation());
+	});
+	WaitUntil(this, TEXT("the portal to start the run"), []() { return GetHubGameMode() && GetHubGameMode()->IsStartingRun(); }, 5.0);
+	Step([this]()
+	{
+		const APlayerCameraManager* Camera = GetPC() ? GetPC()->PlayerCameraManager.Get() : nullptr;
+		TestTrue(TEXT("Entering the portal fades the screen out"), Camera && Camera->bEnableFading && Camera->FadeColor.Equals(FLinearColor::Black));
+		TestFalse(TEXT("A second start is refused while one is under way"), GetHubGameMode()->StartRun(GetPC()));
+	});
+	WaitForMapTravel(this, HubWorld, TownMap);
+
+	// The run starts when the town loads: the chosen seed, fresh stats, round 1, the cash kept.
+	Step([this, CashBefore]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		const AGSGameState* GS = GetGameState();
+		if (!TestNotNull(TEXT("Town GameMode after the portal"), GameMode) || !TestNotNull(TEXT("GameState"), GS))
+		{
+			return;
+		}
+		TestEqual(TEXT("Run seed from gs.Run.Seed in the hub"), GameMode->GetRunSeed(), ChosenSeed);
+		TestEqual(TEXT("GameState has the seed"), GS->GetRunSeed(), ChosenSeed);
+		TestEqual(TEXT("Round 1"), GS->GetRoundNumber(), 1);
+		TestTrue(TEXT("Area is the town"), GS->GetCurrentArea() == EGSArea::Town);
+		const UGSRunStats* Stats = GS->GetRunStats();
+		TestTrue(TEXT("Fresh run stats"), Stats && Stats->GetTotalKills() == 0 && Stats->GetCashEarned() == 0 && Stats->GetRoundsCleared() == 0);
+		TestEqual(TEXT("Cash kept across the map change (profile)"), GetPlayerCash(), *CashBefore);
+		TestFalse(TEXT("No safe zone in the town"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_SafeZone));
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+	});
+
+	// The first wave spawns in the ring around the player.
+	WaitUntil(this, TEXT("round 1's first spawns"), []() { return GetGameMode() && GetGameMode()->GetWaveDirector()->GetSpawned() >= 2; }, 20.0);
+	Step([this]()
+	{
+		const UGSWaveDirector* Waves = GetGameMode()->GetWaveDirector();
+		const UGSSpawnSettings* Spawn = GetGameMode()->GetSpawnSettings();
+		if (!TestNotNull(TEXT("Spawn settings"), Spawn))
+		{
+			return;
+		}
+		TestEqual(TEXT("No fallback spawn points"), Waves->GetFallbackSpawns(), 0);
+		TestTrue(FString::Printf(TEXT("Closest spawn %.0f cm >= ring min %.0f"), Waves->GetClosestSpawnDistance(), Spawn->MinRadius),
+			Waves->GetClosestSpawnDistance() >= Spawn->MinRadius - 1.f);
+		TestTrue(FString::Printf(TEXT("Farthest spawn %.0f cm <= ring max %.0f"), Waves->GetFarthestSpawnDistance(), Spawn->MaxRadius),
+			Waves->GetFarthestSpawnDistance() <= Spawn->MaxRadius + 1.f);
+		const AGSMapBoundary* Boundary = AGSMapBoundary::Find(GetPIEWorld());
+		for (TActorIterator<AGSEnemyCharacter> It(GetPIEWorld()); It; ++It)
+		{
+			TestTrue(FString::Printf(TEXT("%s on the NavMesh"), *It->GetName()), IsOnNavMesh(GetPIEWorld(), It->GetActorLocation()));
+			TestTrue(FString::Printf(TEXT("%s inside the boundary"), *It->GetName()), Boundary && Boundary->IsInside(It->GetActorLocation()));
+		}
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
 	});
 	EndPIE();
 	return true;

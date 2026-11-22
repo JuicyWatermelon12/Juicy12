@@ -1,14 +1,13 @@
 // BanditBaller
 //
-// Editor-only: manage the Market District streaming sublevel of the open map, since the MCP scene
-// tools can place actors but cannot create sublevels or change the current level.
+// Editor-only map tooling the MCP scene tools don't cover (they can place actors but not manage sublevels).
 //
-//   gs.Editor.MarketDistrictLevel create       create L_MarketDistrict_Graybox as a Blueprint-streamed
-//                                              (ULevelStreamingDynamic, unloaded at runtime) sublevel
-//   gs.Editor.MarketDistrictLevel edit         make it the current level (new actors go into it)
-//   gs.Editor.MarketDistrictLevel persistent   make the persistent level current again
+//   gs.Editor.RemoveSublevel <ShortName>   remove a streaming sublevel (e.g. L_MarketDistrict_Graybox) from the open
+//                                          map; the map is left dirty, save it afterwards
+//                                          (AssetTools.save_assets).
 //
-// Save afterwards (AssetTools.save_assets with an empty list saves all dirty packages).
+// (gs.Editor.MarketDistrictLevel, which created the old streamed Market District, is gone: the district is now the
+// L_Hub_Graybox map.)
 
 #if WITH_EDITOR
 
@@ -16,95 +15,48 @@
 #include "Editor.h"
 #include "EditorLevelUtils.h"
 #include "Engine/Level.h"
-#include "Engine/LevelStreamingDynamic.h"
+#include "Engine/LevelStreaming.h"
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
 #include "Misc/PackageName.h"
 
 namespace GSEditorLevels
 {
-	const TCHAR* MarketDistrictPackage = TEXT("/Game/BanditBaller/Maps/L_MarketDistrict_Graybox");
-
-	ULevelStreaming* FindStreamingLevel(UWorld& World, const FString& PackageName)
-	{
-		for (ULevelStreaming* Streaming : World.GetStreamingLevels())
-		{
-			if (Streaming && Streaming->GetWorldAssetPackageName() == PackageName)
-			{
-				return Streaming;
-			}
-		}
-		return nullptr;
-	}
-
-	void LogCurrentLevel(UWorld& World)
-	{
-		UE_LOG(LogBanditBaller, Log, TEXT("gs.Editor.MarketDistrictLevel: current level is now %s"),
-			World.GetCurrentLevel() ? *World.GetCurrentLevel()->GetOutermost()->GetName() : TEXT("<none>"));
-	}
-
-	void Command(const TArray<FString>& Args)
+	void RemoveSublevel(const TArray<FString>& Args)
 	{
 		UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 		if (!World || GEditor->PlayWorld)
 		{
-			UE_LOG(LogBanditBaller, Warning, TEXT("gs.Editor.MarketDistrictLevel: needs the editor world (stop PIE first)."));
+			UE_LOG(LogBanditBaller, Warning, TEXT("gs.Editor.RemoveSublevel: needs the editor world (stop PIE first)."));
+			return;
+		}
+		if (Args.Num() == 0)
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.Editor.RemoveSublevel <ShortName>, e.g. gs.Editor.RemoveSublevel L_MarketDistrict_Graybox"));
 			return;
 		}
 
-		const FString Action = Args.Num() > 0 ? Args[0].ToLower() : TEXT("edit");
-		ULevelStreaming* Streaming = FindStreamingLevel(*World, MarketDistrictPackage);
-
-		if (Action == TEXT("create"))
+		for (ULevelStreaming* Streaming : World->GetStreamingLevels())
 		{
-			if (Streaming)
+			if (!Streaming || FPackageName::GetShortName(Streaming->GetWorldAssetPackageName()) != Args[0])
 			{
-				UE_LOG(LogBanditBaller, Log, TEXT("gs.Editor.MarketDistrictLevel: %s already exists in %s."), MarketDistrictPackage, *World->GetName());
-				return;
+				continue;
 			}
-			const FString Filename = FPackageName::LongPackageNameToFilename(MarketDistrictPackage, FPackageName::GetMapPackageExtension());
-			Streaming = UEditorLevelUtils::CreateNewStreamingLevelForWorld(*World, ULevelStreamingDynamic::StaticClass(), Filename,
-				/*bMoveSelectedActorsIntoNewLevel*/ false, /*InTemplateWorld*/ nullptr, /*bInUseSaveAs*/ false);
-			if (!Streaming)
-			{
-				UE_LOG(LogBanditBaller, Error, TEXT("gs.Editor.MarketDistrictLevel: failed to create %s."), MarketDistrictPackage);
-				return;
-			}
-			// Runtime: stays unloaded until AGSGameMode streams it in (still visible in the editor for authoring).
-			if (ULevelStreamingDynamic* Dynamic = Cast<ULevelStreamingDynamic>(Streaming))
-			{
-				Dynamic->bInitiallyLoaded = false;
-				Dynamic->bInitiallyVisible = false;
-			}
+			const bool bRemoved = Streaming->GetLoadedLevel()
+				? UEditorLevelUtils::RemoveLevelFromWorld(Streaming->GetLoadedLevel())
+				: UEditorLevelUtils::RemoveInvalidLevelFromWorld(Streaming);
 			World->MarkPackageDirty();
-			UEditorLevelUtils::MakeLevelCurrent(World->PersistentLevel);
-			UE_LOG(LogBanditBaller, Log, TEXT("gs.Editor.MarketDistrictLevel: created %s (%s)."), MarketDistrictPackage, *Streaming->GetClass()->GetName());
-		}
-		else if (Action == TEXT("edit"))
-		{
-			if (!Streaming || !Streaming->GetLoadedLevel())
-			{
-				UE_LOG(LogBanditBaller, Warning, TEXT("gs.Editor.MarketDistrictLevel: %s is not in this map or not loaded."), MarketDistrictPackage);
-				return;
-			}
-			UEditorLevelUtils::MakeLevelCurrent(Streaming);
-		}
-		else if (Action == TEXT("persistent"))
-		{
-			UEditorLevelUtils::MakeLevelCurrent(World->PersistentLevel);
-		}
-		else
-		{
-			UE_LOG(LogBanditBaller, Warning, TEXT("Usage: gs.Editor.MarketDistrictLevel create|edit|persistent"));
+			UE_LOG(LogBanditBaller, Log, TEXT("gs.Editor.RemoveSublevel: %s %s from %s (save the map)."), *Args[0],
+				bRemoved ? TEXT("removed") : TEXT("could NOT be removed"), *World->GetName());
 			return;
 		}
-		LogCurrentLevel(*World);
+		UE_LOG(LogBanditBaller, Warning, TEXT("gs.Editor.RemoveSublevel: %s is not a sublevel of %s."), *Args[0], *World->GetName());
 	}
 
-	static FAutoConsoleCommand MarketDistrictLevelCommand(
-		TEXT("gs.Editor.MarketDistrictLevel"),
-		TEXT("Editor: manage the Market District sublevel. Usage: gs.Editor.MarketDistrictLevel create|edit|persistent"),
-		FConsoleCommandWithArgsDelegate::CreateStatic(&Command));
+	static FAutoConsoleCommand RemoveSublevelCommand(
+		TEXT("gs.Editor.RemoveSublevel"),
+		TEXT("Editor: remove a streaming sublevel from the open map (save it afterwards). Usage: gs.Editor.RemoveSublevel <ShortName>"),
+		FConsoleCommandWithArgsDelegate::CreateStatic(&RemoveSublevel));
 }
 
 #endif // WITH_EDITOR

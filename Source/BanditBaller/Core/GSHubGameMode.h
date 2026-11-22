@@ -16,7 +16,8 @@ class UGameplayEffect;
  * - Every player gets SafeZoneEffect (GE_SafeZone: State.SafeZone), so GA_Fire can't activate and damage effects are
  *   ignored.
  * - The permanent cash balance (UGSProfileSubsystem) is the same as in the town; the HUD shows it.
- * Shop, casino and the "Start Run" portal come later (AGSGameMode keeps running the town).
+ * - Start Run (AGSStartRunPortal, gs.Market.Return): fade out, then open RunMap; the run starts when it loads.
+ * Shop and casino come later (AGSGameMode runs the town).
  */
 UCLASS()
 class BANDITBALLER_API AGSHubGameMode : public AGameModeBase
@@ -32,12 +33,43 @@ public:
 
 	TSubclassOf<UGameplayEffect> GetSafeZoneEffect() const { return SafeZoneEffect; }
 
+	// --- Start a run ---
+
+	/**
+	 * Requester asked to start a run (walked into the portal): fade every player out over StartRunFadeTime, then open
+	 * RunMap (single-player: OpenLevel, with ?GSSeed=N when gs.Run.Seed chose a seed). False if a start is already
+	 * under way or RunMap is unset. TODO(co-op): ServerTravel so the whole party goes together (M6).
+	 */
+	bool StartRun(APlayerController* Requester);
+
+	bool IsStartingRun() const { return bStartingRun; }
+
+	/** Debug (gs.Run.Seed N in the hub): the next run uses Seed; 0 = a random seed. */
+	void SetNextRunSeed(int32 Seed);
+	int32 GetNextRunSeed() const { return NextRunSeed; }
+
+	const TSoftObjectPtr<UWorld>& GetRunMap() const { return RunMap; }
+
 protected:
 	/** GE_SafeZone (UGSSafeZoneEffect child), applied once to every player's ASC. */
 	UPROPERTY(EditDefaultsOnly, Category = "Hub")
 	TSubclassOf<UGameplayEffect> SafeZoneEffect;
 
+	/** The run map the portal opens (L_Town_Graybox). */
+	UPROPERTY(EditDefaultsOnly, Category = "Start Run")
+	TSoftObjectPtr<UWorld> RunMap;
+
+	/** Fade to black before the run map opens. */
+	UPROPERTY(EditDefaultsOnly, Category = "Start Run", meta = (ClampMin = "0", Units = "s"))
+	float StartRunFadeTime = 0.5f;
+
 private:
 	/** Apply SafeZoneEffect to Player's ability system unless it already has State.SafeZone. */
 	void ApplySafeZone(AController* Player) const;
+
+	void OpenRunMap();
+
+	FTimerHandle StartRunTimer;
+	bool bStartingRun = false;
+	int32 NextRunSeed = 0;
 };

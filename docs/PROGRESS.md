@@ -35,12 +35,13 @@ see **Design update — market, prestige and economy**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
-**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–25 are done
+**Current milestone: M2 — the run loop** (rounds, waves, scaling, economy, progression). Prompts 1–26 are done
 (11–13 and 17 were design / scope updates and permanent cash).
 
-State at the time of writing: `main` after Prompt 25, not pushed. The build is clean and all 29 automation tests pass.
-The game and the editor start in the hub (`L_Hub_Graybox`). It has no Start Run portal yet (Prompt 26), so to play a
-run open `L_Town_Graybox` in the editor.
+State at the time of writing: `main` after Prompt 26, not pushed. The build is clean and all 30 automation tests pass.
+The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to play a run in
+`L_Town_Graybox`. There is no way back to the hub after death yet (Prompt 27): death still reloads the town
+(`?Restart`).
 
 | Step | What | Commit |
 |---|---|---|
@@ -72,7 +73,8 @@ run open `L_Town_Graybox` in the editor.
 | M2 22 | Kill combo: window, cash multiplier steps, ends on damage, pauses with the game, HUD, best combo | cfcf0fc |
 | M2 23 | Round-clear bonus (base + no damage + fast clear, flat) and the RoundClear summary | b04209d |
 | M2 24 | Round HUD: round / phase / countdown / enemies left, upgrade icons, queued round banners | 6be7fe1 |
-| M2 25 | Hub map L_Hub_Graybox + AGSHubGameMode (safe zone, no round loop); startup map | see git log |
+| M2 25 | Hub map L_Hub_Graybox + AGSHubGameMode (safe zone, no round loop); startup map | 815b5db |
+| M2 26 | Start Run portal (hub → town, run starts on load, seed hand-off); town cleanup (district sublevel, market travel removed) | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -140,7 +142,7 @@ Commits were labelled "M1: …" to "M7: …" for prompts 1–7 and "M1 complete"
 - Commands `gs.Market.Teleport` / `gs.Market.Return` (temporary), `gs.Editor.MarketDistrictLevel`
   (`Core/GSEditorLevelCommands.cpp`). Test `Map.TownAndMarketDistrict`.
 
-## M2 — The run loop (Prompts 1–25 done)
+## M2 — The run loop (Prompts 1–26 done)
 
 ### Prompt 1 — Round phase state machine (8572a84)
 - `AGSGameMode::SetPhase` (the only way phases change; logs `Round N: Old -> New`) and `AdvancePhase` (transition
@@ -1017,6 +1019,56 @@ Everything below is in WBP_HUD (`UGSHUDWidget`), built with MCP and driven by de
   PlayerStart's location reset too. The player then fell through a 1 m ground cube. Scales and yaws were restored
   from the original bounds and the hub test passed after that.
 
+### Prompt 26 — Start Run portal + town cleanup
+- **`Market/GSStartRunPortal.*` (`AGSStartRunPortal`) → `Hub/BP_GSStartRunPortal`**, placed in L_Hub_Graybox at
+  MarketExitPortalSpot (0, −2150, on the floor), facing the arrival point (yaw 90).
+  - C++ components: a `Trigger` capsule (r 110, half-height 130, profile Trigger), a `RingMesh` and a floating
+    `PromptText` "START RUN" (TextRender, green, 70). The Blueprint adds a `RingCore`.
+  - Placeholder ring: the engine has no torus mesh, so `RingMesh` is a flat engine Cylinder (2.4 m wide) with
+    `Materials/MI_PortalGlow` (M_XPOrb, green, intensity 6). `RingCore` is a 2.0 m cylinder on top with
+    `MI_PortalCore` (near black), which leaves a glowing band. The ring pulses (cosmetic, local).
+  - A player pawn overlapping the trigger (server) calls `AGSHubGameMode::StartRun(PC)` once (`TryStartRun`, also
+    callable from code).
+- **`AGSHubGameMode::StartRun`:**
+  - Fades every player to black over `StartRunFadeTime` 0.5 s (held), disables their input, then opens `RunMap`
+    (`L_Town_Graybox`, set on BP_GSHubGameMode) with `UGameplayStatics::OpenLevelBySoftObjectPtr`.
+  - A second start while one is under way is refused. `TODO(co-op)`: ServerTravel for the party.
+- **The run starts when the town loads** (`AGSGameMode::StartPlay`, unchanged otherwise):
+  - Seed: `?GSSeed=N` (URL option, `AGSGameMode::RunSeedOption`), else `-GSSeed=N`, else random.
+  - `gs.Run.Seed N` in the hub stores the next seed on the hub GameMode (`SetNextRunSeed`) and the portal passes it
+    as `?GSSeed=N`: the one thing chosen to carry over. In the town, `gs.Run.Seed` still restarts in place.
+  - Then come the run stats reset and round 1. The cash carries over in the profile (GameInstance).
+- **First spawns respect the spawn ring:** checked in PIE and in `Map.StartRunPortal` after the travel.
+  - `UGSWaveDirector` now exposes `GetFallbackSpawns()`, `GetOnScreenSpawns()`, `GetClosestSpawnDistance()` and the new
+    `GetFarthestSpawnDistance()`.
+  - PIE, seed 777 from the hub: `[wave] Round 1 cleared … spawns: closest 12.3 m, on-screen 0, fallback 0` (ring
+    12–25 m). Nothing needed fixing.
+- **Town cleanup:**
+  - The streamed `L_MarketDistrict_Graybox` was removed from L_Town_Graybox (new editor command
+    `gs.Editor.RemoveSublevel <ShortName>`, which replaces `gs.Editor.MarketDistrictLevel`). The asset was then
+    deleted: its content lives in the hub map.
+  - The `MarketPortalSpot` and `TownReturn` Target Points were removed from the town.
+  - Removed from `AGSGameMode`: `TravelToMarketDistrict`, `ReturnToTown`, `IsAreaTravelInProgress`,
+    `GetMarketDistrictStreamingLevel`, `FindTaggedActor`, `TownReturnTag` / `MarketArrivalTag`, the fade / move /
+    tick helpers, and the Market District properties. `SetRound` no longer returns the party to town first.
+  - Added `HubMap` (BP_GSGameMode → L_Hub_Graybox) and `OpenHubMap()` (OpenLevel; the death flow in Prompt 27 can
+    use it).
+- **`gs.Market.*` repointed:**
+  - `gs.Market.Teleport` (in a run) opens the hub map.
+  - `gs.Market.Return` (in the hub) starts a run as the portal does.
+  - Each refuses with a warning in the other map.
+- **Tests:**
+  - `Map.TownAndMarketDistrict` became `Map.Town` (town map, plus gs.Market.Teleport / Return travel) and
+    `Map.StartRunPortal` (hub → portal → town). `Map.Hub` keeps the hub checks.
+  - `Spawn.LocationFinder` and `Progression.LevelUpRewards` lost their in-town district visits.
+  - The tests open L_Town_Graybox explicitly (`BeginPIE`, since Prompt 25).
+- **PIE check** (editor started in the hub):
+  - `gs.Run.Seed 777` → "the next run uses seed 777". The portal showed between the stalls with "START RUN" above it.
+  - Stepping onto the green ring faded the screen.
+  - The town loaded with "Run started: seed 777 (hub gs.Run.Seed)", the HUD at "ROUND 1 / COMBAT / 4 enemies left"
+    and the cash unchanged ($1,340).
+  - Round 1's spawns stayed in the ring (above).
+
 ---
 
 ## Console commands and CVars
@@ -1046,10 +1098,10 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.Round.Skip` | Advance to the next round phase. |
 | `gs.Round.Set <N>` | Jump to round N and restart it from PreRound. |
 | `gs.Round.Pause [0\|1]` | Freeze / resume the phase timer. |
-| `gs.Run.Seed [N]` | Print the run seed, or restart the run (stream + stats, round 1) with seed N. |
+| `gs.Run.Seed [N]` | Town: print the run seed, or restart the run (stream + stats, round 1) with seed N. Hub: print / set the next run's seed (0 = random); the portal passes it on. |
 | `gs.Run.Stats` | Print run stats to log and screen (works on clients), plus this round's stats and the last round-clear bonus. |
-| `gs.Market.Teleport` / `gs.Market.Return` | Debug only: move the party to the Market District and back (not part of the run loop since the design change). |
-| `gs.Editor.MarketDistrictLevel create\|edit\|persistent` | Editor only: create the district sublevel / make it or the persistent level current. |
+| `gs.Market.Teleport` / `gs.Market.Return` | Debug shortcuts. Teleport (in a run) opens the hub map (`AGSGameMode::OpenHubMap`). Return (in the hub) starts a run like the portal (`AGSHubGameMode::StartRun`). |
+| `gs.Editor.RemoveSublevel <ShortName>` | Editor only: remove a streaming sublevel from the open map (MCP can't); save the map afterwards. |
 | `gs.Editor.BuildEnemyStateTree [melee\|ranged\|all]` | Editor only: regenerate ST_MeleeBandit / ST_RangedBandit from code. |
 | `gs.Debug.Round 1` (cvar) | On-screen round, phase, time left, area, wave counts, enemy HP/DMG multipliers. |
 | `gs.Debug.Spawns 1` (cvar) | Draw the spawn ring and chosen points (green ring, yellow fallback) for 8 s. |
@@ -1115,7 +1167,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (29, all passing)
+## Automation tests (30, all passing)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running.
@@ -1128,11 +1180,12 @@ starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE b
 | `Weapons.FireConsumesAmmoReloadRefills` | GA_Fire uses ammo, GA_Reload refills. |
 | `Abilities.DashInvulnerabilityBlocksDamage` | Dash i-frames block damage. |
 | `Map.Hub` | PIE in L_Hub_Graybox: AGSHubGameMode (no AGSGameMode), area MarketDistrict, round 0 / WaitingToStart; Casino, 4 stalls, MarketArrival, MarketExitPortalSpot; player starts at MarketArrival; no NavMesh; AGSMapBoundary contains the player and the Casino; gs.Spawn refused, no enemies; State.SafeZone (GE_SafeZone) on the player, GE_Damage blocked, the fire input fires nothing (no State.Firing, ammo unchanged); HUD in the safe area hides every combat element and shows the cash (= profile); still no round half a second later. |
-| `Map.TownAndMarketDistrict` | Town tags/NavMesh, district contents, teleport there and back, no spawning there. |
+| `Map.Town` | PIE in L_Town_Graybox: AGSGameMode (no hub GameMode), area Town, run started; no sublevels; no TownReturn / MarketPortalSpot / MarketArrival / MarketExitPortalSpot / Casino / MarketStall / Market actors; EnemySpawn points on the NavMesh; NavMesh under the player; boundary; no State.SafeZone; HUD not in a safe area; gs.Market.Teleport opens the hub (AGSHubGameMode, MarketDistrict); gs.Market.Return starts a run and opens the town again (round 1). |
+| `Map.StartRunPortal` | PIE in the hub: a portal at MarketExitPortalSpot ("START RUN"), RunMap = L_Town_Graybox; gs.Run.Seed 4242 in the hub sets the next seed; walking into the trigger starts the run (fade to black, a second start refused); the town loads with seed 4242 (GameMode + GameState), round 1, fresh run stats, area Town, same cash, no safe zone; round 1's first spawns: no fallback points, closest ≥ ring min, farthest ≤ ring max, every enemy on the NavMesh and inside the boundary. |
 | `Map.Boundary` | AGSMapBoundary in the town (ceiling 7500), player inside, cvar exists; 5 boxes: MapBoundary object type, block Pawn, ignore Visibility/Camera/WorldStatic/WorldDynamic/PhysicsBody, no NavMesh effect; player and enemy capsules block MapBoundary; Visibility / Camera / enemy-shot / pickup traces pass through a wall and the ceiling, a pawn sweep doesn't; spawn points near a corner are inside; player and a frozen enemy launched at a wall stay inside; dash and slide into the wall stop inside; a launch up stops at the ceiling (no damage, same XY); gs.Upgrade.Grant ExtraJump 3; an air jump under the ceiling works and is stopped by it. |
 | `Round.PhaseLoop` | PreRound on start, timer → Combat; no market phases in the enum; RoundClear timer → round 2 PreRound; skips round 2 → round 3 PreRound; gs.Round.Set. |
 | `Player.RestartRestoresInput` | Die → death screen UI input → restart → game input back. |
-| `Spawn.LocationFinder` | 12 points: on NavMesh, reachable, in ring, spaced; same seed → same points; none in the district. |
+| `Spawn.LocationFinder` | 12 points: on NavMesh, reachable, in ring, spaced; same seed → same points. (No spawns in the Market District: `Map.Hub`.) |
 | `Round.WaveDirector` | Round 1 size matches DT_Waves; killing the wave ends Combat; skipping removes leftovers. |
 | `Round.WaveBudget` | Seeded purchase within budget, MinRound respected, alive cap with telegraphs, spawns resume. |
 | `Round.DifficultyScaling` | Round 1 base stats; round 10 = base × curve, full health; GameState multipliers. |
@@ -1142,7 +1195,7 @@ starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE b
 | `Economy.KillCombo` | DA_ComboSettings on the GameMode (2.5 s, x1/x1.25/x1.5/x2 steps, end on damage, no XP); step lookup at each boundary; kills 1–10 in a row: count +1, multiplier, cash drop = round(CashValue × multiplier), XP orb unchanged, window restarted, HUD count / multiplier / shown from 2, "10 COMBO" / "x2 CASH", best combo; a target dummy kill doesn't count; the window drains with game time and the HUD bar follows; a kill inside the window continues; it times out one window after the last kill (HUD hidden); pickups collected after the combo ended pay the kill-time multipliers; a level-up pause freezes the window (1 s real time), picking resumes it; god mode keeps the combo, health lost ends it (DamageTaken); override bEndComboOnDamage off / bApplyComboToXP on: XP orbs multiplied, damage keeps the combo; a new run ends it (Reset) and clears the best combo; gs.Run.Stats shows it. |
 | `Economy.XPOrbs` | XPOrbLifetime 0; kill → no XP, one orb worth XPValue with the orb mesh / material, no expiry; cash expires (gs.Cash.Lifetime 1.5) but the orb stays, no blink; walking in collects it → XP = XPValue × XPGain 1.5, run stats XPEarned, "+N XP" popup at the collection point; out-of-reach orb waits, RoundClear vacuums it; gs.XP.Add is instant; a new run clears orbs on the ground; a dead player collects nothing. |
 | `Progression.XPAndLevels` | Curve L2 = 100 / L3 = 125, max 50; partial XP; 260 XP → level 3 with 35 carried over (HUD level + bar follow); kill gives no XP but one orb; collected orb XP = XPValue × XPGain (×1, ×2); run stats XP/level; SetLevel 10 → 0 XP; cap at max level; new run resets. |
-| `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear and the Market District; new run removes stacks and clamps Health; dead player gets the stack but no heal. Takes each upgrade offer (choice 0) so the game unpauses. |
+| `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear; new run removes stacks and clamps Health; dead player gets the stack but no heal. Takes each upgrade offer (choice 0) so the game unpauses. |
 | `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → no popup, collected orb → "+XPValue XP" at the collection point; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); 3 upgrade offers taken; banner/pulse/glow end. |
 | `UI.UpgradeChoice` | Choice widget from the PlayerController; level-up pauses (GameMode owns the pause) and the cards wait for the banner; cards match the offer (order, rarity color, "Owned: N"); "Reroll (3 left)", cursor shown; key / click ignored during the 0.3 s lock; R, gamepad Y and the button reroll (label 2/1/0, new cards, lock again), greyed out at 0 and R does nothing; key 2 picks the 2nd card, last pick hides, unpauses, cursor off; 1000 XP → 1 open + 3 queued; D-pad selects, A picks; next offer swaps in at once (no banner wait), locked, still paused; click / numpad 1 / key 3 pick the rest; hidden and unpaused after the queue. |
 | `UI.RoundHUD` | PreRound: "ROUND 1", "PRE-ROUND", countdown "Round 1 in 3…" → "… 2…" a second later, no enemy count, ROUND 1 banner, no icons; gs.Round.Set 2 restarts text + countdown and shows ROUND 2; a level-up hides it and queues it again (LEVEL UP!, offer open, paused); 3.5 s with the cards up: still waiting; the pick replays ROUND 2; icons: picked upgrade x1 → same again x2 (one icon) → another upgrade (two icons); Combat: "COMBAT", no countdown, "N enemies left" = wave, a kill updates it; RoundClear: phase text, no enemy count, ROUND CLEAR banner; a level-up during ROUND CLEAR then round 3 starting with the cards up → queued ROUND CLEAR + ROUND 3 → after LEVEL UP! only ROUND 3 shows (stale one dropped); no frame with a round banner over LEVEL UP! or an open offer; a new run clears the icons. |
@@ -1234,9 +1287,7 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 ## Known issues, TODOs and deviations
 
 **Not built yet / stubs**
-- **Not yet built for the design change:**
-  - Start Run portal (the game already starts in the hub; Prompt 26).
-  - Run summary and return to the hub.
+- **Not yet built for the design change:** the run summary and the return to the hub after death (Prompt 27).
 - No upgrade is Epic or Legendary yet; those tiers are empty and never offered.
 - **Not yet built for the decisions before M3:**
   - Owned items in `OwnedItems`, item types (usable items, gear) and the gear loadout (M3/M4).
@@ -1247,11 +1298,9 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   single-player / host path exists (`TODO(co-op)`).
 - `Balance.TimeToKill` failed once in a full run (round 1 melee vs rifle: 4 shots instead of 3, the first case
   after PIE starts) and passed when re-run alone and in the next full run. Probably a missed first shot; watch it.
-- **Still in the code until Prompt 26:** the streamed `L_MarketDistrict_Graybox`, `TravelToMarketDistrict` /
-  `ReturnToTown` and `gs.Market.Teleport` / `Return` (debug only). The hub map has its own copy of the district
-  content.
-- The hub has no way into a run yet. The Start Run portal is Prompt 26; until then open `L_Town_Graybox` in the
-  editor to play a run.
+- Start Run portal (placeholder): a flat glowing ring made of two engine cylinders (no torus in the engine content)
+  and a world-space "START RUN" text. There is no sound, no fade-in when the town opens, and no prompt on the HUD.
+- `EGSArea::MarketDistrict` now only means "in the hub map". The in-town district and its travel are gone.
 - No shop or casino logic yet (M3/M4); CashSpent is never used.
 - Crits are stubbed (`TODO(crits)` in `GSAttributeSet.cpp`; damage numbers support them, nothing sets them).
 - The `GameOver` phase exists but is unused. Player death reloads the whole map (`?Restart`); the cash balance
@@ -1366,14 +1415,11 @@ Permanent cash was then built as a single local balance in a2dc3b7.)
     - **GameModes:** a hub GameMode (no rounds; shop, casino and portal later) with its own Blueprint. The current
       `AGSGameMode` keeps the round loop as the town map's GameMode.
     - **Tests** open `L_Town_Graybox` explicitly, since the startup map changes (done: `BeginPIE`).
-26. **Start Run portal + town cleanup.**
-    - A portal actor at `MarketExitPortalSpot` opens `L_Town_Graybox` (`OpenLevel`). The run (seed, stats, round 1)
-      starts when the town loads.
-    - Remove the streamed district, `TravelToMarketDistrict` / `ReturnToTown` and the in-town portal points.
-      Repoint `gs.Market.*` to map travel (or retire them). Rework `Map.TownAndMarketDistrict`.
+26. ~~**Start Run portal + town cleanup.**~~ Done (see Prompt 26).
 27. **Death → summary → hub.**
     - On player death, enter the GameOver phase.
-    - Run summary widget (run stats: rounds, kills, cash earned, level), then Continue → `OpenLevel` back to the hub.
+    - Run summary widget (run stats: rounds, kills, cash earned, level), then Continue → `OpenLevel` back to the hub
+      (`AGSGameMode::OpenHubMap` already exists; `HubMap` is set on BP_GSGameMode).
     - Nothing from the run carries over except what is chosen explicitly, so progression, upgrades, health, weapons
       and run stats reset by construction. Cash is kept in the profile. This replaces `?Restart`.
 28. **Tests + M2 checkpoint.** Fill test gaps for the new rules, run the full suite, update this file and close M2.
@@ -1423,8 +1469,8 @@ Not built now; listed so single-player work stays co-op-ready. Co-op has never b
 - **Death:** "all players dead" ends the run, with revive, instead of one player's death.
 
 **Known gaps in today's code**
-- Market travel doesn't wait for clients to stream the district (`TODO(co-op)` in `GSGameMode.cpp`). This goes away
-  with the separate hub map.
+- Hub ↔ town travel is single-player `OpenLevel` (`AGSHubGameMode::StartRun`, `AGSGameMode::OpenHubMap`;
+  `TODO(co-op)`). M6 needs ServerTravel so the whole party goes.
 - The profile is one balance per machine. On a listen server only the host's pickups are credited; remote players'
   pickups are not (`TODO(co-op)` in `AwardCash`). Clients' HUDs show their own machine's profile.
 - Cash goes to whoever collects it, not the killer.
