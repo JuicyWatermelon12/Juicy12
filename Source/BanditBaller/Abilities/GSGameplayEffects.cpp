@@ -214,6 +214,13 @@ UGSUpgradeEffect_RazorCards::UGSUpgradeEffect_RazorCards(const FObjectInitialize
 	AddAdditiveModifier(UGSAttributeSet::GetRazorCardsPowerAttribute()); // +damage / fire rate steps
 }
 
+UGSUpgradeEffect_BarbedWire::UGSUpgradeEffect_BarbedWire(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddPicksModifier(UGSAttributeSet::GetBarbedWireLevelAttribute()); // owned
+	AddAdditiveModifier(UGSAttributeSet::GetBarbedWirePowerAttribute()); // +damage / radius steps
+}
+
 UGSUpgradeEffect_SecondWind::UGSUpgradeEffect_SecondWind(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

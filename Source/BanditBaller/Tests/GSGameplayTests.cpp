@@ -89,6 +89,9 @@
 #include "GSFloatingGunSettings.h"
 #include "GSRazorCardsComponent.h"
 #include "GSRazorCardsSettings.h"
+#include "GSBarbedWireComponent.h"
+#include "GSBarbedWireSettings.h"
+#include "Components/InstancedStaticMeshComponent.h"
 #include "GSFloatingShieldsComponent.h"
 #include "GSProjectileSubsystem.h"
 #include "GSSecondWindComponent.h"
@@ -4748,7 +4751,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
-		TestEqual(TEXT("Pool has the 16 upgrades"), Pool->Upgrades.Num(), 16);
+		TestEqual(TEXT("Pool has the 17 upgrades"), Pool->Upgrades.Num(), 17);
 		const float StatWeights[] = { 100.f, 20.f, 6.f, 1.f };
 		const float AbilityWeights[] = { 100.f, 10.f, 3.f, 0.5f };
 		for (const EGSUpgradeRarity Rarity : UGSUpgradePool::GetAllRarities())
@@ -4812,12 +4815,12 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		const double LegendaryShare = static_cast<double>(LegendaryCards) / Cards;
 		AddInfo(FString::Printf(TEXT("Legendary ability cards: %d of %d (%.3f%%, chance 0.8%% per card)"), LegendaryCards, Cards, 100.0 * LegendaryShare));
 		TestTrue(TEXT("Legendary ability cards at about 0.8% of cards"), FMath::Abs(LegendaryShare - 0.008) < 0.0015);
-		bool bEven = PerUpgrade.Num() == 15;
+		bool bEven = PerUpgrade.Num() == 16;
 		for (const TPair<const UGSUpgradeData*, int32>& Entry : PerUpgrade)
 		{
-			bEven &= FMath::Abs(static_cast<double>(Entry.Value) / NormalCards - 1.0 / 15.0) < 0.01;
+			bEven &= FMath::Abs(static_cast<double>(Entry.Value) / NormalCards - 1.0 / 16.0) < 0.01;
 		}
-		TestTrue(TEXT("The 15 other upgrades come up evenly (AppearanceWeight 1 each)"), bEven);
+		TestTrue(TEXT("The 16 other upgrades come up evenly (AppearanceWeight 1 each)"), bEven);
 		auto Share = [&Split](int32 Kind, EGSUpgradeRarity Rarity)
 		{
 			const int32 Total = Split[Kind][0] + Split[Kind][1] + Split[Kind][2] + Split[Kind][3];
@@ -8652,6 +8655,7 @@ namespace GSTests
 			{ TEXT("SecondWind"), Ability, true, false, 1.f, false, A::GetSecondWindsAttribute() },
 			{ TEXT("FloatingGun"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetFloatingGunPowerAttribute() },
 			{ TEXT("RazorCards"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetRazorCardsPowerAttribute() },
+			{ TEXT("BarbedWire"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetBarbedWirePowerAttribute() },
 		};
 	}
 
@@ -8706,7 +8710,7 @@ bool FGSUpgradePickValuesTest::RunTest(const FString& Parameters)
 			TestEqual(FString::Printf(TEXT("%s: percent upgrade"), E.Name), Upgrade->IsPercentUpgrade(), E.bPercent);
 			TestTrue(FString::Printf(TEXT("%s: in DA_UpgradePool"), E.Name), Pool->Upgrades.Contains(Upgrade));
 		}
-		TestEqual(TEXT("All 16 upgrades checked"), Seen.Num(), 16);
+		TestEqual(TEXT("All 17 upgrades checked"), Seen.Num(), 17);
 		TestEqual(TEXT("Every pool upgrade checked"), Pool->Upgrades.Num(), Seen.Num());
 		const UGSUpgradeData* Gun = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
 		TestEqual(TEXT("Floating Gun: its first two picks give the guns"), Gun ? Gun->WeaponGivingPicks : 0, 2);
@@ -8734,7 +8738,8 @@ bool FGSUpgradePickValuesTest::RunTest(const FString& Parameters)
 			FText2{ TEXT("PowderKeg"), TEXT("+3% chance that a kill explodes"), TEXT("+9% chance that a kill explodes") },
 			FText2{ TEXT("SecondWind"), TEXT("+1 Second Wind"), TEXT("+1 Second Wind") },
 			FText2{ TEXT("FloatingGun"), TEXT("+10% floating gun damage and fire rate"), TEXT("+30% floating gun damage and fire rate") },
-			FText2{ TEXT("RazorCards"), TEXT("+10% Razor Cards damage and fire rate"), TEXT("+30% Razor Cards damage and fire rate") } })
+			FText2{ TEXT("RazorCards"), TEXT("+10% Razor Cards damage and fire rate"), TEXT("+30% Razor Cards damage and fire rate") },
+			FText2{ TEXT("BarbedWire"), TEXT("+10% Barbed Wire damage, +5% size"), TEXT("+30% Barbed Wire damage, +15% size") } })
 		{
 			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(E.Name);
 			if (!Upgrade)
@@ -8997,7 +9002,7 @@ bool FGSWeaponSlotsTest::RunTest(const FString& Parameters)
 		GameMode->RestartRunWithSeed(4301);
 		TestTrue(TEXT("A new run: the first offer is pending"), Upgrades->IsFirstOfferPending());
 		GameMode->AwardXP(PS, 100.f, false);
-		TestTrue(TEXT("First offer has a weapon card (Floating Gun or Razor Cards)"), OfferHasWeapon(Upgrades->GetCurrentOffer()));
+		TestTrue(TEXT("First offer has a weapon card (any of the three weapons)"), OfferHasWeapon(Upgrades->GetCurrentOffer()));
 		bool bRerollsKeepIt = true;
 		for (int32 i = 0; i < 3; ++i)
 		{
@@ -9030,8 +9035,9 @@ bool FGSWeaponSlotsTest::RunTest(const FString& Parameters)
 		S->TestPool.Reset(DuplicateObject<UGSUpgradePool>(GameMode->GetUpgradePool(), GetTransientPackage()));
 		S->TestWeapon.Reset(MakeTestUpgrade(TEXT("TestWeapon_Real"), EGSUpgradeCategory::Weapon));
 		S->TestWeapon->DisplayName = FText::FromString(TEXT("Test Weapon"));
-		// Exactly two weapons here (the Floating Gun and the test weapon): Razor Cards stays out of this copy.
+		// Exactly two weapons here (the Floating Gun and the test weapon): the other weapons stay out of this copy.
 		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("RazorCards")));
+		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("BarbedWire")));
 		S->TestPool->Upgrades.Add(S->TestWeapon.Get());
 		S->TestPool->MaxWeapons = 1;
 		GameMode->SetUpgradePoolOverride(S->TestPool.Get());
@@ -10176,6 +10182,283 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 	{
 		TestEqual(TEXT("New run: no cards at a bandit in range"), GetRazorCards()->GetCardsThrown(), S->ThrownBefore);
 		TestNull(TEXT("New run: no target"), GetRazorCards()->GetTarget());
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Barbed Wire (Prompt 47): a ring on the ground that hurts every enemy inside it on a fixed tick
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	UGSBarbedWireComponent* GetBarbedWire()
+	{
+		const AGSCharacter* Player = GetPlayer();
+		return Player ? Player->GetBarbedWire() : nullptr;
+	}
+
+	struct FWireState
+	{
+		FVector PlayerSpot = FVector::ZeroVector;
+		FVector Ground = FVector::ZeroVector;
+		FVector Dir = FVector::ForwardVector;
+		FVector Side = FVector::RightVector;
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits; // [0] 2 m, [1] 3.3 m, [2] 3.8 m, [3] above
+		TArray<float> HealthBefore;
+		int32 TicksBefore = 0;
+		bool bScheduleOk = true;
+		int32 Frames = 0;
+		TWeakObjectPtr<AGSEnemyCharacter> Weak;
+		float PlayerHealthBefore = 0.f;
+		int32 KillsBefore = 0;
+		int32 XPOrbsBefore = 0;
+		int32 HealthOrbsBefore = 0;
+	};
+
+	/** Every tick of the current run of ticks is on its exact schedule (1 + floor(elapsed / interval) ticks by now). */
+	bool BarbedWireOnSchedule()
+	{
+		const UGSBarbedWireComponent* Wire = GetBarbedWire();
+		const UGSBarbedWireSettings* Settings = Wire ? Wire->GetSettings() : nullptr;
+		if (!Settings || Wire->GetScheduledTicks() == 0)
+		{
+			return true;
+		}
+		const double Elapsed = GetPIEWorld()->GetTimeSeconds() - Wire->GetFirstTickTime();
+		return Wire->GetScheduledTicks() == 1 + FMath::FloorToInt(Elapsed / Settings->TickInterval + 1e-6);
+	}
+
+	void RecordWireHealth(FWireState& S)
+	{
+		S.HealthBefore.Reset();
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S.Bandits)
+		{
+			S.HealthBefore.Add(Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : 0.f);
+		}
+		S.TicksBefore = GetBarbedWire()->GetTicks();
+	}
+
+	float WireHealthLost(const FWireState& S, int32 Index)
+	{
+		const TWeakObjectPtr<AGSEnemyCharacter>& Bandit = S.Bandits[Index];
+		return Bandit.IsValid() ? S.HealthBefore[Index] - GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSBarbedWireTest, "BanditBaller.Upgrades.BarbedWire", GSTests::TestFlags)
+bool FGSBarbedWireTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	TSharedRef<FWireState> S = MakeShared<FWireState>();
+
+	// Data, a clear lane, the player at its side. Game time x4.
+	Step([this, S]()
+	{
+		SpeedUpWorld(4.f);
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->SetHealthOrbDropChanceOverride(0.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		const UGSBarbedWireSettings* Settings = GameMode->GetBarbedWireSettings();
+		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("BarbedWire"));
+		if (!TestNotNull(TEXT("DA_BarbedWireSettings on BP_GSGameMode"), Settings) || !TestNotNull(TEXT("DA_Upgrade_BarbedWire"), Upgrade)
+			|| !TestNotNull(TEXT("Barbed Wire component on the character"), GetBarbedWire()))
+		{
+			return;
+		}
+		TestEqual(TEXT("3.5 m radius"), Settings->Radius, 350.f);
+		TestEqual(TEXT("5 damage per tick"), Settings->Damage, 5.f);
+		TestEqual(TEXT("A tick every 0.5 s"), Settings->TickInterval, 0.5f);
+		TestEqual(TEXT("+10% damage per power"), Settings->DamageBonusPerPower, 0.1f);
+		TestEqual(TEXT("+5% radius per power"), Settings->RadiusBonusPerPower, 0.05f);
+		TestNotNull(TEXT("Damage effect (GE_Damage)"), Settings->DamageEffect.Get());
+		TestTrue(TEXT("Ring segment mesh and material"), Settings->SegmentMesh && Settings->SegmentMaterial);
+		TestNotNull(TEXT("A hit effect"), Settings->HitEffect.Get());
+		TestTrue(TEXT("Category Weapon"), Upgrade->Category == EGSUpgradeCategory::Weapon);
+		TestEqual(TEXT("The first pick gives the weapon"), Upgrade->WeaponGivingPicks, 1);
+		TestTrue(TEXT("Effect GE_Upgrade_BarbedWire"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_BarbedWire::StaticClass()));
+		TestTrue(TEXT("In DA_UpgradePool"), GameMode->GetUpgradePool() && GameMode->GetUpgradePool()->Upgrades.Contains(Upgrade));
+		TestEqual(TEXT("Card text, none owned"), Upgrade->GetFormattedDescription(0).ToString(), FString(TEXT("New weapon: a ring around you that hurts every enemy inside it.")));
+		TestEqual(TEXT("Card line of a later Common pick"), Upgrade->FormatValueText(GameMode->GetUpgradePool()->GetPickValue(Upgrade, EGSUpgradeRarity::Common, 1)).ToString(),
+			FString(TEXT("+10% Barbed Wire damage, +5% size")));
+		TestEqual(TEXT("Card line of a Rare later pick (halves)"), Upgrade->FormatValueText(1.5f).ToString(), FString(TEXT("+15% Barbed Wire damage, +7.5% size")));
+		TestEqual(TEXT("The card's +10% damage matches the settings"), Upgrade->GetDisplayScale() / 100.f, Settings->DamageBonusPerPower, 0.0001f);
+		TestEqual(TEXT("The card's +5% size matches the settings"), Upgrade->SecondaryDisplayScale / 100.f, Settings->RadiusBonusPerPower, 0.0001f);
+
+		FVector Lane;
+		if (!TestTrue(TEXT("A clear lane in the town"), FindClearLane(2600.f, Lane, S->Dir)))
+		{
+			return;
+		}
+		S->Side = FVector(-S->Dir.Y, S->Dir.X, 0.f);
+		S->PlayerSpot = Lane + S->Dir * 1300.f + S->Side * 200.f;
+		S->Ground = FVector(S->PlayerSpot.X, S->PlayerSpot.Y, 0.f);
+		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
+		TestFalse(TEXT("Not owned: no ring"), GetBarbedWire()->IsRingShown());
+	});
+	WaitFrames(this, 3);
+
+	// Granted: the ring at the feet, no collision; four tough frozen bandits: two inside, one just outside, one above.
+	Step([this, S]()
+	{
+		TestEqual(TEXT("gs.Upgrade.Grant BarbedWire"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("BarbedWire"), 1), 1);
+		UGSBarbedWireComponent* Wire = GetBarbedWire();
+		TestEqual(TEXT("Owned: level 1"), Wire->GetLevel(), 1);
+		TestEqual(TEXT("A Common first pick: power 0"), Wire->GetPower(), 0.f);
+		TestEqual(TEXT("Radius 350"), Wire->GetRadius(), 350.f, 0.01f);
+		TestEqual(TEXT("5 per tick"), Wire->GetTickDamage(), 5.f, 0.0001f);
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Side * 200.f));
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 330.f));
+		S->Bandits.Add(SpawnToughBandit(S->Ground - S->Dir * 380.f));
+		S->Bandits.Add(SpawnToughBandit(S->Ground - S->Dir * 150.f + FVector(0.f, 0.f, 300.f))); // 1.5 m away, 3 m up: floats
+		for (int32 Index = 0; Index < S->Bandits.Num(); ++Index)
+		{
+			TestTrue(FString::Printf(TEXT("Bandit %d spawned"), Index), S->Bandits[Index].IsValid());
+		}
+	});
+	WaitFrames(this, 2);
+	Step([this, S]()
+	{
+		UGSBarbedWireComponent* Wire = GetBarbedWire();
+		const UGSBarbedWireSettings* Settings = Wire->GetSettings();
+		TestTrue(TEXT("The ring is shown"), Wire->IsRingShown());
+		TestEqual(TEXT("One instance per segment"), Wire->GetRing() ? Wire->GetRing()->GetInstanceCount() : 0, Settings->RingSegments);
+		TestEqual(TEXT("Drawn at the radius"), Wire->GetShownRadius(), 350.f, 0.1f);
+		TestTrue(TEXT("The ring has no collision"), Wire->GetRing() && Wire->GetRing()->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
+		const FVector Feet = GetPlayer()->GetActorLocation() - FVector(0.f, 0.f, GetPlayer()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+		TestTrue(TEXT("The ring lies at the feet"), Wire->GetRing() && FVector::Dist(Wire->GetRing()->GetComponentLocation(), Feet) < Settings->HeightAboveFloor + 1.f);
+		const FString Names[] = { TEXT("2 m"), TEXT("3.3 m"), TEXT("3.8 m"), TEXT("3 m up") };
+		const bool Expect[] = { true, true, false, false };
+		for (int32 Index = 0; Index < S->Bandits.Num(); ++Index)
+		{
+			const AGSEnemyCharacter* Bandit = S->Bandits[Index].Get();
+			const FVector Delta = Bandit ? Bandit->GetActorLocation() - GetPlayer()->GetActorLocation() : FVector::ZeroVector;
+			AddInfo(FString::Printf(TEXT("Bandit %s: %.0f cm flat, %.0f cm up"), *Names[Index], Delta.Size2D(), Delta.Z));
+			TestEqual(FString::Printf(TEXT("Bandit %s inside?"), *Names[Index]), Wire->IsInside(Bandit), Expect[Index]);
+		}
+		RecordWireHealth(*S);
+		S->bScheduleOk = true;
+		S->Frames = 0;
+	});
+	WaitUntil(this, TEXT("4 ticks at power 0"), [S]()
+	{
+		S->bScheduleOk &= BarbedWireOnSchedule();
+		++S->Frames;
+		return GetBarbedWire()->GetTicks() >= S->TicksBefore + 4;
+	}, 10.0);
+	Step([this, S]()
+	{
+		UGSBarbedWireComponent* Wire = GetBarbedWire();
+		const int32 Ticks = Wire->GetTicks() - S->TicksBefore;
+		TestTrue(FString::Printf(TEXT("Every frame on the exact schedule (%d frames)"), S->Frames), S->bScheduleOk);
+		TestEqual(TEXT("Each tick hits the two inside"), Wire->GetLastTickHits(), 2);
+		TestEqual(TEXT("2 m: 5 per tick"), WireHealthLost(*S, 0), 5.f * Ticks, 0.01f);
+		TestEqual(TEXT("3.3 m: 5 per tick"), WireHealthLost(*S, 1), 5.f * Ticks, 0.01f);
+		TestEqual(TEXT("3.8 m (outside): nothing"), WireHealthLost(*S, 2), 0.f, 0.01f);
+		TestEqual(TEXT("3 m up (outside): nothing"), WireHealthLost(*S, 3), 0.f, 0.01f);
+
+		// Power 1: +10% damage, +5% radius (367.5 cm: the 3.8 m bandit is still outside).
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("BarbedWire"), 1);
+		TestEqual(TEXT("Power 1"), Wire->GetPower(), 1.f);
+		TestEqual(TEXT("Power 1: radius 367.5"), Wire->GetRadius(), 367.5f, 0.01f);
+		TestEqual(TEXT("Power 1: 5.5 per tick"), Wire->GetTickDamage(), 5.5f, 0.0001f);
+		TestFalse(TEXT("Power 1: 3.8 m still outside"), Wire->IsInside(S->Bandits[2].Get()));
+		RecordWireHealth(*S);
+	});
+	WaitUntil(this, TEXT("3 ticks at power 1"), [S]() { return GetBarbedWire()->GetTicks() >= S->TicksBefore + 3; }, 10.0);
+	Step([this, S]()
+	{
+		UGSBarbedWireComponent* Wire = GetBarbedWire();
+		const int32 Ticks = Wire->GetTicks() - S->TicksBefore;
+		TestEqual(TEXT("The ring is redrawn at the new radius"), Wire->GetShownRadius(), 367.5f, 0.1f);
+		TestEqual(TEXT("Power 1: 5.5 per tick inside"), WireHealthLost(*S, 0), 5.5f * Ticks, 0.01f);
+		TestEqual(TEXT("Power 1: still nothing at 3.8 m"), WireHealthLost(*S, 2), 0.f, 0.01f);
+
+		// An Epic pick (+2 power): power 3, x1.3 damage, radius 402.5 cm: now the 3.8 m bandit is inside.
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("BarbedWire"), 1, EGSUpgradeRarity::Epic);
+		TestEqual(TEXT("Power 3"), Wire->GetPower(), 3.f);
+		TestEqual(TEXT("Power 3: radius 402.5"), Wire->GetRadius(), 402.5f, 0.01f);
+		TestEqual(TEXT("Power 3: 6.5 per tick"), Wire->GetTickDamage(), 6.5f, 0.0001f);
+		TestTrue(TEXT("Power 3: the 3.8 m bandit is inside the bigger ring"), Wire->IsInside(S->Bandits[2].Get()));
+		RecordWireHealth(*S);
+	});
+	WaitUntil(this, TEXT("3 ticks at power 3"), [S]() { return GetBarbedWire()->GetTicks() >= S->TicksBefore + 3; }, 10.0);
+	Step([this, S]()
+	{
+		UGSBarbedWireComponent* Wire = GetBarbedWire();
+		const int32 Ticks = Wire->GetTicks() - S->TicksBefore;
+		TestEqual(TEXT("Power 3: three inside each tick"), Wire->GetLastTickHits(), 3);
+		TestEqual(TEXT("Power 3: 6.5 per tick at 2 m"), WireHealthLost(*S, 0), 6.5f * Ticks, 0.01f);
+		TestEqual(TEXT("Power 3: 6.5 per tick at 3.8 m"), WireHealthLost(*S, 2), 6.5f * Ticks, 0.01f);
+		TestEqual(TEXT("Power 3: still nothing 3 m up"), WireHealthLost(*S, 3), 0.f, 0.01f);
+		TestEqual(TEXT("The ring is redrawn at 402.5"), Wire->GetShownRadius(), 402.5f, 0.1f);
+
+		// Its kill is the player's: a weak bandit inside, Leech, a sure health orb.
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Leech"), 1);
+		GetGameMode()->SetHealthOrbDropChanceOverride(1.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		ApplyDamage(GetPlayerASC(), 10.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		S->PlayerHealthBefore = GetHealth(GetPlayerASC());
+		GetPlayerCombo()->EndCombo(EGSComboEndReason::Reset);
+		S->KillsBefore = GetGameState()->GetRunStats()->GetTotalKills();
+		S->XPOrbsBefore = GetCashSubsystem()->GetNumXPOrbsDropped();
+		S->HealthOrbsBefore = GetCashSubsystem()->GetNumHealthOrbsDropped();
+		S->Weak = SpawnFrozenBandit(S->Ground + S->Side * 200.f);
+		if (S->Weak.IsValid())
+		{
+			S->Weak->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
+		}
+	});
+	WaitUntil(this, TEXT("the ring to kill the bandit"), [S]() { return !S->Weak.IsValid() || S->Weak->GetHealthComponent()->IsDead(); }, 10.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Ring kill: counted in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), S->KillsBefore + 1);
+		TestEqual(TEXT("Ring kill: counts for the combo"), GetPlayerCombo()->GetComboCount(), 1);
+		TestEqual(TEXT("Ring kill: an XP orb"), GetCashSubsystem()->GetNumXPOrbsDropped(), S->XPOrbsBefore + 1);
+		TestEqual(TEXT("Ring kill: the health orb chance (1: one orb)"), GetCashSubsystem()->GetNumHealthOrbsDropped(), S->HealthOrbsBefore + 1);
+		TestTrue(TEXT("Ring kill: a cash drop"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash) > 0);
+		TestEqual(TEXT("Ring kill: Leech heals"), GetHealth(GetPlayerASC()), S->PlayerHealthBefore + 1.f, 0.01f);
+		GetGameMode()->SetHealthOrbDropChanceOverride(0.f);
+
+		// Paused: no ticks.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Side * 200.f));
+		S->TicksBefore = GetBarbedWire()->GetTicks();
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), true);
+	});
+	WaitRealSeconds(this, 0.5);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Paused: no ticks"), GetBarbedWire()->GetTicks(), S->TicksBefore);
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), false);
+
+		// A new run removes it.
+		GetGameMode()->RestartRunWithSeed(4701);
+		GetGameMode()->SetRoundTimerPaused(true);
+		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Side * 200.f));
+		RecordWireHealth(*S);
+	});
+	WaitWorldSeconds(this, 1.5);
+	Step([this, S]()
+	{
+		UGSBarbedWireComponent* Wire = GetBarbedWire();
+		TestEqual(TEXT("New run: level 0"), Wire->GetLevel(), 0);
+		TestEqual(TEXT("New run: power 0"), Wire->GetPower(), 0.f);
+		TestFalse(TEXT("New run: no ring"), Wire->IsRingShown());
+		TestEqual(TEXT("New run: no ticks"), Wire->GetTicks(), S->TicksBefore);
+		TestEqual(TEXT("New run: a bandit next to the player takes nothing"), WireHealthLost(*S, 0), 0.f, 0.01f);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
 		RestoreWorldSpeed();
 	});

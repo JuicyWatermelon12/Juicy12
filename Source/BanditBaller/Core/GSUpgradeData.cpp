@@ -42,6 +42,12 @@ FText UGSUpgradeData::FormatValueText(float Value) const
 	}
 	FFormatNamedArguments Args;
 	Args.Add(TEXT("Value"), Number);
+	if (SecondaryDisplayScale > 0.f)
+	{
+		const float Second = FMath::RoundToFloat(Value * SecondaryDisplayScale * 10.f) / 10.f;
+		const bool bSecondWhole = FMath::IsNearlyEqual(Second, FMath::RoundToFloat(Second), 0.001f);
+		Args.Add(TEXT("Value2"), bSecondWhole ? FFormatArgumentValue(FMath::RoundToInt(Second)) : FFormatArgumentValue(Second));
+	}
 	return FText::Format(ValueText, Args);
 }
 

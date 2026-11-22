@@ -193,6 +193,24 @@ public:
 	FGameplayAttributeData RazorCardsPower;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, RazorCardsPower)
 
+	/**
+	 * Barbed Wire picks: 1 or more = a ring on the ground around the player hurts every enemy inside it
+	 * (UGSBarbedWireComponent on the character, DA_BarbedWireSettings). Default 0, clamped to >= 0, rounded when read.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData BarbedWireLevel;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, BarbedWireLevel)
+
+	/**
+	 * Barbed Wire weapon power: each point adds DA_BarbedWireSettings' damage and radius bonus (added up; fractions count).
+	 * The first pick adds the rarity multiplier - 1, later picks the multiplier. Default 0, clamped to >= 0.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData BarbedWirePower;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, BarbedWirePower)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;

@@ -246,6 +246,19 @@ public:
 	UGSUpgradeEffect_RazorCards(const FObjectInitializer& ObjectInitializer);
 };
 
+/**
+ * GE_Upgrade_BarbedWire: BarbedWireLevel = the number of picks (1+ = the ring) and BarbedWirePower = the total value
+ * (the ring's +damage / +radius steps).
+ */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_BarbedWire : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_BarbedWire(const FObjectInitializer& ObjectInitializer);
+};
+
 /** +1 SecondWinds per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_SecondWind): survive one more killing blow. Using one removes one pick. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_SecondWind : public UGSUpgradeEffect

@@ -22,6 +22,8 @@
 #include "GSFloatingGunComponent.h"
 #include "GSRazorCardsComponent.h"
 #include "GSRazorCardsSettings.h"
+#include "GSBarbedWireComponent.h"
+#include "GSBarbedWireSettings.h"
 #include "GSSecondWindComponent.h"
 #include "GSShieldComponent.h"
 #include "GSGameplayAbility_Dash.h"
@@ -280,7 +282,7 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 	}
 	if (ASC)
 	{
-		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, FireRate %.2f, MoveSpeed %.0f, PickupRadius %.0f, ExtraJumps %.0f, MagazineSizeMultiplier %.3f, HealthOnKill %.0f, CritChance %.3f, Pierce %.0f, PowderKeg %g, Shields %.0f, SecondWinds %.0f, FloatingGunLevel %.0f, FloatingGunPower %g, RazorCardsLevel %.0f, RazorCardsPower %g"),
+		Text += FString::Printf(TEXT("\n  Stats: ReloadSpeed %.2f, Damage %.2f, FireRate %.2f, MoveSpeed %.0f, PickupRadius %.0f, ExtraJumps %.0f, MagazineSizeMultiplier %.3f, HealthOnKill %.0f, CritChance %.3f, Pierce %.0f, PowderKeg %g, Shields %.0f, SecondWinds %.0f, FloatingGunLevel %.0f, FloatingGunPower %g, RazorCardsLevel %.0f, RazorCardsPower %g, BarbedWireLevel %.0f, BarbedWirePower %g"),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetReloadSpeedAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetFireRateAttribute()),
@@ -297,7 +299,9 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 			ASC->GetNumericAttribute(UGSAttributeSet::GetFloatingGunLevelAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetFloatingGunPowerAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetRazorCardsLevelAttribute()),
-			ASC->GetNumericAttribute(UGSAttributeSet::GetRazorCardsPowerAttribute()));
+			ASC->GetNumericAttribute(UGSAttributeSet::GetRazorCardsPowerAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetBarbedWireLevelAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetBarbedWirePowerAttribute()));
 		if (const AGSCharacter* Character = Cast<AGSCharacter>(PC->GetPawn()))
 		{
 			// Slide and dash scale with Move Speed (at least x1); a slide or dash keeps the ratio it started with.
@@ -360,6 +364,14 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 					Cards->GetLevel(), Cards->GetPower(), Cards->GetDamageMultiplier(),
 					CardSettings ? CardSettings->Damage * Cards->GetDamageMultiplier() : 0.f, Interval > 0.0 ? 1.0 / Interval : 0.0,
 					Cards->GetCardsThrown(), *GetNameSafe(Cards->GetTarget()));
+			}
+			if (const UGSBarbedWireComponent* Wire = GunOwner->GetBarbedWire())
+			{
+				const UGSBarbedWireSettings* WireSettings = Wire->GetSettings();
+				Text += FString::Printf(TEXT("\n  Barbed Wire: %d pick(s), power %g, radius %.0f cm, x%.2f damage (%.2f per tick x Damage), every %.2f s, %d tick(s), %d hit(s), %d inside last tick"),
+					Wire->GetLevel(), Wire->GetPower(), Wire->GetRadius(), Wire->GetDamageMultiplier(),
+					WireSettings ? WireSettings->Damage * Wire->GetDamageMultiplier() : 0.f, WireSettings ? WireSettings->TickInterval : 0.f,
+					Wire->GetTicks(), Wire->GetHitsDealt(), Wire->GetLastTickHits());
 			}
 		}
 		if (const UGSSecondWindComponent* SecondWind = PS ? PS->GetSecondWindComponent() : nullptr)

@@ -15,6 +15,7 @@ class UGSDifficultyCurve;
 class UGSCashSettings;
 class UGSFloatingGunSettings;
 class UGSRazorCardsSettings;
+class UGSBarbedWireSettings;
 class UGSComboSettings;
 class UGSCombatSettings;
 class UGSRoundClearSettings;
@@ -184,6 +185,9 @@ public:
 	/** Razor Cards tuning (DA_RazorCardsSettings); nothing is thrown if unset. */
 	const UGSRazorCardsSettings* GetRazorCardsSettings() const { return RazorCardsSettings; }
 
+	/** Barbed Wire tuning (DA_BarbedWireSettings); no ring if unset. */
+	const UGSBarbedWireSettings* GetBarbedWireSettings() const { return BarbedWireSettings; }
+
 	// --- Powder Keg (server) ---
 
 	/**
@@ -330,6 +334,10 @@ protected:
 	/** Razor Cards: damage, fire rate, range, the homing card, look (DA_RazorCardsSettings). */
 	UPROPERTY(EditDefaultsOnly, Category = "Combat")
 	TObjectPtr<UGSRazorCardsSettings> RazorCardsSettings;
+
+	/** Barbed Wire: radius, damage, tick, power bonuses, look (DA_BarbedWireSettings). */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat")
+	TObjectPtr<UGSBarbedWireSettings> BarbedWireSettings;
 
 	/** Round-clear bonus: base, no damage, fast clear (DA_RoundClearSettings). No bonus if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")

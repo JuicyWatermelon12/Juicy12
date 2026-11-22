@@ -51,7 +51,7 @@ held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds
 M2b + M2c checkpoint (48), which replaces the old M2b checkpoint). Four more weapons and a weapons checkpoint follow
 (49–53). **Then M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Razor Cards" (Prompt 46), not pushed. The build is clean and all 53 automation tests pass in about 127 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Barbed Wire" (Prompt 47), not pushed. The build is clean and all 54 automation tests pass in about 130 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -113,7 +113,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2c 44 | No pick caps (MaxStacks removed); Loaded Dice past 100% = triple-hit chance (x3, own damage number), Powder Keg past 100% = double-size blast chance (6 m); overflow on cards and gs.Upgrade.List; high-value stat check | 7247435 |
 | M2c 44b | Fix: slide and dash scale with Move Speed (speed ratio = MoveSpeed / base walk speed, at least 1, kept per slide / dash); x33 checked against the boundary and town cover | aaac26b |
 | M2c 45 | Endless levels: no cap; DA_XPCurve BaseXP 100 for level 2, +30 per level after that (replaces +25%); rewards, offers and HUD at any level | a3671e6 |
-| M2c 46 | Razor Cards (weapon): homing cards at the nearest enemy (6 damage, 2 a second, 25 m, 30 m/s); homing on AGSProjectile; DA_RazorCardsSettings, DA_Upgrade_RazorCards, pool of 16 | see git log |
+| M2c 46 | Razor Cards (weapon): homing cards at the nearest enemy (6 damage, 2 a second, 25 m, 30 m/s); homing on AGSProjectile; DA_RazorCardsSettings, DA_Upgrade_RazorCards, pool of 16 | b2af04e |
+| M2c 47 | Barbed Wire (weapon): a ring on the ground (3.5 m) that hurts every enemy inside every 0.5 s (5 damage); +10% damage, +5% radius per power; `{Value2}` in card text; pool of 17 | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -2706,6 +2707,61 @@ enemy in range with a clear line; each card homes in on the enemy it was thrown 
   "2 COMBO" with their XP collected; the weapon slot showed the Razor Cards icon. `gs.Upgrade.List`: 71 cards thrown.
 - **Full suite:** 53 tests, all passing, in 127.1 s.
 
+### Prompt 47 — Barbed Wire
+The third weapon (M2c weapon rules): a ring on the ground around the player that damages every living enemy inside it
+every 0.5 s.
+- **`Combat/GSBarbedWireSettings.h` (`UGSBarbedWireSettings`) → `Data/DA_BarbedWireSettings`**, set as
+  `BarbedWireSettings` on BP_GSGameMode (`AGSGameMode::GetBarbedWireSettings()`): Radius 350 cm, MaxHeightDifference
+  200 cm, Damage 5, TickInterval 0.5 s, DamageBonusPerPower 0.1, RadiusBonusPerPower 0.05, DamageEffect GE_Damage; look:
+  RingSegments 48 of SegmentMesh (the engine cube) with the new `Materials/MI_BarbedWire` (an instance of M_XPOrb, grey,
+  intensity 0.8), WireThickness 4 cm, HeightAboveFloor 3 cm, HitEffect RadialBurst at HitEffectScale ×0.06.
+- **`Combat/GSBarbedWireComponent.*` (`UGSBarbedWireComponent`, on `AGSCharacter`, `GetBarbedWire()`)**: active while the
+  new attribute **`BarbedWireLevel`** (picks) is 1 or more; **`BarbedWirePower`** gives +10% damage and +5% radius per
+  point (both not replicated, `TODO(co-op)`).
+  - **Inside:** an enemy's center within the radius of the player's center, measured flat, and no more than 2 m above or
+    below. Walls don't matter.
+  - **Ticks** on an exact schedule: the first one as soon as it is owned, then one every 0.5 s from it; a long frame runs
+    every tick it owes; while dead or in a safe zone nothing is banked; a paused game doesn't tick it.
+  - **Each tick**: everyone inside is collected first, then each takes GE_Damage from the player's ASC (Damage × the
+    power bonus × the player's Damage, its own crit roll, a hit result at the enemy for the damage number) and gets the
+    hit effect. Its kills are the player's.
+  - **The ring**: a runtime `UInstancedStaticMeshComponent` (no collision, overlaps, navigation or shadow), placed at the
+    feet every frame in world space (it doesn't turn with the player), rebuilt when the radius changes, hidden when not
+    owned or dead. A new run (level 0) hides it and stops the ticks.
+  - Log prefix `[wire]`: one line when the picks or power change ("Barbed Wire 11 pick(s), power 30 -> x4.00 damage
+    (20.00 per tick), radius 875 cm (x2.50), every 0.50 s").
+- **Card text with two numbers:** new `UGSUpgradeData::SecondaryDisplayScale` and a `{Value2}` placeholder in ValueText.
+  `Data/Upgrades/DA_Upgrade_BarbedWire`: Weapon, BaseValue 1, WeaponGivingPicks 1, DisplayScale 10, SecondaryDisplayScale
+  5, ValueText "+{Value}% Barbed Wire damage, +{Value2}% size" ("+10% Barbed Wire damage, +5% size" for a Common pick,
+  "+15%, +7.5%" for a Rare one); card texts "New weapon: a ring around you that hurts every enemy inside it." and "Makes
+  Barbed Wire stronger and bigger.". `UGSUpgradeEffect_BarbedWire` → `Abilities/GE_Upgrade_BarbedWire`. Added to
+  DA_UpgradePool (17 upgrades, three weapons).
+- **`M_XPOrb`** now has the "Used with Instanced Static Meshes" usage flag; the ring's material instance needs it (the
+  first test run logged that the default material would be used).
+- **Debug:** `gs.Upgrade.Grant BarbedWire [N] [Rarity]`; `gs.Upgrade.List` adds BarbedWireLevel / BarbedWirePower and a line
+  "Barbed Wire: 11 pick(s), power 30, radius 875 cm, x4.00 damage (20.00 per tick x Damage), every 0.50 s, 18 tick(s),
+  372 hit(s), 30 inside last tick".
+- **Tests:** new `Upgrades.BarbedWire` (see the test table). `Upgrades.Offers` (17 upgrades, 16 even), `Upgrades.PickValues`
+  (Barbed Wire's values and card lines) and `Upgrades.WeaponSlots` (any of three weapons in the first offer; the slot-limit
+  step leaves Razor Cards and Barbed Wire out of its pool copy) were updated.
+- **PIE check and frame time with 30 enemies inside** (town, god mode, round paused, editor throttling off, 120 fps
+  cap): Barbed Wire with 10 Legendary picks (power 30, radius 8.75 m, so the whole crowd fits), the player's Damage set to
+  0.01 so nobody died (each tick still hits all 30 and plays 30 hit effects), `gs.Spawn MeleeBandit 30`; once all 30 were
+  within 2.7 m, `gs.Perf 5` twice, then a new run with the same 30 bandits and no ring as a control:
+
+  | | Frame avg | p95 | Max | Game avg | Render avg | GPU avg |
+  |---|---|---|---|---|---|---|
+  | Ring, 30 inside (1st) | 8.95 ms (112 fps) | 10.08 | 115.66 | 8.54 | 4.46 | 4.82 |
+  | Ring, 30 inside (2nd) | 8.53 ms (117 fps) | 9.36 | 34.12 | 7.97 | 4.57 | 4.86 |
+  | No ring, same 30 (control) | 8.44 ms (119 fps) | 8.33 | 28.86 | 5.44 | 3.13 | 4.49 |
+
+  The ring with 30 inside costs about 2.5 ms of game thread and 1.4 ms of render on average (30 damage specs, 30 damage
+  numbers and 30 particle bursts every 0.5 s), and the frame stays at about 117 fps. The first sample's 116 ms spike
+  didn't repeat (likely the first use of the hit effect at that scale). `gs.Upgrade.List`: 372 hits in 18 ticks, "30
+  inside last tick". The screenshot showed the crowd inside the grey ring and the hit bursts on every bandit; the bursts
+  filled the screen, so the hit effect scale was halved to ×0.06 afterwards.
+- **Full suite:** 54 tests, all passing, in 129.5 s.
+
 ---
 
 ## Console commands and CVars
@@ -2719,8 +2775,8 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.God [0\|1]` | Toggle/set damage immunity (one `State.Invulnerable` count). |
 | `gs.GiveWeapon <Weapon>` | Equip `Rifle` / `Pistol` / `BanditCarbine` with a full mag (replaces the equipped one if both slots are full). |
 | `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain, ReloadSpeed). |
-| `gs.Upgrade.Grant <Name> [Count=1] [Rarity=Common]` | Add picks of an upgrade at a rarity (Common, Rare, Epic, Legendary or C / R / E / L; Count and Rarity in any order; whole-unit upgrades have no Rare) (`ReloadSpeed`, `Damage`, `MoveSpeed`, `FireRate`, `Magnet`, `BiggerMags`, `ExtraJump`, `DashCharge`, `Leech`, `LoadedDice`, `PiercingRounds`, `PowderKeg`, `FloatingShield`, `SecondWind`, `FloatingGun`, `RazorCards` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`, `gs.Upgrade.Grant Damage 2 Epic`. |
-| `gs.Upgrade.List` | List every upgrade by category (Stat Boosts, Abilities, Legendary abilities, Weapons) with this run's picks by rarity, total value, Common pick value, cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps / MagazineSizeMultiplier / HealthOnKill / CritChance / Pierce / PowderKeg / Shields / SecondWinds / FloatingGunLevel / FloatingGunPower, the magazine (ammo / size), the dash charges (max = base + ExtraDashCharges, ready now), the floating shields (ready / each recharge / hits blocked), the Floating Gun (picks, power, guns, shots and target), Razor Cards (picks, power, damage per card, cards a second, cards thrown, target), Second Wind (left / used this run) and Powder Keg (stacks, chance per kill, blast damage and radius). The Stats line also shows the slide / dash speed ratio (MoveSpeed / base walk speed, at least 1), the current slide speed cap and dash distance. |
+| `gs.Upgrade.Grant <Name> [Count=1] [Rarity=Common]` | Add picks of an upgrade at a rarity (Common, Rare, Epic, Legendary or C / R / E / L; Count and Rarity in any order; whole-unit upgrades have no Rare) (`ReloadSpeed`, `Damage`, `MoveSpeed`, `FireRate`, `Magnet`, `BiggerMags`, `ExtraJump`, `DashCharge`, `Leech`, `LoadedDice`, `PiercingRounds`, `PowderKeg`, `FloatingShield`, `SecondWind`, `FloatingGun`, `RazorCards`, `BarbedWire` or `DA_Upgrade_*`); stops at MaxStacks. E.g. `gs.Upgrade.Grant ExtraJump 45`, `gs.Upgrade.Grant Damage 2 Epic`. |
+| `gs.Upgrade.List` | List every upgrade by category (Stat Boosts, Abilities, Legendary abilities, Weapons) with this run's picks by rarity, total value, Common pick value, cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps / MagazineSizeMultiplier / HealthOnKill / CritChance / Pierce / PowderKeg / Shields / SecondWinds / FloatingGunLevel / FloatingGunPower, the magazine (ammo / size), the dash charges (max = base + ExtraDashCharges, ready now), the floating shields (ready / each recharge / hits blocked), the Floating Gun (picks, power, guns, shots and target), Razor Cards (picks, power, damage per card, cards a second, cards thrown, target), Barbed Wire (picks, power, radius, damage per tick, ticks, hits, enemies inside on the last tick), Second Wind (left / used this run) and Powder Keg (stacks, chance per kill, blast damage and radius). The Stats line also shows the slide / dash speed ratio (MoveSpeed / base walk speed, at least 1), the current slide speed cap and dash distance. |
 | `gs.Upgrade.Offer` | Queue a level-up offer without the level (opens at once if none is open) and print the open offer. Refused in GameOver. |
 | `gs.Upgrade.Choose <0-2>` | Take a choice of the open offer; the next queued offer opens. |
 | `gs.Upgrade.Reroll` | Reroll the open offer for one of this run's rerolls (refused with none left or no offer). |
@@ -2786,6 +2842,8 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | FloatingGunPower | Floating Gun weapon power (the total value of the Floating Gun picks: picks 1 and 2 add the rarity multiplier − 1, later picks the multiplier): each point adds DA_FloatingGunSettings DamageBonusPerPower / FireRateBonusPerPower (+10%) to both guns; fractions count. Constructor default 0, min 0. Not replicated yet. |
 | RazorCardsLevel | Razor Cards picks: 1 or more = the player throws homing cards at the nearest enemy (UGSRazorCardsComponent on the character, DA_RazorCardsSettings). Constructor default 0, min 0, rounded. Not replicated yet. |
 | RazorCardsPower | Razor Cards weapon power (the first pick adds the rarity multiplier − 1, later picks the multiplier): each point adds DA_RazorCardsSettings DamageBonusPerPower / FireRateBonusPerPower (+10%); fractions count. Constructor default 0, min 0. Not replicated yet. |
+| BarbedWireLevel | Barbed Wire picks: 1 or more = a ring on the ground around the player hurts every enemy inside it every 0.5 s (UGSBarbedWireComponent on the character, DA_BarbedWireSettings). Constructor default 0, min 0, rounded. Not replicated yet. |
+| BarbedWirePower | Barbed Wire weapon power (the first pick adds the rarity multiplier − 1, later picks the multiplier): each point adds DA_BarbedWireSettings DamageBonusPerPower (+10%) and RadiusBonusPerPower (+5%); fractions count. Constructor default 0, min 0. Not replicated yet. |
 | IncomingDamage | Meta attribute: GE_Damage writes it, the set converts it to Health loss and records the instigator. |
 
 **Gameplay tags** (native, `Abilities/GSGameplayTags.*`; none in config):
@@ -2824,6 +2882,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 | `GE_Upgrade_SecondWind` | `UGSUpgradeEffect_SecondWind` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Additive total on SecondWinds (Data.UpgradeValue; +1 per Common pick). A used Second Wind takes one pick back. |
 | `GE_Upgrade_FloatingGun` | `UGSUpgradeEffect_FloatingGun` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Additive picks on FloatingGunLevel (Data.UpgradePicks) and total on FloatingGunPower (Data.UpgradeValue). |
 | `GE_Upgrade_RazorCards` | `UGSUpgradeEffect_RazorCards` | Infinite, one per upgrade; Additive picks on RazorCardsLevel (Data.UpgradePicks) and total on RazorCardsPower (Data.UpgradeValue). |
+| `GE_Upgrade_BarbedWire` | `UGSUpgradeEffect_BarbedWire` | Infinite, one per upgrade; Additive picks on BarbedWireLevel (Data.UpgradePicks) and total on BarbedWirePower (Data.UpgradeValue). |
 | (native, no asset) | `UGSTimedInvulnerabilityEffect` | Has duration (SetByCaller `Data.Duration`); grants `State.Invulnerable`. Second Wind applies it for 2 s (DA_CombatSettings `SecondWindInvulnerableEffect` can replace it). |
 | `GE_Upgrade_LoadedDice` | `UGSUpgradeEffect_LoadedDice` | Infinite, one per upgrade (SetByCaller totals, Prompt 41); Additive total on CritChance (Data.UpgradeValue; +0.05 per Common pick) (MaxStacks 20 on the upgrade). |
 | (native, no asset) | `UGSHealEffect` | Instant; Health + SetByCaller `Data.Heal`, clamped to MaxHealth. AGSGameMode::AwardHealthPickup applies it when a health orb is collected (DA_CashSettings `HealthOrbHealEffect` can replace it). |
@@ -2833,7 +2892,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (53, all passing, about 127 s)
+## Automation tests (54, all passing, about 130 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
@@ -2891,10 +2950,11 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Upgrades.SecondWind` | DA_Upgrade_SecondWind (Legendary, no cap, "+1", GE class, in the pool); DA_CombatSettings 30% / 2 s; SecondWinds 0, can't save; `gs.Upgrade.Grant SecondWind 2` → 2, Owned 2; with a combo running, a 9999 hit from a bandit: not dead, still in the run, Health = 30 (whole points), invulnerable for exactly 2 s (the effect's duration), SecondWinds 1, Owned 1, used once, damage taken += the old Health, combo ended; HUD: strong flash, one sound, "SECOND WIND / 1 left" banner, Health shown as 30, upgrade icon x1; a second killing blow while invulnerable does nothing; the invulnerability doesn't end early; a hit that doesn't kill uses none; a ready Floating Shield blocks a killing blow first (no Second Wind used); the last Second Wind saves again (Health 30, none left, Owned 0, "THAT WAS YOUR LAST", icon gone, two sounds); picked again → 1; a new run → 0, no uses; with none, a killing blow kills (GameOver). Health orbs off. Game time ×4; the HUD flash shortened on this HUD (it fades in real time). |
 | `Upgrades.FloatingGun` | DA_Upgrade_FloatingGun (Epic, no cap, "+1", GE class, in the pool); DA_FloatingGunSettings on the GameMode (8 damage, 1.5 / s, 20 m, 60 m/s, GE_Damage, meshes); level 0: no gun; `gs.Upgrade.Grant FloatingGun` → level 1, one gun on the right: to the right of the player and above the top of the head in the camera's frame, no collision; a frozen bandit 10 m ahead: 4 s of shooting with every frame on the exact schedule (shots = 1 + floor(elapsed / interval)), at least 6 shots, every hit 8; Damage ×1.5 and Loaded Dice 20 → a critical "24"; a bandit at 25 m isn't targeted; one behind a wall isn't; the nearest of two is; hand-fired projectiles pass through the player and hit a bandit behind (7 × Damage 2 = 14), stop at a wall, expire in open air; the pool reuses projectiles (created = prewarm); a safe zone stops it; its kill is the player's (kills, combo 1, XP orb, health orb at chance 1, cash, Leech +1, a Powder Keg blast at 100%); paused: no shots; 24 camera views (shoulder ×2, hip / ADS, pitch −70 to +50): the gun at least 0.9 × the clear radius from the crosshair (logged per view); dead: no shots; a new run → level 0, no projectiles, no gun. Health orbs off except where noted. Game time ×4. |
 | `Upgrades.FloatingGunLevels` | DA_FloatingGunSettings +10% damage and fire rate per level; guns per level 0–6: 0, 1, 2, 2, 2, 2, 2; multipliers x1 at level 2, x1.1 at 3, x1.3 at 5 (added up), 1.95 shots/s at 5; DA_Upgrade_FloatingGun has 3 card texts: "Adds a floating gun…", "Adds a second floating gun…", "+10% floating gun damage and fire rate" (the number matches the settings, damage and fire rate bonus equal), 9 owned repeats the last; the real WBP_UpgradeCard shows the text for 0–3 owned; level 1: one gun; level 2: two guns, the first still right, the second left, mirrored at the same height above the head, no collision, no bonus; one bandit in range: both shoot it; a second bandit: different targets, each takes one gun's damage (about 12 a second over 4 s); one dies: both go to the other; the level 5 pick mid-burst: every frame of both guns on schedule before and after, the schedule switches to the level 5 interval; level 5: still two guns (and two gun actors), 1.95 shots/s and x1.3 each, every hit 10.4, about 40.6 a second from both; logs one gun's DPS next to the rifle's; a new run → level 0, no guns, no gun actors left. Health orbs off. Game time ×4. |
-| `Upgrades.Offers` | DA_UpgradePool on the GameMode (16 upgrades; the 15 other than Second Wind come up evenly, weights Stat Boost / Weapon 100/20/6/1, Ability 100/10/3/0.5, Legendary ability chance 0.8%, 3 choices, 3 rerolls), 4 rarities; per-card roll: 30,000 offers all 3 different, Legendary ability cards at ~0.8% and always Legendary, the 14 others even, each category's rarity split, no Rare whole-unit card; chance 1 / 0 for the Legendary ability; Rare-only weights → Rare, but Common for whole units; per-category weights; AppearanceWeight 0 never offered; same seed same offers (with rarities), 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; a pick gets the card's rolled rarity and value; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer (with rarities); simulator deterministic, no short offers, Epic and Legendary cards, every card in a category, no Rare Legendary ability, run stream untouched. |
-| `Upgrades.PickValues` | DA_UpgradePool multipliers 1 / 1.5 / 2 / 3 and whole-unit values 1 / – / 2 / 3; all 16 DA_Upgrade_* (Razor Cards since Prompt 46): category, Legendary ability, whole units, BaseValue (= the old per-pick value), AppearanceWeight 1, percent or not, in the pool; Floating Gun WeaponGivingPicks 2; card number and FormatValue; ParseRarity; for every stat boost and ability one pick of each rarity: the attribute = base × (1 + total) or base + total after each, a Common pick = exactly the old pick, whole units refuse Rare, picks and total tracked, one active effect; 6 shields, JumpMaxCount 7, Powder Keg 7.5 stacks = 22.5%, crit 37.5%; `gs.Upgrade.Grant Damage 2 Epic` / `Damage Legendary`, ExtraJump Rare refused; Floating Gun Rare → Legendary → Common → Epic: power 0.5 / 2.5 / 3.5 / 5.5, 4 picks, two guns, ×1.55; Second Wind Common / Legendary / Rare = 3 charges, a killing blow uses one (2 picks, total 2, one effect); a new run removes all. |
+| `Upgrades.Offers` | DA_UpgradePool on the GameMode (17 upgrades; the 16 other than Second Wind come up evenly, weights Stat Boost / Weapon 100/20/6/1, Ability 100/10/3/0.5, Legendary ability chance 0.8%, 3 choices, 3 rerolls), 4 rarities; per-card roll: 30,000 offers all 3 different, Legendary ability cards at ~0.8% and always Legendary, the 14 others even, each category's rarity split, no Rare whole-unit card; chance 1 / 0 for the Legendary ability; Rare-only weights → Rare, but Common for whole units; per-category weights; AppearanceWeight 0 never offered; same seed same offers (with rarities), 2 upgrades → offer of 2, MaxStacks excluded, empty pool → none; a pick gets the card's rolled rarity and value; level-up opens an offer after the MaxHealth reward and heal; double level-up queues 2; 3 rerolls (events 2/1/0, Rerolled) then refused; bad index refused; picks grant a stack, Closed + Opened, last pick only Closed; new run closes the offer, refills rerolls, drops picks; reroll with no offer refused; same run seed → same first offer (with rarities); simulator deterministic, no short offers, Epic and Legendary cards, every card in a category, no Rare Legendary ability, run stream untouched. |
+| `Upgrades.PickValues` | DA_UpgradePool multipliers 1 / 1.5 / 2 / 3 and whole-unit values 1 / – / 2 / 3; all 17 DA_Upgrade_* (Razor Cards since Prompt 46, Barbed Wire since 47, "+10% Barbed Wire damage, +5% size"): category, Legendary ability, whole units, BaseValue (= the old per-pick value), AppearanceWeight 1, percent or not, in the pool; Floating Gun WeaponGivingPicks 2; card number and FormatValue; ParseRarity; for every stat boost and ability one pick of each rarity: the attribute = base × (1 + total) or base + total after each, a Common pick = exactly the old pick, whole units refuse Rare, picks and total tracked, one active effect; 6 shields, JumpMaxCount 7, Powder Keg 7.5 stacks = 22.5%, crit 37.5%; `gs.Upgrade.Grant Damage 2 Epic` / `Damage Legendary`, ExtraJump Rare refused; Floating Gun Rare → Legendary → Common → Epic: power 0.5 / 2.5 / 3.5 / 5.5, 4 picks, two guns, ×1.55; Second Wind Common / Legendary / Rare = 3 charges, a killing blow uses one (2 picks, total 2, one effect); a new run removes all. |
 | `Upgrades.RazorCards` | DA_RazorCardsSettings (6 damage, 2 a second, 25 m, 30 m/s, homing, +10% per power, GE_Damage, a thin card) and DA_Upgrade_RazorCards (Weapon, first pick gives it, GE class, in the pool, card text, the +10% matches the settings); a hand-thrown homing card turns toward its bandit, and when the bandit dies it loses its target and flies on straight; granted: level 1, power 0, 0.5 s, ×1; no cards with no enemy, with one 27 m away (out of range) or behind a wall; a bandit in range: about 4 cards in 2 s, every frame on the exact schedule, every card a hit for 6; power 1: on schedule at 1/2.2 s, 6.6 per card; power 3 (an Epic pick): 2.6 a second, 7.8 per card; a bandit running past (17 m in 3 s, 4 m to the side): 8 of 8 cards hit, none hit the world or expired; its kill is the player's (run-stats kill, combo, XP orb, health orb, cash, Leech); paused: no cards; a new run: level 0, no cards in flight, none thrown at a bandit in range. Game time ×4. |
-| `Upgrades.WeaponSlots` | MaxWeapons 3; the real first offer has a weapon card (Floating Gun or Razor Cards); the limit step uses a pool copy without Razor Cards; test pool with two test weapons, MaxWeapons 1: none owned → both offered, one owned → the other never offered (CanOfferWeapon false) and the owned one still offered, MaxWeapons 2 → offered again; the first offer's weapon card in 400 of 400 offers, 3 different cards, at all three positions, Common and Rare both rolled; slots full → it is the owned weapon; MaxWeapons 0 → no weapon card, 3 cards; card labels NEW WEAPON / WEAPON UPGRADE / STAT BOOST; real run: first offer has the Floating Gun, 3 rerolls keep a weapon card, after the first pick not pending and later offers mostly without one, a new run → pending; a copy of the pool with a test weapon and MaxWeapons 1 (`SetUpgradePoolOverride`): one HUD slot, 30 offers + rerolls never offer the test weapon but offer the Floating Gun, the first one includes it; MaxWeapons 3: the test weapon is offered and picked, slots Floating Gun / test weapon / empty, no weapon in the upgrade row; real pool HUD: 3 empty slots without an icon, Damage in the upgrade row, two Epic Floating Gun picks → slot 1 shows it (icon, no count), the others empty, no Floating Gun in the upgrade row; a new run empties the slots; death → summary weapons line "Floating Gun", upgrades "Damage x1", one upgrade icon. |
+| `Upgrades.BarbedWire` | DA_BarbedWireSettings (3.5 m, 5 per tick, every 0.5 s, +10% damage / +5% radius per power, GE_Damage, ring segments, a hit effect) and DA_Upgrade_BarbedWire (Weapon, first pick gives it, GE class, in the pool, card texts, "+15% Barbed Wire damage, +7.5% size" for a Rare pick, both numbers match the settings); not owned: no ring; granted: level 1, power 0, radius 350, 5 per tick; the ring is shown with one instance per segment at the radius, at the feet, no collision; four tough frozen bandits at 2 m, 3.3 m (inside), 3.8 m and 1.5 m but 3 m up (outside); 4 ticks on the exact schedule every frame, two hit per tick, 5 each, the outside ones untouched; power 1: radius 367.5 (3.8 m still outside), 5.5 per tick, the ring redrawn; power 3 (an Epic pick): radius 402.5, 6.5 per tick, the 3.8 m bandit now inside (three per tick), the one above still untouched; its kill is the player's (run-stats kill, combo, XP orb, health orb, cash, Leech); paused: no ticks; a new run: level 0, no ring, no ticks, a bandit next to the player untouched. Game time ×4. |
+| `Upgrades.WeaponSlots` | MaxWeapons 3; the real first offer has a weapon card (any of the three weapons); the limit step uses a pool copy without Razor Cards and Barbed Wire; test pool with two test weapons, MaxWeapons 1: none owned → both offered, one owned → the other never offered (CanOfferWeapon false) and the owned one still offered, MaxWeapons 2 → offered again; the first offer's weapon card in 400 of 400 offers, 3 different cards, at all three positions, Common and Rare both rolled; slots full → it is the owned weapon; MaxWeapons 0 → no weapon card, 3 cards; card labels NEW WEAPON / WEAPON UPGRADE / STAT BOOST; real run: first offer has the Floating Gun, 3 rerolls keep a weapon card, after the first pick not pending and later offers mostly without one, a new run → pending; a copy of the pool with a test weapon and MaxWeapons 1 (`SetUpgradePoolOverride`): one HUD slot, 30 offers + rerolls never offer the test weapon but offer the Floating Gun, the first one includes it; MaxWeapons 3: the test weapon is offered and picked, slots Floating Gun / test weapon / empty, no weapon in the upgrade row; real pool HUD: 3 empty slots without an icon, Damage in the upgrade row, two Epic Floating Gun picks → slot 1 shows it (icon, no count), the others empty, no Floating Gun in the upgrade row; a new run empties the slots; death → summary weapons line "Floating Gun", upgrades "Damage x1", one upgrade icon. |
 | `Upgrades.MoveSpeedSlideDash` | Base Move Speed: ratio exactly 1, the scaled settings getters equal the plain values at 1; half Move Speed → ratio 1 (never below), ×2 → 2; a Move Speed pick raises it, a new run resets it; on a clear 34 m lane of the ring road, a slide from a full run and a dash at ×1 and ×2: each keeps its start ratio; slide start = min(run + SpeedBoost × r, MaxSpeed × r) and faster than running, end = EndSpeed × r; dash = Distance × r in its Duration (±0.02 / +0.06 s), exit = min(ExitSpeed, dash speed) × r = the running speed; ×1 = the old numbers exactly; ×2 = twice the distance in the same time (within 0.05 s), the slide ends at twice EndSpeed; ×33: a dash and a slide into the east boundary wall stop inside. |
 | `Upgrades.MoveSpeedCover` | A crate, a low wall, a shack, a tower and the silo, each with a clear 6 m run-up; at Move Speed ×1, ×5 and ×33, a dash and a slide from a full run into each, the player's location sampled every frame in the piece's own frame: no frame overlaps the piece, the player stays on the ground, and if it ends behind the piece it went round it. Logs each path. Game time ×3. |
 
@@ -3016,7 +3076,7 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   the game). Visuals on BP_GSCharacter's `FloatingShields` component: engine cylinder at (0.45, 0.45, 0.06) with
   M_FloatingShield, orbit 85 cm, 40 cm above the capsule center (chest height), 120°/s; block flash ×1.8 over 0.15 s,
   return pop 0.35 s.
-- **Upgrade offers** (DA_UpgradePool, 16 upgrades since Prompt 46; placeholders): per card a 0.8% Legendary ability
+- **Upgrade offers** (DA_UpgradePool, 17 upgrades since Prompt 47, three of them weapons; placeholders): per card a 0.8% Legendary ability
   chance, otherwise an upgrade by AppearanceWeight (all 1) and a rarity from its category's weights: Stat Boosts and
   Weapons 100 / 20 / 6 / 1, Abilities 100 / 10 / 3 / 0.5 (whole units: Rare → Common). 3 choices, 3 rerolls per run.
   Pick values ×1 / ×1.5 / ×2 / ×3, whole units +1 / +2 / +3.
@@ -3044,13 +3104,31 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   second pick adds 10%; from there both grow 10% per power point, and the gun has twice the base. Razor Cards' edge is
   that its cards home in: they hit a running bandit every time (8 of 8 in the test), where the gun's bullets lead the
   target once and can miss a turning one.
+- **Barbed Wire** (DA_BarbedWireSettings): a ring of radius 3.5 m on the ground around the player (enemy centers within
+  the radius flat and within 2 m up or down); every 0.5 s (exact schedule) 5 damage × the player's Damage to every enemy
+  inside, each with its own crit roll. Each point of power: +10% damage, +5% radius (power 3: 6.5 per tick, 4.025 m;
+  power 10: 10 per tick, 5.25 m). That is 10 DPS per enemy inside at power 0 (no crits), with no cap on how many: 4
+  bandits inside = 40 DPS. Look: 48 segments of the engine cube, 4 cm wire, 3 cm above the floor, MI_BarbedWire (grey);
+  RadialBurst ×0.06 on each enemy hit.
+- **Weapons at power 0, Damage 1, no crits:** Floating Gun 12 DPS on one target (24 with the second pick's gun),
+  Razor Cards 12 on one target (never misses), Barbed Wire 10 on every enemy inside 3.5 m.
 - **Combo curves**: there is no combo system yet.
 
 ## Known issues, TODOs and deviations
 
 **Not built yet / stubs**
-- The M2c upgrade rework is built up to Prompt 46 (rarity per card, weapon slots, no pick caps, the 44b fix, endless
-  levels, Razor Cards). Barbed Wire and the checkpoint (47–48) are next.
+- The M2c upgrade rework is built up to Prompt 47 (rarity per card, weapon slots, no pick caps, the 44b fix, endless
+  levels, Razor Cards, Barbed Wire). The M2b + M2c checkpoint (48) is next.
+- Barbed Wire (Prompt 47):
+  - Placeholder look: 48 grey cube segments in a circle (no torus in the engine content), no barbs, no animation. The
+    hit effect is the RadialBurst template at ×0.06; even halved from ×0.12, 30 of them every 0.5 s are busy on screen.
+    A proper small spark effect is still needed.
+  - "Inside" is the enemy's center within the radius (flat), so a bandit whose body overlaps the wire but whose center
+    is just outside isn't hit. It also ignores walls: an enemy behind a wall inside the radius is hit.
+  - Every tick hits everyone inside at once (30 damage numbers in one frame with a crowd).
+  - Not replicated (`TODO(co-op)`).
+- `M_XPOrb` got the "Used with Instanced Static Meshes" usage flag (Prompt 47) for the ring's material instance;
+  without it the ring rendered with the default material.
 - Endless levels (Prompt 45): XP amounts are int32 (`FGSProgressionState`, `AddXP`), so a run's total XP tops out at
   about 2.1 billion, around level 11,960; `gs.XP.SetLevel` above that uses the highest level that fits (with a
   warning). Far beyond real play. A single gain of many levels applies every level's reward and queues every offer
@@ -3349,7 +3427,7 @@ questions). Each prompt updates the tests that assume the old design.
 45. ~~**Endless levels:** no level cap; the XP needed per level grows by a fixed amount.~~ Done (see Prompt 45): 100 for
     level 2, +30 per level after that.
 46. ~~**Razor Cards** (weapon).~~ Done (see Prompt 46): homing playing cards at the nearest enemy.
-47. **Barbed Wire** (weapon).
+47. ~~**Barbed Wire** (weapon).~~ Done (see Prompt 47): a damaging ring around the player.
 48. **M2b + M2c tests + checkpoint:** tests for the M2b and M2c rules and a PIE checkpoint, like Prompt 28. Replaces
     the old Prompt 40.
 

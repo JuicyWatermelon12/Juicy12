@@ -29,6 +29,8 @@ UGSAttributeSet::UGSAttributeSet()
 	InitFloatingGunPower(0.f);
 	InitRazorCardsLevel(0.f);
 	InitRazorCardsPower(0.f);
+	InitBarbedWireLevel(0.f);
+	InitBarbedWirePower(0.f);
 }
 
 void UGSAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -71,7 +73,9 @@ void UGSAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, fl
 		|| Attribute == GetFloatingGunLevelAttribute()
 		|| Attribute == GetFloatingGunPowerAttribute()
 		|| Attribute == GetRazorCardsLevelAttribute()
-		|| Attribute == GetRazorCardsPowerAttribute())
+		|| Attribute == GetRazorCardsPowerAttribute()
+		|| Attribute == GetBarbedWireLevelAttribute()
+		|| Attribute == GetBarbedWirePowerAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}

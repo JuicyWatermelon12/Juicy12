@@ -116,6 +116,14 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Upgrade", meta = (ClampMin = "0"))
 	float DisplayScale = 0.f;
 
+	/**
+	 * A second number in ValueText: "{Value2}" = the value x this, rounded to 0.1 (0 = none). For an upgrade whose pick
+	 * raises two things by different amounts: Barbed Wire 5 (1 power -> DA_BarbedWireSettings +5% radius) next to
+	 * DisplayScale 10 (+10% damage), "+{Value}% Barbed Wire damage, +{Value2}% size".
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Upgrade", meta = (ClampMin = "0"))
+	float SecondaryDisplayScale = 0.f;
+
 	/** Infinite effect, applied once and updated with the total of every pick (UGSUpgradeEffect subclasses). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Upgrade")
 	TSubclassOf<UGameplayEffect> Effect;

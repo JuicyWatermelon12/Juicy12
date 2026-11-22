@@ -16,6 +16,7 @@ class UGSHealthComponent;
 class UGSFloatingShieldsComponent;
 class UGSFloatingGunComponent;
 class UGSRazorCardsComponent;
+class UGSBarbedWireComponent;
 class UGSDashSettings;
 class UGSMovementSettings;
 class UGSSlideSettings;
@@ -67,6 +68,9 @@ public:
 
 	/** Razor Cards (throws while the RazorCardsLevel attribute is 1 or more). */
 	UGSRazorCardsComponent* GetRazorCards() const { return RazorCards; }
+
+	/** Barbed Wire (a damaging ring while the BarbedWireLevel attribute is 1 or more). */
+	UGSBarbedWireComponent* GetBarbedWire() const { return BarbedWire; }
 
 	// --- Camera debug / tests (local player): the same as the aim and shoulder-swap inputs ---
 	void SetAimingForDebug(bool bAim) { bAim ? OnAimStarted() : OnAimCompleted(); }
@@ -182,6 +186,10 @@ protected:
 	/** Razor Cards: throws homing cards for the player's RazorCardsLevel (tuning in DA_RazorCardsSettings). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
 	TObjectPtr<UGSRazorCardsComponent> RazorCards;
+
+	/** Barbed Wire: the damaging ring for the player's BarbedWireLevel (tuning in DA_BarbedWireSettings). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
+	TObjectPtr<UGSBarbedWireComponent> BarbedWire;
 
 	/** Played on the local player's camera when they take damage (CS_PlayerHit). */
 	UPROPERTY(EditDefaultsOnly, Category = "Health")
