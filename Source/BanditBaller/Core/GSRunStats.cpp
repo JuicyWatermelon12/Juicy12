@@ -15,6 +15,7 @@ EGSDamageSource GSDamageSource::FromTags(const FGameplayTagContainer& Tags)
 	if (Tags.HasTagExact(GSGameplayTags::Damage_Source_Dynamite)) { return EGSDamageSource::Dynamite; }
 	if (Tags.HasTagExact(GSGameplayTags::Damage_Source_LuckyCoin)) { return EGSDamageSource::LuckyCoin; }
 	if (Tags.HasTagExact(GSGameplayTags::Damage_Source_Molotov)) { return EGSDamageSource::Molotov; }
+	if (Tags.HasTagExact(GSGameplayTags::Damage_Source_Tomahawk)) { return EGSDamageSource::Tomahawk; }
 	return EGSDamageSource::Other;
 }
 
@@ -30,6 +31,7 @@ const TCHAR* GSDamageSource::GetName(EGSDamageSource Source)
 	case EGSDamageSource::Dynamite: return TEXT("Dynamite");
 	case EGSDamageSource::LuckyCoin: return TEXT("Lucky Coin");
 	case EGSDamageSource::Molotov: return TEXT("Molotov");
+	case EGSDamageSource::Tomahawk: return TEXT("Tomahawk");
 	default: return TEXT("other");
 	}
 }

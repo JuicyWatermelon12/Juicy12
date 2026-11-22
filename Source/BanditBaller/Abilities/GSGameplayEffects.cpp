@@ -242,6 +242,13 @@ UGSUpgradeEffect_Molotov::UGSUpgradeEffect_Molotov(const FObjectInitializer& Obj
 	AddAdditiveModifier(UGSAttributeSet::GetMolotovPowerAttribute()); // +burn damage / patch radius steps
 }
 
+UGSUpgradeEffect_Tomahawk::UGSUpgradeEffect_Tomahawk(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	AddPicksModifier(UGSAttributeSet::GetTomahawkLevelAttribute()); // owned
+	AddAdditiveModifier(UGSAttributeSet::GetTomahawkPowerAttribute()); // +damage steps, more tomahawks
+}
+
 UGSUpgradeEffect_SecondWind::UGSUpgradeEffect_SecondWind(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {

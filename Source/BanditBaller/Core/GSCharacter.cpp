@@ -23,6 +23,7 @@
 #include "GSDynamiteComponent.h"
 #include "GSLuckyCoinComponent.h"
 #include "GSMolotovComponent.h"
+#include "GSTomahawkComponent.h"
 #include "GSHealthComponent.h"
 #include "GSWeaponComponent.h"
 #include "GSProgressionComponent.h"
@@ -45,6 +46,7 @@ AGSCharacter::AGSCharacter()
 	Dynamite = CreateDefaultSubobject<UGSDynamiteComponent>(TEXT("Dynamite"));
 	LuckyCoin = CreateDefaultSubobject<UGSLuckyCoinComponent>(TEXT("LuckyCoin"));
 	Molotov = CreateDefaultSubobject<UGSMolotovComponent>(TEXT("Molotov"));
+	Tomahawk = CreateDefaultSubobject<UGSTomahawkComponent>(TEXT("Tomahawk"));
 
 	// Slides use crouch for the low capsule.
 	GetCharacterMovement()->GetNavAgentPropertiesRef().bCanCrouch = true;

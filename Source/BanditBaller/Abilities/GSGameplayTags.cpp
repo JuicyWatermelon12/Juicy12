@@ -35,6 +35,7 @@ namespace GSGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Damage_Source_Dynamite, "Damage.Source.Dynamite", "Damage from Dynamite blasts.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Damage_Source_LuckyCoin, "Damage.Source.LuckyCoin", "Damage from the Lucky Coin.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Damage_Source_Molotov, "Damage.Source.Molotov", "Damage from Molotov fire patches.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Damage_Source_Tomahawk, "Damage.Source.Tomahawk", "Damage from Tomahawks.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Duration, "Data.Duration", "SetByCaller duration for timed state effects (Second Wind invulnerability).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Cooldown, "Data.Cooldown", "SetByCaller duration for cooldown effects.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_HealthMultiplier, "Data.HealthMultiplier", "SetByCaller MaxHealth multiplier (enemy round scaling).");

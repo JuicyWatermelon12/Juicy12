@@ -99,6 +99,9 @@
 #include "GSFirePatch.h"
 #include "GSMolotovComponent.h"
 #include "GSMolotovSettings.h"
+#include "GSTomahawk.h"
+#include "GSTomahawkComponent.h"
+#include "GSTomahawkSettings.h"
 #include "GSThrownSubsystem.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "GSFloatingShieldsComponent.h"
@@ -4760,7 +4763,7 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 			return;
 		}
 		TestEqual(TEXT("Pool asset"), Pool->GetName(), FString(TEXT("DA_UpgradePool")));
-		TestEqual(TEXT("Pool has the 20 upgrades"), Pool->Upgrades.Num(), 20);
+		TestEqual(TEXT("Pool has the 21 upgrades"), Pool->Upgrades.Num(), 21);
 		const float StatWeights[] = { 100.f, 20.f, 6.f, 1.f };
 		const float AbilityWeights[] = { 100.f, 10.f, 3.f, 0.5f };
 		for (const EGSUpgradeRarity Rarity : UGSUpgradePool::GetAllRarities())
@@ -4824,12 +4827,12 @@ bool FGSUpgradeOffersTest::RunTest(const FString& Parameters)
 		const double LegendaryShare = static_cast<double>(LegendaryCards) / Cards;
 		AddInfo(FString::Printf(TEXT("Legendary ability cards: %d of %d (%.3f%%, chance 0.8%% per card)"), LegendaryCards, Cards, 100.0 * LegendaryShare));
 		TestTrue(TEXT("Legendary ability cards at about 0.8% of cards"), FMath::Abs(LegendaryShare - 0.008) < 0.0015);
-		bool bEven = PerUpgrade.Num() == 19;
+		bool bEven = PerUpgrade.Num() == 20;
 		for (const TPair<const UGSUpgradeData*, int32>& Entry : PerUpgrade)
 		{
-			bEven &= FMath::Abs(static_cast<double>(Entry.Value) / NormalCards - 1.0 / 19.0) < 0.01;
+			bEven &= FMath::Abs(static_cast<double>(Entry.Value) / NormalCards - 1.0 / 20.0) < 0.01;
 		}
-		TestTrue(TEXT("The 19 other upgrades come up evenly (AppearanceWeight 1 each)"), bEven);
+		TestTrue(TEXT("The 20 other upgrades come up evenly (AppearanceWeight 1 each)"), bEven);
 		auto Share = [&Split](int32 Kind, EGSUpgradeRarity Rarity)
 		{
 			const int32 Total = Split[Kind][0] + Split[Kind][1] + Split[Kind][2] + Split[Kind][3];
@@ -8668,6 +8671,7 @@ namespace GSTests
 			{ TEXT("Dynamite"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetDynamitePowerAttribute() },
 			{ TEXT("LuckyCoin"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetLuckyCoinPowerAttribute() },
 			{ TEXT("Molotov"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetMolotovPowerAttribute() },
+			{ TEXT("Tomahawk"), EGSUpgradeCategory::Weapon, false, false, 1.f, false, A::GetTomahawkPowerAttribute() },
 		};
 	}
 
@@ -8722,7 +8726,7 @@ bool FGSUpgradePickValuesTest::RunTest(const FString& Parameters)
 			TestEqual(FString::Printf(TEXT("%s: percent upgrade"), E.Name), Upgrade->IsPercentUpgrade(), E.bPercent);
 			TestTrue(FString::Printf(TEXT("%s: in DA_UpgradePool"), E.Name), Pool->Upgrades.Contains(Upgrade));
 		}
-		TestEqual(TEXT("All 20 upgrades checked"), Seen.Num(), 20);
+		TestEqual(TEXT("All 21 upgrades checked"), Seen.Num(), 21);
 		TestEqual(TEXT("Every pool upgrade checked"), Pool->Upgrades.Num(), Seen.Num());
 		const UGSUpgradeData* Gun = UGSDebugLibrary::FindUpgradeData(TEXT("FloatingGun"));
 		TestEqual(TEXT("Floating Gun: its first two picks give the guns"), Gun ? Gun->WeaponGivingPicks : 0, 2);
@@ -8754,7 +8758,8 @@ bool FGSUpgradePickValuesTest::RunTest(const FString& Parameters)
 			FText2{ TEXT("BarbedWire"), TEXT("+10% Barbed Wire damage, +5% size"), TEXT("+30% Barbed Wire damage, +15% size") },
 			FText2{ TEXT("Dynamite"), TEXT("+10% Dynamite damage, +5% blast size"), TEXT("+30% Dynamite damage, +15% blast size") },
 			FText2{ TEXT("LuckyCoin"), TEXT("+10% Lucky Coin damage"), TEXT("+30% Lucky Coin damage") },
-			FText2{ TEXT("Molotov"), TEXT("+10% Molotov burn damage, +5% patch size"), TEXT("+30% Molotov burn damage, +15% patch size") } })
+			FText2{ TEXT("Molotov"), TEXT("+10% Molotov burn damage, +5% patch size"), TEXT("+30% Molotov burn damage, +15% patch size") },
+			FText2{ TEXT("Tomahawk"), TEXT("+10% Tomahawk damage"), TEXT("+30% Tomahawk damage") } })
 		{
 			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(E.Name);
 			if (!Upgrade)
@@ -9027,26 +9032,44 @@ bool FGSWeaponSlotsTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Rerolls of the first offer keep a weapon card"), bRerollsKeepIt);
 		TestTrue(TEXT("Pick a non-weapon card"), GameMode->ChooseUpgrade(PS, FirstNonWeaponCard(Upgrades->GetCurrentOffer())));
 		TestFalse(TEXT("After the first pick no more guaranteed weapon cards"), Upgrades->IsFirstOfferPending());
-		// Later offers: a weapon card only by chance, at the rate the pool gives three cards drawn without a weapon
-		// (Legendary ability cards left out of the estimate: they only make a weapon-free offer a little likelier).
-		int32 NonWeapons = 0, Normal = 0;
-		for (const UGSUpgradeData* Upgrade : GameMode->GetUpgradePool()->Upgrades)
+		// Later offers: a weapon card only by chance, at the rate the pool gives three cards drawn without a weapon. The
+		// rate is worked out for each offer from the weapons that can be offered then: an all-weapon offer makes the
+		// player pick a weapon, and with MaxWeapons owned only those are offered. (Legendary ability cards are left out
+		// of the estimate: they only make a weapon-free offer a little likelier.)
+		const UGSUpgradePool* RealPool = GameMode->GetUpgradePool();
+		int32 NonWeapons = 0;
+		TArray<const UGSUpgradeData*> Weapons;
+		for (const UGSUpgradeData* Upgrade : RealPool->Upgrades)
 		{
-			if (!Upgrade->bLegendaryAbility)
+			if (Upgrade->bLegendaryAbility)
 			{
-				++Normal;
-				NonWeapons += Upgrade->Category != EGSUpgradeCategory::Weapon ? 1 : 0;
+				continue;
 			}
-		}
-		double Expected = 1.0;
-		for (int32 Card = 0; Card < 3; ++Card)
-		{
-			Expected *= static_cast<double>(NonWeapons - Card) / (Normal - Card);
+			if (Upgrade->Category == EGSUpgradeCategory::Weapon)
+			{
+				Weapons.Add(Upgrade);
+			}
+			else
+			{
+				++NonWeapons;
+			}
 		}
 		constexpr int32 NumLater = 200;
 		int32 Without = 0;
+		double Expected = 0.0;
 		for (int32 i = 0; i < NumLater; ++i)
 		{
+			int32 Offerable = 0;
+			for (const UGSUpgradeData* Weapon : Weapons)
+			{
+				Offerable += RealPool->CanOfferWeapon(Weapon, [Upgrades](const UGSUpgradeData* U) { return Upgrades->GetStacks(U); }) ? 1 : 0;
+			}
+			double NoWeapon = 1.0;
+			for (int32 Card = 0; Card < 3; ++Card)
+			{
+				NoWeapon *= static_cast<double>(NonWeapons - Card) / (NonWeapons + Offerable - Card);
+			}
+			Expected += NoWeapon / NumLater;
 			GameMode->QueueUpgradeOfferForDebug(PS);
 			Without += OfferHasWeapon(Upgrades->GetCurrentOffer()) ? 0 : 1;
 			GameMode->ChooseUpgrade(PS, FirstNonWeaponCard(Upgrades->GetCurrentOffer()));
@@ -9073,6 +9096,7 @@ bool FGSWeaponSlotsTest::RunTest(const FString& Parameters)
 		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("Dynamite")));
 		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("LuckyCoin")));
 		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("Molotov")));
+		S->TestPool->Upgrades.Remove(UGSDebugLibrary::FindUpgradeData(TEXT("Tomahawk")));
 		S->TestPool->Upgrades.Add(S->TestWeapon.Get());
 		S->TestPool->MaxWeapons = 1;
 		GameMode->SetUpgradePoolOverride(S->TestPool.Get());
@@ -10254,6 +10278,12 @@ namespace GSTests
 		return Player ? Player->GetMolotov() : nullptr;
 	}
 
+	UGSTomahawkComponent* GetTomahawk()
+	{
+		const AGSCharacter* Player = GetPlayer();
+		return Player ? Player->GetTomahawk() : nullptr;
+	}
+
 	struct FWireState
 	{
 		FVector PlayerSpot = FVector::ZeroVector;
@@ -10570,6 +10600,7 @@ bool FGSCheckpointPicksAndNewRunTest::RunTest(const FString& Parameters)
 			{ TEXT("Dynamite"), UGSAttributeSet::GetDynamitePowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
 			{ TEXT("LuckyCoin"), UGSAttributeSet::GetLuckyCoinPowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
 			{ TEXT("Molotov"), UGSAttributeSet::GetMolotovPowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
+			{ TEXT("Tomahawk"), UGSAttributeSet::GetTomahawkPowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
 			{ TEXT("BarbedWire"), UGSAttributeSet::GetBarbedWirePowerAttribute(), { 0.f, 1.5f, 3.5f, 6.5f } },
 		};
 		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
@@ -10637,6 +10668,7 @@ bool FGSCheckpointPicksAndNewRunTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Before the new run: Dynamite owned"), GetDynamite()->GetLevel() > 0);
 		TestTrue(TEXT("Before the new run: Lucky Coin owned"), GetLuckyCoin()->GetLevel() > 0);
 		TestTrue(TEXT("Before the new run: Molotov owned"), GetMolotov()->GetLevel() > 0);
+		TestTrue(TEXT("Before the new run: Tomahawk owned"), GetTomahawk()->GetLevel() > 0);
 		TestTrue(TEXT("Before the new run: shields"), GetPC()->GetPlayerState<AGSPlayerState>()->GetShieldComponent()->GetNumShields() > 0);
 		GetGameMode()->RestartRunWithSeed(4811);
 		GetGameMode()->SetRoundTimerPaused(true);
@@ -10668,6 +10700,7 @@ bool FGSCheckpointPicksAndNewRunTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: Dynamite gone"), GetDynamite()->GetLevel(), 0);
 		TestEqual(TEXT("New run: Lucky Coin gone"), GetLuckyCoin()->GetLevel(), 0);
 		TestEqual(TEXT("New run: Molotov gone"), GetMolotov()->GetLevel(), 0);
+		TestEqual(TEXT("New run: Tomahawk gone"), GetTomahawk()->GetLevel(), 0);
 		TestEqual(TEXT("New run: nothing thrown is left in play"), GetPIEWorld()->GetSubsystem<UGSThrownSubsystem>()->GetActive().Num(), 0);
 		TestEqual(TEXT("New run: no combo"), PS->GetComboComponent()->GetComboCount(), 0);
 		TestEqual(TEXT("New run: no Powder Keg blasts"), GetGameMode()->GetPowderKegBlasts(), 0);
@@ -12246,6 +12279,332 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: no burns"), Molotov->GetBurns(), S->BurnsBefore);
 		TestEqual(TEXT("New run: no patches"), Molotov->GetActivePatches().Num(), 0);
 		TestEqual(TEXT("New run: a bandit in range takes nothing"), MolotovLost(*S, 0), 0.f, 0.01f);
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Tomahawk (Prompt 52): flies out through every enemy on its line, then back to the player and through them again
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	struct FTomahawkState
+	{
+		FVector PlayerSpot = FVector::ZeroVector;
+		FVector Ground = FVector::ZeroVector;
+		FVector Dir = FVector::ForwardVector;
+		FVector Side = FVector::RightVector;
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits;
+		TArray<float> HealthBefore;
+		int32 ThrowsBefore = 0;
+		int32 HitsBefore = 0;
+		float SourceDamageBefore = 0.f;
+		double SpawnedAt = 0.0;
+		FVector FlyingAt = FVector::ZeroVector;
+		bool bScheduleOk = true;
+		int32 Frames = 0;
+		TWeakObjectPtr<AStaticMeshActor> Wall;
+		TWeakObjectPtr<AGSEnemyCharacter> Weak;
+		float PlayerHealthBefore = 0.f;
+		int32 KillsBefore = 0;
+		int32 XPOrbsBefore = 0;
+		int32 HealthOrbsBefore = 0;
+	};
+
+	bool TomahawkOnSchedule()
+	{
+		const UGSTomahawkComponent* Tomahawk = GetTomahawk();
+		if (!Tomahawk || Tomahawk->GetBurstShots() == 0)
+		{
+			return true;
+		}
+		const double Elapsed = GetPIEWorld()->GetTimeSeconds() - Tomahawk->GetBurstStartTime();
+		return Tomahawk->GetBurstShots() == 1 + FMath::FloorToInt(Elapsed / Tomahawk->GetThrowInterval() + 1e-6);
+	}
+
+	void RecordTomahawk(FTomahawkState& S)
+	{
+		S.HealthBefore.Reset();
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S.Bandits)
+		{
+			S.HealthBefore.Add(Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : 0.f);
+		}
+		S.ThrowsBefore = GetTomahawk()->GetThrows();
+		S.HitsBefore = GetTomahawk()->GetHitsDealt();
+		S.SourceDamageBefore = GetGameState()->GetRunStats()->GetDamageDealtBy(EGSDamageSource::Tomahawk);
+	}
+
+	float TomahawkLost(const FTomahawkState& S, int32 Index)
+	{
+		const TWeakObjectPtr<AGSEnemyCharacter>& Bandit = S.Bandits[Index];
+		return Bandit.IsValid() ? S.HealthBefore[Index] - GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f;
+	}
+
+	/** Enqueue: wait until no tomahawk is in the air, then record. */
+	void WaitTomahawksDownAndRecord(FAutomationTestBase* Test, TSharedRef<FTomahawkState> S)
+	{
+		WaitUntil(Test, TEXT("no tomahawk in the air"), []() { return GetTomahawk()->GetActiveTomahawks().Num() == 0; }, 20.0);
+		Step([S]() { RecordTomahawk(*S); });
+	}
+
+	/** Enqueue: wait for Count more throws after the last record, all back. */
+	void WaitThrowsBack(FAutomationTestBase* Test, TSharedRef<FTomahawkState> S, int32 Count, bool bCheckSchedule = false)
+	{
+		WaitUntil(Test, FString::Printf(TEXT("%d throw(s) back"), Count), [S, Count, bCheckSchedule]()
+		{
+			if (bCheckSchedule)
+			{
+				S->bScheduleOk &= TomahawkOnSchedule();
+				++S->Frames;
+			}
+			return GetTomahawk()->GetThrows() >= S->ThrowsBefore + Count && GetTomahawk()->GetActiveTomahawks().Num() == 0;
+		}, 30.0);
+	}
+
+	/** A line of Count tough frozen bandits from Start along Dir, Spacing apart. */
+	void SpawnBanditLine(FTomahawkState& S, float Start, float Spacing, int32 Count)
+	{
+		for (int32 Index = 0; Index < Count; ++Index)
+		{
+			S.Bandits.Add(SpawnToughBandit(S.Ground + S.Dir * (Start + Spacing * Index)));
+		}
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSTomahawkTest, "BanditBaller.Upgrades.Tomahawk", GSTests::TestFlags)
+bool FGSTomahawkTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	TSharedRef<FTomahawkState> S = MakeShared<FTomahawkState>();
+
+	// Data, a clear lane, the player near its start. Game time x4.
+	Step([this, S]()
+	{
+		SpeedUpWorld(4.f);
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->SetHealthOrbDropChanceOverride(0.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		const UGSTomahawkSettings* Settings = GameMode->GetTomahawkSettings();
+		const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(TEXT("Tomahawk"));
+		if (!TestNotNull(TEXT("DA_TomahawkSettings on BP_GSGameMode"), Settings) || !TestNotNull(TEXT("DA_Upgrade_Tomahawk"), Upgrade)
+			|| !TestNotNull(TEXT("Tomahawk component on the character"), GetTomahawk()))
+		{
+			return;
+		}
+		TestEqual(TEXT("12 damage per hit"), Settings->Damage, 12.f);
+		TestEqual(TEXT("A throw every 3 s"), Settings->ThrowInterval, 3.f);
+		TestEqual(TEXT("18 m range"), Settings->Range, 1800.f);
+		TestEqual(TEXT("Flies 18 m out"), Settings->Distance, 1800.f);
+		TestEqual(TEXT("1 tomahawk"), Settings->BaseTomahawks, 1);
+		TestEqual(TEXT("+1 tomahawk per 3 full power"), Settings->PowerPerTomahawk, 3.f);
+		TestEqual(TEXT("+10% damage per power"), Settings->DamageBonusPerPower, 0.1f);
+		TestEqual(TEXT("Tomahawks at power 0 / 2.9 / 3 / 5.9 / 6"), FString::Printf(TEXT("%d %d %d %d %d"), Settings->GetTomahawks(0.f), Settings->GetTomahawks(2.9f),
+			Settings->GetTomahawks(3.f), Settings->GetTomahawks(5.9f), Settings->GetTomahawks(6.f)), FString(TEXT("1 1 2 2 3")));
+		TestNotNull(TEXT("Damage effect (GE_Damage)"), Settings->DamageEffect.Get());
+		TestTrue(TEXT("Tomahawk mesh and material"), Settings->TomahawkMesh && Settings->TomahawkMaterial);
+		TestTrue(TEXT("Category Weapon"), Upgrade->Category == EGSUpgradeCategory::Weapon);
+		TestEqual(TEXT("The first pick gives the weapon"), Upgrade->WeaponGivingPicks, 1);
+		TestTrue(TEXT("Effect GE_Upgrade_Tomahawk"), Upgrade->Effect && Upgrade->Effect->IsChildOf(UGSUpgradeEffect_Tomahawk::StaticClass()));
+		TestTrue(TEXT("In DA_UpgradePool"), GameMode->GetUpgradePool() && GameMode->GetUpgradePool()->Upgrades.Contains(Upgrade));
+		TestEqual(TEXT("Card text, none owned"), Upgrade->GetFormattedDescription(0).ToString(), FString(TEXT("New weapon: throws a tomahawk that cuts through enemies and comes back.")));
+		TestEqual(TEXT("Card text, owned"), Upgrade->GetFormattedDescription(1).ToString(), FString(TEXT("Makes the Tomahawk stronger and, in time, adds tomahawks.")));
+		TestEqual(TEXT("Card line of a later Common pick"), Upgrade->FormatValueText(GameMode->GetUpgradePool()->GetPickValue(Upgrade, EGSUpgradeRarity::Common, 1)).ToString(),
+			FString(TEXT("+10% Tomahawk damage")));
+		TestEqual(TEXT("The card's +10% matches the settings"), Upgrade->GetDisplayScale() / 100.f, Settings->DamageBonusPerPower, 0.0001f);
+
+		FVector Lane;
+		if (!TestTrue(TEXT("A clear lane in the town"), FindClearLane(2600.f, Lane, S->Dir)))
+		{
+			return;
+		}
+		S->Side = FVector(-S->Dir.Y, S->Dir.X, 0.f);
+		S->PlayerSpot = Lane + S->Dir * 100.f;
+		S->Ground = FVector(S->PlayerSpot.X, S->PlayerSpot.Y, 0.f);
+		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
+		RemoveAllEnemies(GetPIEWorld());
+		TestEqual(TEXT("gs.Upgrade.Grant Tomahawk"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Tomahawk"), 1), 1);
+		TestEqual(TEXT("Owned: level 1"), GetTomahawk()->GetLevel(), 1);
+		TestEqual(TEXT("Power 0: one tomahawk"), GetTomahawk()->GetTomahawksPerThrow(), 1);
+		TestEqual(TEXT("Power 0: 12 per hit"), GetTomahawk()->GetHitDamage(), 12.f, 0.0001f);
+		S->Bandits.Reset();
+		RecordTomahawk(*S);
+	});
+	// No enemy: nothing is thrown and nothing banked.
+	WaitWorldSeconds(this, 1.5);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("No target: no throws"), GetTomahawk()->GetThrows(), S->ThrowsBefore);
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 400.f));
+		S->SpawnedAt = GetPIEWorld()->GetTimeSeconds();
+		RecordTomahawk(*S);
+	});
+	WaitUntil(this, TEXT("the first throw"), [S]() { return GetTomahawk()->GetThrows() > S->ThrowsBefore; }, 10.0);
+	Step([this, S]()
+	{
+		const double Delay = GetPIEWorld()->GetTimeSeconds() - S->SpawnedAt;
+		TestEqual(TEXT("One throw (nothing banked)"), GetTomahawk()->GetThrows(), S->ThrowsBefore + 1);
+		TestTrue(FString::Printf(TEXT("The first throw comes at once (%.3f s)"), Delay), Delay < 0.3);
+	});
+
+	// One bandit: hit once out and once back each throw. DPS against one enemy.
+	WaitTomahawksDownAndRecord(this, S);
+	WaitThrowsBack(this, S, 2);
+	Step([this, S]()
+	{
+		const int32 Throws = GetTomahawk()->GetThrows() - S->ThrowsBefore;
+		TestEqual(TEXT("One bandit: 24 a throw (12 out, 12 back)"), TomahawkLost(*S, 0), 24.f * Throws, 0.01f);
+		TestEqual(TEXT("One bandit: two hits a throw"), GetTomahawk()->GetHitsDealt() - S->HitsBefore, 2 * Throws);
+		AddInfo(FString::Printf(TEXT("DPS vs one enemy: %.1f (%.0f in %d throws, one every %.0f s)"), TomahawkLost(*S, 0) / (Throws * GetTomahawk()->GetThrowInterval()),
+			TomahawkLost(*S, 0), Throws, GetTomahawk()->GetThrowInterval()));
+
+		// A line of five, 3 m apart, and one bandit 2.5 m beside the line.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		SpawnBanditLine(*S, 400.f, 300.f, 5);                                         // [0..4]
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 700.f + S->Side * 250.f)); // [5] beside
+	});
+	WaitTomahawksDownAndRecord(this, S);
+	Step([S]() { S->bScheduleOk = true; S->Frames = 0; });
+	WaitThrowsBack(this, S, 2, true);
+	Step([this, S]()
+	{
+		UGSTomahawkComponent* Tomahawk = GetTomahawk();
+		const int32 Throws = Tomahawk->GetThrows() - S->ThrowsBefore;
+		TestTrue(FString::Printf(TEXT("Every frame on the exact 3 s schedule (%d frames)"), S->Frames), S->bScheduleOk);
+		TestEqual(TEXT("Thrown at the nearest"), Tomahawk->GetLastTargets().Num() == 1 ? Tomahawk->GetLastTargets()[0].Get() : nullptr, S->Bandits[0].Get());
+		float Lost = 0.f;
+		for (int32 Index = 0; Index < 5; ++Index)
+		{
+			TestEqual(FString::Printf(TEXT("Line of five: bandit %d hit once out and once back"), Index), TomahawkLost(*S, Index), 24.f * Throws, 0.01f);
+			Lost += TomahawkLost(*S, Index);
+		}
+		TestEqual(TEXT("Beside the line: untouched"), TomahawkLost(*S, 5), 0.f, 0.01f);
+		TestEqual(TEXT("Ten hits a throw"), Tomahawk->GetHitsDealt() - S->HitsBefore, 10 * Throws);
+		TestEqual(TEXT("Run stats count it as Tomahawk damage"), GetGameState()->GetRunStats()->GetDamageDealtBy(EGSDamageSource::Tomahawk) - S->SourceDamageBefore, Lost, 0.01f);
+		AddInfo(FString::Printf(TEXT("DPS vs a line of five (3 m apart): %.1f (%.0f in %d throws)"), Lost / (Throws * Tomahawk->GetThrowInterval()), Lost, Throws));
+
+		// A wall across the lane between bandits 2 (1 m before it) and 3: it turns back there.
+		const bool bAlongX = FMath::Abs(S->Dir.X) > FMath::Abs(S->Dir.Y);
+		const FVector WallAt = S->Ground + S->Dir * 850.f + FVector(0.f, 0.f, 150.f);
+		S->Wall = SpawnTestWall(WallAt, bAlongX ? FVector(0.2f, 6.f, 3.f) : FVector(6.f, 0.2f, 3.f));
+		TestTrue(TEXT("A wall across the lane"), S->Wall.IsValid());
+	});
+	WaitTomahawksDownAndRecord(this, S);
+	WaitThrowsBack(this, S, 1);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Wall: bandit 0 (in front) hit out and back"), TomahawkLost(*S, 0), 24.f, 0.01f);
+		TestEqual(TEXT("Wall: bandit 1 (in front) hit out and back"), TomahawkLost(*S, 1), 24.f, 0.01f);
+		for (int32 Index = 2; Index < 5; ++Index)
+		{
+			TestEqual(FString::Printf(TEXT("Wall: bandit %d (behind) untouched"), Index), TomahawkLost(*S, Index), 0.f, 0.01f);
+		}
+		if (S->Wall.IsValid())
+		{
+			S->Wall->Destroy();
+		}
+
+		// Power 1: 13.2 per hit, still one tomahawk.
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Tomahawk"), 1);
+		TestEqual(TEXT("Power 1: 13.2 per hit"), GetTomahawk()->GetHitDamage(), 13.2f, 0.0001f);
+		TestEqual(TEXT("Power 1: one tomahawk"), GetTomahawk()->GetTomahawksPerThrow(), 1);
+	});
+	WaitTomahawksDownAndRecord(this, S);
+	WaitThrowsBack(this, S, 1);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Power 1: bandit 0 takes 2 x 13.2"), TomahawkLost(*S, 0), 26.4f, 0.05f);
+		TestEqual(TEXT("Power 1: the far bandit too (no wall now)"), TomahawkLost(*S, 4), 26.4f, 0.05f);
+
+		// An Epic pick (+2): power 3, x1.3, two tomahawks: at the nearest and the next nearest.
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Tomahawk"), 1, EGSUpgradeRarity::Epic);
+		TestEqual(TEXT("Power 3: 15.6 per hit"), GetTomahawk()->GetHitDamage(), 15.6f, 0.0001f);
+		TestEqual(TEXT("Power 3: two tomahawks"), GetTomahawk()->GetTomahawksPerThrow(), 2);
+	});
+	WaitTomahawksDownAndRecord(this, S);
+	WaitThrowsBack(this, S, 1);
+	Step([this, S]()
+	{
+		UGSTomahawkComponent* Tomahawk = GetTomahawk();
+		const TArray<TWeakObjectPtr<AGSEnemyCharacter>>& Targets = Tomahawk->GetLastTargets();
+		TestTrue(TEXT("Power 3: two tomahawks, at the nearest and the next nearest"),
+			Targets.Num() == 2 && Targets[0].Get() == S->Bandits[0].Get() && Targets[1].Get() == S->Bandits[1].Get());
+		TestEqual(TEXT("Power 3: both pass bandit 0, out and back (4 hits)"), TomahawkLost(*S, 0), 4.f * 15.6f, 0.05f);
+		TestEqual(TEXT("Power 3: 20 hits a throw"), Tomahawk->GetHitsDealt() - S->HitsBefore, 20);
+
+		// Its kill is the player's: a weak bandit, Leech, a sure health orb.
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Leech"), 1);
+		GetGameMode()->SetHealthOrbDropChanceOverride(1.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		ApplyDamage(GetPlayerASC(), 10.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		S->PlayerHealthBefore = GetHealth(GetPlayerASC());
+		GetPlayerCombo()->EndCombo(EGSComboEndReason::Reset);
+		S->KillsBefore = GetGameState()->GetRunStats()->GetTotalKills();
+		S->XPOrbsBefore = GetCashSubsystem()->GetNumXPOrbsDropped();
+		S->HealthOrbsBefore = GetCashSubsystem()->GetNumHealthOrbsDropped();
+		S->Weak = SpawnFrozenBandit(S->Ground + S->Dir * 400.f);
+		if (S->Weak.IsValid())
+		{
+			S->Weak->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
+		}
+	});
+	WaitUntil(this, TEXT("a tomahawk to kill the bandit"), [S]() { return !S->Weak.IsValid() || S->Weak->GetHealthComponent()->IsDead(); }, 10.0);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Tomahawk kill: counted in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), S->KillsBefore + 1);
+		TestEqual(TEXT("Tomahawk kill: counts for the combo"), GetPlayerCombo()->GetComboCount(), 1);
+		TestEqual(TEXT("Tomahawk kill: an XP orb"), GetCashSubsystem()->GetNumXPOrbsDropped(), S->XPOrbsBefore + 1);
+		TestEqual(TEXT("Tomahawk kill: the health orb chance (1: one orb)"), GetCashSubsystem()->GetNumHealthOrbsDropped(), S->HealthOrbsBefore + 1);
+		TestTrue(TEXT("Tomahawk kill: a cash drop"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash) > 0);
+		TestEqual(TEXT("Tomahawk kill: Leech heals"), GetHealth(GetPlayerASC()), S->PlayerHealthBefore + 1.f, 0.01f);
+		GetGameMode()->SetHealthOrbDropChanceOverride(0.f);
+
+		// Paused with a tomahawk in the air: it stays put, nothing is thrown.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 400.f));
+	});
+	WaitUntil(this, TEXT("a tomahawk in the air"), []() { return GetTomahawk()->GetActiveTomahawks().Num() > 0; }, 10.0);
+	Step([S]()
+	{
+		RecordTomahawk(*S);
+		S->FlyingAt = GetTomahawk()->GetActiveTomahawks()[0]->GetActorLocation();
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), true);
+	});
+	WaitRealSeconds(this, 1.0);
+	Step([this, S]()
+	{
+		const TArray<AGSTomahawk*> Active = GetTomahawk()->GetActiveTomahawks();
+		TestTrue(TEXT("Paused: the tomahawk doesn't move"), Active.Num() > 0 && Active[0]->GetActorLocation().Equals(S->FlyingAt, 0.01f));
+		TestEqual(TEXT("Paused: no throws"), GetTomahawk()->GetThrows(), S->ThrowsBefore);
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), false);
+
+		// A new run with tomahawks in the air: they are gone, the weapon is gone.
+		GetGameMode()->RestartRunWithSeed(5201);
+		GetGameMode()->SetRoundTimerPaused(true);
+		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
+		TestEqual(TEXT("New run: no tomahawk in the air"), GetTomahawk()->GetActiveTomahawks().Num(), 0);
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 400.f));
+		RecordTomahawk(*S);
+	});
+	WaitWorldSeconds(this, 2.0);
+	Step([this, S]()
+	{
+		UGSTomahawkComponent* Tomahawk = GetTomahawk();
+		TestEqual(TEXT("New run: level 0"), Tomahawk->GetLevel(), 0);
+		TestEqual(TEXT("New run: power 0"), Tomahawk->GetPower(), 0.f);
+		TestEqual(TEXT("New run: no throws"), Tomahawk->GetThrows(), S->ThrowsBefore);
+		TestEqual(TEXT("New run: a bandit in range takes nothing"), TomahawkLost(*S, 0), 0.f, 0.01f);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
 		RestoreWorldSpeed();
 	});

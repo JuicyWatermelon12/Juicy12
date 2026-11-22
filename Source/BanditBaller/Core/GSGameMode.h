@@ -20,6 +20,7 @@ class UGSBarbedWireSettings;
 class UGSDynamiteSettings;
 class UGSLuckyCoinSettings;
 class UGSMolotovSettings;
+class UGSTomahawkSettings;
 class UGSComboSettings;
 class UGSCombatSettings;
 class UGSRoundClearSettings;
@@ -201,6 +202,9 @@ public:
 	/** Molotov tuning (DA_MolotovSettings); nothing is thrown if unset. */
 	const UGSMolotovSettings* GetMolotovSettings() const { return MolotovSettings; }
 
+	/** Tomahawk tuning (DA_TomahawkSettings); nothing is thrown if unset. */
+	const UGSTomahawkSettings* GetTomahawkSettings() const { return TomahawkSettings; }
+
 	// --- Powder Keg (server) ---
 
 	/**
@@ -363,6 +367,10 @@ protected:
 	/** Molotov: throw interval, range, the lobbed bottle, the fire patch, power bonuses, look (DA_MolotovSettings). */
 	UPROPERTY(EditDefaultsOnly, Category = "Combat")
 	TObjectPtr<UGSMolotovSettings> MolotovSettings;
+
+	/** Tomahawk: damage, throw interval, range, flight, tomahawks per throw, power bonuses, look (DA_TomahawkSettings). */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat")
+	TObjectPtr<UGSTomahawkSettings> TomahawkSettings;
 
 	/** Round-clear bonus: base, no damage, fast clear (DA_RoundClearSettings). No bonus if unset. */
 	UPROPERTY(EditDefaultsOnly, Category = "Economy")

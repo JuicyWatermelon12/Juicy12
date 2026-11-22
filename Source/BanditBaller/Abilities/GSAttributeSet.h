@@ -265,6 +265,24 @@ public:
 	FGameplayAttributeData MolotovPower;
 	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, MolotovPower)
 
+	/**
+	 * Tomahawk picks: 1 or more = the player throws tomahawks that cut through enemies and come back (UGSTomahawkComponent
+	 * on the character, DA_TomahawkSettings). Default 0, clamped to >= 0, rounded when read.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData TomahawkLevel;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, TomahawkLevel)
+
+	/**
+	 * Tomahawk weapon power: each point adds DA_TomahawkSettings' damage bonus, and every PowerPerTomahawk (3) full points
+	 * add a tomahawk. The first pick adds the rarity multiplier - 1, later picks the multiplier. Default 0, clamped to >= 0.
+	 * TODO(co-op): not replicated (single-player first).
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat")
+	FGameplayAttributeData TomahawkPower;
+	ATTRIBUTE_ACCESSORS_BASIC(UGSAttributeSet, TomahawkPower)
+
 	/** Meta attribute: damage to apply this execution. Server-only, never replicated; converted to Health loss. */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingDamage;

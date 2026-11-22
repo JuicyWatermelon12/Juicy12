@@ -32,6 +32,8 @@
 #include "GSLuckyCoinSettings.h"
 #include "GSMolotovComponent.h"
 #include "GSMolotovSettings.h"
+#include "GSTomahawkComponent.h"
+#include "GSTomahawkSettings.h"
 #include "GSSecondWindComponent.h"
 #include "GSShieldComponent.h"
 #include "GSGameplayAbility_Dash.h"
@@ -310,9 +312,11 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 			ASC->GetNumericAttribute(UGSAttributeSet::GetRazorCardsPowerAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetBarbedWireLevelAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetBarbedWirePowerAttribute()));
-		Text += FString::Printf(TEXT(", MolotovLevel %.0f, MolotovPower %g"),
+		Text += FString::Printf(TEXT(", MolotovLevel %.0f, MolotovPower %g, TomahawkLevel %.0f, TomahawkPower %g"),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetMolotovLevelAttribute()),
-			ASC->GetNumericAttribute(UGSAttributeSet::GetMolotovPowerAttribute()));
+			ASC->GetNumericAttribute(UGSAttributeSet::GetMolotovPowerAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetTomahawkLevelAttribute()),
+			ASC->GetNumericAttribute(UGSAttributeSet::GetTomahawkPowerAttribute()));
 		Text += FString::Printf(TEXT(", DynamiteLevel %.0f, DynamitePower %g, LuckyCoinLevel %.0f, LuckyCoinPower %g"),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetDynamiteLevelAttribute()),
 			ASC->GetNumericAttribute(UGSAttributeSet::GetDynamitePowerAttribute()),
@@ -410,6 +414,14 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 					Molotov->GetLevel(), Molotov->GetPower(), Molotov->GetDamageMultiplier(),
 					MolotovSettings ? MolotovSettings->BurnDamage * Molotov->GetDamageMultiplier() : 0.f, Molotov->GetPatchRadius(), Molotov->GetThrowInterval(),
 					Molotov->GetThrows(), Molotov->GetPatchesLit(), Molotov->GetActivePatches().Num(), Molotov->GetBurns(), Molotov->GetHitsDealt());
+			}
+			if (const UGSTomahawkComponent* Tomahawk = GunOwner->GetTomahawk())
+			{
+				const UGSTomahawkSettings* TomahawkSettings = Tomahawk->GetSettings();
+				Text += FString::Printf(TEXT("\n  Tomahawk: %d pick(s), power %g, x%.2f damage (%.1f per hit x Damage), %d tomahawk(s) a throw, every %.2f s, %d throw(s), %d tomahawk(s) thrown, %d in the air, %d hit(s)"),
+					Tomahawk->GetLevel(), Tomahawk->GetPower(), Tomahawk->GetDamageMultiplier(),
+					TomahawkSettings ? TomahawkSettings->Damage * Tomahawk->GetDamageMultiplier() : 0.f, Tomahawk->GetTomahawksPerThrow(), Tomahawk->GetThrowInterval(),
+					Tomahawk->GetThrows(), Tomahawk->GetTomahawksThrown(), Tomahawk->GetActiveTomahawks().Num(), Tomahawk->GetHitsDealt());
 			}
 		}
 		if (const UGSSecondWindComponent* SecondWind = PS ? PS->GetSecondWindComponent() : nullptr)

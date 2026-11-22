@@ -26,7 +26,7 @@
 namespace
 {
 	/** At most this many owed throws in one frame (a runaway guard). */
-	constexpr int32 MaxThrowsPerFrame = 8;
+	constexpr int32 MaxDynamiteThrowsPerFrame = 8;
 }
 
 UGSDynamiteComponent::UGSDynamiteComponent()
@@ -241,7 +241,7 @@ void UGSDynamiteComponent::UpdateThrowing(float DeltaSeconds)
 		BurstShots = 0;
 	}
 	// Every throw due by now, each on its own scheduled time (a long frame throws all it owes).
-	for (int32 Guard = 0; NextThrowTime <= Now && Guard < MaxThrowsPerFrame; ++Guard)
+	for (int32 Guard = 0; NextThrowTime <= Now && Guard < MaxDynamiteThrowsPerFrame; ++Guard)
 	{
 		AGSEnemyCharacter* Target = FindTarget();
 		if (!Target)

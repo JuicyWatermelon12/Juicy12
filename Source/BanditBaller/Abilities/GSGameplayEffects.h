@@ -298,6 +298,19 @@ public:
 	UGSUpgradeEffect_Molotov(const FObjectInitializer& ObjectInitializer);
 };
 
+/**
+ * GE_Upgrade_Tomahawk: TomahawkLevel = the number of picks (1+ = the weapon) and TomahawkPower = the total value (the
+ * tomahawk's +damage steps and, every 3 full points, another tomahawk).
+ */
+UCLASS()
+class BANDITBALLER_API UGSUpgradeEffect_Tomahawk : public UGSUpgradeEffect
+{
+	GENERATED_BODY()
+
+public:
+	UGSUpgradeEffect_Tomahawk(const FObjectInitializer& ObjectInitializer);
+};
+
 /** +1 SecondWinds per Common pick (BaseValue on the DA_Upgrade_*; GE_Upgrade_SecondWind): survive one more killing blow. Using one removes one pick. */
 UCLASS()
 class BANDITBALLER_API UGSUpgradeEffect_SecondWind : public UGSUpgradeEffect

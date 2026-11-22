@@ -20,6 +20,7 @@ class UGSBarbedWireComponent;
 class UGSDynamiteComponent;
 class UGSLuckyCoinComponent;
 class UGSMolotovComponent;
+class UGSTomahawkComponent;
 class UGSDashSettings;
 class UGSMovementSettings;
 class UGSSlideSettings;
@@ -83,6 +84,9 @@ public:
 
 	/** Molotov (throws bottles that leave fire while the MolotovLevel attribute is 1 or more). */
 	UGSMolotovComponent* GetMolotov() const { return Molotov; }
+
+	/** Tomahawk (throws tomahawks that come back while the TomahawkLevel attribute is 1 or more). */
+	UGSTomahawkComponent* GetTomahawk() const { return Tomahawk; }
 
 	// --- Camera debug / tests (local player): the same as the aim and shoulder-swap inputs ---
 	void SetAimingForDebug(bool bAim) { bAim ? OnAimStarted() : OnAimCompleted(); }
@@ -214,6 +218,10 @@ protected:
 	/** Molotov: throws bottles that leave fire patches for the player's MolotovLevel (tuning in DA_MolotovSettings). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
 	TObjectPtr<UGSMolotovComponent> Molotov;
+
+	/** Tomahawk: throws tomahawks that come back for the player's TomahawkLevel (tuning in DA_TomahawkSettings). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Upgrades")
+	TObjectPtr<UGSTomahawkComponent> Tomahawk;
 
 	/** Played on the local player's camera when they take damage (CS_PlayerHit). */
 	UPROPERTY(EditDefaultsOnly, Category = "Health")

@@ -31,12 +31,14 @@ listen-server co-op is planned for **M6**, after single-player is finished or ne
     - **Stat Boosts:** Damage, Fire Rate, Reload Speed, Move Speed, Magnet, Bigger Mags, Loaded Dice.
     - **Abilities:** Extra Jump, Dash Charge, Floating Shield, Piercing Rounds, Leech, Powder Keg. **Legendary
       abilities** are a sub-group: Second Wind today, more later.
-    - **Weapons:** automatic attacks. Floating Gun, Razor Cards and Barbed Wire today, then Dynamite, Lucky Coin,
-      Molotov and Tomahawk. A run holds at most 3 weapons; the rifle and pistol aren't part of this.
+    - **Weapons:** automatic attacks: Floating Gun, Razor Cards, Barbed Wire, Dynamite, Lucky Coin, Molotov and
+      Tomahawk (all seven built; Prompts 38–39, 46–47, 49–52). A run holds at most 3 weapons; the rifle and pistol
+      aren't part of this.
   - Each card rolls its own rarity (Common, Rare, Epic, Legendary), and a higher rarity gives a bigger pick. Nothing
     has a pick cap.
   - The 15 upgrades were built in **M2b** (after M2, before the market, M3). **M2c** reworked them (17 upgrades
-    with Razor Cards and Barbed Wire); the M2b + M2c checkpoint is Prompt 48. The design and its rules are in `docs/PROGRESS.md` (**Design update — upgrade rework (M2c)**; the
+    with Razor Cards and Barbed Wire); the M2b + M2c checkpoint is Prompt 48. Prompts 49–52 added the last four
+    weapons (21 upgrades); the weapons checkpoint is Prompt 53. The design and its rules are in `docs/PROGRESS.md` (**Design update — upgrade rework (M2c)**; the
     original list is under **Design update — M2b upgrades**).
   - The player must take one (no skip), but can reroll the 3 choices a limited number of times per run (3 to start).
   - The game pauses while the player chooses (the co-op party pause is M6).
@@ -67,8 +69,9 @@ Source/BanditBaller/
               map boundary (AGSMapBoundary) + collision channels
   Abilities/  GAS: ASC, AttributeSet, tags, abilities, effects, ability sets
   Combat/     weapons, health/death component, target dummy, hit camera shake, critical hits, projectile + pool
-              (optional homing), floating gun (gun actor + character component + settings), razor cards and
-              barbed wire (character component + settings each)
+              (optional homing, ignore list, finish callback), floating gun (gun actor + character component +
+              settings), razor cards, barbed wire, dynamite, lucky coin, molotov and tomahawk (character component +
+              settings each), thrown weapon actors + pool (lobbed throw, fire patch, tomahawk)
   AI/         enemies, AI controller, StateTree tasks/builder, spawn finder, wave director, spawn telegraph
   Economy/    enemy-drop pickups: cash pieces, XP orbs and health orbs (actor, pool subsystem, settings)
   UI/         UMG C++ bases (HUD, run summary, ability icon, enemy health bar, upgrade choice screen + card,
@@ -185,7 +188,7 @@ docs/PROGRESS.md  progress log and reference
 - Debug commands: `gs.` prefix, cheat-only, implemented in `UGSDebugLibrary` and registered in
   `GSCheatCommands.cpp`. Clients forward them through `ServerExecDebugCommand`. Debug toggles are `gs.Debug.*`
   cvars.
-- Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`, `[xp]`, `[profile]`, `[upgrade]`, `[combo]`, `[blast]`, `[heal]`, `[shield]`, `[secondwind]`, `[gun]`, `[cards]`, `[wire]`, `[round]` one line per finished round, with health orbs and damage dealt by source).
+- Logs: `LogBanditBaller`, with bracketed prefixes for noisy systems (`[wave]`, `[cash]`, `[dmg]`, `[shot]`, `[ttk]`, `[xp]`, `[profile]`, `[upgrade]`, `[combo]`, `[blast]`, `[heal]`, `[shield]`, `[secondwind]`, `[gun]`, `[cards]`, `[wire]`, `[dynamite]`, `[coin]`, `[molotov]`, `[tomahawk]`, `[round]` one line per finished round, with health orbs and damage dealt by source).
 - Tests: PIE-based latent tests in `Tests/GSGameplayTests.cpp`, built from the `GSTests` helpers (`BeginPIE`,
   `WaitUntil`, `Step`, `EndPIE`, …). `BeginPIE` opens `L_Town_Graybox` first (pass `HubMap` for the hub), since the
   editor starts in the hub. `EndPIE` only requests the end: before a second `BeginPIE` in the same test, wait for
@@ -220,7 +223,7 @@ docs/PROGRESS.md  progress log and reference
 - `CaptureViewport` shows the editor world, not PIE; use `CaptureEditorImage` (base64 PNG; decode with PowerShell).
 - Tests: stop PIE, then `AutomationTestToolset` → `DiscoverTests`. Area tests: `RunTests(["BanditBaller.Round.PhaseLoop",
   ...])` or `RunTestsByFilter("StartsWith:BanditBaller.Round")`. Full suite (once per prompt, before the commit):
-  `RunTestsByFilter("StartsWith:BanditBaller")`, about 2 minutes (132 s for 58 tests in Prompt 48). The editor console also works:
+  `RunTestsByFilter("StartsWith:BanditBaller")`, about 3 minutes (182 s for 62 tests in Prompt 52). The editor console also works:
   `Automation RunTests BanditBaller`. Each result has a `duration` for speed checks.
 - Playing in PIE through MCP: a console command takes 1–3 s to arrive, too slow to fight. Read live round state with
   `ObjectTools.get_properties` on `...UEDPIE_0_L_Town_Graybox...:PersistentLevel.BP_GSGameState_C_0` (`RoundPhase`,
