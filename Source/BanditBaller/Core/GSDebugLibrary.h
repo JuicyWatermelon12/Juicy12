@@ -59,6 +59,10 @@ struct FGSUpgradeOfferSimulation
 	UPROPERTY(BlueprintReadOnly, Category = "Debug")
 	int32 Seed = 0;
 
+	/** Upgrades counted as owned (one pick each) while rolling, e.g. three weapons for "the slots are full". */
+	UPROPERTY(BlueprintReadOnly, Category = "Debug")
+	TArray<FString> Owned;
+
 	UPROPERTY(BlueprintReadOnly, Category = "Debug")
 	int32 Offers = 0;
 
@@ -147,6 +151,14 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "BanditBaller|Debug")
 	static FGSUpgradeOfferSimulation SimulateUpgradeOffers(int32 Count, int32 Seed);
+
+	/**
+	 * SimulateUpgradeOffers with the named upgrades ("FloatingGun", "DA_Upgrade_Dynamite", …) counted as owned, one pick
+	 * each, for every offer: e.g. three weapons to see the offers once the weapon slots are full. Unknown names are
+	 * skipped with a warning (and left out of Result.Owned).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "BanditBaller|Debug")
+	static FGSUpgradeOfferSimulation SimulateUpgradeOffersOwning(int32 Count, int32 Seed, const TArray<FString>& OwnedUpgrades);
 
 	/**
 	 * Debug (cvar gs.Debug.AutoPickUpgrades 1): a frame later, take every open upgrade offer by a fixed policy, for

@@ -12954,4 +12954,226 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ---------------------------------------------------------------------------
+// Weapons checkpoint (Prompt 53): the full pool of seven weapons and the weapon-slot rules
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	/** The index of a card in Offer, or INDEX_NONE: an unowned weapon while a slot is free, else an owned weapon. */
+	int32 FindWeaponCardForCheckpoint(const TArray<FGSUpgradeChoice>& Offer, const UGSUpgradeComponent* Upgrades, int32 MaxWeapons)
+	{
+		const bool bSlotFree = Upgrades->GetOwnedWeapons().Num() < MaxWeapons;
+		int32 Owned = INDEX_NONE;
+		for (int32 Index = 0; Index < Offer.Num(); ++Index)
+		{
+			const UGSUpgradeData* Upgrade = Offer[Index].Upgrade;
+			if (Upgrade && Upgrade->Category == EGSUpgradeCategory::Weapon)
+			{
+				if (Upgrades->GetStacks(Upgrade) == 0 && bSlotFree)
+				{
+					return Index;
+				}
+				Owned = Upgrades->GetStacks(Upgrade) > 0 && Owned == INDEX_NONE ? Index : Owned;
+			}
+		}
+		return Owned;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSCheckpointSevenWeaponsTest, "BanditBaller.Checkpoint.SevenWeapons", GSTests::TestFlags)
+bool FGSCheckpointSevenWeaponsTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		const UGSUpgradePool* Pool = GameMode->GetUpgradePool();
+		AGSPlayerState* PS = GetPC() ? GetPC()->GetPlayerState<AGSPlayerState>() : nullptr;
+		UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
+		if (!TestNotNull(TEXT("DA_UpgradePool"), Pool) || !TestNotNull(TEXT("Upgrade component"), Upgrades) || !PS)
+		{
+			return;
+		}
+
+		// 1) DA_UpgradePool holds every upgrade once, each in its category.
+		struct FExpected
+		{
+			const TCHAR* Name;
+			EGSUpgradeCategory Category;
+			bool bLegendaryAbility;
+		};
+		const FExpected Expected[] = {
+			{ TEXT("Damage"), EGSUpgradeCategory::StatBoost, false }, { TEXT("FireRate"), EGSUpgradeCategory::StatBoost, false },
+			{ TEXT("ReloadSpeed"), EGSUpgradeCategory::StatBoost, false }, { TEXT("MoveSpeed"), EGSUpgradeCategory::StatBoost, false },
+			{ TEXT("Magnet"), EGSUpgradeCategory::StatBoost, false }, { TEXT("BiggerMags"), EGSUpgradeCategory::StatBoost, false },
+			{ TEXT("LoadedDice"), EGSUpgradeCategory::StatBoost, false },
+			{ TEXT("ExtraJump"), EGSUpgradeCategory::Ability, false }, { TEXT("DashCharge"), EGSUpgradeCategory::Ability, false },
+			{ TEXT("FloatingShield"), EGSUpgradeCategory::Ability, false }, { TEXT("PiercingRounds"), EGSUpgradeCategory::Ability, false },
+			{ TEXT("Leech"), EGSUpgradeCategory::Ability, false }, { TEXT("PowderKeg"), EGSUpgradeCategory::Ability, false },
+			{ TEXT("SecondWind"), EGSUpgradeCategory::Ability, true },
+			{ TEXT("FloatingGun"), EGSUpgradeCategory::Weapon, false }, { TEXT("RazorCards"), EGSUpgradeCategory::Weapon, false },
+			{ TEXT("BarbedWire"), EGSUpgradeCategory::Weapon, false }, { TEXT("Dynamite"), EGSUpgradeCategory::Weapon, false },
+			{ TEXT("LuckyCoin"), EGSUpgradeCategory::Weapon, false }, { TEXT("Molotov"), EGSUpgradeCategory::Weapon, false },
+			{ TEXT("Tomahawk"), EGSUpgradeCategory::Weapon, false },
+		};
+		TestEqual(TEXT("21 upgrades in DA_UpgradePool"), Pool->Upgrades.Num(), static_cast<int32>(UE_ARRAY_COUNT(Expected)));
+		TArray<const UGSUpgradeData*> Weapons;
+		for (const FExpected& E : Expected)
+		{
+			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(E.Name);
+			if (!TestNotNull(FString::Printf(TEXT("DA_Upgrade_%s"), E.Name), Upgrade))
+			{
+				continue;
+			}
+			int32 Count = 0;
+			for (const UGSUpgradeData* InPool : Pool->Upgrades)
+			{
+				Count += InPool == Upgrade ? 1 : 0;
+			}
+			TestEqual(FString::Printf(TEXT("%s is in the pool once"), E.Name), Count, 1);
+			const TCHAR* CategoryName = E.Category == EGSUpgradeCategory::StatBoost ? TEXT("Stat Boost") : E.Category == EGSUpgradeCategory::Ability ? TEXT("Ability") : TEXT("Weapon");
+			TestTrue(FString::Printf(TEXT("%s is a %s"), E.Name, CategoryName), Upgrade->Category == E.Category);
+			TestTrue(FString::Printf(TEXT("%s: Legendary ability %s"), E.Name, E.bLegendaryAbility ? TEXT("yes") : TEXT("no")), Upgrade->bLegendaryAbility == E.bLegendaryAbility);
+			if (E.Category == EGSUpgradeCategory::Weapon)
+			{
+				Weapons.Add(Upgrade);
+			}
+		}
+		for (const FString& Name : UGSDebugLibrary::GetUpgradeDataNames())
+		{
+			const UGSUpgradeData* Upgrade = UGSDebugLibrary::FindUpgradeData(Name);
+			TestTrue(FString::Printf(TEXT("Every upgrade asset is in the pool: %s"), *Name), Upgrade && Pool->Upgrades.Contains(Upgrade));
+		}
+		TestEqual(TEXT("Seven weapons"), Weapons.Num(), 7);
+		TestEqual(TEXT("MaxWeapons 3"), Pool->MaxWeapons, 3);
+		TestEqual(TEXT("Three HUD weapon slots"), GetHUD() ? GetHUD()->GetWeaponSlotCount() : -1, 3);
+
+		// 2) The roll itself, for each of the 35 sets of three owned weapons: the other four are never offered (offers and
+		// first offers with their weapon card), and each owned one still is.
+		FRandomStream Stream(5300);
+		int32 Sets = 0, Rolls = 0, UnownedCards = 0, SetsMissingAnOwned = 0;
+		for (int32 A = 0; A < Weapons.Num(); ++A)
+		{
+			for (int32 B = A + 1; B < Weapons.Num(); ++B)
+			{
+				for (int32 C = B + 1; C < Weapons.Num(); ++C)
+				{
+					const TSet<const UGSUpgradeData*> Owned = { Weapons[A], Weapons[B], Weapons[C] };
+					auto GetStacks = [&Owned](const UGSUpgradeData* U) { return Owned.Contains(U) ? 1 : 0; };
+					TMap<const UGSUpgradeData*, int32> OwnedCards;
+					for (int32 Roll = 0; Roll < 200; ++Roll)
+					{
+						for (const FGSUpgradeChoice& Choice : Pool->RollOffer(Stream, GetStacks, Roll % 2 == 0))
+						{
+							if (Choice.Upgrade && Choice.Upgrade->Category == EGSUpgradeCategory::Weapon)
+							{
+								UnownedCards += Owned.Contains(Choice.Upgrade) ? 0 : 1;
+								++OwnedCards.FindOrAdd(Choice.Upgrade);
+							}
+						}
+						++Rolls;
+					}
+					SetsMissingAnOwned += OwnedCards.Num() == 3 ? 0 : 1;
+					++Sets;
+				}
+			}
+		}
+		AddInfo(FString::Printf(TEXT("Roll: %d sets of three owned weapons, %d offers"), Sets, Rolls));
+		TestEqual(TEXT("35 sets of three weapons"), Sets, 35);
+		TestEqual(TEXT("Three owned: none of the other four is ever rolled"), UnownedCards, 0);
+		TestEqual(TEXT("Three owned: each owned weapon is still rolled"), SetsMissingAnOwned, 0);
+
+		// 3) Real runs, picking weapons whenever offered and rerolling every offer while rerolls last: never more than
+		// MaxWeapons, and once three are owned no other weapon shows up, rerolls included.
+		int32 RunsFull = 0, OffersAfterFull = 0, RerollsAfterFull = 0, UnownedAfterFull = 0, MostWeapons = 0;
+		TArray<FString> RunLines;
+		for (int32 Run = 0; Run < 8; ++Run)
+		{
+			GameMode->RestartRunWithSeed(5310 + Run);
+			GameMode->SetRoundTimerPaused(true);
+			TArray<FString> Picked;
+			for (int32 OfferIndex = 0; OfferIndex < 40; ++OfferIndex)
+			{
+				GameMode->QueueUpgradeOfferForDebug(PS);
+				while (true)
+				{
+					const bool bFull = Upgrades->GetOwnedWeapons().Num() >= Pool->MaxWeapons;
+					for (const FGSUpgradeChoice& Choice : Upgrades->GetCurrentOffer())
+					{
+						const bool bUnownedWeapon = Choice.Upgrade && Choice.Upgrade->Category == EGSUpgradeCategory::Weapon && Upgrades->GetStacks(Choice.Upgrade) == 0;
+						UnownedAfterFull += bFull && bUnownedWeapon ? 1 : 0;
+					}
+					// The run's rerolls are kept for once the slots are full (that is what this part checks).
+					if (!bFull || Upgrades->GetRerollsLeft() == 0 || !GameMode->RerollUpgradeOffer(PS))
+					{
+						break;
+					}
+					++RerollsAfterFull;
+				}
+				OffersAfterFull += Upgrades->GetOwnedWeapons().Num() >= Pool->MaxWeapons ? 1 : 0;
+				const int32 WeaponIndex = FindWeaponCardForCheckpoint(Upgrades->GetCurrentOffer(), Upgrades, Pool->MaxWeapons);
+				const TArray<FGSUpgradeChoice> Offer = Upgrades->GetCurrentOffer();
+				const int32 Pick = WeaponIndex != INDEX_NONE ? WeaponIndex : 0;
+				if (Offer.IsValidIndex(Pick) && Offer[Pick].Upgrade->Category == EGSUpgradeCategory::Weapon && Upgrades->GetStacks(Offer[Pick].Upgrade) == 0)
+				{
+					Picked.Add(Offer[Pick].Upgrade->DisplayName.ToString());
+				}
+				GameMode->ChooseUpgrade(PS, Pick);
+				MostWeapons = FMath::Max(MostWeapons, Upgrades->GetOwnedWeapons().Num());
+			}
+			RunsFull += Upgrades->GetOwnedWeapons().Num() == Pool->MaxWeapons ? 1 : 0;
+			RunLines.Add(FString::Printf(TEXT("seed %d: %s"), 5310 + Run, *FString::Join(Picked, TEXT(", "))));
+		}
+		AddInfo(FString::Printf(TEXT("Real runs (weapons in pick order): %s"), *FString::Join(RunLines, TEXT("; "))));
+		AddInfo(FString::Printf(TEXT("Real runs: %d of 8 filled all slots; %d offers and %d rerolls after the slots were full"), RunsFull, OffersAfterFull, RerollsAfterFull));
+		TestEqual(TEXT("A run never holds more than MaxWeapons"), MostWeapons, Pool->MaxWeapons);
+		TestEqual(TEXT("Every run filled its three slots"), RunsFull, 8);
+		TestTrue(TEXT("Many offers after the slots were full"), OffersAfterFull >= 100);
+		TestEqual(TEXT("Each run's three rerolls were used after the slots were full"), RerollsAfterFull, 24);
+		TestEqual(TEXT("Slots full: no unowned weapon in any offer or reroll"), UnownedAfterFull, 0);
+
+		// 4) The first offer of a run always has a weapon card, rerolls included, and over many runs every weapon is the
+		// first offer's weapon at some point.
+		int32 FirstOffers = 0, FirstWithout = 0;
+		TMap<FString, int32> FirstWeapons;
+		for (int32 Run = 0; Run < 48; ++Run)
+		{
+			GameMode->RestartRunWithSeed(5400 + Run);
+			GameMode->SetRoundTimerPaused(true);
+			GameMode->AwardXP(PS, 100.f, false);
+			for (int32 Reroll = 0; Reroll <= 3; ++Reroll)
+			{
+				if (Reroll > 0 && !GameMode->RerollUpgradeOffer(PS))
+				{
+					break;
+				}
+				++FirstOffers;
+				FirstWithout += OfferHasWeapon(Upgrades->GetCurrentOffer()) ? 0 : 1;
+				for (const FGSUpgradeChoice& Choice : Upgrades->GetCurrentOffer())
+				{
+					if (Choice.Upgrade && Choice.Upgrade->Category == EGSUpgradeCategory::Weapon)
+					{
+						++FirstWeapons.FindOrAdd(Choice.Upgrade->DisplayName.ToString());
+					}
+				}
+			}
+			GameMode->ChooseUpgrade(PS, FirstNonWeaponCard(Upgrades->GetCurrentOffer()));
+		}
+		TArray<FString> Counts;
+		for (const TPair<FString, int32>& Pair : FirstWeapons)
+		{
+			Counts.Add(FString::Printf(TEXT("%s %d"), *Pair.Key, Pair.Value));
+		}
+		AddInfo(FString::Printf(TEXT("First offers: %d (48 runs, 3 rerolls each); weapon cards: %s"), FirstOffers, *FString::Join(Counts, TEXT(", "))));
+		TestEqual(TEXT("192 first offers"), FirstOffers, 192);
+		TestEqual(TEXT("Every first offer (and its rerolls) has a weapon card"), FirstWithout, 0);
+		TestEqual(TEXT("Every weapon came up as a first-offer weapon"), FirstWeapons.Num(), 7);
+		GameMode->RestartRunWithSeed(5499);
+	});
+	EndPIE();
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR

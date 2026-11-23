@@ -607,8 +607,26 @@ void UGSDebugLibrary::ScheduleAutoPickUpgrades(AGSGameMode* GameMode)
 
 FGSUpgradeOfferSimulation UGSDebugLibrary::SimulateUpgradeOffers(int32 Count, int32 Seed)
 {
+	return SimulateUpgradeOffersOwning(Count, Seed, TArray<FString>());
+}
+
+FGSUpgradeOfferSimulation UGSDebugLibrary::SimulateUpgradeOffersOwning(int32 Count, int32 Seed, const TArray<FString>& OwnedUpgrades)
+{
 	FGSUpgradeOfferSimulation Result;
 	Result.Seed = Seed;
+	TSet<const UGSUpgradeData*> Owned;
+	for (const FString& Name : OwnedUpgrades)
+	{
+		if (const UGSUpgradeData* Upgrade = FindUpgradeData(Name))
+		{
+			Owned.Add(Upgrade);
+			Result.Owned.Add(Upgrade->GetName());
+		}
+		else
+		{
+			UE_LOG(LogBanditBaller, Warning, TEXT("SimulateUpgradeOffers: unknown upgrade '%s' (not counted as owned)."), *Name);
+		}
+	}
 
 	const TArray<FAssetData> Pools = GSDebug::GetAssetsOfClass(UGSUpgradePool::StaticClass());
 	const UGSUpgradePool* Pool = Pools.Num() > 0 ? Cast<UGSUpgradePool>(Pools[0].GetAsset()) : nullptr;
@@ -646,7 +664,7 @@ FGSUpgradeOfferSimulation UGSDebugLibrary::SimulateUpgradeOffers(int32 Count, in
 	FRandomStream Stream(Seed);
 	for (int32 OfferIndex = 0; OfferIndex < FMath::Max(Count, 0); ++OfferIndex)
 	{
-		const TArray<FGSUpgradeChoice> Offer = Pool->RollOffer(Stream, [](const UGSUpgradeData*) { return 0; });
+		const TArray<FGSUpgradeChoice> Offer = Pool->RollOffer(Stream, [&Owned](const UGSUpgradeData* Upgrade) { return Owned.Contains(Upgrade) ? 1 : 0; });
 		++Result.Offers;
 		Result.TotalChoices += Offer.Num();
 		Result.ShortOffers += Offer.Num() < Pool->ChoicesPerOffer ? 1 : 0;

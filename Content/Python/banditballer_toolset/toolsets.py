@@ -76,16 +76,19 @@ class BanditBallerTools(unreal.ToolsetDefinition):
 
     @toolset_registry.tool_call
     @staticmethod
-    def simulate_upgrade_offers(count: int = 10000, seed: int = 1) -> str:
+    def simulate_upgrade_offers(count: int = 10000, seed: int = 1, owned: str = "") -> str:
         """Rolls level-up upgrade offers from DA_UpgradePool and reports how often each upgrade, category and rarity appears.
 
         Uses the same roll as the game (UGSUpgradePool::RollOffer: per card the Legendary ability chance, else an
         upgrade by AppearanceWeight and a rarity from its category's weights; 3 different upgrades per offer) with its
-        own random stream, as for a fresh run with no picks. It never advances the run stream and doesn't need PIE.
+        own random stream, as for a run with no picks (or with the `owned` upgrades, one pick each). It never advances
+        the run stream and doesn't need PIE.
 
         Args:
             count: Offers to roll (1-1,000,000).
             seed: Seed of the private random stream (same seed -> same result).
+            owned: Comma-separated upgrades counted as owned, one pick each ("FloatingGun,Dynamite,Molotov": the
+                weapon slots are full, so only those weapons can be offered). Empty = nothing owned.
 
         Returns:
             A JSON object (as text; the toolset registry needs typed containers) with pool, seed, offers,
@@ -96,7 +99,8 @@ class BanditBallerTools(unreal.ToolsetDefinition):
         """
         if not 1 <= count <= 1_000_000:
             raise ValueError('count must be between 1 and 1,000,000')
-        result = unreal.GSDebugLibrary.simulate_upgrade_offers(count, seed)
+        owned_names = [name.strip() for name in owned.split(",") if name.strip()]
+        result = unreal.GSDebugLibrary.simulate_upgrade_offers_owning(count, seed, owned_names)
         if not result.pool:
             raise RuntimeError('No UGSUpgradePool asset (DA_UpgradePool) found.')
         offers = max(result.offers, 1)
@@ -137,6 +141,7 @@ class BanditBallerTools(unreal.ToolsetDefinition):
         return json.dumps({
             'pool': str(result.pool),
             'seed': int(result.seed),
+            'owned': [str(name) for name in result.owned],
             'offers': int(result.offers),
             'choices_per_offer': int(result.choices_per_offer),
             'total_choices': int(result.total_choices),

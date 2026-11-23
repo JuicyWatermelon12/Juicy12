@@ -38,7 +38,7 @@ listen-server co-op is planned for **M6**, after single-player is finished or ne
     has a pick cap.
   - The 15 upgrades were built in **M2b** (after M2, before the market, M3). **M2c** reworked them (17 upgrades
     with Razor Cards and Barbed Wire); the M2b + M2c checkpoint is Prompt 48. Prompts 49–52 added the last four
-    weapons (21 upgrades); the weapons checkpoint is Prompt 53. The design and its rules are in `docs/PROGRESS.md` (**Design update — upgrade rework (M2c)**; the
+    weapons (21 upgrades); the weapons checkpoint (Prompt 53) is done, and M3 is next. The design and its rules are in `docs/PROGRESS.md` (**Design update — upgrade rework (M2c)**; the
     original list is under **Design update — M2b upgrades**).
   - The player must take one (no skip), but can reroll the 3 choices a limited number of times per run (3 to start).
   - The game pauses while the player chooses (the co-op party pause is M6).
@@ -226,7 +226,7 @@ docs/PROGRESS.md  progress log and reference
 - `CaptureViewport` shows the editor world, not PIE; use `CaptureEditorImage` (base64 PNG; decode with PowerShell).
 - Tests: stop PIE, then `AutomationTestToolset` → `DiscoverTests`. Area tests: `RunTests(["BanditBaller.Round.PhaseLoop",
   ...])` or `RunTestsByFilter("StartsWith:BanditBaller.Round")`. Full suite (once per prompt, before the commit):
-  `RunTestsByFilter("StartsWith:BanditBaller")`, under 3 minutes (160 s for 62 tests in Prompt 52b). The editor console also works:
+  `RunTestsByFilter("StartsWith:BanditBaller")`, under 3 minutes (160 s for 63 tests in Prompt 53). The editor console also works:
   `Automation RunTests BanditBaller`. Each result has a `duration` for speed checks.
 - Playing in PIE through MCP: a console command takes 1–3 s to arrive, too slow to fight. Read live round state with
   `ObjectTools.get_properties` on `...UEDPIE_0_L_Town_Graybox...:PersistentLevel.BP_GSGameState_C_0` (`RoundPhase`,

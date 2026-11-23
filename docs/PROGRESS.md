@@ -50,10 +50,11 @@ held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds
 (42), weapon slots (43), overflow effects (44), the Move Speed fix for the slide and dash (44b), endless levels (45), Razor Cards (46), Barbed Wire (47) and the
 M2b + M2c checkpoint (48), which replaced the old M2b checkpoint). See **M2b + M2c checkpoint** under Prompt 48.
 **Weapons** after M2c: Dynamite (49), Lucky Coin (50), Molotov (51) and Tomahawk (52) are built: all seven weapons exist.
-Dynamite and the Molotov lead a moving target since 52b.
-**Next:** the weapons checkpoint (53). **Then M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
+Dynamite and the Molotov lead a moving target since 52b. **The weapons checkpoint (53) is done:** see **Weapons checkpoint**
+under Prompt 53. **The weapons block is complete.**
+**Next: M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Fix: Dynamite and Molotov lead their target" (Prompt 52b), not pushed. The build is clean and all 62 automation tests pass in about 160 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Weapons checkpoint" (Prompt 53), not pushed. The build is clean and all 63 automation tests pass in about 160 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -122,7 +123,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | W 50 | Lucky Coin (weapon): every 1.5 s a coin at the nearest enemy, bouncing to the nearest other enemy within 8 m (3 bounces, +1 per 2 power), each enemy once per flip; `AGSProjectile` ignore list + finish callback; pool of 19 | bceb293 |
 | W 51 | Molotov (weapon): every 5 s a bottle lobbed at the nearest enemy within 15 m; a 2.5 m fire patch where it lands burns every enemy in it every 0.5 s for 4 s (4 per burn); `AGSFirePatch`; `gs.Molotov.Patches`; pool of 20 | e4746d4 |
 | W 52 | Tomahawk (weapon): every 3 s a tomahawk at the nearest enemy flies 18 m out and back, hitting every enemy on its line once each way (12 per hit); a wall turns it back; +1 tomahawk per 3 power; `AGSTomahawk`; pool of 21 | bae9432 |
-| W 52b | Fix: Dynamite and Molotov lead a moving target (LeadFactor 1, in data); PROGRESS.md repair; the four new weapon tests run on faster settings copies (suite 182 → 160 s); unity-build naming rule | see git log |
+| W 52b | Fix: Dynamite and Molotov lead a moving target (LeadFactor 1, in data); PROGRESS.md repair; the four new weapon tests run on faster settings copies (suite 182 → 160 s); unity-build naming rule | 4878371 |
+| W 53 | Weapons checkpoint: `Checkpoint.SevenWeapons` (pool contents, the slot limit for all 35 sets of three, real runs with rerolls, first offers), the simulator with owned upgrades, a DPS table for all seven weapons, two PIE loops with auto-pick, frame time with three weapons and 30+ enemies | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -3292,6 +3294,146 @@ blast or the patch by the time it came down. They now aim where it will be.
   - The ground trace is world geometry only (WorldStatic), from body height down 5 m past the feet. A point ahead over a
     crate lands on the crate; one with nothing under it falls back to the old point.
 
+### Prompt 53 — Weapons checkpoint
+All seven weapons together: the weapon-slot rules with the full pool, the offer rates, every weapon's damage per second,
+and two full loops in PIE. **The weapons block (Prompts 49–53) is complete.**
+- **New test `Checkpoint.SevenWeapons`** (see the test table), on the real DA_UpgradePool:
+  - **Pool contents:** 21 upgrades, each once and in its category. Stat Boosts: Damage, Fire Rate, Reload Speed, Move Speed,
+    Magnet, Bigger Mags, Loaded Dice. Abilities: Extra Jump, Dash Charge, Floating Shield, Piercing Rounds, Leech, Powder
+    Keg, and Second Wind (the only Legendary ability). Weapons: Floating Gun, Razor Cards, Barbed Wire, Dynamite, Lucky
+    Coin, Molotov, Tomahawk. Every DA_Upgrade_* asset in the project is in the pool. MaxWeapons 3, three HUD slots.
+  - **The roll, for each of the 35 sets of three owned weapons** (200 offers each, every other one a first offer with its
+    weapon card; 7,000 offers): none of the other four weapons is ever rolled, and each owned one still is.
+  - **8 real runs** (seeds 5310–5317, 40 offers each), taking a weapon card whenever there is one. Each run's three
+    rerolls are kept for after the slots are full. Every run filled its three slots and never held more. In the 293
+    offers and 24 rerolls after that, no unowned weapon came up. Weapons picked, in order: Barbed Wire / Lucky Coin /
+    Dynamite; Molotov / Razor Cards / Floating Gun; Barbed Wire / Tomahawk / Molotov; Floating Gun / Molotov / Razor Cards;
+    Razor Cards / Barbed Wire / Dynamite; Razor Cards / Lucky Coin / Dynamite; Dynamite / Molotov / Barbed Wire; Razor
+    Cards / Tomahawk / Molotov.
+  - **First offers:** 48 new runs (seeds 5400–5447), each first offer rerolled 3 times: all 192 had a weapon card. Each of
+    the seven weapons came up: Molotov 49, Floating Gun 48, Dynamite 47, Tomahawk 42, Razor Cards 42, Lucky Coin 41,
+    Barbed Wire 41 cards.
+  - It takes 0.3 s.
+- **Simulator with owned upgrades:** new `UGSDebugLibrary::SimulateUpgradeOffersOwning(Count, Seed, OwnedUpgrades)`
+  (`SimulateUpgradeOffers` calls it with none; `FGSUpgradeOfferSimulation::Owned` lists them). The MCP tool
+  `simulate_upgrade_offers(count, seed, owned)` takes a comma-separated `owned` list, each counted as one pick.
+- **Weapon offers** (`simulate_upgrade_offers(10000, 1)`; later offers, not the first one with its guaranteed weapon card):
+
+  | Weapon | Nothing owned (slots free): offers with it | Floating Gun, Dynamite and Molotov owned (slots full) |
+  |---|---|---|
+  | Floating Gun | 14.9% | 17.8% |
+  | Razor Cards | 15.5% | 0 |
+  | Barbed Wire | 14.9% | 0 |
+  | Dynamite | 15.0% | 18.2% |
+  | Lucky Coin | 14.5% | 0 |
+  | Molotov | 14.2% | 18.7% |
+  | Tomahawk | 14.9% | 0 |
+  | Any weapon card | 74.2% of offers (34.6% of cards) | 48.1% of offers (18.2% of cards) |
+
+  - With the slots free each weapon is on about 5% of cards. Once they are full the three owned weapons share the Weapon
+    category's AppearanceWeight between them, so each comes up a little more often than before (about 6% of cards).
+  - The share of offers with a weapon drops from 74% to 48%; Stat Boosts go from 35% of cards to 43% and Abilities from
+    30% to 38%.
+  - No short offers. The weapon cards' rarity split stays at 79 / 16 / 4.5 / 0.6% either way.
+- **Damage per second** (Damage 1, no crits; from the settings, per weapon rules; the power-0 and power-3 numbers match
+  what the weapon tests measured):
+
+  | Weapon | Power 0: one enemy | Power 0: five | Power 5: one enemy | Power 5: five |
+  |---|---|---|---|---|
+  | Floating Gun, one gun | 12 | 12 | 27 | 27 |
+  | Floating Gun, two guns | 24 | 24 | 54 | 54 |
+  | Razor Cards | 12 | 12 | 27 | 27 |
+  | Barbed Wire | 10 | 50 | 15 | 75 |
+  | Dynamite | 10 | 50 | 15 | 75 |
+  | Lucky Coin | 6.7 | 26.7 | 10 | 50 |
+  | Molotov | 6.4 | 32 | 9.6 | 48 |
+  | Tomahawk | 8 | 40 | 24 | 120 |
+
+  - "Five" = five enemies close together, as in each weapon's test: within 1.2 m of each other (inside Barbed Wire's
+    ring, Dynamite's blast and the Molotov's patch). Lucky Coin needs them within 8 m of each other for its bounces.
+    Tomahawk needs them on its line (a row 3 m apart). A clump only partly on the line takes less.
+  - Power 5: +50% damage for every weapon. Floating Gun and Razor Cards also get +50% fire rate (27 = 8 × 1.5 × 1.5 × 1.5
+    and 6 × 1.5 × 2 × 1.5). Barbed Wire's radius is 4.375 m, Dynamite's blast 3.75 m and the Molotov's patch 3.125 m. Lucky
+    Coin bounces 5 times (six hits a flip, so all five are hit). Tomahawk throws 2 tomahawks; with one enemy both go at it
+    (4 hits a throw).
+  - A Floating Gun at power 5 always has both guns (power 5 needs at least three picks, and two picks give the second
+    gun); the one-gun row is per gun.
+  - Single-target weapons (Floating Gun, Razor Cards) don't gain from a group. Area weapons (Barbed Wire, Dynamite,
+    Molotov, Lucky Coin, Tomahawk) do five times as much against five.
+
+#### Weapons checkpoint — two full loops in PIE
+Hub → run → death → hub, twice. The seeds were set in the hub (`gs.Run.Seed 5301` / `5302`) and each run started with
+`gs.Market.Return`. `gs.Debug.AutoPickUpgrades 1` took every offer. Editor throttling was off, and the real profile slot
+was used.
+- **How it was played**, as in Prompt 48:
+  - Cleared rounds: god mode on, weapons acting on their own, and one aimed rifle tap per script pass. Every second pass
+    sent `gs.KillAll` once the whole wave had spawned.
+  - The death round: god mode off, standing still.
+  - "Combat" times are spawn time plus command delay. `gs.KillAll` damage counts as "other". Health stayed full, so the
+    orbs healed nothing. The rifle's numbers are small (one tap a pass).
+
+**Loop 1 (seed 5301): died in round 5, 1:45 run time**
+
+| Round | Wave | Combat | Damage dealt | Level after | Offer → pick |
+|---|---|---|---|---|---|
+| 1 | 4 | 37.3 s | rifle 40, KillAll 200 | 1 | — |
+| 2 | 6 | 7.6 s | KillAll 380 | 2 | Lucky Coin / Floating Shield / Molotov (all Common) → **Lucky Coin** |
+| 3 | 8 | 13.9 s | Lucky Coin 222, KillAll 318 | 2 | — |
+| 4 | 10 | 8.6 s | Lucky Coin 170, KillAll 552 | 3 | Bigger Mags / Damage / Lucky Coin (all Common) → **Lucky Coin** (power 1) |
+| 5 | 13 | died after 6.7 s (113 damage) | Lucky Coin 99 | 3 | — |
+
+Totals: 4 rounds cleared, level 3, 28 kills, best combo 10, $583 earned. Damage: Lucky Coin 491, rifle 40, `gs.KillAll`
+1,449 (1,980 in total). Health orbs: 4 dropped, all collected. One weapon (Lucky Coin) in two offers.
+
+**Loop 2 (seed 5302): died in round 10, 3:25 run time**
+
+| Round | Wave | Combat | Damage dealt | Level after | Offer → pick |
+|---|---|---|---|---|---|
+| 1 | 4 | 20.0 s | rifle 40, KillAll 200 | 1 | — |
+| 2 | 6 | 14.2 s | rifle 20, KillAll 360 | 2 | Extra Jump / Dynamite / Bigger Mags → **Dynamite** |
+| 3 | 8 | 12.9 s | Dynamite 184, KillAll 356 | 2 | — |
+| 4 | 10 | 13.4 s | Dynamite 470, KillAll 252 | 3 | Barbed Wire / Lucky Coin / Reload Speed → **Barbed Wire** |
+| 5 | 13 | 13.9 s | Barbed Wire 377, Dynamite 419, KillAll 212 | 4 | Dash Charge / Molotov / Floating Gun → **Molotov** (slots full) |
+| 6 | 14 | 14.5 s | rifle 20, Barbed Wire 282, Dynamite 378, Molotov 129, KillAll 331 | 5 | Fire Rate / Loaded Dice / Bigger Mags (Legendary) → **Bigger Mags, Legendary** |
+| 7 | 15 | 17.1 s | Barbed Wire 371, Dynamite 359, Molotov 97, KillAll 477 | 6 | Reload Speed (Rare) / Fire Rate / Damage → **Reload Speed, Rare** |
+| 8 | 17 | 13.9 s | Barbed Wire 371, Dynamite 374, Molotov 174, KillAll 665 | 6 | — |
+| 9 | 18 | 13.8 s | Barbed Wire 455, Dynamite 428, Molotov 184, KillAll 709 | 7 | Magnet / Floating Shield / Dynamite → **Dynamite** (power 1) |
+| 10 | 19 | died after 5.1 s (158 damage) | Barbed Wire 10, Dynamite 44, Molotov 4 | 7 | — |
+
+Totals: 9 rounds cleared, level 7, 105 kills, best combo 16, $2,238 earned (balance $12,846). Damage: Dynamite 2,656,
+Barbed Wire 1,867, Molotov 587, rifle 80, `gs.KillAll` 3,561 (8,751 in total). Health orbs: 17 dropped, all collected,
+0 healed. The summary showed the same numbers, "Return to Market" (a Slate click) opened the hub both times, and the cash
+was kept.
+
+- **Weapons offered:** loop 1 Lucky Coin ×2 and Molotov; loop 2 Dynamite ×2, Barbed Wire, Lucky Coin, Molotov and
+  Floating Gun. Not offered in either loop: Razor Cards, Tomahawk. Once loop 2's three slots were full (after round 5),
+  its three later offers had only one weapon card: its own Dynamite.
+- **Frame time with all three weapon slots active and 30 enemies:** a third run (seed 5302 again) with loop 2's weapons
+  at its final picks (Dynamite ×2, Barbed Wire, Molotov), god mode, the round paused. `gs.Spawn MeleeBandit 30` gave 34
+  alive with round 1's 4, all within 4.2 m of the player. The player's Damage was set to 0.01, so nobody died and every
+  hit still ran. Then `gs.Perf 5` twice. The control was a new run (`gs.Run.Seed 5399`) with no weapons and the same 30
+  spawned bandits (the restart removed the wave's 4). 120 fps cap:
+
+  | | Enemies | Frame avg | p95 | Max | Game avg | Render avg | GPU avg |
+  |---|---|---|---|---|---|---|---|
+  | Three weapons (1st) | 34 | 8.59 ms (116 fps) | 9.79 | 28.88 | 8.27 | 4.73 | 4.15 |
+  | Three weapons (2nd) | 34 | 8.58 ms (117 fps) | 9.57 | 28.72 | 8.23 | 4.63 | 4.16 |
+  | No weapons (control) | 30 | 8.42 ms (119 fps) | 8.33 | 31.30 | 5.30 | 3.10 | 3.87 |
+
+  The three weapons cost about 3 ms of game thread and 1.5 ms of render with a crowd in all of them (a ring tick, a
+  blast and a patch hitting 30+ enemies, each with a damage number), and the frame stays at about 116 fps.
+- **Observations** (suggestions only, nothing changed):
+  - **Area weapons carry a crowd.** In loop 2 Dynamite and Barbed Wire did 56% of all damage (86% of what wasn't
+    `gs.KillAll`) from round 5 on, at power 0–1. Against a group they are the strongest weapons at power 0 (50 DPS each),
+    where Floating Gun and Razor Cards stay at 12 / 24.
+  - **Molotov did least** of the three (587), as its table numbers predict (32 per patch every 5 s on a crowd).
+  - **Lucky Coin alone** (loop 1) did 491 over three rounds: one weapon at power 1 doesn't clear rounds.
+  - **The Tomahawk is the strongest at power 5** against a line (120), but only against enemies on its line.
+  - **Weapon cards are common:** 6 of the 8 offers in the two loops had at least one (the simulator gives 74% with free
+    slots and 48% once they are full).
+  - Fast clear was missed in round 1 of both loops (37 s and 20 s against 14 s), as in Prompt 48.
+- **Full suite:** 63 tests, all passing, in 160.4 s.
+
 ---
 
 ## Console commands and CVars
@@ -3345,7 +3487,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - `get_player_attributes()` (PIE): attributes plus Ammo, Cash (profile balance), Level, XP, XPForNextLevel, TotalXP,
   Combo, ComboMultiplier, ComboTimeLeft, God, Invulnerable, Dead.
 - `list_enemies_alive()` (PIE)
-- `simulate_upgrade_offers(count=10000, seed=1)` (no PIE needed): rolls DA_UpgradePool offers with its own stream and
+- `simulate_upgrade_offers(count=10000, seed=1, owned="")` (no PIE needed): rolls DA_UpgradePool offers with its own stream (with the comma-separated `owned` upgrades counted as one pick each, e.g. three weapons for full slots) and
   returns JSON text with how often each upgrade and rarity appears.
 
 ## GAS reference
@@ -3436,7 +3578,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (62, all passing, about 160 s)
+## Automation tests (63, all passing, about 160 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
@@ -3507,6 +3649,7 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Upgrades.MoveSpeedCover` | A crate, a low wall, a shack, a tower and the silo, each with a clear 6 m run-up; at Move Speed ×1, ×5 and ×33, a dash and a slide from a full run into each, the player's location sampled every frame in the piece's own frame: no frame overlaps the piece, the player stays on the ground, and if it ends behind the piece it went round it. Logs each path. Game time ×3. |
 | `Checkpoint.WeaponPicksAndNewRun` | Weapon power after picks of each rarity for every weapon (Dynamite since Prompt 49, Lucky Coin since 50, Molotov since 51, Tomahawk since 52; e.g. Barbed Wire at power 6.5: ×1.65 damage, radius 463.75); a new run starts with 1 dash charge; every upgrade picked at every rarity it has (63 picks across 17 upgrades), a reroll used, Damage / air jumps / MaxHealth raised, two guns, the ring, Razor Cards and shields present; a new run: no picks, no offer, rerolls refilled, no weapons and the first offer's weapon card pending again, level 1, 1 dash charge, no shields / guns / ring / cards / Dynamite / Lucky Coin / Molotov / Tomahawk, nothing thrown left in play, no combo, no Powder Keg blasts, no damage dealt, HUD weapon slots empty and no upgrade icons. |
 | `Checkpoint.WeaponLimitAllThree` | Real pool (since Prompt 49): three real weapons owned, 60 offers and their rerolls never offer an unowned real weapon, the owned ones still offered. Then all three M2c weapons owned, plus a fourth test weapon in a pool copy: HUD slots in pick order (Barbed Wire, Razor Cards, Floating Gun), no weapon in the upgrade row; slots full: `CanOfferWeapon` refuses the fourth; 60 offers and their rerolls never offer it, and owned weapons are still offered (31 times in the run); still three weapons; with MaxWeapons 4 the fourth is offered; the auto-pick policy (owned weapon with full slots, new weapon with a free slot, reroll when all Common, first without rerolls, else the rarest). |
+| `Checkpoint.SevenWeapons` | Real DA_UpgradePool (Prompt 53): 21 upgrades, each once and in its category (7 Stat Boosts, 7 Abilities with Second Wind the only Legendary ability, 7 Weapons), every DA_Upgrade_* asset in the pool, MaxWeapons 3, three HUD slots; the roll for each of the 35 sets of three owned weapons (200 offers each, half of them first offers with the weapon card): the other four never rolled, each owned one still rolled; 8 real runs of 40 offers, taking weapon cards and keeping the rerolls for when the slots are full: never more than three weapons, every run fills its slots, no unowned weapon in the 293 offers and 24 rerolls after that; 48 new runs: every first offer and its 3 rerolls has a weapon card, and all seven weapons come up as first-offer weapons. |
 | `Upgrades.PowderKegChainEnds` | 34 stacks (102%), 8 frozen 10 HP bandits in a line 2.5 m apart. One kill starts a chain that runs down the line and ends: all 8 die, exactly 8 blasts, nothing pending. The player (no god mode, 6 m from the first) is never hurt. Run stats record the Powder Keg damage. Game time ×4. |
 | `Economy.HealthOrbsAllSources` | For each kind of player kill (own kill, Floating Gun, Razor Cards, Barbed Wire, a Powder Keg blast kill) in a fresh run: at drop chance 1 every kill drops an orb, at 0 none, and the damage is recorded under that source in run stats. Chance 0.3 in bulk: 60 own kills and a crowd killed by one Barbed Wire tick (5 Legendary picks) drop at about the same rate (23 of 60 and 16 of 50 in the run). Game time ×4. |
 
@@ -3628,11 +3771,11 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   the game). Visuals on BP_GSCharacter's `FloatingShields` component: engine cylinder at (0.45, 0.45, 0.06) with
   M_FloatingShield, orbit 85 cm, 40 cm above the capsule center (chest height), 120°/s; block flash ×1.8 over 0.15 s,
   return pop 0.35 s.
-- **Upgrade offers** (DA_UpgradePool, 17 upgrades since Prompt 47, three of them weapons; placeholders): per card a 0.8% Legendary ability
+- **Upgrade offers** (DA_UpgradePool, 21 upgrades since Prompt 52, seven of them weapons; placeholders): per card a 0.8% Legendary ability
   chance, otherwise an upgrade by AppearanceWeight (all 1) and a rarity from its category's weights: Stat Boosts and
   Weapons 100 / 20 / 6 / 1, Abilities 100 / 10 / 3 / 0.5 (whole units: Rare → Common). 3 choices, 3 rerolls per run.
   Pick values ×1 / ×1.5 / ×2 / ×3, whole units +1 / +2 / +3.
-  - `simulate_upgrade_offers(10000, 1)` (Prompt 46): each of the 15 non-Legendary upgrades on 6.3–6.9% of cards
+  - `simulate_upgrade_offers(10000, 1)` (Prompt 53, 21 upgrades): each weapon on 4.7–5.2% of cards (14.2–15.5% of offers); cards by category: Stat Boost 35.0%, Weapon 34.6% (in 74.2% of offers), Ability 29.7%, Legendary ability 0.77%. With three weapons owned (slots full): the three owned weapons on 5.9–6.2% of cards each, the other four on none; Weapon 18.2% of cards (48.1% of offers), Stat Boost 43.4%, Ability 37.6%. Earlier, Prompt 46 (16 upgrades): each of the 15 non-Legendary upgrades on 6.3–6.9% of cards
     (Razor Cards 6.6%), Second Wind on 0.77%. Cards by category: Stat Boost 46.3%, Ability 39.8%, Weapon 13.2% (in
     36.7% of offers; was 7.0% / 21.1% with one weapon), Legendary ability 0.77%.
   - By rarity: Common 84.8% of cards, Rare 10.0%, Epic 3.8%, Legendary 1.4%. Offers with a Rare card 27.0%, an Epic
@@ -3674,7 +3817,7 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   +10% burn damage, +5% patch radius.
 - **Lead in the PIE check (Prompt 52b),** the first 10 throws at running melee bandits: Dynamite caught its target 7 of 10
   times with LeadFactor 0 and 9 of 10 with 1; the Molotov's first burn caught it 0 of 10 times with 0 and 10 of 10 with 1.
-- **Weapons at power 0, Damage 1, no crits:**
+- **Weapons at power 0, Damage 1, no crits** (power 5 and the Floating Gun per gun: the table under Prompt 53):
 
   | Weapon | One enemy | Five enemies |
   |---|---|---|
@@ -3690,8 +3833,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 ## Known issues, TODOs and deviations
 
 **Not built yet / stubs**
-- The M2c upgrade rework is complete (Prompts 41–48), and so are the last four weapons (49–52). The weapons checkpoint
-  (53) is next.
+- The M2c upgrade rework is complete (Prompts 41–48), and so are the last four weapons (49–52) and the weapons checkpoint
+  (53). M3 is next.
 - Tomahawk (Prompt 52):
   - Placeholder look: a flattened grey engine cone spinning end over end, the RadialBurst template on hits, an editor
     click sound that may not cook. No trail, so it is hard to follow at 20 m/s.
@@ -4065,7 +4208,7 @@ questions). Each prompt updates the tests that assume the old design.
 52. ~~**Tomahawk** (weapon).~~ Done (see Prompt 52): a tomahawk that cuts through a line of enemies and comes back.
 52b. ~~**Fix: Dynamite and Molotov lead their target**, plus tidying from 49–52 (PROGRESS.md repair, faster weapon tests,
     the unity-build naming rule).~~ Done (see Prompt 52b).
-53. **Weapons checkpoint.**
+53. ~~**Weapons checkpoint.**~~ Done (see Prompt 53 and **Weapons checkpoint**). **The weapons block is complete.**
 
 **Then M3** (after the weapons checkpoint; not planned in detail yet; each item needs its own prompt). From the decisions so far:
 - The two-layer save (playthrough data: cash, owned items, loadout, total cash earned; prestige data, empty until
