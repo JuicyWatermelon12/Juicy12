@@ -37,7 +37,7 @@ class BanditBallerTools(unreal.ToolsetDefinition):
         with an EnemySpawn Target Point fallback. Refused while the party is in the Market District.
 
         Args:
-            type: Enemy data asset name, e.g. "MeleeBandit", "RangedBandit" or "DA_Enemy_MeleeBandit".
+            type: Enemy data asset name, e.g. "BeatCop", "PatrolOfficer" or "DA_Enemy_BeatCop".
             count: How many to spawn (1-200).
 
         Returns:

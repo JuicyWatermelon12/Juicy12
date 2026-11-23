@@ -63,6 +63,20 @@ public:
 
 	virtual void Tick(float DeltaSeconds) override;
 
+	/** The props from EnemyData->MeshAttachments (cap, baton), one component each (tests). */
+	const TArray<TObjectPtr<UStaticMeshComponent>>& GetMeshAttachmentComponents() const { return MeshAttachmentComponents; }
+
+	/** The gun mesh of a ranged enemy (EnemyData->Weapon->Mesh); no mesh for melee enemies (tests). */
+	UStaticMeshComponent* GetWeaponMeshComponent() const { return WeaponMeshComponent; }
+
+	/** The aim laser beam (tests: shown while aiming). */
+	UStaticMeshComponent* GetAimLaserComponent() const { return AimLaserComponent; }
+
+	/** The dynamic body materials that carry TelegraphAmount, one per mesh slot (tests). */
+	const TArray<TObjectPtr<UMaterialInstanceDynamic>>& GetBodyMaterials() const { return BodyMaterials; }
+
+	bool IsTelegraphing() const { return bTelegraphing; }
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -114,6 +128,9 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UMaterialInstanceDynamic>> BodyMaterials;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UStaticMeshComponent>> MeshAttachmentComponents;
 
 	/** Last shot's tracer segment, shown on the laser mesh until TracerHideTime. */
 	FVector TracerStart = FVector::ZeroVector;

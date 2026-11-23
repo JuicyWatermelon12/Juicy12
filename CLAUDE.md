@@ -21,8 +21,8 @@ single-player is finished or nearly finished.
 - **Enemies** (law enforcement): eight types that unlock as the rounds go on (no wanted level, no agency tiers).
   Beat Cop (baton, melee) and Patrol Officer (carbine) are built; Rusher, Shield, Grenadier, Heavy, Sniper and Drone
   come in M2d. Ranged enemies fire visible, dodgeable projectiles (no hit-scan), and at most 40% of a generated wave
-  is ranged. The alive cap goes to 100 in M2d, at 60 fps. **The code still uses the old names until Prompt 57:**
-  MeleeBandit = Beat Cop, RangedBandit = Patrol Officer (`DA_Enemy_MeleeBandit`, `gs.Spawn MeleeBandit`, …).
+  is ranged. The alive cap goes to 100 in M2d, at 60 fps. Code names: `BeatCop` / `PatrolOfficer`
+  (`DA_Enemy_BeatCop`, `gs.Spawn BeatCop`, …; renamed from MeleeBandit / RangedBandit in Prompt 57).
 - **After death:** a run summary, then back to the hub to spend or gamble cash.
 - **Playthrough progression:** cash, owned items and the gear loadout, saved to a player profile and kept across
   runs and deaths. Everything the player owns is active or usable from the start of the next run; how depends on the
@@ -212,9 +212,13 @@ docs/PROGRESS.md  progress log and reference
 ## Conventions
 - C++ classes use the `GS` prefix (`AGSGameMode`, `UGSWaveDirector`); asset prefixes `BP_`, `DA_`, `DT_`, `GA_`,
   `GE_`, `ST_`, `WBP_`, `M_`, `MI_`, `IA_`, `IMC_`.
-- Enemy names: the design names are Beat Cop and Patrol Officer, but until Prompt 57 the code, assets, commands and
-  tests keep `MeleeBandit` / `RangedBandit` (and "bandit" in comments and logs). Use the code names when talking about
-  code before then.
+- Enemy names: Beat Cop (`BeatCop`) and Patrol Officer (`PatrolOfficer`) in code, assets, commands, logs and tests
+  (`DA_Enemy_BeatCop`, `ST_PatrolOfficer`, `DA_PatrolCarbine`, …). Before Prompt 57 they were MeleeBandit /
+  RangedBandit / BanditCarbine; older PROGRESS.md entries keep those names. Only the project name (BanditBaller, the
+  module, `LogBanditBaller`, the `BanditBaller.` test prefix) keeps "Bandit".
+- An enemy's look lives in its `UGSEnemyData`: `Mesh` (`SK_LowPolyBody`), `SlotMaterials` (one `MI_` per body slot,
+  instances of `M_LowPoly`, whose `TelegraphAmount` drives the wind-up glow) and `MeshAttachments` (props, the same
+  `FGSMeshAttachment` the player uses). A ranged enemy's gun is `Weapon->Mesh`, not an attachment.
 - Tuning lives in a `UPrimaryDataAsset` subclass (`UGS…Settings`, `Const`), with an asset in `Data/` assigned on
   `BP_GSGameMode` or the owning Blueprint.
 - Native gameplay tags only, in `Abilities/GSGameplayTags.*`.

@@ -84,7 +84,7 @@ namespace
 		return Cast<AGSPlayerState>(Actor);
 	}
 
-	/** "MeleeBandit" from DA_Enemy_MeleeBandit; class name for anything without enemy data. */
+	/** "BeatCop" from DA_Enemy_BeatCop; class name for anything without enemy data. */
 	FName GetEnemyTypeName(const AActor* Enemy)
 	{
 		if (const AGSEnemyCharacter* EnemyCharacter = Cast<AGSEnemyCharacter>(Enemy))

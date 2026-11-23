@@ -40,7 +40,7 @@ struct FGSEnemyKillCount
 {
 	GENERATED_BODY()
 
-	/** Enemy type, e.g. "MeleeBandit" (UGSEnemyData name without DA_Enemy_). */
+	/** Enemy type, e.g. "BeatCop" (UGSEnemyData name without DA_Enemy_). */
 	UPROPERTY(BlueprintReadOnly, Category = "Stats")
 	FName EnemyType;
 

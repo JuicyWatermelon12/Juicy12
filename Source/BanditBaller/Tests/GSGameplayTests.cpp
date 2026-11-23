@@ -244,12 +244,12 @@ namespace GSTests
 	/** Spawns one enemy near the player (server) for target-side tests. */
 	AGSEnemyCharacter* SpawnTestEnemy()
 	{
-		UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("BeatCop"));
 		TArray<AGSEnemyCharacter*> Spawned = UGSDebugLibrary::SpawnEnemiesAround(GetPC(), Data, 1);
 		return Spawned.Num() > 0 ? Spawned[0] : nullptr;
 	}
 
-	/** Spawns a MeleeBandit near the player and kills it as the player (it drops cash and an XP orb). */
+	/** Spawns a BeatCop near the player and kills it as the player (it drops cash and an XP orb). */
 	AGSEnemyCharacter* KillTestEnemyAsPlayer(FAutomationTestBase* Test)
 	{
 		AGSEnemyCharacter* Enemy = SpawnTestEnemy();
@@ -1361,7 +1361,7 @@ bool FGSRunSeedAndStatsTest::RunTest(const FString& Parameters)
 			const float EnemyMax = GetMaxHealth(EnemyASC);
 			ApplyDamage(EnemyASC, EnemyMax + 100.f, GetPlayerASC());
 			TestEqual(TEXT("Kill counted"), Stats->GetTotalKills(), 1);
-			TestEqual(TEXT("Kill counted per type"), Stats->GetKillsOf(TEXT("MeleeBandit")), 1);
+			TestEqual(TEXT("Kill counted per type"), Stats->GetKillsOf(TEXT("BeatCop")), 1);
 			TestEqual(TEXT("Damage dealt = health removed (no overkill)"), Stats->GetDamageDealt(), EnemyMax, 0.01f);
 		}
 
@@ -1712,9 +1712,9 @@ bool FGSDifficultyScalingTest::RunTest(const FString& Parameters)
 	{
 		AGSGameMode* GameMode = GetGameMode();
 		AGSGameState* GameState = GetGameState();
-		UGSEnemyData* Melee = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
-		UGSEnemyData* Ranged = UGSDebugLibrary::FindEnemyData(TEXT("RangedBandit"));
-		if (!TestNotNull(TEXT("MeleeBandit data"), Melee) || !TestNotNull(TEXT("RangedBandit data"), Ranged))
+		UGSEnemyData* Melee = UGSDebugLibrary::FindEnemyData(TEXT("BeatCop"));
+		UGSEnemyData* Ranged = UGSDebugLibrary::FindEnemyData(TEXT("PatrolOfficer"));
+		if (!TestNotNull(TEXT("BeatCop data"), Melee) || !TestNotNull(TEXT("PatrolOfficer data"), Ranged))
 		{
 			return;
 		}
@@ -1803,7 +1803,7 @@ bool FGSTimeToKillTest::RunTest(const FString& Parameters)
 	TSharedRef<FTTKState> State = MakeShared<FTTKState>();
 	for (const int32 Round : { 1, 5, 10 })
 	{
-		for (const TCHAR* Enemy : { TEXT("MeleeBandit"), TEXT("RangedBandit") })
+		for (const TCHAR* Enemy : { TEXT("BeatCop"), TEXT("PatrolOfficer") })
 		{
 			for (const TCHAR* Weapon : { TEXT("Rifle"), TEXT("Pistol") })
 			{
@@ -1819,7 +1819,7 @@ bool FGSTimeToKillTest::RunTest(const FString& Parameters)
 		UGSDebugLibrary::SetAttributeOn(GetPC(), TEXT("XPGain"), 0.f);
 	});
 
-	// One case at a time: freeze a bandit 4 m in front of the player, aim at it every frame and press fire every
+	// One case at a time: freeze a cop 4 m in front of the player, aim at it every frame and press fire every
 	// frame (the weapon's own refire limit sets the pace). Measures shots fired and first-hit-to-death time.
 	WaitUntil(this, TEXT("all time-to-kill cases"), [this, State]()
 	{
@@ -2000,12 +2000,12 @@ namespace GSTests
 		return Count;
 	}
 
-	/** Spawn a frozen MeleeBandit at Location and kill it as the player, so it drops its CashValue. */
+	/** Spawn a frozen BeatCop at Location and kill it as the player, so it drops its CashValue. */
 	bool KillEnemyForCash(FAutomationTestBase* Test, const FVector& Location, FVector& OutDropOrigin, int32& OutCashValue)
 	{
-		UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("BeatCop"));
 		AGSEnemyCharacter* Enemy = Data ? AGSEnemyCharacter::SpawnEnemy(GetPIEWorld(), Data, Location, GetPlayer()->GetActorLocation()) : nullptr;
-		if (!Test->TestNotNull(TEXT("Spawned a MeleeBandit to drop cash"), Enemy))
+		if (!Test->TestNotNull(TEXT("Spawned a BeatCop to drop cash"), Enemy))
 		{
 			return false;
 		}
@@ -2273,7 +2273,7 @@ bool FGSXPOrbsTest::RunTest(const FString& Parameters)
 		IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Cash.Lifetime"))->Set(1.5f, ECVF_SetByCode);
 		TestEqual(TEXT("XP orbs never expire by default"), Settings->XPOrbLifetime, 0.f);
 
-		const UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		const UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("BeatCop"));
 		S->XPValue = Data ? Data->XPValue : 0;
 		S->ExpectedXP = FMath::RoundToInt(S->XPValue * 1.5f);
 		S->TotalBefore = GetPlayerTotalXP();
@@ -2478,9 +2478,9 @@ bool FGSXPAndLevelsTest::RunTest(const FString& Parameters)
 	Step([this, S]()
 	{
 		UGSProgressionComponent* Progression = GetPC()->GetPlayerState<AGSPlayerState>()->GetProgressionComponent();
-		const UGSEnemyData* MeleeData = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		const UGSEnemyData* MeleeData = UGSDebugLibrary::FindEnemyData(TEXT("BeatCop"));
 		S->MeleeXP = MeleeData ? MeleeData->XPValue : 0;
-		TestTrue(TEXT("Melee bandit has an XPValue"), S->MeleeXP > 0);
+		TestTrue(TEXT("Beat Cop has an XPValue"), S->MeleeXP > 0);
 		TestEqual(TEXT("Collected orb grants XPValue"), Progression->GetTotalXP() - S->TotalBefore, S->MeleeXP);
 
 		// XPGain applies at pickup.
@@ -3173,7 +3173,7 @@ bool FGSFireRateAndMagnetTest::RunTest(const FString& Parameters)
 		GetPlayer()->TeleportTo(FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator);
 		S->CashBefore = GetPlayerCash();
 		S->XPBefore = GetPlayerTotalXP();
-		const UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		const UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("BeatCop"));
 		S->XPValue = Data ? Data->XPValue : 0;
 		KillEnemyForCash(this, FVector(1000.f, 0.f, 0.f), S->DropOrigin, S->CashValue);
 	});
@@ -3242,7 +3242,7 @@ namespace GSTests
 		WaitUntil(Test, FString::Printf(TEXT("the HUD ammo to read \"%s\""), *Expected), [Expected]() { return GetHUDAmmoText() == Expected; }, 5.0);
 	}
 
-	/** Kill a fresh MeleeBandit with damage from Source (the player's ASC credits the kill to the player). */
+	/** Kill a fresh BeatCop with damage from Source (the player's ASC credits the kill to the player). */
 	void KillEnemyWithSource(FAutomationTestBase* Test, UAbilitySystemComponent* Source)
 	{
 		AGSEnemyCharacter* Enemy = SpawnTestEnemy();
@@ -3391,10 +3391,10 @@ bool FGSBiggerMagsAndLeechTest::RunTest(const FString& Parameters)
 
 namespace GSTests
 {
-	/** Spawn a MeleeBandit at Location facing the player, with its AI and movement stopped. */
-	AGSEnemyCharacter* SpawnFrozenBandit(const FVector& Location)
+	/** Spawn a BeatCop at Location facing the player, with its AI and movement stopped. */
+	AGSEnemyCharacter* SpawnFrozenCop(const FVector& Location)
 	{
-		AGSEnemyCharacter* Enemy = AGSEnemyCharacter::SpawnEnemy(GetPIEWorld(), UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit")), Location,
+		AGSEnemyCharacter* Enemy = AGSEnemyCharacter::SpawnEnemy(GetPIEWorld(), UGSDebugLibrary::FindEnemyData(TEXT("BeatCop")), Location,
 			GetPlayer()->GetActorLocation());
 		if (!Enemy)
 		{
@@ -3557,15 +3557,15 @@ bool FGSLoadedDiceTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: CritChance 0"), GetAttr(UGSAttributeSet::GetCritChanceAttribute()), 0.f, 0.0001f);
 	});
 
-	// Real rifle shots at a frozen bandit 4 m ahead: a normal hit deals 20 with a plain damage number; with 20 stacks a
+	// Real rifle shots at a frozen cop 4 m ahead: a normal hit deals 20 with a plain damage number; with 20 stacks a
 	// hit deals 40 and shows a critical number (bigger, another colour).
 	Step([S]()
 	{
 		GetPlayer()->TeleportTo(FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator);
-		S->Target = SpawnFrozenBandit(FVector(400.f, 0.f, 0.f));
+		S->Target = SpawnFrozenCop(FVector(400.f, 0.f, 0.f));
 	});
 	TSharedRef<int32> AimFrames = MakeShared<int32>(0);
-	WaitUntil(this, TEXT("aim at the bandit"), [S, AimFrames]()
+	WaitUntil(this, TEXT("aim at the cop"), [S, AimFrames]()
 	{
 		if (!S->Target.IsValid())
 		{
@@ -3576,12 +3576,12 @@ bool FGSLoadedDiceTest::RunTest(const FString& Parameters)
 	});
 	Step([this, S]()
 	{
-		if (!TestTrue(TEXT("The bandit is there"), S->Target.IsValid()))
+		if (!TestTrue(TEXT("The cop is there"), S->Target.IsValid()))
 		{
 			return;
 		}
 		S->HealthBefore = GetHealth(S->Target->GetAbilitySystemComponent());
-		TestEqual(TEXT("Round 1 bandit at 60"), S->HealthBefore, 60.f, 0.01f);
+		TestEqual(TEXT("Round 1 cop at 60"), S->HealthBefore, 60.f, 0.01f);
 		AimAt(*S->Target);
 		TapInput(GSGameplayTags::Ability_Fire);
 		const float Dealt = S->HealthBefore - GetHealth(S->Target->GetAbilitySystemComponent());
@@ -3603,14 +3603,14 @@ bool FGSLoadedDiceTest::RunTest(const FString& Parameters)
 	{
 		if (!S->Target.IsValid())
 		{
-			AddError(TEXT("The bandit is gone"));
+			AddError(TEXT("The cop is gone"));
 			return;
 		}
 		AimAt(*S->Target);
 		TapInput(GSGameplayTags::Ability_Fire);
 		const float Dealt = S->HealthBefore - GetHealth(S->Target->GetAbilitySystemComponent());
 		TestEqual(TEXT("Loaded Dice x20: the hit is critical and deals 40"), Dealt, 40.f, 0.01f);
-		TestTrue(TEXT("The crit killed the 40 HP bandit"), S->Target->GetHealthComponent()->IsDead());
+		TestTrue(TEXT("The crit killed the 40 HP cop"), S->Target->GetHealthComponent()->IsDead());
 		const UGSHUDWidget* HUD = GetHUD();
 		if (HUD)
 		{
@@ -3624,11 +3624,11 @@ bool FGSLoadedDiceTest::RunTest(const FString& Parameters)
 		}
 		// 40 stacks (200%): every hit is a triple hit.
 		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("LoadedDice"), TEXT("20") });
-		S->Target = SpawnFrozenBandit(FVector(400.f, 0.f, 0.f));
+		S->Target = SpawnFrozenCop(FVector(400.f, 0.f, 0.f));
 	});
 	WaitUntil(this, TEXT("firing to end before the triple shot"), []() { return !IsPlayerFiring(); });
 	TSharedRef<int32> TripleAimFrames = MakeShared<int32>(0);
-	WaitUntil(this, TEXT("aim at the second bandit"), [S, TripleAimFrames]()
+	WaitUntil(this, TEXT("aim at the second cop"), [S, TripleAimFrames]()
 	{
 		if (!S->Target.IsValid())
 		{
@@ -3641,7 +3641,7 @@ bool FGSLoadedDiceTest::RunTest(const FString& Parameters)
 	{
 		if (!S->Target.IsValid())
 		{
-			AddError(TEXT("The second bandit is gone"));
+			AddError(TEXT("The second cop is gone"));
 			return;
 		}
 		S->HealthBefore = GetHealth(S->Target->GetAbilitySystemComponent());
@@ -3700,7 +3700,7 @@ bool FGSPiercingRoundsTest::RunTest(const FString& Parameters)
 	};
 	TSharedRef<FState> S = MakeShared<FState>();
 
-	// The trace on its own, along an exact line behind the start point (-X): 4 frozen bandits 1.5 m apart.
+	// The trace on its own, along an exact line behind the start point (-X): 4 frozen cops 1.5 m apart.
 	Step([this, S]()
 	{
 		GetGameMode()->SetRoundTimerPaused(true); // stay in PreRound: no wave
@@ -3721,11 +3721,11 @@ bool FGSPiercingRoundsTest::RunTest(const FString& Parameters)
 
 		for (const float X : { -400.f, -550.f, -700.f, -850.f })
 		{
-			S->Line.Add(SpawnFrozenBandit(FVector(X, 0.f, 0.f)));
+			S->Line.Add(SpawnFrozenCop(FVector(X, 0.f, 0.f)));
 		}
 		for (int32 i = 0; i < S->Line.Num(); ++i)
 		{
-			if (!TestTrue(FString::Printf(TEXT("Bandit %d spawned"), i + 1), S->Line[i].IsValid()))
+			if (!TestTrue(FString::Printf(TEXT("Cop %d spawned"), i + 1), S->Line[i].IsValid()))
 			{
 				return;
 			}
@@ -3739,18 +3739,18 @@ bool FGSPiercingRoundsTest::RunTest(const FString& Parameters)
 		const FGSShotTrace Zero = UGSGameplayAbility_Fire::TraceShot(GetPIEWorld(), Start, End, 0, Params);
 		AddInfo(FString::Printf(TEXT("Pierce 0: %s"), *DescribeShot(Zero)));
 		TestEqual(TEXT("Pierce 0: one target"), Zero.TargetHits.Num(), 1);
-		TestTrue(TEXT("Pierce 0: the nearest bandit"), HitActor(Zero, 0) == S->Line[0].Get());
+		TestTrue(TEXT("Pierce 0: the nearest cop"), HitActor(Zero, 0) == S->Line[0].Get());
 		TestTrue(TEXT("Pierce 0: the shot ends in it"), Zero.End.Equals(Zero.TargetHits.IsValidIndex(0) ? FVector(Zero.TargetHits[0].ImpactPoint) : FVector::ZeroVector, 1.f));
 
 		const FGSShotTrace Two = UGSGameplayAbility_Fire::TraceShot(GetPIEWorld(), Start, End, 2, Params);
 		AddInfo(FString::Printf(TEXT("Pierce 2: %s"), *DescribeShot(Two)));
 		TestEqual(TEXT("Pierce 2: three targets"), Two.TargetHits.Num(), 3);
-		TestTrue(TEXT("Pierce 2: bandits 1, 2, 3 in order"), HitActor(Two, 0) == S->Line[0].Get() && HitActor(Two, 1) == S->Line[1].Get() && HitActor(Two, 2) == S->Line[2].Get());
+		TestTrue(TEXT("Pierce 2: cops 1, 2, 3 in order"), HitActor(Two, 0) == S->Line[0].Get() && HitActor(Two, 1) == S->Line[1].Get() && HitActor(Two, 2) == S->Line[2].Get());
 		TestTrue(TEXT("Pierce 2: the line ends in the third"), Two.TargetHits.Num() == 3 && Two.End.Equals(FVector(Two.TargetHits[2].ImpactPoint), 1.f));
 
 		const FGSShotTrace Ten = UGSGameplayAbility_Fire::TraceShot(GetPIEWorld(), Start, End, 10, Params);
 		AddInfo(FString::Printf(TEXT("Pierce 10: %s"), *DescribeShot(Ten)));
-		TestEqual(TEXT("Pierce 10: all four bandits, each once"), Ten.TargetHits.Num(), 4);
+		TestEqual(TEXT("Pierce 10: all four cops, each once"), Ten.TargetHits.Num(), 4);
 		TSet<AActor*> Unique;
 		for (const FHitResult& Hit : Ten.TargetHits)
 		{
@@ -3758,11 +3758,11 @@ bool FGSPiercingRoundsTest::RunTest(const FString& Parameters)
 		}
 		TestEqual(TEXT("Pierce 10: every enemy at most once"), Unique.Num(), Ten.TargetHits.Num());
 		TestFalse(TEXT("Setup: nothing else on the line"), Ten.BlockingHit.bBlockingHit);
-		TestTrue(TEXT("Pierce 10: the line runs to the last thing hit (bandit 4)"), Ten.TargetHits.Num() == 4 && Ten.End.Equals(FVector(Ten.TargetHits[3].ImpactPoint), 1.f));
+		TestTrue(TEXT("Pierce 10: the line runs to the last thing hit (cop 4)"), Ten.TargetHits.Num() == 4 && Ten.End.Equals(FVector(Ten.TargetHits[3].ImpactPoint), 1.f));
 		const FGSShotTrace Empty = UGSGameplayAbility_Fire::TraceShot(GetPIEWorld(), FVector(-250.f, 300.f, Z), FVector(-1100.f, 300.f, Z), 10, Params);
 		TestTrue(TEXT("A line that hits nothing runs to its end"), Empty.TargetHits.Num() == 0 && !Empty.BlockingHit.bBlockingHit && Empty.End.Equals(FVector(-1100.f, 300.f, Z), 1.f));
 
-		// A wall between bandits 2 and 3 stops even a big pierce.
+		// A wall between cops 2 and 3 stops even a big pierce.
 		AStaticMeshActor* Wall = GetPIEWorld()->SpawnActor<AStaticMeshActor>(FVector(-625.f, 0.f, 150.f), FRotator::ZeroRotator);
 		if (TestNotNull(TEXT("Spawned a wall"), Wall))
 		{
@@ -3772,7 +3772,7 @@ bool FGSPiercingRoundsTest::RunTest(const FString& Parameters)
 			Wall->SetActorScale3D(FVector(0.2f, 3.f, 3.f));
 			const FGSShotTrace Walled = UGSGameplayAbility_Fire::TraceShot(GetPIEWorld(), Start, End, 10, Params);
 			AddInfo(FString::Printf(TEXT("Pierce 10 with a wall: %s"), *DescribeShot(Walled)));
-			TestEqual(TEXT("Wall: only the two bandits before it"), Walled.TargetHits.Num(), 2);
+			TestEqual(TEXT("Wall: only the two cops before it"), Walled.TargetHits.Num(), 2);
 			TestTrue(TEXT("Wall: it stops the shot"), Walled.BlockingHit.bBlockingHit && Walled.BlockingHit.GetActor() == Wall);
 			TestTrue(TEXT("Wall: the shot ends at the wall"), Walled.End.Equals(FVector(Walled.BlockingHit.ImpactPoint), 1.f));
 			Wall->Destroy();
@@ -3781,14 +3781,14 @@ bool FGSPiercingRoundsTest::RunTest(const FString& Parameters)
 		// A dead target is passed without using up the pierce.
 		ApplyDamage(S->Line[0]->GetAbilitySystemComponent(), 1000.f);
 		const FGSShotTrace PastDead = UGSGameplayAbility_Fire::TraceShot(GetPIEWorld(), Start, End, 0, Params);
-		TestTrue(TEXT("Dead bandit 1: Pierce 0 hits bandit 2"), HitActor(PastDead, 0) == S->Line[1].Get() && PastDead.TargetHits.Num() == 1);
+		TestTrue(TEXT("Dead cop 1: Pierce 0 hits cop 2"), HitActor(PastDead, 0) == S->Line[1].Get() && PastDead.TargetHits.Num() == 1);
 
 		RemoveAllEnemies(GetPIEWorld());
 		S->Line.Reset();
 	});
 
 	// A real rifle shot (a zero-spread copy of the rifle, so the line is exact) with Piercing Rounds x2 and Loaded Dice
-	// x10 (50%): three bandits on the shot's line each take one full hit, each with its own crit roll and damage number.
+	// x10 (50%): three cops on the shot's line each take one full hit, each with its own crit roll and damage number.
 	Step([this, S]()
 	{
 		const UGSWeaponData* Rifle = UGSDebugLibrary::FindWeaponData(TEXT("Rifle"));
@@ -3802,11 +3802,11 @@ bool FGSPiercingRoundsTest::RunTest(const FString& Parameters)
 		GetPlayer()->TeleportTo(FVector(0.f, 0.f, 100.f), FRotator(0.f, 180.f, 0.f));
 		for (int32 i = 0; i < 4; ++i)
 		{
-			S->Line.Add(SpawnFrozenBandit(FVector(-400.f - 150.f * i, 0.f, 0.f)));
+			S->Line.Add(SpawnFrozenCop(FVector(-400.f - 150.f * i, 0.f, 0.f)));
 		}
 	});
 	TSharedRef<int32> AimFrames = MakeShared<int32>(0);
-	WaitUntil(this, TEXT("aim at the first bandit"), [S, AimFrames]()
+	WaitUntil(this, TEXT("aim at the first cop"), [S, AimFrames]()
 	{
 		if (S->Line.Num() == 0 || !S->Line[0].IsValid())
 		{
@@ -3817,14 +3817,14 @@ bool FGSPiercingRoundsTest::RunTest(const FString& Parameters)
 	});
 	Step([this, S]()
 	{
-		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S->Line)
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Cop : S->Line)
 		{
-			if (!TestTrue(TEXT("Bandits are there"), Bandit.IsValid()))
+			if (!TestTrue(TEXT("Cops are there"), Cop.IsValid()))
 			{
 				return;
 			}
 		}
-		// Put bandits 2-4 on the shot's exact line: muzzle -> where the camera ray meets bandit 1 (what GA_Fire does).
+		// Put cops 2-4 on the shot's exact line: muzzle -> where the camera ray meets cop 1 (what GA_Fire does).
 		AimAt(*S->Line[0]);
 		FVector ViewLocation;
 		FRotator ViewRotation;
@@ -3834,24 +3834,24 @@ bool FGSPiercingRoundsTest::RunTest(const FString& Parameters)
 		Params.AddIgnoredActor(GetPlayer()->GetWeaponComponent()->GetCurrentWeapon());
 		FHitResult CameraHit;
 		GetPIEWorld()->LineTraceSingleByChannel(CameraHit, ViewLocation, ViewLocation + ViewRotation.Vector() * 5000.f, ECC_Visibility, Params);
-		if (!TestTrue(TEXT("The camera ray meets bandit 1"), CameraHit.GetActor() == S->Line[0].Get()))
+		if (!TestTrue(TEXT("The camera ray meets cop 1"), CameraHit.GetActor() == S->Line[0].Get()))
 		{
 			return;
 		}
 		const FVector Muzzle = GetPlayer()->GetWeaponComponent()->GetCurrentWeapon()->GetMuzzleLocation();
 		const FVector AimPoint = CameraHit.ImpactPoint;
 		const FVector Direction = (AimPoint - Muzzle).GetSafeNormal();
-		const float HeightOnBandit = AimPoint.Z - S->Line[0]->GetActorLocation().Z;
+		const float HeightOnCop = AimPoint.Z - S->Line[0]->GetActorLocation().Z;
 		for (int32 i = 1; i < S->Line.Num(); ++i)
 		{
 			const FVector OnLine = AimPoint + Direction * (60.f + 150.f * i);
-			S->Line[i]->SetActorLocation(OnLine - FVector(0.f, 0.f, HeightOnBandit), false, nullptr, ETeleportType::TeleportPhysics);
+			S->Line[i]->SetActorLocation(OnLine - FVector(0.f, 0.f, HeightOnCop), false, nullptr, ETeleportType::TeleportPhysics);
 		}
 
 		S->HealthBefore.Reset();
-		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S->Line)
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Cop : S->Line)
 		{
-			S->HealthBefore.Add(GetActorHealth(Bandit.Get()));
+			S->HealthBefore.Add(GetActorHealth(Cop.Get()));
 		}
 		const UGSHUDWidget* HUD = GetHUD();
 		S->NumbersBefore = HUD ? HUD->GetDamageNumbersAdded() : 0;
@@ -3864,22 +3864,22 @@ bool FGSPiercingRoundsTest::RunTest(const FString& Parameters)
 		for (int32 i = 0; i < S->Line.Num(); ++i)
 		{
 			const float Dealt = S->HealthBefore[i] - GetActorHealth(S->Line[i].Get());
-			AddInfo(FString::Printf(TEXT("Bandit %d took %.0f"), i + 1, Dealt));
+			AddInfo(FString::Printf(TEXT("Cop %d took %.0f"), i + 1, Dealt));
 			if (i < 3)
 			{
-				TestTrue(FString::Printf(TEXT("Bandit %d took one full hit (20, or 40 on a crit)"), i + 1), FMath::IsNearlyEqual(Dealt, 20.f, 0.01f) || FMath::IsNearlyEqual(Dealt, 40.f, 0.01f));
+				TestTrue(FString::Printf(TEXT("Cop %d took one full hit (20, or 40 on a crit)"), i + 1), FMath::IsNearlyEqual(Dealt, 20.f, 0.01f) || FMath::IsNearlyEqual(Dealt, 40.f, 0.01f));
 				Hits += Dealt > 0.f ? 1 : 0;
 				Crits += FMath::IsNearlyEqual(Dealt, 40.f, 0.01f) ? 1 : 0;
 			}
 			else
 			{
-				TestEqual(TEXT("Bandit 4 is past the pierce: untouched"), Dealt, 0.f, 0.01f);
+				TestEqual(TEXT("Cop 4 is past the pierce: untouched"), Dealt, 0.f, 0.01f);
 			}
 		}
-		TestEqual(TEXT("Three bandits hit by one shot"), Hits, 3);
+		TestEqual(TEXT("Three cops hit by one shot"), Hits, 3);
 		if (HUD)
 		{
-			TestEqual(TEXT("One damage number per bandit hit"), HUD->GetDamageNumbersAdded() - S->NumbersBefore, 3);
+			TestEqual(TEXT("One damage number per cop hit"), HUD->GetDamageNumbersAdded() - S->NumbersBefore, 3);
 			TestEqual(TEXT("Critical numbers match the crits"), HUD->GetCriticalDamageNumbersAdded() - S->CritNumbersBefore, Crits);
 		}
 		// Each hit rolled its own crit: exactly three draws from the run stream (no kills, so nothing else rolled).
@@ -3909,7 +3909,7 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 
 	struct FState
 	{
-		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits;
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Cops;
 		float PlayerHealth = 0.f;
 		int32 ComboBefore = 0;
 		int32 CashPickupsBefore = 0;
@@ -3918,7 +3918,7 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 		TStrongObjectPtr<UGSCombatSettings> SettingsCopy;
 	};
 	TSharedRef<FState> S = MakeShared<FState>();
-	auto Health = [](const TWeakObjectPtr<AGSEnemyCharacter>& Bandit) { return Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f; };
+	auto Health = [](const TWeakObjectPtr<AGSEnemyCharacter>& Cop) { return Cop.IsValid() ? GetHealth(Cop->GetAbilitySystemComponent()) : -1.f; };
 	auto GetPS = []() { return GetPC() ? GetPC()->GetPlayerState<AGSPlayerState>() : nullptr; };
 
 	// Data; at 0 stacks a kill never explodes and nothing is rolled.
@@ -3987,14 +3987,14 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 		// A (dies) at -500, B 2 m away: a real kill at 0 stacks doesn't explode.
 		for (const FVector& At : { FVector(-500.f, 0.f, 0.f), FVector(-700.f, 0.f, 0.f) })
 		{
-			S->Bandits.Add(SpawnFrozenBandit(At));
+			S->Cops.Add(SpawnFrozenCop(At));
 		}
-		ApplyDamage(S->Bandits[0]->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
-		TestTrue(TEXT("No Powder Keg: the kill"), S->Bandits[0]->GetHealthComponent()->IsDead());
+		ApplyDamage(S->Cops[0]->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
+		TestTrue(TEXT("No Powder Keg: the kill"), S->Cops[0]->GetHealthComponent()->IsDead());
 		TestEqual(TEXT("No Powder Keg: no blast"), GameMode->GetPowderKegBlasts(), 0);
-		TestEqual(TEXT("No Powder Keg: B untouched"), Health(S->Bandits[1]), 60.f, 0.01f);
+		TestEqual(TEXT("No Powder Keg: B untouched"), Health(S->Cops[1]), 60.f, 0.01f);
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
+		S->Cops.Reset();
 	});
 
 	// 34 stacks (100%): every kill explodes, with no roll. 30 damage within 3 m, never the player (standing 1 m from the
@@ -4026,16 +4026,16 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 
 		for (const FVector& At : { FVector(-500.f, 0.f, 0.f), FVector(-700.f, 0.f, 0.f), FVector(-950.f, 0.f, 0.f), FVector(-500.f, -400.f, 0.f) })
 		{
-			S->Bandits.Add(SpawnFrozenBandit(At));
+			S->Cops.Add(SpawnFrozenCop(At));
 		}
-		for (int32 i = 0; i < S->Bandits.Num(); ++i)
+		for (int32 i = 0; i < S->Cops.Num(); ++i)
 		{
-			if (!TestTrue(FString::Printf(TEXT("Bandit %d spawned"), i), S->Bandits[i].IsValid()))
+			if (!TestTrue(FString::Printf(TEXT("Cop %d spawned"), i), S->Cops[i].IsValid()))
 			{
 				return;
 			}
 		}
-		S->Bandits[1]->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 20.f);
+		S->Cops[1]->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 20.f);
 
 		ApplyDamage(GetPlayerASC(), 10.f); // so Leech has room to heal
 		S->PlayerHealth = GetHealth(GetPlayerASC());
@@ -4047,11 +4047,11 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 		S->KillsBefore = GetGameState()->GetRunStats()->GetTotalKills();
 
 		// Kill A as the player: it explodes at once.
-		ApplyDamage(S->Bandits[0]->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
+		ApplyDamage(S->Cops[0]->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
 		TestEqual(TEXT("One blast at once"), GameMode->GetPowderKegBlasts(), 1);
-		TestTrue(TEXT("B (20 HP, 2 m) died in the blast"), S->Bandits[1]->GetHealthComponent()->IsDead());
-		TestEqual(TEXT("C (4.5 m) is out of reach"), Health(S->Bandits[2]), 60.f, 0.01f);
-		TestEqual(TEXT("D (4 m) is out of reach"), Health(S->Bandits[3]), 60.f, 0.01f);
+		TestTrue(TEXT("B (20 HP, 2 m) died in the blast"), S->Cops[1]->GetHealthComponent()->IsDead());
+		TestEqual(TEXT("C (4.5 m) is out of reach"), Health(S->Cops[2]), 60.f, 0.01f);
+		TestEqual(TEXT("D (4 m) is out of reach"), Health(S->Cops[3]), 60.f, 0.01f);
 		TestEqual(TEXT("B's blast waits for the chain delay"), GameMode->GetPendingPowderKegs(), 1);
 		// The player is 1 m from A: never hurt by it; Leech healed the two kills (A by the gun, B by the blast).
 		TestEqual(TEXT("The player isn't hurt and Leech healed both kills"), GetHealth(GetPlayerASC()), S->PlayerHealth + 2.f, 0.01f);
@@ -4066,17 +4066,17 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 	{
 		AGSGameMode* GameMode = GetGameMode();
 		TestEqual(TEXT("B exploded 0.1 s later: two blasts"), GameMode->GetPowderKegBlasts(), 2);
-		TestEqual(TEXT("B's blast hit C (2.5 m from B) for 30"), Health(S->Bandits[2]), 30.f, 0.01f);
-		TestEqual(TEXT("D (4.7 m from B) still untouched"), Health(S->Bandits[3]), 60.f, 0.01f);
+		TestEqual(TEXT("B's blast hit C (2.5 m from B) for 30"), Health(S->Cops[2]), 30.f, 0.01f);
+		TestEqual(TEXT("D (4.7 m from B) still untouched"), Health(S->Cops[3]), 60.f, 0.01f);
 		TestEqual(TEXT("Nothing pending"), GameMode->GetPendingPowderKegs(), 0);
 
 		// A kill that isn't the player's doesn't explode, even at 100%.
 		const int32 Blasts = GameMode->GetPowderKegBlasts();
-		ApplyDamage(S->Bandits[2]->GetAbilitySystemComponent(), 1000.f);
-		TestTrue(TEXT("C died to its own damage"), S->Bandits[2]->GetHealthComponent()->IsDead());
+		ApplyDamage(S->Cops[2]->GetAbilitySystemComponent(), 1000.f);
+		TestTrue(TEXT("C died to its own damage"), S->Cops[2]->GetHealthComponent()->IsDead());
 		TestEqual(TEXT("A kill by someone else: no blast"), GameMode->GetPowderKegBlasts(), Blasts);
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
+		S->Cops.Reset();
 
 		// The blast is the same size at 1 and at 20 stacks: 30 damage at 2.9 m, nothing at 3.1 m.
 		GameMode->SetCombatSettingsOverride(nullptr); // the real settings from here on
@@ -4089,16 +4089,16 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 			const int32 Have = FMath::RoundToInt(GetAttr(UGSAttributeSet::GetPowderKegAttribute()));
 			UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("PowderKeg"), Stacks - Have);
 			TestEqual(FString::Printf(TEXT("PowderKeg %d"), Stacks), GetAttr(UGSAttributeSet::GetPowderKegAttribute()), static_cast<float>(Stacks), 0.001f);
-			const TWeakObjectPtr<AGSEnemyCharacter> Inside = SpawnFrozenBandit(Ground + FVector(0.f, -290.f, 0.f));
-			const TWeakObjectPtr<AGSEnemyCharacter> Outside = SpawnFrozenBandit(Ground + FVector(0.f, 310.f, 0.f));
+			const TWeakObjectPtr<AGSEnemyCharacter> Inside = SpawnFrozenCop(Ground + FVector(0.f, -290.f, 0.f));
+			const TWeakObjectPtr<AGSEnemyCharacter> Outside = SpawnFrozenCop(Ground + FVector(0.f, 310.f, 0.f));
 			if (!Inside.IsValid() || !Outside.IsValid())
 			{
-				AddError(TEXT("Blast-size bandits didn't spawn"));
+				AddError(TEXT("Blast-size cops didn't spawn"));
 				return;
 			}
-			// The blast is measured in 3D: center it at the bandits' own height (where a dead enemy's blast starts).
+			// The blast is measured in 3D: center it at the cops' own height (where a dead enemy's blast starts).
 			Center = Inside->GetActorLocation() + FVector(0.f, 290.f, 0.f);
-			AddInfo(FString::Printf(TEXT("[blast] %d stack(s): bandits %.0f and %.0f cm from the blast"), Stacks,
+			AddInfo(FString::Printf(TEXT("[blast] %d stack(s): cops %.0f and %.0f cm from the blast"), Stacks,
 				FVector::Dist(Inside->GetActorLocation(), Center), FVector::Dist(Outside->GetActorLocation(), Center)));
 			GameMode->ExplodePowderKeg(Center, GetPS());
 			TestEqual(FString::Printf(TEXT("%d stack(s): 30 damage at 2.9 m"), Stacks), Health(Inside), 30.f, 0.01f);
@@ -4108,7 +4108,7 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 
 		// The player's Damage still scales it: x1.1 -> 33.
 		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Damage") });
-		const TWeakObjectPtr<AGSEnemyCharacter> Scaled = SpawnFrozenBandit(Ground + FVector(0.f, -290.f, 0.f));
+		const TWeakObjectPtr<AGSEnemyCharacter> Scaled = SpawnFrozenCop(Ground + FVector(0.f, -290.f, 0.f));
 		GameMode->ExplodePowderKeg(Center, GetPS());
 		TestEqual(TEXT("Damage x1.1: 33"), Health(Scaled), 27.f, 0.01f);
 		RemoveAllEnemies(GetPIEWorld());
@@ -4119,11 +4119,11 @@ bool FGSPowderKegTest::RunTest(const FString& Parameters)
 		GameMode->SetRoundTimerPaused(true);
 		TestEqual(TEXT("67 picks granted (no cap)"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("PowderKeg"), 67), 67);
 		{
-			const TWeakObjectPtr<AGSEnemyCharacter> Inside = SpawnFrozenBandit(Ground + FVector(0.f, -590.f, 0.f));
-			const TWeakObjectPtr<AGSEnemyCharacter> Outside = SpawnFrozenBandit(Ground + FVector(0.f, 610.f, 0.f));
+			const TWeakObjectPtr<AGSEnemyCharacter> Inside = SpawnFrozenCop(Ground + FVector(0.f, -590.f, 0.f));
+			const TWeakObjectPtr<AGSEnemyCharacter> Outside = SpawnFrozenCop(Ground + FVector(0.f, 610.f, 0.f));
 			if (!Inside.IsValid() || !Outside.IsValid())
 			{
-				AddError(TEXT("Double-size bandits didn't spawn"));
+				AddError(TEXT("Double-size cops didn't spawn"));
 				return;
 			}
 			const int32 SeedBefore = GameMode->GetRunStream().GetCurrentSeed(); // after spawning: spawns use the run stream
@@ -5270,10 +5270,10 @@ namespace GSTests
 		return bHit && Hit.GetActor() && Hit.GetActor()->IsA<AGSMapBoundary>();
 	}
 
-	/** A frozen MeleeBandit at Location (no AI), for movement tests. */
-	AGSEnemyCharacter* SpawnFrozenBandit(const FVector& Location, const FVector& FaceTowards)
+	/** A frozen BeatCop at Location (no AI), for movement tests. */
+	AGSEnemyCharacter* SpawnFrozenCop(const FVector& Location, const FVector& FaceTowards)
 	{
-		UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("BeatCop"));
 		AGSEnemyCharacter* Enemy = Data ? AGSEnemyCharacter::SpawnEnemy(GetPIEWorld(), Data, Location, FaceTowards) : nullptr;
 		if (AAIController* AIC = Enemy ? Cast<AAIController>(Enemy->GetController()) : nullptr)
 		{
@@ -5302,7 +5302,7 @@ bool FGSMapBoundaryTest::RunTest(const FString& Parameters)
 		float MaxPlayerTop = -1e9f;
 		float HealthBefore = 0.f;
 		FVector2D LaunchXY = FVector2D::ZeroVector;
-		TWeakObjectPtr<AGSEnemyCharacter> Bandit;
+		TWeakObjectPtr<AGSEnemyCharacter> Cop;
 	};
 	TSharedRef<FBoundaryState> S = MakeShared<FBoundaryState>();
 
@@ -5383,17 +5383,17 @@ bool FGSMapBoundaryTest::RunTest(const FString& Parameters)
 		// Player launched at the east wall; an enemy launched at it a few meters along.
 		GetPlayer()->TeleportTo(FVector(S->MaxX - 300.f, S->Center.Y, S->GroundZ + 120.f), FRotator::ZeroRotator);
 		GetPlayer()->LaunchCharacter(FVector(3000.f, 0.f, 300.f), true, true);
-		S->Bandit = SpawnFrozenBandit(FVector(S->MaxX - 400.f, S->Center.Y + 600.f, S->GroundZ), FVector(S->MaxX + 1000.f, S->Center.Y + 600.f, S->GroundZ));
-		if (TestTrue(TEXT("Bandit spawned"), S->Bandit.IsValid()))
+		S->Cop = SpawnFrozenCop(FVector(S->MaxX - 400.f, S->Center.Y + 600.f, S->GroundZ), FVector(S->MaxX + 1000.f, S->Center.Y + 600.f, S->GroundZ));
+		if (TestTrue(TEXT("Cop spawned"), S->Cop.IsValid()))
 		{
-			S->Bandit->LaunchCharacter(FVector(3000.f, 0.f, 300.f), true, true);
+			S->Cop->LaunchCharacter(FVector(3000.f, 0.f, 300.f), true, true);
 		}
 	});
 	WaitWorldSeconds(this, 1.0);
 	Step([this, S]()
 	{
 		TestTrue(TEXT("Player stopped by the wall"), GetBoundary()->IsInside(GetPlayer()->GetActorLocation()));
-		TestTrue(TEXT("Enemy stopped by the wall"), S->Bandit.IsValid() && GetBoundary()->IsInside(S->Bandit->GetActorLocation()));
+		TestTrue(TEXT("Enemy stopped by the wall"), S->Cop.IsValid() && GetBoundary()->IsInside(S->Cop->GetActorLocation()));
 
 		// Dash into the wall from 3 m away (the dash covers 6 m).
 		GetPlayer()->TeleportTo(FVector(S->MaxX - 300.f, S->Center.Y - 600.f, S->GroundZ + 120.f), FRotator::ZeroRotator);
@@ -5499,7 +5499,7 @@ namespace GSTests
 		int32 XP = 0;
 	};
 
-	/** Kill a MeleeBandit (spawn ring, out of pickup reach) as the player; returns what its death dropped. */
+	/** Kill a BeatCop (spawn ring, out of pickup reach) as the player; returns what its death dropped. */
 	FComboKillDrop KillForCombo(FAutomationTestBase* Test)
 	{
 		const int32 CashBefore = SumActiveCash();
@@ -5598,10 +5598,10 @@ bool FGSKillComboTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: no combo"), Combo->GetComboCount(), 0);
 		TestFalse(TEXT("New run: no combo on the HUD"), HUD->IsComboShowing());
 
-		const UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		const UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("BeatCop"));
 		S->CashValue = Data ? Data->CashValue : 0;
 		S->XPValue = Data ? Data->XPValue : 0;
-		if (!TestTrue(TEXT("MeleeBandit drops cash and XP"), S->CashValue > 0 && S->XPValue > 0) || S->MaxStepCombo <= 0)
+		if (!TestTrue(TEXT("BeatCop drops cash and XP"), S->CashValue > 0 && S->XPValue > 0) || S->MaxStepCombo <= 0)
 		{
 			return;
 		}
@@ -5838,7 +5838,7 @@ bool FGSRoundClearBonusTest::RunTest(const FString& Parameters)
 		RemoveAllEnemies(GetPIEWorld());
 		UGSDebugLibrary::SetGodMode(GetPC(), true);
 		GetPlayer()->TeleportTo(FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator);
-		const UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		const UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("BeatCop"));
 		S->CashValue = Data ? Data->CashValue : 0;
 		S->XPValue = Data ? Data->XPValue : 0;
 
@@ -6229,7 +6229,7 @@ bool FGSHubMapTest::RunTest(const FString& Parameters)
 		}
 
 		// No enemies here.
-		TestEqual(TEXT("No enemy spawns in the hub"), UGSDebugLibrary::SpawnEnemiesAround(GetPC(), UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit")), 1).Num(), 0);
+		TestEqual(TEXT("No enemy spawns in the hub"), UGSDebugLibrary::SpawnEnemiesAround(GetPC(), UGSDebugLibrary::FindEnemyData(TEXT("BeatCop")), 1).Num(), 0);
 		TestEqual(TEXT("No enemies alive"), CountLivingEnemies(), 0);
 
 		// Safe zone: no damage, no shooting.
@@ -7178,7 +7178,7 @@ bool FGSFlatDropsTest::RunTest(const FString& Parameters)
 			return;
 		}
 		GameMode->SetRoundTimerPaused(true);
-		for (const TCHAR* Type : { TEXT("MeleeBandit"), TEXT("RangedBandit") })
+		for (const TCHAR* Type : { TEXT("BeatCop"), TEXT("PatrolOfficer") })
 		{
 			const UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(Type);
 			if (!TestNotNull(FString::Printf(TEXT("%s data"), Type), Data))
@@ -7234,12 +7234,12 @@ namespace GSTests
 		return Count;
 	}
 
-	/** A frozen MeleeBandit at Location (no AI, no movement), for blast and kill-credit checks. */
+	/** A frozen BeatCop at Location (no AI, no movement), for blast and kill-credit checks. */
 	AGSEnemyCharacter* SpawnFrozenMeleeAt(FAutomationTestBase* Test, const FVector& Location)
 	{
-		UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("MeleeBandit"));
+		UGSEnemyData* Data = UGSDebugLibrary::FindEnemyData(TEXT("BeatCop"));
 		AGSEnemyCharacter* Enemy = Data ? AGSEnemyCharacter::SpawnEnemy(GetPIEWorld(), Data, Location, GetPlayer()->GetActorLocation()) : nullptr;
-		if (!Test->TestNotNull(TEXT("Spawned a frozen MeleeBandit"), Enemy))
+		if (!Test->TestNotNull(TEXT("Spawned a frozen BeatCop"), Enemy))
 		{
 			return nullptr;
 		}
@@ -7548,7 +7548,7 @@ bool FGSFloatingShieldTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("No shields"), Shields->GetNumShields(), 0);
 		TestEqual(TEXT("No shield meshes"), Visuals->GetNumShieldMeshes(), 0);
 
-		S->Attacker = SpawnFrozenBandit(FVector(-600.f, 0.f, 0.f));
+		S->Attacker = SpawnFrozenCop(FVector(-600.f, 0.f, 0.f));
 		const float Before = GetHealth(GetPlayerASC());
 		ApplyDamage(GetPlayerASC(), 10.f, AttackerASC());
 		TestEqual(TEXT("No shield: the hit takes Health"), GetHealth(GetPlayerASC()), Before - 10.f, 0.01f);
@@ -7679,7 +7679,7 @@ bool FGSFloatingShieldTest::RunTest(const FString& Parameters)
 	});
 	WaitFrames(this, 2);
 
-	// Real attacks: a melee bandit's swing and a ranged bandit's burst are both blocked.
+	// Real attacks: a Beat Cop's swing and a Patrol Officer's burst are both blocked.
 	Step([this, S]()
 	{
 		const UGSFloatingShieldsComponent* Visuals = GetShieldVisuals();
@@ -7698,8 +7698,8 @@ bool FGSFloatingShieldTest::RunTest(const FString& Parameters)
 		GetPlayerShields()->ResetShields(); // all 8 ready
 		S->Health = GetHealth(GetPlayerASC());
 		S->BlockedBefore = GetPlayerShields()->GetHitsBlocked();
-		S->Attacker = SpawnFrozenEnemyFacingPlayer(TEXT("MeleeBandit"), GetPlayer()->GetActorLocation() + FVector(130.f, 0.f, 0.f));
-		TestTrue(TEXT("Melee bandit swings"), S->Attacker.IsValid()
+		S->Attacker = SpawnFrozenEnemyFacingPlayer(TEXT("BeatCop"), GetPlayer()->GetActorLocation() + FVector(130.f, 0.f, 0.f));
+		TestTrue(TEXT("Beat Cop swings"), S->Attacker.IsValid()
 			&& S->Attacker->GetAbilitySystemComponent()->TryActivateAbilitiesByTag(FGameplayTagContainer(GSGameplayTags::Ability_Attack_Melee)));
 	});
 	WaitUntil(this, TEXT("the melee hit to be blocked"), [S]() { return GetPlayerShields()->GetHitsBlocked() > S->BlockedBefore; }, 10.0);
@@ -7708,8 +7708,8 @@ bool FGSFloatingShieldTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Melee hit blocked: no Health lost"), GetHealth(GetPlayerASC()), S->Health, 0.01f);
 		RemoveAllEnemies(GetPIEWorld());
 		S->BlockedBefore = GetPlayerShields()->GetHitsBlocked();
-		S->Attacker = SpawnFrozenEnemyFacingPlayer(TEXT("RangedBandit"), GetPlayer()->GetActorLocation() + FVector(600.f, 0.f, 0.f));
-		TestTrue(TEXT("Ranged bandit fires"), S->Attacker.IsValid()
+		S->Attacker = SpawnFrozenEnemyFacingPlayer(TEXT("PatrolOfficer"), GetPlayer()->GetActorLocation() + FVector(600.f, 0.f, 0.f));
+		TestTrue(TEXT("Patrol Officer fires"), S->Attacker.IsValid()
 			&& S->Attacker->GetAbilitySystemComponent()->TryActivateAbilitiesByTag(FGameplayTagContainer(GSGameplayTags::Ability_Attack_Ranged)));
 	});
 	WaitUntil(this, TEXT("a shot to be blocked"), [S]() { return GetPlayerShields()->GetHitsBlocked() > S->BlockedBefore; }, 10.0);
@@ -7814,7 +7814,7 @@ bool FGSSecondWindTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("SecondWinds 2"), GetAttr(UGSAttributeSet::GetSecondWindsAttribute()), 2.f, 0.001f);
 		TestEqual(TEXT("Two stacks (Owned: 2)"), Stacks(), 2);
 
-		S->Attacker = SpawnFrozenBandit(FVector(-600.f, 0.f, 0.f));
+		S->Attacker = SpawnFrozenCop(FVector(-600.f, 0.f, 0.f));
 		KillTestEnemyAsPlayer(this); // start a combo
 		TestTrue(TEXT("A combo is running"), GetPlayerCombo()->GetComboCount() > 0);
 		const float DamageTakenBefore = GetGameState()->GetRunStats()->GetDamageTaken();
@@ -7930,16 +7930,16 @@ namespace GSTests
 		return GetPIEWorld() ? GetPIEWorld()->GetSubsystem<UGSProjectileSubsystem>() : nullptr;
 	}
 
-	/** A frozen MeleeBandit with a lot of Health (the gun can shoot it for a while). */
-	AGSEnemyCharacter* SpawnToughBandit(const FVector& Location)
+	/** A frozen BeatCop with a lot of Health (the gun can shoot it for a while). */
+	AGSEnemyCharacter* SpawnToughCop(const FVector& Location)
 	{
-		AGSEnemyCharacter* Bandit = SpawnFrozenBandit(Location);
-		if (Bandit)
+		AGSEnemyCharacter* Cop = SpawnFrozenCop(Location);
+		if (Cop)
 		{
-			Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetMaxHealthAttribute(), 100000.f);
-			Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 100000.f);
+			Cop->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetMaxHealthAttribute(), 100000.f);
+			Cop->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 100000.f);
 		}
-		return Bandit;
+		return Cop;
 	}
 
 	AStaticMeshActor* SpawnTestWall(const FVector& Location, const FVector& Scale)
@@ -7961,7 +7961,7 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 {
 	struct FGunState
 	{
-		TWeakObjectPtr<AGSEnemyCharacter> Bandit;
+		TWeakObjectPtr<AGSEnemyCharacter> Cop;
 		TWeakObjectPtr<AGSEnemyCharacter> Near;
 		TWeakObjectPtr<AStaticMeshActor> Wall;
 		double WindowEnd = 0.0;
@@ -7969,7 +7969,7 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 		int32 ScheduleMisses = 0;
 		int32 ShotsBefore = 0;
 		int32 HitsBefore = 0;
-		float BanditHealthBefore = 0.f;
+		float CopHealthBefore = 0.f;
 		int32 CritNumbersBefore = 0;
 		FActiveGameplayEffectHandle SafeZone;
 		int32 Config = 0;
@@ -7983,7 +7983,7 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 	};
 	TSharedRef<FGunState> S = MakeShared<FGunState>();
 	auto Now = []() { return GetPIEWorld() ? GetPIEWorld()->GetTimeSeconds() : 0.0; };
-	auto Health = [](const TWeakObjectPtr<AGSEnemyCharacter>& Bandit) { return Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f; };
+	auto Health = [](const TWeakObjectPtr<AGSEnemyCharacter>& Cop) { return Cop.IsValid() ? GetHealth(Cop->GetAbilitySystemComponent()) : -1.f; };
 	const FVector Home(0.f, 0.f, 100.f);
 
 	BeginPIE(this);
@@ -8045,9 +8045,9 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 		TestNull(TEXT("No enemies: no target"), Gun->GetTarget());
 		TestEqual(TEXT("No enemies: no shots"), Gun->GetShotsFired(), 0);
 
-		// A tough frozen bandit 10 m ahead.
-		S->Bandit = SpawnToughBandit(FVector(1000.f, 0.f, 0.f));
-		S->BanditHealthBefore = Health(S->Bandit);
+		// A tough frozen cop 10 m ahead.
+		S->Cop = SpawnToughCop(FVector(1000.f, 0.f, 0.f));
+		S->CopHealthBefore = Health(S->Cop);
 		S->HitsBefore = GetProjectiles() ? GetProjectiles()->GetNumHitTargets() : 0;
 	});
 	WaitUntil(this, TEXT("the first shot"), []() { return GetFloatingGun() && GetFloatingGun()->GetShotsFired() > 0; }, 10.0);
@@ -8055,7 +8055,7 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 	// The schedule: in every frame, shots in the burst == 1 + floor(elapsed / interval), for 4 s of game time.
 	Step([this, S, Now]()
 	{
-		TestTrue(TEXT("It targets the bandit"), GetFloatingGun()->GetTarget() == S->Bandit.Get());
+		TestTrue(TEXT("It targets the cop"), GetFloatingGun()->GetTarget() == S->Cop.Get());
 		S->WindowEnd = Now() + 4.0;
 	});
 	WaitUntil(this, TEXT("4 s of shooting"), [this, S, Now]()
@@ -8078,9 +8078,9 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("About 1.5 shots a second (at least 6 in 4 s)"), Gun->GetBurstShots() >= 6);
 		TestEqual(TEXT("Every frame on schedule"), S->ScheduleMisses, 0);
 		const int32 Hits = GetProjectiles()->GetNumHitTargets() - S->HitsBefore;
-		const float Dealt = S->BanditHealthBefore - Health(S->Bandit);
+		const float Dealt = S->CopHealthBefore - Health(S->Cop);
 		AddInfo(FString::Printf(TEXT("[gun] %d hits, %.0f damage"), Hits, Dealt));
-		TestTrue(TEXT("Its projectiles hit the bandit"), Hits >= 5);
+		TestTrue(TEXT("Its projectiles hit the cop"), Hits >= 5);
 		TestEqual(TEXT("8 damage per hit (Damage 1, no crits)"), Dealt, Hits * 8.f, 0.01f);
 	});
 	// The damage is set when a shot is fired (the crit is rolled when it hits), so grant with no shot in the air.
@@ -8101,7 +8101,7 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 
 		// Out of range: 25 m away, no target.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandit = SpawnToughBandit(FVector(2500.f, 0.f, 0.f));
+		S->Cop = SpawnToughCop(FVector(2500.f, 0.f, 0.f));
 		S->ShotsBefore = GetFloatingGun()->GetShotsFired();
 	});
 	WaitWorldSeconds(this, 1.0);
@@ -8110,9 +8110,9 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 		TestNull(TEXT("25 m: out of range, no target"), GetFloatingGun()->GetTarget());
 		TestEqual(TEXT("25 m: no shots"), GetFloatingGun()->GetShotsFired(), S->ShotsBefore);
 
-		// No clear line: a wall between the gun and a bandit 10 m away.
+		// No clear line: a wall between the gun and a cop 10 m away.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandit = SpawnToughBandit(FVector(1000.f, 0.f, 0.f));
+		S->Cop = SpawnToughCop(FVector(1000.f, 0.f, 0.f));
 		S->Wall = SpawnTestWall(FVector(500.f, 0.f, 200.f), FVector(0.2f, 3.f, 4.f));
 		S->ShotsBefore = GetFloatingGun()->GetShotsFired();
 	});
@@ -8125,19 +8125,19 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 		{
 			S->Wall->Destroy();
 		}
-		// A nearer bandit (6 m, off to the side) is the one it picks.
-		S->Near = SpawnToughBandit(FVector(600.f, 300.f, 0.f));
+		// A nearer cop (6 m, off to the side) is the one it picks.
+		S->Near = SpawnToughCop(FVector(600.f, 300.f, 0.f));
 	});
 	WaitWorldSeconds(this, 0.5);
 	Step([this, S, Health]()
 	{
-		TestTrue(TEXT("The nearest bandit is the target"), GetFloatingGun()->GetTarget() == S->Near.Get());
+		TestTrue(TEXT("The nearest cop is the target"), GetFloatingGun()->GetTarget() == S->Near.Get());
 		TestTrue(TEXT("Wall gone: it shoots again"), GetFloatingGun()->GetShotsFired() > S->ShotsBefore);
 
-		// Projectile rules, fired by hand: through the player into a bandit; into a wall; into the sky (expires).
+		// Projectile rules, fired by hand: through the player into a cop; into a wall; into the sky (expires).
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandit = SpawnToughBandit(FVector(600.f, 0.f, 0.f));
-		S->BanditHealthBefore = Health(S->Bandit);
+		S->Cop = SpawnToughCop(FVector(600.f, 0.f, 0.f));
+		S->CopHealthBefore = Health(S->Cop);
 		const UGSFloatingGunSettings* Settings = GetGameMode()->GetFloatingGunSettings();
 		FGSProjectileLaunch Launch;
 		Launch.Start = GetPlayer()->GetActorLocation() - FVector(300.f, 0.f, 0.f);
@@ -8162,13 +8162,13 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 	WaitUntil(this, TEXT("the hand-fired projectile to land"), []() { return GetProjectiles()->GetNumActive() == 0; }, 10.0);
 	Step([this, S, Health]()
 	{
-		TestEqual(TEXT("Through the player into the bandit: one target hit"), GetProjectiles()->GetNumHitTargets(), S->HitsBefore + 1);
-		TestEqual(TEXT("... for its damage (7, Loaded Dice x2 = 14)"), S->BanditHealthBefore - Health(S->Bandit), 14.f, 0.01f);
+		TestEqual(TEXT("Through the player into the cop: one target hit"), GetProjectiles()->GetNumHitTargets(), S->HitsBefore + 1);
+		TestEqual(TEXT("... for its damage (7, Loaded Dice x2 = 14)"), S->CopHealthBefore - Health(S->Cop), 14.f, 0.01f);
 		TestEqual(TEXT("Safe zone: the gun fired nothing meanwhile"), GetProjectiles()->GetNumFired(), S->ShotsBefore + 1);
 
-		// Into a wall: stops there, the bandit behind it untouched.
+		// Into a wall: stops there, the cop behind it untouched.
 		S->Wall = SpawnTestWall(FVector(300.f, 0.f, 150.f), FVector(0.2f, 3.f, 3.f));
-		S->BanditHealthBefore = Health(S->Bandit);
+		S->CopHealthBefore = Health(S->Cop);
 		S->HitsBefore = GetProjectiles()->GetNumHitWorld();
 		const UGSFloatingGunSettings* Settings = GetGameMode()->GetFloatingGunSettings();
 		FGSProjectileLaunch Launch;
@@ -8186,7 +8186,7 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 	Step([this, S, Health]()
 	{
 		TestEqual(TEXT("World geometry stops it"), GetProjectiles()->GetNumHitWorld(), S->HitsBefore + 1);
-		TestEqual(TEXT("The bandit behind the wall is untouched"), Health(S->Bandit), S->BanditHealthBefore, 0.01f);
+		TestEqual(TEXT("The cop behind the wall is untouched"), Health(S->Cop), S->CopHealthBefore, 0.01f);
 		if (S->Wall.IsValid())
 		{
 			S->Wall->Destroy();
@@ -8212,7 +8212,7 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Pooled: no projectile created beyond the prewarmed ones"), GetProjectiles()->GetNumCreated(), GetGameMode()->GetFloatingGunSettings()->ProjectilePoolPrewarm);
 		TestTrue(TEXT("Safe zone: the gun has no target"), GetFloatingGun()->GetTarget() == nullptr);
 
-		// Leave the safe zone. Kill credit: a weak bandit, Leech, a sure health orb, Powder Keg at 100%.
+		// Leave the safe zone. Kill credit: a weak cop, Leech, a sure health orb, Powder Keg at 100%.
 		GetPlayerASC()->RemoveActiveGameplayEffect(S->SafeZone);
 		RemoveAllEnemies(GetPIEWorld());
 		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("Leech") });
@@ -8225,13 +8225,13 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 		S->XPOrbsBefore = GetCashSubsystem()->GetNumXPOrbsDropped();
 		S->HealthOrbsBefore = GetCashSubsystem()->GetNumHealthOrbsDropped();
 		S->BlastsBefore = GetGameMode()->GetPowderKegBlasts();
-		S->Bandit = SpawnFrozenBandit(FVector(800.f, 0.f, 0.f));
-		if (S->Bandit.IsValid())
+		S->Cop = SpawnFrozenCop(FVector(800.f, 0.f, 0.f));
+		if (S->Cop.IsValid())
 		{
-			S->Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 5.f);
+			S->Cop->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 5.f);
 		}
 	});
-	WaitUntil(this, TEXT("the gun to kill the bandit"), [S]() { return !S->Bandit.IsValid() || S->Bandit->GetHealthComponent()->IsDead(); }, 10.0);
+	WaitUntil(this, TEXT("the gun to kill the cop"), [S]() { return !S->Cop.IsValid() || S->Cop->GetHealthComponent()->IsDead(); }, 10.0);
 	Step([this, S]()
 	{
 		TestEqual(TEXT("Gun kill: counted in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), S->KillsBefore + 1);
@@ -8243,11 +8243,11 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Gun kill: Powder Keg explodes"), GetGameMode()->GetPowderKegBlasts(), S->BlastsBefore + 1);
 		GetGameMode()->SetHealthOrbDropChanceOverride(0.f);
 
-		// Paused: no shots (a tough bandit in range).
+		// Paused: no shots (a tough cop in range).
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandit = SpawnToughBandit(FVector(800.f, 0.f, 0.f));
+		S->Cop = SpawnToughCop(FVector(800.f, 0.f, 0.f));
 	});
-	WaitUntil(this, TEXT("shooting the next bandit"), [S]() { return GetFloatingGun()->GetTarget() == S->Bandit.Get(); }, 10.0);
+	WaitUntil(this, TEXT("shooting the next cop"), [S]() { return GetFloatingGun()->GetTarget() == S->Cop.Get(); }, 10.0);
 	Step([this, S]()
 	{
 		S->ShotsBefore = GetFloatingGun()->GetShotsFired();
@@ -8306,9 +8306,9 @@ bool FGSFloatingGunTest::RunTest(const FString& Parameters)
 		GetPC()->SetControlRotation(FRotator::ZeroRotator);
 
 		// Dead: no shots.
-		S->Bandit = SpawnToughBandit(FVector(800.f, 0.f, 0.f));
+		S->Cop = SpawnToughCop(FVector(800.f, 0.f, 0.f));
 	});
-	WaitUntil(this, TEXT("shooting before death"), [S]() { return GetFloatingGun()->GetTarget() == S->Bandit.Get(); }, 10.0);
+	WaitUntil(this, TEXT("shooting before death"), [S]() { return GetFloatingGun()->GetTarget() == S->Cop.Get(); }, 10.0);
 	Step([this, S]()
 	{
 		ApplyDamage(GetPlayerASC(), 100000.f);
@@ -8382,7 +8382,7 @@ bool FGSFloatingGunLevelsTest::RunTest(const FString& Parameters)
 	};
 	TSharedRef<FLevelsState> S = MakeShared<FLevelsState>();
 	auto Now = []() { return GetPIEWorld() ? GetPIEWorld()->GetTimeSeconds() : 0.0; };
-	auto Health = [](const TWeakObjectPtr<AGSEnemyCharacter>& Bandit) { return Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f; };
+	auto Health = [](const TWeakObjectPtr<AGSEnemyCharacter>& Cop) { return Cop.IsValid() ? GetHealth(Cop->GetAbilitySystemComponent()) : -1.f; };
 	const FVector Home(0.f, 0.f, 100.f);
 
 	BeginPIE(this);
@@ -8493,7 +8493,7 @@ bool FGSFloatingGunLevelsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Two Common picks give the two guns and no power"), GetAttr(UGSAttributeSet::GetFloatingGunPowerAttribute()), 0.f, 0.0001f);
 
 		// One enemy in range: both guns shoot it.
-		S->A = SpawnToughBandit(FVector(1000.f, 0.f, 0.f));
+		S->A = SpawnToughCop(FVector(1000.f, 0.f, 0.f));
 	});
 	WaitUntil(this, TEXT("both guns shooting"), []()
 	{
@@ -8505,7 +8505,7 @@ bool FGSFloatingGunLevelsTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("One enemy: the left gun shoots it too"), GetFloatingGunAt(1)->GetTarget() == S->A.Get());
 
 		// A second enemy in range: the guns split up.
-		S->B = SpawnToughBandit(FVector(1000.f, 400.f, 0.f));
+		S->B = SpawnToughCop(FVector(1000.f, 400.f, 0.f));
 	});
 	WaitWorldSeconds(this, 0.5);
 	Step([this, S, Now, Health]()
@@ -8528,11 +8528,11 @@ bool FGSFloatingGunLevelsTest::RunTest(const FString& Parameters)
 		const double Seconds = Now() - S->WindowStart;
 		const float DpsA = (S->HealthA - Health(S->A)) / Seconds;
 		const float DpsB = (S->HealthB - Health(S->B)) / Seconds;
-		AddInfo(FString::Printf(TEXT("[gun] level 2, one gun per bandit over %.2f s: %.1f and %.1f damage per second (%d and %d shots); expected 8 x 1.5 = 12"),
+		AddInfo(FString::Printf(TEXT("[gun] level 2, one gun per cop over %.2f s: %.1f and %.1f damage per second (%d and %d shots); expected 8 x 1.5 = 12"),
 			Seconds, DpsA, DpsB, GetFloatingGunAt(0)->GetShotsFired() - S->Shots[0], GetFloatingGunAt(1)->GetShotsFired() - S->Shots[1]));
 		TestTrue(TEXT("Still on different targets"), GetFloatingGunAt(0)->GetTarget() != GetFloatingGunAt(1)->GetTarget());
-		TestTrue(TEXT("Bandit A takes one gun's damage (about 12 a second)"), DpsA > 8.f && DpsA < 16.f);
-		TestTrue(TEXT("Bandit B takes one gun's damage (about 12 a second)"), DpsB > 8.f && DpsB < 16.f);
+		TestTrue(TEXT("Cop A takes one gun's damage (about 12 a second)"), DpsA > 8.f && DpsA < 16.f);
+		TestTrue(TEXT("Cop B takes one gun's damage (about 12 a second)"), DpsB > 8.f && DpsB < 16.f);
 
 		// B dies: both guns go back to A.
 		ApplyDamage(S->B->GetAbilitySystemComponent(), 1000000.f);
@@ -9886,9 +9886,9 @@ namespace GSTests
 		FVector Dir = FVector::ForwardVector;
 		FVector Side = FVector::RightVector;
 		FVector PlayerSpot = FVector::ZeroVector;
-		/** PlayerSpot on the ground (Z 0): where bandits are spawned from (SpawnEnemy adds the capsule half-height). */
+		/** PlayerSpot on the ground (Z 0): where cops are spawned from (SpawnEnemy adds the capsule half-height). */
 		FVector Ground = FVector::ZeroVector;
-		TWeakObjectPtr<AGSEnemyCharacter> Bandit;
+		TWeakObjectPtr<AGSEnemyCharacter> Cop;
 		TWeakObjectPtr<AStaticMeshActor> Wall;
 		TWeakObjectPtr<AGSProjectile> Card;
 		FVector CardDir = FVector::ZeroVector;
@@ -9900,7 +9900,7 @@ namespace GSTests
 		double WindowStart = 0.0;
 		bool bScheduleOk = true;
 		int32 ScheduleFrames = 0;
-		FVector BanditStart = FVector::ZeroVector;
+		FVector CopStart = FVector::ZeroVector;
 		float PlayerHealthBefore = 0.f;
 		int32 KillsBefore = 0;
 		int32 XPOrbsBefore = 0;
@@ -9973,12 +9973,12 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 	});
 	WaitFrames(this, 3);
 
-	// The projectile's homing: a card thrown at a bandit whose target dies flies on straight.
+	// The projectile's homing: a card thrown at a cop whose target dies flies on straight.
 	Step([this, S]()
 	{
-		S->Bandit = SpawnFrozenBandit(S->Ground + S->Dir * 1000.f);
+		S->Cop = SpawnFrozenCop(S->Ground + S->Dir * 1000.f);
 		const UGSRazorCardsSettings* Settings = GetGameMode()->GetRazorCardsSettings();
-		if (!TestTrue(TEXT("Bandit for the homing check"), S->Bandit.IsValid()) || !Settings)
+		if (!TestTrue(TEXT("Cop for the homing check"), S->Cop.IsValid()) || !Settings)
 		{
 			return;
 		}
@@ -9988,7 +9988,7 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 		Launch.Speed = Settings->CardSpeed;
 		Launch.Lifetime = Settings->CardLifetime;
 		Launch.Radius = Settings->CardRadius;
-		Launch.HomingTarget = S->Bandit.Get();
+		Launch.HomingTarget = S->Cop.Get();
 		Launch.HomingTurnRate = Settings->HomingTurnRate;
 		S->CardDir = Launch.Direction;
 		S->Card = GetProjectiles()->FireProjectile(Launch);
@@ -9997,15 +9997,15 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 	WaitFrames(this, 2);
 	Step([this, S]()
 	{
-		if (!S->Card.IsValid() || !S->Bandit.IsValid())
+		if (!S->Card.IsValid() || !S->Cop.IsValid())
 		{
 			return;
 		}
-		TestTrue(TEXT("Homing on the bandit"), S->Card->GetHomingTarget() == S->Bandit.Get());
+		TestTrue(TEXT("Homing on the cop"), S->Card->GetHomingTarget() == S->Cop.Get());
 		const FVector Now = S->Card->GetVelocity().GetSafeNormal();
-		const FVector ToBandit = (S->Bandit->GetActorLocation() - S->Card->GetActorLocation()).GetSafeNormal();
-		TestTrue(TEXT("It turned toward the bandit"), FVector::DotProduct(Now, ToBandit) > FVector::DotProduct(S->CardDir, ToBandit));
-		ApplyDamage(S->Bandit->GetAbilitySystemComponent(), 100000.f, GetPlayerASC());
+		const FVector ToCop = (S->Cop->GetActorLocation() - S->Card->GetActorLocation()).GetSafeNormal();
+		TestTrue(TEXT("It turned toward the cop"), FVector::DotProduct(Now, ToCop) > FVector::DotProduct(S->CardDir, ToCop));
+		ApplyDamage(S->Cop->GetAbilitySystemComponent(), 100000.f, GetPlayerASC());
 	});
 	WaitFrames(this, 2);
 	Step([this, S]()
@@ -10044,16 +10044,16 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 	{
 		TestEqual(TEXT("No enemy: no cards"), GetRazorCards()->GetCardsThrown(), S->ThrownBefore);
 		TestNull(TEXT("No enemy: no target"), GetRazorCards()->GetTarget());
-		S->Bandit = SpawnToughBandit(S->Ground + FVector(0.f, 0.f, 2700.f)); // 27 m up (frozen, it floats): out of range
+		S->Cop = SpawnToughCop(S->Ground + FVector(0.f, 0.f, 2700.f)); // 27 m up (frozen, it floats): out of range
 	});
 	WaitWorldSeconds(this, 1.0);
 	Step([this, S]()
 	{
 		TestEqual(TEXT("Out of range: no cards"), GetRazorCards()->GetCardsThrown(), S->ThrownBefore);
 		RemoveAllEnemies(GetPIEWorld());
-		// A wall across the line (thin along the side axis), and a bandit straight across the lane behind it.
+		// A wall across the line (thin along the side axis), and a cop straight across the lane behind it.
 		S->Wall = SpawnTestWall(S->PlayerSpot - S->Side * 300.f, FMath::Abs(S->Side.X) > 0.5f ? FVector(0.5f, 4.f, 4.f) : FVector(4.f, 0.5f, 4.f));
-		S->Bandit = SpawnToughBandit(S->Ground - S->Side * 600.f);
+		S->Cop = SpawnToughCop(S->Ground - S->Side * 600.f);
 	});
 	WaitWorldSeconds(this, 1.0);
 	Step([this, S]()
@@ -10067,10 +10067,10 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 		}
 
 		// A target in range: cards on the exact schedule, every one a hit for 6.
-		S->Bandit = SpawnToughBandit(S->Ground - S->Side * 800.f);
+		S->Cop = SpawnToughCop(S->Ground - S->Side * 800.f);
 		S->ThrownBefore = GetRazorCards()->GetCardsThrown();
 		S->HitsBefore = GetProjectiles()->GetNumHitTargets();
-		S->HealthBefore = S->Bandit.IsValid() ? GetHealth(S->Bandit->GetAbilitySystemComponent()) : 0.f;
+		S->HealthBefore = S->Cop.IsValid() ? GetHealth(S->Cop->GetAbilitySystemComponent()) : 0.f;
 		S->bScheduleOk = true;
 		S->ScheduleFrames = 0;
 		S->WindowStart = GetPIEWorld()->GetTimeSeconds();
@@ -10086,9 +10086,9 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 	{
 		const int32 Thrown = GetRazorCards()->GetCardsThrown() - S->ThrownBefore;
 		const int32 Hits = GetProjectiles()->GetNumHitTargets() - S->HitsBefore;
-		const float Lost = S->HealthBefore - GetHealth(S->Bandit->GetAbilitySystemComponent());
+		const float Lost = S->HealthBefore - GetHealth(S->Cop->GetAbilitySystemComponent());
 		AddInfo(FString::Printf(TEXT("Power 0: %d cards in 2 s, %d hits, %.1f damage (%d frames on schedule: %s)"), Thrown, Hits, Lost, S->ScheduleFrames, S->bScheduleOk ? TEXT("yes") : TEXT("no")));
-		TestTrue(TEXT("It throws when it has a target"), GetRazorCards()->GetTarget() == S->Bandit.Get());
+		TestTrue(TEXT("It throws when it has a target"), GetRazorCards()->GetTarget() == S->Cop.Get());
 		TestTrue(TEXT("About 4 cards in 2 s (2 a second)"), Thrown >= 4 && Thrown <= 5);
 		TestTrue(TEXT("Every frame on the exact schedule"), S->bScheduleOk);
 		TestEqual(TEXT("Every card hit"), Hits, Thrown);
@@ -10101,7 +10101,7 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Power 1: 2.2 cards a second"), GetRazorCards()->GetThrowInterval(), 1.0 / 2.2, 1e-6);
 		S->ThrownBefore = GetRazorCards()->GetCardsThrown();
 		S->HitsBefore = GetProjectiles()->GetNumHitTargets();
-		S->HealthBefore = GetHealth(S->Bandit->GetAbilitySystemComponent());
+		S->HealthBefore = GetHealth(S->Cop->GetAbilitySystemComponent());
 		S->bScheduleOk = true;
 		S->WindowStart = GetPIEWorld()->GetTimeSeconds();
 	});
@@ -10114,7 +10114,7 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 	Step([this, S]()
 	{
 		const int32 Hits = GetProjectiles()->GetNumHitTargets() - S->HitsBefore;
-		const float Lost = S->HealthBefore - GetHealth(S->Bandit->GetAbilitySystemComponent());
+		const float Lost = S->HealthBefore - GetHealth(S->Cop->GetAbilitySystemComponent());
 		TestTrue(TEXT("Power 1: on schedule, at the new interval"), S->bScheduleOk && FMath::IsNearlyEqual(GetRazorCards()->GetBurstInterval(), 1.0 / 2.2, 1e-6));
 		TestEqual(TEXT("Power 1: 6.6 per card"), Hits > 0 ? Lost / Hits : 0.f, 6.6f, 0.01f);
 
@@ -10124,7 +10124,7 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Power 3: 2.6 cards a second"), GetRazorCards()->GetThrowInterval(), 1.0 / 2.6, 1e-6);
 		S->ThrownBefore = GetRazorCards()->GetCardsThrown();
 		S->HitsBefore = GetProjectiles()->GetNumHitTargets();
-		S->HealthBefore = GetHealth(S->Bandit->GetAbilitySystemComponent());
+		S->HealthBefore = GetHealth(S->Cop->GetAbilitySystemComponent());
 		S->WindowStart = GetPIEWorld()->GetTimeSeconds();
 	});
 	WaitWorldSeconds(this, 2.0);
@@ -10133,19 +10133,19 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 	{
 		const int32 Thrown = GetRazorCards()->GetCardsThrown() - S->ThrownBefore;
 		const int32 Hits = GetProjectiles()->GetNumHitTargets() - S->HitsBefore;
-		const float Lost = S->HealthBefore - GetHealth(S->Bandit->GetAbilitySystemComponent());
+		const float Lost = S->HealthBefore - GetHealth(S->Cop->GetAbilitySystemComponent());
 		AddInfo(FString::Printf(TEXT("Power 3: %d cards in 2 s, %.1f per card, %.1f damage a second"), Thrown, Hits > 0 ? Lost / Hits : 0.f, Lost / 2.f));
 		TestEqual(TEXT("Power 3: 7.8 per card"), Hits > 0 ? Lost / Hits : 0.f, 7.8f, 0.01f);
 		TestTrue(TEXT("Power 3: about 5 cards in 2 s"), Thrown >= 5 && Thrown <= 6);
 
-		// A moving target: a bandit running down the lane past the player (4 m to the side).
+		// A moving target: a cop running down the lane past the player (4 m to the side).
 		RemoveAllEnemies(GetPIEWorld());
-		S->BanditStart = FVector(S->Lane.X, S->Lane.Y, 0.f) + S->Dir * 600.f;
-		S->Bandit = SpawnFrozenBandit(S->BanditStart, S->BanditStart + S->Dir * 1000.f); // AI off, movement on
-		if (S->Bandit.IsValid())
+		S->CopStart = FVector(S->Lane.X, S->Lane.Y, 0.f) + S->Dir * 600.f;
+		S->Cop = SpawnFrozenCop(S->CopStart, S->CopStart + S->Dir * 1000.f); // AI off, movement on
+		if (S->Cop.IsValid())
 		{
-			S->Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetMaxHealthAttribute(), 100000.f);
-			S->Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 100000.f);
+			S->Cop->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetMaxHealthAttribute(), 100000.f);
+			S->Cop->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 100000.f);
 		}
 		S->ThrownBefore = GetRazorCards()->GetCardsThrown();
 		S->HitsBefore = GetProjectiles()->GetNumHitTargets();
@@ -10153,19 +10153,19 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 		S->ExpiredBefore = GetProjectiles()->GetNumExpired();
 		S->WindowStart = GetPIEWorld()->GetTimeSeconds();
 	});
-	WaitUntil(this, TEXT("3 s of cards at a running bandit"), [S]()
+	WaitUntil(this, TEXT("3 s of cards at a running cop"), [S]()
 	{
-		if (S->Bandit.IsValid())
+		if (S->Cop.IsValid())
 		{
-			S->Bandit->AddMovementInput(S->Dir, 1.f);
+			S->Cop->AddMovementInput(S->Dir, 1.f);
 		}
 		return GetPIEWorld()->GetTimeSeconds() - S->WindowStart >= 3.0;
 	}, 15.0);
 	WaitUntil(this, TEXT("cards in flight to land"), [S]()
 	{
-		if (S->Bandit.IsValid())
+		if (S->Cop.IsValid())
 		{
-			S->Bandit->AddMovementInput(S->Dir, 1.f);
+			S->Cop->AddMovementInput(S->Dir, 1.f);
 		}
 		return GetProjectiles()->GetNumActive() == 0;
 	}, 10.0);
@@ -10173,17 +10173,17 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 	{
 		const int32 Thrown = GetRazorCards()->GetCardsThrown() - S->ThrownBefore;
 		const int32 Hits = GetProjectiles()->GetNumHitTargets() - S->HitsBefore;
-		const float Moved = S->Bandit.IsValid() ? FVector::Dist2D(S->Bandit->GetActorLocation(), S->BanditStart) : 0.f;
-		const float Speed = S->Bandit.IsValid() ? S->Bandit->GetVelocity().Size2D() : 0.f;
+		const float Moved = S->Cop.IsValid() ? FVector::Dist2D(S->Cop->GetActorLocation(), S->CopStart) : 0.f;
+		const float Speed = S->Cop.IsValid() ? S->Cop->GetVelocity().Size2D() : 0.f;
 		AddInfo(FString::Printf(TEXT("Moving target: ran %.0f cm (%.0f cm/s); %d cards, %d hits, %d hit the world, %d expired"), Moved, Speed, Thrown, Hits,
 			GetProjectiles()->GetNumHitWorld() - S->WorldBefore, GetProjectiles()->GetNumExpired() - S->ExpiredBefore));
-		TestTrue(TEXT("The bandit ran (over 10 m)"), Moved > 1000.f);
+		TestTrue(TEXT("The cop ran (over 10 m)"), Moved > 1000.f);
 		TestTrue(TEXT("Cards were thrown at it"), Thrown >= 6);
-		TestEqual(TEXT("Every card hit the running bandit"), Hits, Thrown);
+		TestEqual(TEXT("Every card hit the running cop"), Hits, Thrown);
 		TestEqual(TEXT("No card hit the world"), GetProjectiles()->GetNumHitWorld() - S->WorldBefore, 0);
 		TestEqual(TEXT("No card expired"), GetProjectiles()->GetNumExpired() - S->ExpiredBefore, 0);
 
-		// Its kill is the player's: a weak bandit, Leech, a sure health orb.
+		// Its kill is the player's: a weak cop, Leech, a sure health orb.
 		RemoveAllEnemies(GetPIEWorld());
 		GetPlayer()->TeleportTo(S->PlayerSpot, (-S->Side).Rotation());
 		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Leech"), 1);
@@ -10196,13 +10196,13 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 		S->KillsBefore = GetGameState()->GetRunStats()->GetTotalKills();
 		S->XPOrbsBefore = GetCashSubsystem()->GetNumXPOrbsDropped();
 		S->HealthOrbsBefore = GetCashSubsystem()->GetNumHealthOrbsDropped();
-		S->Bandit = SpawnFrozenBandit(S->Ground - S->Side * 800.f);
-		if (S->Bandit.IsValid())
+		S->Cop = SpawnFrozenCop(S->Ground - S->Side * 800.f);
+		if (S->Cop.IsValid())
 		{
-			S->Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 5.f);
+			S->Cop->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 5.f);
 		}
 	});
-	WaitUntil(this, TEXT("a card to kill the bandit"), [S]() { return !S->Bandit.IsValid() || S->Bandit->GetHealthComponent()->IsDead(); }, 10.0);
+	WaitUntil(this, TEXT("a card to kill the cop"), [S]() { return !S->Cop.IsValid() || S->Cop->GetHealthComponent()->IsDead(); }, 10.0);
 	Step([this, S]()
 	{
 		TestEqual(TEXT("Card kill: counted in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), S->KillsBefore + 1);
@@ -10215,9 +10215,9 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 
 		// Paused: no cards.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandit = SpawnToughBandit(S->Ground - S->Side * 800.f);
+		S->Cop = SpawnToughCop(S->Ground - S->Side * 800.f);
 	});
-	WaitUntil(this, TEXT("throwing at the next bandit"), [S]() { return GetRazorCards()->GetTarget() == S->Bandit.Get(); }, 10.0);
+	WaitUntil(this, TEXT("throwing at the next cop"), [S]() { return GetRazorCards()->GetTarget() == S->Cop.Get(); }, 10.0);
 	Step([S]()
 	{
 		S->ThrownBefore = GetRazorCards()->GetCardsThrown();
@@ -10237,13 +10237,13 @@ bool FGSRazorCardsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: no cards in flight"), GetProjectiles()->GetNumActive(), 0);
 		GetPlayer()->TeleportTo(S->PlayerSpot, (-S->Side).Rotation());
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandit = SpawnToughBandit(S->Ground - S->Side * 800.f);
+		S->Cop = SpawnToughCop(S->Ground - S->Side * 800.f);
 		S->ThrownBefore = GetRazorCards()->GetCardsThrown();
 	});
 	WaitWorldSeconds(this, 1.0);
 	Step([this, S]()
 	{
-		TestEqual(TEXT("New run: no cards at a bandit in range"), GetRazorCards()->GetCardsThrown(), S->ThrownBefore);
+		TestEqual(TEXT("New run: no cards at a cop in range"), GetRazorCards()->GetCardsThrown(), S->ThrownBefore);
 		TestNull(TEXT("New run: no target"), GetRazorCards()->GetTarget());
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
 		RestoreWorldSpeed();
@@ -10294,7 +10294,7 @@ namespace GSTests
 		FVector Ground = FVector::ZeroVector;
 		FVector Dir = FVector::ForwardVector;
 		FVector Side = FVector::RightVector;
-		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits; // [0] 2 m, [1] 3.3 m, [2] 3.8 m, [3] above
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Cops; // [0] 2 m, [1] 3.3 m, [2] 3.8 m, [3] above
 		TArray<float> HealthBefore;
 		int32 TicksBefore = 0;
 		bool bScheduleOk = true;
@@ -10322,17 +10322,17 @@ namespace GSTests
 	void RecordWireHealth(FWireState& S)
 	{
 		S.HealthBefore.Reset();
-		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S.Bandits)
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Cop : S.Cops)
 		{
-			S.HealthBefore.Add(Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : 0.f);
+			S.HealthBefore.Add(Cop.IsValid() ? GetHealth(Cop->GetAbilitySystemComponent()) : 0.f);
 		}
 		S.TicksBefore = GetBarbedWire()->GetTicks();
 	}
 
 	float WireHealthLost(const FWireState& S, int32 Index)
 	{
-		const TWeakObjectPtr<AGSEnemyCharacter>& Bandit = S.Bandits[Index];
-		return Bandit.IsValid() ? S.HealthBefore[Index] - GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f;
+		const TWeakObjectPtr<AGSEnemyCharacter>& Cop = S.Cops[Index];
+		return Cop.IsValid() ? S.HealthBefore[Index] - GetHealth(Cop->GetAbilitySystemComponent()) : -1.f;
 	}
 }
 
@@ -10390,7 +10390,7 @@ bool FGSBarbedWireTest::RunTest(const FString& Parameters)
 	});
 	WaitFrames(this, 3);
 
-	// Granted: the ring at the feet, no collision; four tough frozen bandits: two inside, one just outside, one above.
+	// Granted: the ring at the feet, no collision; four tough frozen cops: two inside, one just outside, one above.
 	Step([this, S]()
 	{
 		TestEqual(TEXT("gs.Upgrade.Grant BarbedWire"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("BarbedWire"), 1), 1);
@@ -10399,14 +10399,14 @@ bool FGSBarbedWireTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("A Common first pick: power 0"), Wire->GetPower(), 0.f);
 		TestEqual(TEXT("Radius 350"), Wire->GetRadius(), 350.f, 0.01f);
 		TestEqual(TEXT("5 per tick"), Wire->GetTickDamage(), 5.f, 0.0001f);
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Side * 200.f));
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 330.f));
-		S->Bandits.Add(SpawnToughBandit(S->Ground - S->Dir * 380.f));
-		S->Bandits.Add(SpawnToughBandit(S->Ground - S->Dir * 150.f + FVector(0.f, 0.f, 300.f))); // 1.5 m away, 3 m up: floats
-		for (int32 Index = 0; Index < S->Bandits.Num(); ++Index)
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Side * 200.f));
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 330.f));
+		S->Cops.Add(SpawnToughCop(S->Ground - S->Dir * 380.f));
+		S->Cops.Add(SpawnToughCop(S->Ground - S->Dir * 150.f + FVector(0.f, 0.f, 300.f))); // 1.5 m away, 3 m up: floats
+		for (int32 Index = 0; Index < S->Cops.Num(); ++Index)
 		{
-			TestTrue(FString::Printf(TEXT("Bandit %d spawned"), Index), S->Bandits[Index].IsValid());
+			TestTrue(FString::Printf(TEXT("Cop %d spawned"), Index), S->Cops[Index].IsValid());
 		}
 	});
 	WaitFrames(this, 2);
@@ -10422,12 +10422,12 @@ bool FGSBarbedWireTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("The ring lies at the feet"), Wire->GetRing() && FVector::Dist(Wire->GetRing()->GetComponentLocation(), Feet) < Settings->HeightAboveFloor + 1.f);
 		const FString Names[] = { TEXT("2 m"), TEXT("3.3 m"), TEXT("3.8 m"), TEXT("3 m up") };
 		const bool Expect[] = { true, true, false, false };
-		for (int32 Index = 0; Index < S->Bandits.Num(); ++Index)
+		for (int32 Index = 0; Index < S->Cops.Num(); ++Index)
 		{
-			const AGSEnemyCharacter* Bandit = S->Bandits[Index].Get();
-			const FVector Delta = Bandit ? Bandit->GetActorLocation() - GetPlayer()->GetActorLocation() : FVector::ZeroVector;
-			AddInfo(FString::Printf(TEXT("Bandit %s: %.0f cm flat, %.0f cm up"), *Names[Index], Delta.Size2D(), Delta.Z));
-			TestEqual(FString::Printf(TEXT("Bandit %s inside?"), *Names[Index]), Wire->IsInside(Bandit), Expect[Index]);
+			const AGSEnemyCharacter* Cop = S->Cops[Index].Get();
+			const FVector Delta = Cop ? Cop->GetActorLocation() - GetPlayer()->GetActorLocation() : FVector::ZeroVector;
+			AddInfo(FString::Printf(TEXT("Cop %s: %.0f cm flat, %.0f cm up"), *Names[Index], Delta.Size2D(), Delta.Z));
+			TestEqual(FString::Printf(TEXT("Cop %s inside?"), *Names[Index]), Wire->IsInside(Cop), Expect[Index]);
 		}
 		RecordWireHealth(*S);
 		S->bScheduleOk = true;
@@ -10450,12 +10450,12 @@ bool FGSBarbedWireTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("3.8 m (outside): nothing"), WireHealthLost(*S, 2), 0.f, 0.01f);
 		TestEqual(TEXT("3 m up (outside): nothing"), WireHealthLost(*S, 3), 0.f, 0.01f);
 
-		// Power 1: +10% damage, +5% radius (367.5 cm: the 3.8 m bandit is still outside).
+		// Power 1: +10% damage, +5% radius (367.5 cm: the 3.8 m cop is still outside).
 		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("BarbedWire"), 1);
 		TestEqual(TEXT("Power 1"), Wire->GetPower(), 1.f);
 		TestEqual(TEXT("Power 1: radius 367.5"), Wire->GetRadius(), 367.5f, 0.01f);
 		TestEqual(TEXT("Power 1: 5.5 per tick"), Wire->GetTickDamage(), 5.5f, 0.0001f);
-		TestFalse(TEXT("Power 1: 3.8 m still outside"), Wire->IsInside(S->Bandits[2].Get()));
+		TestFalse(TEXT("Power 1: 3.8 m still outside"), Wire->IsInside(S->Cops[2].Get()));
 		RecordWireHealth(*S);
 	});
 	WaitUntil(this, TEXT("3 ticks at power 1"), [S]() { return GetBarbedWire()->GetTicks() >= S->TicksBefore + 3; }, 10.0);
@@ -10467,12 +10467,12 @@ bool FGSBarbedWireTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Power 1: 5.5 per tick inside"), WireHealthLost(*S, 0), 5.5f * Ticks, 0.01f);
 		TestEqual(TEXT("Power 1: still nothing at 3.8 m"), WireHealthLost(*S, 2), 0.f, 0.01f);
 
-		// An Epic pick (+2 power): power 3, x1.3 damage, radius 402.5 cm: now the 3.8 m bandit is inside.
+		// An Epic pick (+2 power): power 3, x1.3 damage, radius 402.5 cm: now the 3.8 m cop is inside.
 		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("BarbedWire"), 1, EGSUpgradeRarity::Epic);
 		TestEqual(TEXT("Power 3"), Wire->GetPower(), 3.f);
 		TestEqual(TEXT("Power 3: radius 402.5"), Wire->GetRadius(), 402.5f, 0.01f);
 		TestEqual(TEXT("Power 3: 6.5 per tick"), Wire->GetTickDamage(), 6.5f, 0.0001f);
-		TestTrue(TEXT("Power 3: the 3.8 m bandit is inside the bigger ring"), Wire->IsInside(S->Bandits[2].Get()));
+		TestTrue(TEXT("Power 3: the 3.8 m cop is inside the bigger ring"), Wire->IsInside(S->Cops[2].Get()));
 		RecordWireHealth(*S);
 	});
 	WaitUntil(this, TEXT("3 ticks at power 3"), [S]() { return GetBarbedWire()->GetTicks() >= S->TicksBefore + 3; }, 10.0);
@@ -10486,7 +10486,7 @@ bool FGSBarbedWireTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Power 3: still nothing 3 m up"), WireHealthLost(*S, 3), 0.f, 0.01f);
 		TestEqual(TEXT("The ring is redrawn at 402.5"), Wire->GetShownRadius(), 402.5f, 0.1f);
 
-		// Its kill is the player's: a weak bandit inside, Leech, a sure health orb.
+		// Its kill is the player's: a weak cop inside, Leech, a sure health orb.
 		RemoveAllEnemies(GetPIEWorld());
 		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Leech"), 1);
 		GetGameMode()->SetHealthOrbDropChanceOverride(1.f);
@@ -10498,13 +10498,13 @@ bool FGSBarbedWireTest::RunTest(const FString& Parameters)
 		S->KillsBefore = GetGameState()->GetRunStats()->GetTotalKills();
 		S->XPOrbsBefore = GetCashSubsystem()->GetNumXPOrbsDropped();
 		S->HealthOrbsBefore = GetCashSubsystem()->GetNumHealthOrbsDropped();
-		S->Weak = SpawnFrozenBandit(S->Ground + S->Side * 200.f);
+		S->Weak = SpawnFrozenCop(S->Ground + S->Side * 200.f);
 		if (S->Weak.IsValid())
 		{
 			S->Weak->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
 		}
 	});
-	WaitUntil(this, TEXT("the ring to kill the bandit"), [S]() { return !S->Weak.IsValid() || S->Weak->GetHealthComponent()->IsDead(); }, 10.0);
+	WaitUntil(this, TEXT("the ring to kill the cop"), [S]() { return !S->Weak.IsValid() || S->Weak->GetHealthComponent()->IsDead(); }, 10.0);
 	Step([this, S]()
 	{
 		TestEqual(TEXT("Ring kill: counted in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), S->KillsBefore + 1);
@@ -10517,8 +10517,8 @@ bool FGSBarbedWireTest::RunTest(const FString& Parameters)
 
 		// Paused: no ticks.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Side * 200.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Side * 200.f));
 		S->TicksBefore = GetBarbedWire()->GetTicks();
 		UGameplayStatics::SetGamePaused(GetPIEWorld(), true);
 	});
@@ -10533,8 +10533,8 @@ bool FGSBarbedWireTest::RunTest(const FString& Parameters)
 		GetGameMode()->SetRoundTimerPaused(true);
 		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Side * 200.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Side * 200.f));
 		RecordWireHealth(*S);
 	});
 	WaitWorldSeconds(this, 1.5);
@@ -10545,7 +10545,7 @@ bool FGSBarbedWireTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: power 0"), Wire->GetPower(), 0.f);
 		TestFalse(TEXT("New run: no ring"), Wire->IsRingShown());
 		TestEqual(TEXT("New run: no ticks"), Wire->GetTicks(), S->TicksBefore);
-		TestEqual(TEXT("New run: a bandit next to the player takes nothing"), WireHealthLost(*S, 0), 0.f, 0.01f);
+		TestEqual(TEXT("New run: a cop next to the player takes nothing"), WireHealthLost(*S, 0), 0.f, 0.01f);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
 		RestoreWorldSpeed();
 	});
@@ -10861,14 +10861,14 @@ bool FGSCheckpointWeaponLimitTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// Powder Keg at 100%: a chain along a line of bandits ends once nobody is left in reach; the player is never hurt.
+// Powder Keg at 100%: a chain along a line of cops ends once nobody is left in reach; the player is never hurt.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSPowderKegChainEndsTest, "BanditBaller.Upgrades.PowderKegChainEnds", GSTests::TestFlags)
 bool FGSPowderKegChainEndsTest::RunTest(const FString& Parameters)
 {
 	BeginPIE(this);
 	struct FState
 	{
-		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits;
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Cops;
 		int32 BlastsBefore = 0;
 		float PlayerHealth = 0.f;
 	};
@@ -10889,13 +10889,13 @@ bool FGSPowderKegChainEndsTest::RunTest(const FString& Parameters)
 		const FVector Ground(Lane.X, Lane.Y, 0.f);
 		for (int32 Index = 0; Index < 8; ++Index)
 		{
-			// 2.5 m apart: each blast (3 m) reaches the next bandit only (6 m when one is double size).
-			AGSEnemyCharacter* Bandit = SpawnFrozenBandit(Ground + Dir * (600.f + 250.f * Index));
-			if (Bandit)
+			// 2.5 m apart: each blast (3 m) reaches the next cop only (6 m when one is double size).
+			AGSEnemyCharacter* Cop = SpawnFrozenCop(Ground + Dir * (600.f + 250.f * Index));
+			if (Cop)
 			{
-				Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 10.f);
+				Cop->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 10.f);
 			}
-			S->Bandits.Add(Bandit);
+			S->Cops.Add(Cop);
 		}
 		S->BlastsBefore = GameMode->GetPowderKegBlasts();
 		S->PlayerHealth = GetHealth(GetPlayerASC());
@@ -10903,16 +10903,16 @@ bool FGSPowderKegChainEndsTest::RunTest(const FString& Parameters)
 	WaitFrames(this, 2);
 	Step([S]()
 	{
-		if (S->Bandits.Num() > 0 && S->Bandits[0].IsValid())
+		if (S->Cops.Num() > 0 && S->Cops[0].IsValid())
 		{
-			ApplyDamage(S->Bandits[0]->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
+			ApplyDamage(S->Cops[0]->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
 		}
 	});
 	WaitUntil(this, TEXT("the chain to run down the line and end"), [S]()
 	{
-		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S->Bandits)
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Cop : S->Cops)
 		{
-			if (Bandit.IsValid() && !Bandit->GetHealthComponent()->IsDead())
+			if (Cop.IsValid() && !Cop->GetHealthComponent()->IsDead())
 			{
 				return false;
 			}
@@ -10923,9 +10923,9 @@ bool FGSPowderKegChainEndsTest::RunTest(const FString& Parameters)
 	Step([this, S]()
 	{
 		int32 Dead = 0;
-		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S->Bandits)
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Cop : S->Cops)
 		{
-			Dead += (!Bandit.IsValid() || Bandit->GetHealthComponent()->IsDead()) ? 1 : 0;
+			Dead += (!Cop.IsValid() || Cop->GetHealthComponent()->IsDead()) ? 1 : 0;
 		}
 		TestEqual(TEXT("The chain killed the whole line"), Dead, 8);
 		TestEqual(TEXT("Each death exploded once: 8 blasts"), GetGameMode()->GetPowderKegBlasts() - S->BlastsBefore, 8);
@@ -10950,7 +10950,7 @@ bool FGSHealthOrbsAllSourcesTest::RunTest(const FString& Parameters)
 		FVector Ground = FVector::ZeroVector;
 		FVector Dir = FVector::ForwardVector;
 		FVector Side = FVector::RightVector;
-		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits;
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Cops;
 		int32 Seed = 4830;
 	};
 	TSharedRef<FState> S = MakeShared<FState>();
@@ -10987,7 +10987,7 @@ bool FGSHealthOrbsAllSourcesTest::RunTest(const FString& Parameters)
 				UGSDebugLibrary::SetGodMode(GetPC(), true);
 				RemoveAllEnemies(GetPIEWorld());
 				GetPlayer()->TeleportTo(S->Spot, S->Dir.Rotation());
-				S->Bandits.Reset();
+				S->Cops.Reset();
 				const FVector Near = S->Ground - S->Side * 200.f; // inside the ring, in range of everything
 				switch (Source)
 				{
@@ -10997,28 +10997,28 @@ bool FGSHealthOrbsAllSourcesTest::RunTest(const FString& Parameters)
 				case ESource::PowderKeg: UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("PowderKeg"), 34); break;
 				default: break;
 				}
-				S->Bandits.Add(SpawnFrozenBandit(Near));
+				S->Cops.Add(SpawnFrozenCop(Near));
 				if (Source == ESource::PowderKeg)
 				{
-					S->Bandits.Add(SpawnFrozenBandit(Near + S->Dir * 150.f)); // the blast's victim
+					S->Cops.Add(SpawnFrozenCop(Near + S->Dir * 150.f)); // the blast's victim
 				}
-				for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S->Bandits)
+				for (const TWeakObjectPtr<AGSEnemyCharacter>& Cop : S->Cops)
 				{
-					if (Bandit.IsValid())
+					if (Cop.IsValid())
 					{
-						Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
+						Cop->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
 					}
 				}
-				if ((Source == ESource::Own || Source == ESource::PowderKeg) && S->Bandits[0].IsValid())
+				if ((Source == ESource::Own || Source == ESource::PowderKeg) && S->Cops[0].IsValid())
 				{
-					ApplyDamage(S->Bandits[0]->GetAbilitySystemComponent(), 100.f, GetPlayerASC()); // the player's own kill
+					ApplyDamage(S->Cops[0]->GetAbilitySystemComponent(), 100.f, GetPlayerASC()); // the player's own kill
 				}
 			});
 			WaitUntil(this, FString::Printf(TEXT("%s kills (chance %.0f)"), SourceNames[SourceIndex], Chance), [S]()
 			{
-				for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S->Bandits)
+				for (const TWeakObjectPtr<AGSEnemyCharacter>& Cop : S->Cops)
 				{
-					if (Bandit.IsValid() && !Bandit->GetHealthComponent()->IsDead())
+					if (Cop.IsValid() && !Cop->GetHealthComponent()->IsDead())
 					{
 						return false;
 					}
@@ -11030,7 +11030,7 @@ bool FGSHealthOrbsAllSourcesTest::RunTest(const FString& Parameters)
 				const UGSRunStats* Stats = GetGameState()->GetRunStats();
 				const int32 Kills = Stats->GetTotalKills();
 				const FString What = FString::Printf(TEXT("%s, chance %.0f"), SourceNames[SourceIndex], Chance);
-				TestEqual(What + TEXT(": kills"), Kills, S->Bandits.Num());
+				TestEqual(What + TEXT(": kills"), Kills, S->Cops.Num());
 				TestEqual(What + TEXT(": health orbs dropped"), Stats->GetHealthOrbsDropped(), Chance >= 1.f ? Kills : 0);
 				TestTrue(What + TEXT(": damage recorded for its source"), Stats->GetDamageDealtBy(StatSources[SourceIndex]) > 0.f);
 			});
@@ -11049,9 +11049,9 @@ bool FGSHealthOrbsAllSourcesTest::RunTest(const FString& Parameters)
 		GetPlayer()->TeleportTo(S->Spot, S->Dir.Rotation());
 		for (int32 Index = 0; Index < 60; ++Index)
 		{
-			if (AGSEnemyCharacter* Bandit = SpawnFrozenBandit(S->Ground + S->Dir * 3000.f + FVector((Index % 10) * 120.f, (Index / 10) * 120.f, 0.f)))
+			if (AGSEnemyCharacter* Cop = SpawnFrozenCop(S->Ground + S->Dir * 3000.f + FVector((Index % 10) * 120.f, (Index / 10) * 120.f, 0.f)))
 			{
-				ApplyDamage(Bandit->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
+				ApplyDamage(Cop->GetAbilitySystemComponent(), 1000.f, GetPlayerASC());
 			}
 		}
 		*OwnKills = GetGameState()->GetRunStats()->GetTotalKills();
@@ -11060,19 +11060,19 @@ bool FGSHealthOrbsAllSourcesTest::RunTest(const FString& Parameters)
 
 		// A crowd inside a big ring (5 Legendary picks: radius 5.95 m), weak enough for one tick.
 		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("BarbedWire"), 5, EGSUpgradeRarity::Legendary);
-		S->Bandits.Reset();
+		S->Cops.Reset();
 		for (const float Radius : { 150.f, 300.f, 450.f })
 		{
 			const int32 Count = FMath::FloorToInt(2.f * PI * Radius / 110.f);
 			for (int32 Index = 0; Index < Count; ++Index)
 			{
 				const float Angle = 2.f * PI * Index / Count;
-				AGSEnemyCharacter* Bandit = SpawnFrozenBandit(S->Ground + FVector(Radius * FMath::Cos(Angle), Radius * FMath::Sin(Angle), 0.f));
-				if (Bandit)
+				AGSEnemyCharacter* Cop = SpawnFrozenCop(S->Ground + FVector(Radius * FMath::Cos(Angle), Radius * FMath::Sin(Angle), 0.f));
+				if (Cop)
 				{
-					Bandit->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
+					Cop->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
 				}
-				S->Bandits.Add(Bandit);
+				S->Cops.Add(Cop);
 			}
 		}
 	});
@@ -11086,7 +11086,7 @@ bool FGSHealthOrbsAllSourcesTest::RunTest(const FString& Parameters)
 		const double RingRate = RingKills > 0 ? static_cast<double>(RingOrbs) / RingKills : 0.0;
 		AddInfo(FString::Printf(TEXT("Chance 0.3: own kills %d orbs in %d (%.2f); Barbed Wire %d orbs in %d (%.2f)"), *OwnOrbs, *OwnKills, OwnRate, RingOrbs, RingKills, RingRate));
 		TestTrue(TEXT("60 own kills"), *OwnKills == 60);
-		TestTrue(TEXT("The ring killed most of the crowd"), RingKills >= S->Bandits.Num() * 3 / 4);
+		TestTrue(TEXT("The ring killed most of the crowd"), RingKills >= S->Cops.Num() * 3 / 4);
 		TestTrue(TEXT("Own kills drop at about 0.3"), OwnRate > 0.15 && OwnRate < 0.45);
 		TestTrue(TEXT("Ring kills drop at about 0.3"), RingRate > 0.15 && RingRate < 0.45);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
@@ -11108,7 +11108,7 @@ namespace GSTests
 		FVector Ground = FVector::ZeroVector;
 		FVector Dir = FVector::ForwardVector;
 		FVector Side = FVector::RightVector;
-		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits;
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Cops;
 		TArray<float> HealthBefore;
 		int32 ThrowsBefore = 0;
 		int32 BlastsBefore = 0;
@@ -11143,13 +11143,13 @@ namespace GSTests
 	constexpr float DynamiteTestInterval = 1.f;
 	constexpr double DynamiteTimeScale = DynamiteTestInterval / 4.0;
 
-	/** The lead runs: a bandit running straight down the lane at this steady speed (0.6 s of flight = 4.8 m). */
+	/** The lead runs: a cop running straight down the lane at this steady speed (0.6 s of flight = 4.8 m). */
 	constexpr float LeadRunnerSpeed = 800.f;
 
-	/** A tough bandit with AI off and movement on, at Location, facing along the lane, with MaxWalkSpeed LeadRunnerSpeed. */
+	/** A tough cop with AI off and movement on, at Location, facing along the lane, with MaxWalkSpeed LeadRunnerSpeed. */
 	AGSEnemyCharacter* SpawnLeadRunner(const FVector& Location, const FVector& Dir)
 	{
-		AGSEnemyCharacter* Runner = SpawnFrozenBandit(Location, Location + Dir * 3000.f);
+		AGSEnemyCharacter* Runner = SpawnFrozenCop(Location, Location + Dir * 3000.f);
 		if (Runner)
 		{
 			Runner->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetMaxHealthAttribute(), 100000.f);
@@ -11198,9 +11198,9 @@ namespace GSTests
 	void RecordDynamite(FDynamiteState& S)
 	{
 		S.HealthBefore.Reset();
-		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S.Bandits)
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Cop : S.Cops)
 		{
-			S.HealthBefore.Add(Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : 0.f);
+			S.HealthBefore.Add(Cop.IsValid() ? GetHealth(Cop->GetAbilitySystemComponent()) : 0.f);
 		}
 		S.ThrowsBefore = GetDynamite()->GetThrows();
 		S.BlastsBefore = GetDynamite()->GetBlasts();
@@ -11213,8 +11213,8 @@ namespace GSTests
 
 	float DynamiteLost(const FDynamiteState& S, int32 Index)
 	{
-		const TWeakObjectPtr<AGSEnemyCharacter>& Bandit = S.Bandits[Index];
-		return Bandit.IsValid() ? S.HealthBefore[Index] - GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f;
+		const TWeakObjectPtr<AGSEnemyCharacter>& Cop = S.Cops[Index];
+		return Cop.IsValid() ? S.HealthBefore[Index] - GetHealth(Cop->GetAbilitySystemComponent()) : -1.f;
 	}
 
 	/** Enqueue: wait until no stick is in the air (so the next blasts all come from throws made after a change). */
@@ -11238,7 +11238,7 @@ namespace GSTests
 	}
 
 	/**
-	 * Enqueue one lead run: the player in a safe zone (no throws) while a bandit 2 m ahead speeds up to a steady
+	 * Enqueue one lead run: the player in a safe zone (no throws) while a cop 2 m ahead speeds up to a steady
 	 * LeadRunnerSpeed straight down the lane; then the safe zone goes, one stick is thrown at it with LeadFactor, and the
 	 * blast is checked against where the runner is when the stick lands.
 	 */
@@ -11248,17 +11248,17 @@ namespace GSTests
 		{
 			GetPlayerASC()->AddLooseGameplayTag(GSGameplayTags::State_SafeZone);
 			RemoveAllEnemies(GetPIEWorld());
-			S->Bandits.Reset();
+			S->Cops.Reset();
 			if (S->TestSettings.IsValid())
 			{
 				S->TestSettings->LeadFactor = LeadFactor;
 			}
 		});
 		WaitNoStickInFlight(Test);
-		Step([S]() { S->Bandits.Add(SpawnLeadRunner(S->Ground + S->Dir * 200.f, S->Dir)); });
+		Step([S]() { S->Cops.Add(SpawnLeadRunner(S->Ground + S->Dir * 200.f, S->Dir)); });
 		WaitUntil(Test, TEXT("the runner at a steady speed"), [S]()
 		{
-			AGSEnemyCharacter* Runner = S->Bandits.Num() > 0 ? S->Bandits[0].Get() : nullptr;
+			AGSEnemyCharacter* Runner = S->Cops.Num() > 0 ? S->Cops[0].Get() : nullptr;
 			if (!Runner)
 			{
 				return true;
@@ -11273,7 +11273,7 @@ namespace GSTests
 		});
 		WaitUntil(Test, TEXT("the blast at the runner"), [S]()
 		{
-			if (AGSEnemyCharacter* Runner = S->Bandits.Num() > 0 ? S->Bandits[0].Get() : nullptr)
+			if (AGSEnemyCharacter* Runner = S->Cops.Num() > 0 ? S->Cops[0].Get() : nullptr)
 			{
 				Runner->AddMovementInput(S->Dir, 1.f);
 			}
@@ -11282,7 +11282,7 @@ namespace GSTests
 		Step([Test, S, LeadFactor]()
 		{
 			UGSDynamiteComponent* Dynamite = GetDynamite();
-			const AGSEnemyCharacter* Runner = S->Bandits.Num() > 0 ? S->Bandits[0].Get() : nullptr;
+			const AGSEnemyCharacter* Runner = S->Cops.Num() > 0 ? S->Cops[0].Get() : nullptr;
 			if (!Test->TestNotNull(TEXT("Lead: the runner"), Runner))
 			{
 				return;
@@ -11293,7 +11293,7 @@ namespace GSTests
 				*Tag, Runner->GetVelocity().Size2D(), Away, Dynamite->GetLastBlastRadius(), FVector::Dist2D(Dynamite->GetLastLanding(), Runner->GetActorLocation()),
 				FVector::DotProduct(Dynamite->GetLastLanding() - Runner->GetActorLocation(), S->Dir) < 0.f ? TEXT("behind") : TEXT("in front of")));
 			Test->TestEqual(Tag + TEXT(": one throw"), Dynamite->GetThrows(), S->ThrowsBefore + 1);
-			Test->TestEqual(Tag + TEXT(": thrown at the runner"), Dynamite->GetLastTarget(), S->Bandits[0].Get());
+			Test->TestEqual(Tag + TEXT(": thrown at the runner"), Dynamite->GetLastTarget(), S->Cops[0].Get());
 			Test->TestTrue(Tag + (LeadFactor > 0.f ? TEXT(": the landing was led") : TEXT(": the landing was not led")), Dynamite->WasLastThrowLed() == (LeadFactor > 0.f));
 			const float Feet = Runner->GetActorLocation().Z - Runner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
 			Test->TestTrue(Tag + TEXT(": the stick landed on the ground"), FMath::Abs(Dynamite->GetLastLanding().Z - Feet) < 5.f);
@@ -11382,7 +11382,7 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 	});
 	WaitFrames(this, 3);
 
-	// Granted, but the only bandit is 21.5 m away: nothing is thrown and nothing is banked.
+	// Granted, but the only cop is 21.5 m away: nothing is thrown and nothing is banked.
 	Step([this, S]()
 	{
 		TestEqual(TEXT("gs.Upgrade.Grant Dynamite"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Dynamite"), 1), 1);
@@ -11391,8 +11391,8 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("A Common first pick: power 0"), Dynamite->GetPower(), 0.f);
 		TestEqual(TEXT("Blast radius 300"), Dynamite->GetBlastRadius(), 300.f, 0.01f);
 		TestEqual(TEXT("40 per blast"), Dynamite->GetBlastDamage(), 40.f, 0.0001f);
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 2150.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 2150.f));
 		RecordDynamite(*S);
 	});
 	WaitWorldSeconds(this, 9.0 * DynamiteTimeScale); // 2.25 throw intervals
@@ -11402,12 +11402,12 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("It could throw (owned, alive, no safe zone)"), Dynamite->CanThrow());
 		TestNull(TEXT("No target out of range"), Dynamite->FindTarget());
 		TestEqual(TEXT("Out of range: no throws in 2.25 intervals"), Dynamite->GetThrows(), S->ThrowsBefore);
-		// The bandit walks into range: the first throw comes at once (nothing banked, nothing owed).
-		AGSEnemyCharacter* Bandit = S->Bandits[0].Get();
-		if (TestNotNull(TEXT("Bandit"), Bandit))
+		// The cop walks into range: the first throw comes at once (nothing banked, nothing owed).
+		AGSEnemyCharacter* Cop = S->Cops[0].Get();
+		if (TestNotNull(TEXT("Cop"), Cop))
 		{
 			const FVector At = S->Ground + S->Dir * 1000.f;
-			Bandit->SetActorLocation(FVector(At.X, At.Y, Bandit->GetActorLocation().Z), false, nullptr, ETeleportType::TeleportPhysics);
+			Cop->SetActorLocation(FVector(At.X, At.Y, Cop->GetActorLocation().Z), false, nullptr, ETeleportType::TeleportPhysics);
 		}
 		S->InRangeAt = GetPIEWorld()->GetTimeSeconds();
 	});
@@ -11417,42 +11417,42 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		UGSDynamiteComponent* Dynamite = GetDynamite();
 		TestEqual(TEXT("One throw (nothing banked)"), Dynamite->GetThrows(), S->ThrowsBefore + 1);
 		const double Delay = Dynamite->GetBurstStartTime() - S->InRangeAt;
-		AddInfo(FString::Printf(TEXT("First throw %.3f s after the bandit came into range"), Delay));
+		AddInfo(FString::Printf(TEXT("First throw %.3f s after the cop came into range"), Delay));
 		TestTrue(TEXT("The first throw comes at once"), Delay >= -0.001 && Delay < 0.25);
 		TestTrue(TEXT("A stick is in the air"), NumSticksInFlight() == 1);
-		TestEqual(TEXT("It was thrown at the bandit"), Dynamite->GetLastTarget(), S->Bandits[0].Get());
+		TestEqual(TEXT("It was thrown at the cop"), Dynamite->GetLastTarget(), S->Cops[0].Get());
 
-		// Targeting: a lone bandit 5 m out and a group of three 14 m out: the group, its nearest member.
+		// Targeting: a lone cop 5 m out and a group of three 14 m out: the group, its nearest member.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 500.f));                     // [0] alone
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 1400.f));                    // [1] group, nearest
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 1400.f + S->Side * 120.f));  // [2] group
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 1400.f - S->Side * 120.f));  // [3] group
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 500.f));                     // [0] alone
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 1400.f));                    // [1] group, nearest
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 1400.f + S->Side * 120.f));  // [2] group
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 1400.f - S->Side * 120.f));  // [3] group
 	});
 	WaitFrames(this, 2);
 	Step([this, S]()
 	{
 		UGSDynamiteComponent* Dynamite = GetDynamite();
-		TestEqual(TEXT("The lone bandit has no neighbours"), Dynamite->CountNeighbours(S->Bandits[0].Get()), 0);
-		TestEqual(TEXT("Each in the group has two"), Dynamite->CountNeighbours(S->Bandits[1].Get()), 2);
-		TestEqual(TEXT("It picks the group's nearest member over the nearer lone bandit"), Dynamite->FindTarget(), S->Bandits[1].Get());
+		TestEqual(TEXT("The lone cop has no neighbours"), Dynamite->CountNeighbours(S->Cops[0].Get()), 0);
+		TestEqual(TEXT("Each in the group has two"), Dynamite->CountNeighbours(S->Cops[1].Get()), 2);
+		TestEqual(TEXT("It picks the group's nearest member over the nearer lone cop"), Dynamite->FindTarget(), S->Cops[1].Get());
 
-		// A tie (two lone bandits): the nearest.
+		// A tie (two lone cops): the nearest.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 1100.f));
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 1100.f));
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 600.f));
 	});
 	WaitFrames(this, 2);
 	Step([this, S]()
 	{
-		TestEqual(TEXT("A tie goes to the nearest"), GetDynamite()->FindTarget(), S->Bandits[1].Get());
+		TestEqual(TEXT("A tie goes to the nearest"), GetDynamite()->FindTarget(), S->Cops[1].Get());
 
-		// Damage per second at power 0: one bandit, then a group of five.
+		// Damage per second at power 0: one cop, then a group of five.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 300.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 300.f));
 	});
 	WaitNoStickInFlight(this);
 	Step([S]() { RecordDynamite(*S); });
@@ -11461,16 +11461,16 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 	{
 		const int32 Blasts = GetDynamite()->GetBlasts() - S->BlastsBefore;
 		const float Lost = DynamiteLost(*S, 0);
-		TestEqual(TEXT("One bandit: 40 per blast"), Lost, 40.f * Blasts, 0.01f);
+		TestEqual(TEXT("One cop: 40 per blast"), Lost, 40.f * Blasts, 0.01f);
 		// DPS at the asset's interval (4 s); the damage per blast is the same in the test copy.
 		const double AssetInterval = DynamiteTestInterval / DynamiteTimeScale;
 		AddInfo(FString::Printf(TEXT("DPS vs one enemy: %.1f (%.0f in %d blasts, one every %.1f s)"), Lost / (Blasts * AssetInterval), Lost, Blasts, AssetInterval));
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
+		S->Cops.Reset();
 		const FVector Center = S->Ground + S->Dir * 700.f;
 		for (const FVector& Offset : { FVector::ZeroVector, S->Dir * 120.f, S->Dir * -120.f, S->Side * 120.f, S->Side * -120.f })
 		{
-			S->Bandits.Add(SpawnToughBandit(Center + Offset));
+			S->Cops.Add(SpawnToughCop(Center + Offset));
 		}
 	});
 	WaitNoStickInFlight(this);
@@ -11480,9 +11480,9 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 	{
 		const int32 Blasts = GetDynamite()->GetBlasts() - S->BlastsBefore;
 		float Lost = 0.f;
-		for (int32 Index = 0; Index < S->Bandits.Num(); ++Index)
+		for (int32 Index = 0; Index < S->Cops.Num(); ++Index)
 		{
-			TestEqual(FString::Printf(TEXT("Group of five: bandit %d takes 40 per blast"), Index), DynamiteLost(*S, Index), 40.f * Blasts, 0.01f);
+			TestEqual(FString::Printf(TEXT("Group of five: cop %d takes 40 per blast"), Index), DynamiteLost(*S, Index), 40.f * Blasts, 0.01f);
 			Lost += DynamiteLost(*S, Index);
 		}
 		TestEqual(TEXT("Group of five: every blast hits all five"), GetDynamite()->GetLastBlastHits(), 5);
@@ -11491,11 +11491,11 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		// The blast: T 2 m in front of the player, A 2.5 m beside it (inside), B 3.4 m further on (outside at 3 m).
 		// The player (god mode off) is 2 m from the blast center.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
+		S->Cops.Reset();
 		const FVector T = S->Ground + S->Dir * 200.f;
-		S->Bandits.Add(SpawnToughBandit(T));                       // [0] T, the target
-		S->Bandits.Add(SpawnToughBandit(T + S->Side * 250.f));     // [1] A
-		S->Bandits.Add(SpawnToughBandit(T + S->Dir * 340.f));      // [2] B
+		S->Cops.Add(SpawnToughCop(T));                       // [0] T, the target
+		S->Cops.Add(SpawnToughCop(T + S->Side * 250.f));     // [1] A
+		S->Cops.Add(SpawnToughCop(T + S->Dir * 340.f));      // [2] B
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
 	});
 	WaitNoStickInFlight(this);
@@ -11511,8 +11511,8 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		UGSDynamiteComponent* Dynamite = GetDynamite();
 		const int32 Blasts = Dynamite->GetBlasts() - S->BlastsBefore;
 		TestTrue(FString::Printf(TEXT("Every frame on the exact schedule (the test's %.0f s interval; %d frames)"), Dynamite->GetThrowInterval(), S->Frames), S->bScheduleOk);
-		TestEqual(TEXT("Target T"), Dynamite->GetLastTarget(), S->Bandits[0].Get());
-		const AGSEnemyCharacter* T = S->Bandits[0].Get();
+		TestEqual(TEXT("Target T"), Dynamite->GetLastTarget(), S->Cops[0].Get());
+		const AGSEnemyCharacter* T = S->Cops[0].Get();
 		if (T)
 		{
 			// LeadFactor 1 (the default) with a standing target: exactly the old landing point.
@@ -11536,11 +11536,11 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 			80.f * Blasts, 0.01f);
 		UGSDebugLibrary::SetGodMode(GetPC(), true);
 
-		// The aim on its own (Prompt 52b): a frozen bandit given a velocity by hand.
+		// The aim on its own (Prompt 52b): a frozen cop given a velocity by hand.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		AGSEnemyCharacter* Moving = SpawnFrozenBandit(S->Ground + S->Dir * 600.f);
-		if (!TestNotNull(TEXT("Aim: a bandit"), Moving))
+		S->Cops.Reset();
+		AGSEnemyCharacter* Moving = SpawnFrozenCop(S->Ground + S->Dir * 600.f);
+		if (!TestNotNull(TEXT("Aim: a cop"), Moving))
 		{
 			return;
 		}
@@ -11569,7 +11569,7 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 			&& Off.Landing == Moving->GetActorLocation() - FVector(0.f, 0.f, HalfHeight));
 		RemoveAllEnemies(GetPIEWorld());
 	});
-	// A bandit running straight down the lane: inside the blast with LeadFactor 1, outside with 0.
+	// A cop running straight down the lane: inside the blast with LeadFactor 1, outside with 0.
 	EnqueueDynamiteLeadRun(this, S, 1.f);
 	EnqueueDynamiteLeadRun(this, S, 0.f);
 	Step([this, S]()
@@ -11580,11 +11580,11 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		}
 		// T, A and B again for the power checks.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
+		S->Cops.Reset();
 		const FVector T = S->Ground + S->Dir * 200.f;
-		S->Bandits.Add(SpawnToughBandit(T));                       // [0] T, the target
-		S->Bandits.Add(SpawnToughBandit(T + S->Side * 250.f));     // [1] A
-		S->Bandits.Add(SpawnToughBandit(T + S->Dir * 340.f));      // [2] B
+		S->Cops.Add(SpawnToughCop(T));                       // [0] T, the target
+		S->Cops.Add(SpawnToughCop(T + S->Side * 250.f));     // [1] A
+		S->Cops.Add(SpawnToughCop(T + S->Dir * 340.f));      // [2] B
 		UGSDynamiteComponent* Dynamite = GetDynamite();
 
 		// Power 1: +10% damage, +5% radius (315 cm: B is still outside).
@@ -11632,7 +11632,7 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Crits: T takes 104 (52 x2)"), DynamiteLost(*S, 0), 104.f * Blasts, 0.01f);
 		TestEqual(TEXT("Crits: a critical number for each of the three hit"), GetHUD()->GetCriticalDamageNumbersAdded(), S->CritNumbersBefore + 3 * Blasts);
 
-		// Its kill is the player's: a weak bandit, Leech, a sure health orb.
+		// Its kill is the player's: a weak cop, Leech, a sure health orb.
 		RemoveAllEnemies(GetPIEWorld());
 		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Leech"), 1);
 		GetGameMode()->SetHealthOrbDropChanceOverride(1.f);
@@ -11644,13 +11644,13 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		S->KillsBefore = GetGameState()->GetRunStats()->GetTotalKills();
 		S->XPOrbsBefore = GetCashSubsystem()->GetNumXPOrbsDropped();
 		S->HealthOrbsBefore = GetCashSubsystem()->GetNumHealthOrbsDropped();
-		S->Weak = SpawnFrozenBandit(S->Ground + S->Dir * 300.f);
+		S->Weak = SpawnFrozenCop(S->Ground + S->Dir * 300.f);
 		if (S->Weak.IsValid())
 		{
 			S->Weak->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
 		}
 	});
-	WaitUntil(this, TEXT("a blast to kill the bandit"), [S]() { return !S->Weak.IsValid() || S->Weak->GetHealthComponent()->IsDead(); }, 20.0);
+	WaitUntil(this, TEXT("a blast to kill the cop"), [S]() { return !S->Weak.IsValid() || S->Weak->GetHealthComponent()->IsDead(); }, 20.0);
 	Step([this, S]()
 	{
 		TestEqual(TEXT("Dynamite kill: counted in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), S->KillsBefore + 1);
@@ -11663,8 +11663,8 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 
 		// Paused with a stick in the air: it stays put, nothing is thrown.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 600.f));
 	});
 	WaitUntil(this, TEXT("a stick in the air"), []() { return NumSticksInFlight() > 0; }, 20.0);
 	Step([S]()
@@ -11709,8 +11709,8 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
 		TestEqual(TEXT("New run: no stick in the air"), NumSticksInFlight(), 0);
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 600.f));
 		RecordDynamite(*S);
 	});
 	WaitWorldSeconds(this, 6.0 * DynamiteTimeScale);
@@ -11721,7 +11721,7 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: power 0"), Dynamite->GetPower(), 0.f);
 		TestEqual(TEXT("New run: the stick never exploded"), Dynamite->GetBlasts(), S->BlastsBefore);
 		TestEqual(TEXT("New run: no throws"), Dynamite->GetThrows(), S->ThrowsBefore);
-		TestEqual(TEXT("New run: a bandit in range takes nothing"), DynamiteLost(*S, 0), 0.f, 0.01f);
+		TestEqual(TEXT("New run: a cop in range takes nothing"), DynamiteLost(*S, 0), 0.f, 0.01f);
 
 		// Dead: no throws.
 		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Dynamite"), 1);
@@ -11759,7 +11759,7 @@ namespace GSTests
 		FVector Ground = FVector::ZeroVector;
 		FVector Dir = FVector::ForwardVector;
 		FVector Side = FVector::RightVector;
-		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits;
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Cops;
 		TArray<float> HealthBefore;
 		int32 FlipsBefore = 0;
 		int32 DoneBefore = 0;
@@ -11795,9 +11795,9 @@ namespace GSTests
 	void RecordCoin(FCoinState& S)
 	{
 		S.HealthBefore.Reset();
-		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S.Bandits)
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Cop : S.Cops)
 		{
-			S.HealthBefore.Add(Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : 0.f);
+			S.HealthBefore.Add(Cop.IsValid() ? GetHealth(Cop->GetAbilitySystemComponent()) : 0.f);
 		}
 		S.FlipsBefore = GetLuckyCoin()->GetFlips();
 		S.DoneBefore = GetLuckyCoin()->GetFlipsDone();
@@ -11806,11 +11806,11 @@ namespace GSTests
 
 	float CoinLost(const FCoinState& S, int32 Index)
 	{
-		const TWeakObjectPtr<AGSEnemyCharacter>& Bandit = S.Bandits[Index];
-		return Bandit.IsValid() ? S.HealthBefore[Index] - GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f;
+		const TWeakObjectPtr<AGSEnemyCharacter>& Cop = S.Cops[Index];
+		return Cop.IsValid() ? S.HealthBefore[Index] - GetHealth(Cop->GetAbilitySystemComponent()) : -1.f;
 	}
 
-	/** The last finished flip hit exactly these bandits (by index into S.Bandits), in this order, each once. */
+	/** The last finished flip hit exactly these cops (by index into S.Cops), in this order, each once. */
 	bool LastFlipHitExactly(const FCoinState& S, std::initializer_list<int32> Indices)
 	{
 		const TArray<TWeakObjectPtr<AActor>>& Hits = GetLuckyCoin()->GetLastFlipHits();
@@ -11821,7 +11821,7 @@ namespace GSTests
 		int32 Slot = 0;
 		for (const int32 Index : Indices)
 		{
-			if (Hits[Slot++].Get() != S.Bandits[Index].Get())
+			if (Hits[Slot++].Get() != S.Cops[Index].Get())
 			{
 				return false;
 			}
@@ -11918,7 +11918,7 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Owned: level 1"), GetLuckyCoin()->GetLevel(), 1);
 		TestEqual(TEXT("Power 0: 3 bounces"), GetLuckyCoin()->GetBounces(), 3);
 		TestEqual(TEXT("Power 0: 10 per hit"), GetLuckyCoin()->GetHitDamage(), 10.f, 0.0001f);
-		S->Bandits.Reset();
+		S->Cops.Reset();
 		RecordCoin(*S);
 	});
 	// No enemy: nothing is flipped and nothing banked.
@@ -11926,7 +11926,7 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 	Step([this, S]()
 	{
 		TestEqual(TEXT("No target: no flips in 1.33 intervals"), GetLuckyCoin()->GetFlips(), S->FlipsBefore);
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 600.f));
 		S->SpawnedAt = GetPIEWorld()->GetTimeSeconds();
 		RecordCoin(*S);
 	});
@@ -11938,14 +11938,14 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 		TestTrue(FString::Printf(TEXT("The first flip comes at once (%.3f s)"), Delay), Delay < 0.3);
 	});
 
-	// One bandit: one hit per flip (nobody to bounce to). DPS against one enemy.
+	// One cop: one hit per flip (nobody to bounce to). DPS against one enemy.
 	WaitCoinsDownAndRecord(this, S);
 	WaitFlipsDone(this, S, 3);
 	Step([this, S]()
 	{
 		const int32 Done = GetLuckyCoin()->GetFlipsDone() - S->DoneBefore;
-		TestTrue(TEXT("One bandit: the flip hit it once"), LastFlipHitExactly(*S, { 0 }));
-		TestEqual(TEXT("One bandit: 10 per flip"), CoinLost(*S, 0), 10.f * Done, 0.01f);
+		TestTrue(TEXT("One cop: the flip hit it once"), LastFlipHitExactly(*S, { 0 }));
+		TestEqual(TEXT("One cop: 10 per flip"), CoinLost(*S, 0), 10.f * Done, 0.01f);
 		// DPS at the asset's interval (1.5 s); the damage per flip is the same in the test copy.
 		const double AssetInterval = LuckyCoinTestInterval / LuckyCoinTimeScale;
 		AddInfo(FString::Printf(TEXT("DPS vs one enemy: %.1f (%.0f in %d flips, one every %.1f s)"), CoinLost(*S, 0) / (Done * AssetInterval),
@@ -11953,10 +11953,10 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 
 		// Five in a row, 4 m apart: a flip hits the first four in order, each once; the fifth is left (3 bounces).
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
+		S->Cops.Reset();
 		for (int32 Index = 0; Index < 5; ++Index)
 		{
-			S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * (600.f + 400.f * Index)));
+			S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * (600.f + 400.f * Index)));
 		}
 	});
 	WaitCoinsDownAndRecord(this, S);
@@ -11971,7 +11971,7 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 		float Lost = 0.f;
 		for (int32 Index = 0; Index < 4; ++Index)
 		{
-			TestEqual(FString::Printf(TEXT("Five in a row: bandit %d took 10 per flip (once each)"), Index), CoinLost(*S, Index), 10.f * Done, 0.01f);
+			TestEqual(FString::Printf(TEXT("Five in a row: cop %d took 10 per flip (once each)"), Index), CoinLost(*S, Index), 10.f * Done, 0.01f);
 			Lost += CoinLost(*S, Index);
 		}
 		TestEqual(TEXT("Five in a row: the fifth is out of bounces"), CoinLost(*S, 4), 0.f, 0.01f);
@@ -12018,11 +12018,11 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Power 3.5: five hit"), LastFlipHitExactly(*S, { 0, 1, 2, 3, 4 }));
 		TestEqual(TEXT("Power 3.5: 13.5 each"), CoinLost(*S, 2), 13.5f, 0.01f);
 
-		// Out of bounce range: two bandits 12 m apart: each flip stops after the first.
+		// Out of bounce range: two cops 12 m apart: each flip stops after the first.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 1800.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 600.f));
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 1800.f));
 	});
 	WaitCoinsDownAndRecord(this, S);
 	WaitFlipsDone(this, S, 2);
@@ -12031,7 +12031,7 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("12 m apart: the flip stops after the first"), LastFlipHitExactly(*S, { 0 }));
 		TestEqual(TEXT("12 m apart: the far one is never hit"), CoinLost(*S, 1), 0.f, 0.01f);
 
-		// Its kill is the player's: a weak bandit, Leech, a sure health orb.
+		// Its kill is the player's: a weak cop, Leech, a sure health orb.
 		RemoveAllEnemies(GetPIEWorld());
 		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Leech"), 1);
 		GetGameMode()->SetHealthOrbDropChanceOverride(1.f);
@@ -12043,13 +12043,13 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 		S->KillsBefore = GetGameState()->GetRunStats()->GetTotalKills();
 		S->XPOrbsBefore = GetCashSubsystem()->GetNumXPOrbsDropped();
 		S->HealthOrbsBefore = GetCashSubsystem()->GetNumHealthOrbsDropped();
-		S->Weak = SpawnFrozenBandit(S->Ground + S->Dir * 600.f);
+		S->Weak = SpawnFrozenCop(S->Ground + S->Dir * 600.f);
 		if (S->Weak.IsValid())
 		{
 			S->Weak->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
 		}
 	});
-	WaitUntil(this, TEXT("a coin to kill the bandit"), [S]() { return !S->Weak.IsValid() || S->Weak->GetHealthComponent()->IsDead(); }, 10.0);
+	WaitUntil(this, TEXT("a coin to kill the cop"), [S]() { return !S->Weak.IsValid() || S->Weak->GetHealthComponent()->IsDead(); }, 10.0);
 	Step([this, S]()
 	{
 		TestEqual(TEXT("Coin kill: counted in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), S->KillsBefore + 1);
@@ -12062,8 +12062,8 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 
 		// Paused: no flips.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 600.f));
 	});
 	WaitCoinsDownAndRecord(this, S);
 	Step([]() { UGameplayStatics::SetGamePaused(GetPIEWorld(), true); });
@@ -12083,8 +12083,8 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
 		TestEqual(TEXT("New run: no coin in the air"), GetPIEWorld()->GetSubsystem<UGSProjectileSubsystem>()->GetNumActive(), 0);
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 600.f));
 		RecordCoin(*S);
 	});
 	WaitWorldSeconds(this, 2.0 * LuckyCoinTimeScale);
@@ -12095,7 +12095,7 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: power 0"), Coin->GetPower(), 0.f);
 		TestEqual(TEXT("New run: no flips"), Coin->GetFlips(), S->FlipsBefore);
 		TestEqual(TEXT("New run: nothing in the air"), Coin->GetFlipsInAir(), 0);
-		TestEqual(TEXT("New run: a bandit in range takes nothing"), CoinLost(*S, 0), 0.f, 0.01f);
+		TestEqual(TEXT("New run: a cop in range takes nothing"), CoinLost(*S, 0), 0.f, 0.01f);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
 		GetGameMode()->SetLuckyCoinSettingsOverride(nullptr);
 		RestoreWorldSpeed();
@@ -12116,7 +12116,7 @@ namespace GSTests
 		FVector Ground = FVector::ZeroVector;
 		FVector Dir = FVector::ForwardVector;
 		FVector Side = FVector::RightVector;
-		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits;
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Cops;
 		TArray<float> HealthBefore;
 		int32 ThrowsBefore = 0;
 		int32 PatchesBefore = 0;
@@ -12173,9 +12173,9 @@ namespace GSTests
 	void RecordMolotov(FMolotovState& S)
 	{
 		S.HealthBefore.Reset();
-		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S.Bandits)
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Cop : S.Cops)
 		{
-			S.HealthBefore.Add(Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : 0.f);
+			S.HealthBefore.Add(Cop.IsValid() ? GetHealth(Cop->GetAbilitySystemComponent()) : 0.f);
 		}
 		S.ThrowsBefore = GetMolotov()->GetThrows();
 		S.PatchesBefore = GetMolotov()->GetPatchesLit();
@@ -12186,8 +12186,8 @@ namespace GSTests
 
 	float MolotovLost(const FMolotovState& S, int32 Index)
 	{
-		const TWeakObjectPtr<AGSEnemyCharacter>& Bandit = S.Bandits[Index];
-		return Bandit.IsValid() ? S.HealthBefore[Index] - GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f;
+		const TWeakObjectPtr<AGSEnemyCharacter>& Cop = S.Cops[Index];
+		return Cop.IsValid() ? S.HealthBefore[Index] - GetHealth(Cop->GetAbilitySystemComponent()) : -1.f;
 	}
 
 	/** Enqueue: wait until nothing is in the air or burning (a gap between patches), then record. */
@@ -12212,7 +12212,7 @@ namespace GSTests
 	}
 
 	/**
-	 * Enqueue one lead run: the player in a safe zone (no throws) while a bandit 2 m ahead speeds up to a steady
+	 * Enqueue one lead run: the player in a safe zone (no throws) while a cop 2 m ahead speeds up to a steady
 	 * LeadRunnerSpeed straight down the lane; then the safe zone goes, one bottle is thrown at it with LeadFactor, and the
 	 * patch's first burn is checked against where the runner is when the bottle lands.
 	 */
@@ -12222,17 +12222,17 @@ namespace GSTests
 		{
 			GetPlayerASC()->AddLooseGameplayTag(GSGameplayTags::State_SafeZone);
 			RemoveAllEnemies(GetPIEWorld());
-			S->Bandits.Reset();
+			S->Cops.Reset();
 			if (S->TestSettings.IsValid())
 			{
 				S->TestSettings->LeadFactor = LeadFactor;
 			}
 		});
 		WaitUntil(Test, TEXT("no bottle or patch"), []() { return NumThrownActive() == 0; }, 20.0);
-		Step([S]() { S->Bandits.Add(SpawnLeadRunner(S->Ground + S->Dir * 200.f, S->Dir)); });
+		Step([S]() { S->Cops.Add(SpawnLeadRunner(S->Ground + S->Dir * 200.f, S->Dir)); });
 		WaitUntil(Test, TEXT("the runner at a steady speed"), [S]()
 		{
-			AGSEnemyCharacter* Runner = S->Bandits.Num() > 0 ? S->Bandits[0].Get() : nullptr;
+			AGSEnemyCharacter* Runner = S->Cops.Num() > 0 ? S->Cops[0].Get() : nullptr;
 			if (!Runner)
 			{
 				return true;
@@ -12248,7 +12248,7 @@ namespace GSTests
 		});
 		WaitUntil(Test, TEXT("the patch under the runner"), [S]()
 		{
-			if (AGSEnemyCharacter* Runner = S->Bandits.Num() > 0 ? S->Bandits[0].Get() : nullptr)
+			if (AGSEnemyCharacter* Runner = S->Cops.Num() > 0 ? S->Cops[0].Get() : nullptr)
 			{
 				Runner->AddMovementInput(S->Dir, 1.f);
 			}
@@ -12257,7 +12257,7 @@ namespace GSTests
 		Step([Test, S, LeadFactor]()
 		{
 			UGSMolotovComponent* Molotov = GetMolotov();
-			const AGSEnemyCharacter* Runner = S->Bandits.Num() > 0 ? S->Bandits[0].Get() : nullptr;
+			const AGSEnemyCharacter* Runner = S->Cops.Num() > 0 ? S->Cops[0].Get() : nullptr;
 			const AGSFirePatch* Patch = FindActivePatch();
 			if (!Test->TestNotNull(TEXT("Lead: the runner"), Runner) || !Test->TestNotNull(TEXT("Lead: the patch"), Patch))
 			{
@@ -12270,7 +12270,7 @@ namespace GSTests
 			Test->AddInfo(FString::Printf(TEXT("%s: runner at %.0f cm/s, %.0f cm from the patch center at the first burn (radius %.0f); %d burn(s) so far"),
 				*Tag, Runner->GetVelocity().Size2D(), Away, Patch->GetParams().Radius, Patch->GetBurns()));
 			Test->TestEqual(Tag + TEXT(": one throw"), Molotov->GetThrows(), S->ThrowsBefore + 1);
-			Test->TestEqual(Tag + TEXT(": thrown at the runner"), Molotov->GetLastTarget(), S->Bandits[0].Get());
+			Test->TestEqual(Tag + TEXT(": thrown at the runner"), Molotov->GetLastTarget(), S->Cops[0].Get());
 			Test->TestTrue(Tag + (LeadFactor > 0.f ? TEXT(": the landing was led") : TEXT(": the landing was not led")), Molotov->WasLastThrowLed() == (LeadFactor > 0.f));
 			const float Feet = Runner->GetActorLocation().Z - Runner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
 			Test->TestTrue(Tag + TEXT(": the patch is on the ground"), FMath::Abs(Patch->GetParams().Center.Z - Feet) < 5.f);
@@ -12360,13 +12360,13 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
 		RemoveAllEnemies(GetPIEWorld());
 
-		// Granted; the only bandit is 16 m away (out of range).
+		// Granted; the only cop is 16 m away (out of range).
 		TestEqual(TEXT("gs.Upgrade.Grant Molotov"), UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Molotov"), 1), 1);
 		TestEqual(TEXT("Owned: level 1"), GetMolotov()->GetLevel(), 1);
 		TestEqual(TEXT("Power 0: 4 per burn"), GetMolotov()->GetBurnDamage(), 4.f, 0.0001f);
 		TestEqual(TEXT("Power 0: radius 250"), GetMolotov()->GetPatchRadius(), 250.f, 0.01f);
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 1600.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 1600.f));
 		RecordMolotov(*S);
 	});
 	WaitWorldSeconds(this, 1.5 * MolotovThrowTimeScale);
@@ -12375,11 +12375,11 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		TestNull(TEXT("16 m: no target"), GetMolotov()->FindTarget());
 		TestEqual(TEXT("16 m: no throw"), GetMolotov()->GetThrows(), S->ThrowsBefore);
 		// It walks into range: a bottle at once (nothing banked).
-		AGSEnemyCharacter* Bandit = S->Bandits[0].Get();
-		if (Bandit)
+		AGSEnemyCharacter* Cop = S->Cops[0].Get();
+		if (Cop)
 		{
 			const FVector At = S->Ground + S->Dir * 800.f;
-			Bandit->SetActorLocation(FVector(At.X, At.Y, Bandit->GetActorLocation().Z), false, nullptr, ETeleportType::TeleportPhysics);
+			Cop->SetActorLocation(FVector(At.X, At.Y, Cop->GetActorLocation().Z), false, nullptr, ETeleportType::TeleportPhysics);
 		}
 		S->InRangeAt = GetPIEWorld()->GetTimeSeconds();
 	});
@@ -12391,11 +12391,11 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("One throw (nothing banked)"), Molotov->GetThrows(), S->ThrowsBefore + 1);
 		TestTrue(FString::Printf(TEXT("The throw comes at once (%.3f s)"), Delay), Delay >= -0.001 && Delay < 0.25);
 		const AGSFirePatch* Patch = FindActivePatch();
-		const AGSEnemyCharacter* Bandit = S->Bandits[0].Get();
-		if (TestNotNull(TEXT("A patch is burning"), Patch) && Bandit)
+		const AGSEnemyCharacter* Cop = S->Cops[0].Get();
+		if (TestNotNull(TEXT("A patch is burning"), Patch) && Cop)
 		{
-			const float Feet = Bandit->GetActorLocation().Z - Bandit->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-			TestTrue(TEXT("The patch is at the target's feet"), FVector::Dist2D(Patch->GetParams().Center, Bandit->GetActorLocation()) < 1.f
+			const float Feet = Cop->GetActorLocation().Z - Cop->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+			TestTrue(TEXT("The patch is at the target's feet"), FVector::Dist2D(Patch->GetParams().Center, Cop->GetActorLocation()) < 1.f
 				&& FMath::IsNearlyEqual(Patch->GetParams().Center.Z, Feet, 1.f));
 			TestTrue(TEXT("The patch has no collision"), Patch->GetMesh()->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
 			TestEqual(TEXT("The patch is drawn at its radius"), static_cast<float>(Patch->GetActorScale3D().X * 50.0), 250.f, 0.1f);
@@ -12405,7 +12405,7 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		}
 	});
 
-	// A bandit running straight down the lane: in the patch at its first burn with LeadFactor 1, outside it with 0.
+	// A cop running straight down the lane: in the patch at its first burn with LeadFactor 1, outside it with 0.
 	EnqueueMolotovLeadRun(this, S, 1.f);
 	EnqueueMolotovLeadRun(this, S, 0.f);
 	Step([this, S]()
@@ -12417,13 +12417,13 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		// The burn test: T 1.2 m in front of the player (who stands in the fire, god mode off); A 1.5 m and B 2.4 m from T
 		// (inside), C 2.7 m (outside at 2.5 m), D floating 3 m above the patch.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
+		S->Cops.Reset();
 		const FVector T = S->Ground + S->Dir * 120.f;
-		S->Bandits.Add(SpawnToughBandit(T));                                                   // [0] T
-		S->Bandits.Add(SpawnToughBandit(T + S->Side * 150.f));                                 // [1] A
-		S->Bandits.Add(SpawnToughBandit(T - S->Side * 240.f));                                 // [2] B
-		S->Bandits.Add(SpawnToughBandit(T + S->Dir * 270.f));                                  // [3] C
-		S->Bandits.Add(SpawnToughBandit(T + S->Dir * 100.f + FVector(0.f, 0.f, 300.f)));       // [4] D, 3 m up
+		S->Cops.Add(SpawnToughCop(T));                                                   // [0] T
+		S->Cops.Add(SpawnToughCop(T + S->Side * 150.f));                                 // [1] A
+		S->Cops.Add(SpawnToughCop(T - S->Side * 240.f));                                 // [2] B
+		S->Cops.Add(SpawnToughCop(T + S->Dir * 270.f));                                  // [3] C
+		S->Cops.Add(SpawnToughCop(T + S->Dir * 100.f + FVector(0.f, 0.f, 300.f)));       // [4] D, 3 m up
 	});
 	WaitMolotovIdleAndRecord(this, S);
 	Step([this, S]()
@@ -12439,7 +12439,7 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		UGSMolotovComponent* Molotov = GetMolotov();
 		const int32 Patches = Molotov->GetPatchesLit() - S->PatchesBefore;
 		TestTrue(FString::Printf(TEXT("Every frame on the exact schedule (the test's %.2f s interval; %d frames)"), Molotov->GetThrowInterval(), S->Frames), S->bScheduleOk);
-		TestEqual(TEXT("Target T"), Molotov->GetLastTarget(), S->Bandits[0].Get());
+		TestEqual(TEXT("Target T"), Molotov->GetLastTarget(), S->Cops[0].Get());
 		TestEqual(TEXT("8 burns per patch (the first on landing, then one every burn interval for the duration: 4 s at 0.5 s, here 2 s at 0.25 s)"),
 			Molotov->GetBurns() - S->BurnsBefore, 8 * Patches);
 		const FString Names[] = { TEXT("T"), TEXT("A (1.5 m)"), TEXT("B (2.4 m)"), TEXT("C (2.7 m, outside)"), TEXT("D (3 m up, outside)") };
@@ -12462,7 +12462,7 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 	WaitPatchesDone(this, S, 1);
 	Step([this, S]()
 	{
-		// Tough bandits have 100,000 HP, where a float step is about 0.008: eight burns of a fractional amount drift by a
+		// Tough cops have 100,000 HP, where a float step is about 0.008: eight burns of a fractional amount drift by a
 		// few hundredths, so these allow 0.1.
 		TestEqual(TEXT("Power 1: T takes 8 x 4.4"), MolotovLost(*S, 0), 35.2f, 0.1f);
 		TestEqual(TEXT("Power 1: C still outside"), MolotovLost(*S, 3), 0.f, 0.01f);
@@ -12481,8 +12481,8 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 
 		// Paused with a patch burning: no burns, the patch doesn't age.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 500.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 500.f));
 	});
 	WaitUntil(this, TEXT("a patch burning"), []() { return FindActivePatch() != nullptr; }, 20.0);
 	Step([S]()
@@ -12513,10 +12513,10 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Safe zone: no damage"), MolotovLost(*S, 0), 0.f, 0.01f);
 		GetPlayerASC()->RemoveLooseGameplayTag(GSGameplayTags::State_SafeZone);
 
-		// DPS: one bandit in the fire, then five.
+		// DPS: one cop in the fire, then five.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 500.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 500.f));
 	});
 	WaitMolotovIdleAndRecord(this, S);
 	WaitPatchesDone(this, S, 1);
@@ -12529,11 +12529,11 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		AddInfo(FString::Printf(TEXT("DPS vs one enemy (power 3): %.1f (%.1f per patch, a throw every %.0f s; %.1f DPS while it burns)"),
 			Lost / AssetThrowInterval, Lost, AssetThrowInterval, Lost / AssetPatchDuration));
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
+		S->Cops.Reset();
 		const FVector Center = S->Ground + S->Dir * 600.f;
 		for (const FVector& Offset : { FVector::ZeroVector, S->Dir * 120.f, S->Dir * -120.f, S->Side * 120.f, S->Side * -120.f })
 		{
-			S->Bandits.Add(SpawnToughBandit(Center + Offset));
+			S->Cops.Add(SpawnToughCop(Center + Offset));
 		}
 	});
 	WaitMolotovIdleAndRecord(this, S);
@@ -12541,14 +12541,14 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 	Step([this, S]()
 	{
 		float Lost = 0.f;
-		for (int32 Index = 0; Index < S->Bandits.Num(); ++Index)
+		for (int32 Index = 0; Index < S->Cops.Num(); ++Index)
 		{
 			Lost += MolotovLost(*S, Index);
 		}
 		TestEqual(TEXT("Five in the fire: all burn every tick"), Lost, 5.f * 8.f * GetMolotov()->GetBurnDamage(), 0.5f);
 		AddInfo(FString::Printf(TEXT("DPS vs five enemies (power 3): %.1f (%.1f per patch)"), Lost / (MolotovTestThrowInterval / MolotovThrowTimeScale), Lost));
 
-		// Its kill is the player's: a weak bandit, Leech, a sure health orb.
+		// Its kill is the player's: a weak cop, Leech, a sure health orb.
 		RemoveAllEnemies(GetPIEWorld());
 		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Leech"), 1);
 		GetGameMode()->SetHealthOrbDropChanceOverride(1.f);
@@ -12560,13 +12560,13 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		S->KillsBefore = GetGameState()->GetRunStats()->GetTotalKills();
 		S->XPOrbsBefore = GetCashSubsystem()->GetNumXPOrbsDropped();
 		S->HealthOrbsBefore = GetCashSubsystem()->GetNumHealthOrbsDropped();
-		S->Weak = SpawnFrozenBandit(S->Ground + S->Dir * 500.f);
+		S->Weak = SpawnFrozenCop(S->Ground + S->Dir * 500.f);
 		if (S->Weak.IsValid())
 		{
 			S->Weak->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
 		}
 	});
-	WaitUntil(this, TEXT("the fire to kill the bandit"), [S]() { return !S->Weak.IsValid() || S->Weak->GetHealthComponent()->IsDead(); }, 20.0);
+	WaitUntil(this, TEXT("the fire to kill the cop"), [S]() { return !S->Weak.IsValid() || S->Weak->GetHealthComponent()->IsDead(); }, 20.0);
 	Step([this, S]()
 	{
 		TestEqual(TEXT("Fire kill: counted in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), S->KillsBefore + 1);
@@ -12577,8 +12577,8 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Fire kill: Leech heals"), GetHealth(GetPlayerASC()), S->PlayerHealthBefore + 1.f, 0.01f);
 		GetGameMode()->SetHealthOrbDropChanceOverride(0.f);
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 500.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 500.f));
 	});
 
 	// A new run with a patch burning: the patch and any bottle are gone, the weapon is gone.
@@ -12590,8 +12590,8 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
 		TestEqual(TEXT("New run: no patch or bottle left"), NumThrownActive(), 0);
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 500.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 500.f));
 		RecordMolotov(*S);
 	});
 	WaitWorldSeconds(this, 2.0 * MolotovThrowTimeScale);
@@ -12603,7 +12603,7 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: no throws"), Molotov->GetThrows(), S->ThrowsBefore);
 		TestEqual(TEXT("New run: no burns"), Molotov->GetBurns(), S->BurnsBefore);
 		TestEqual(TEXT("New run: no patches"), Molotov->GetActivePatches().Num(), 0);
-		TestEqual(TEXT("New run: a bandit in range takes nothing"), MolotovLost(*S, 0), 0.f, 0.01f);
+		TestEqual(TEXT("New run: a cop in range takes nothing"), MolotovLost(*S, 0), 0.f, 0.01f);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
 		GetGameMode()->SetMolotovSettingsOverride(nullptr);
 		RestoreWorldSpeed();
@@ -12624,7 +12624,7 @@ namespace GSTests
 		FVector Ground = FVector::ZeroVector;
 		FVector Dir = FVector::ForwardVector;
 		FVector Side = FVector::RightVector;
-		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Bandits;
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Cops;
 		TArray<float> HealthBefore;
 		int32 ThrowsBefore = 0;
 		int32 HitsBefore = 0;
@@ -12662,9 +12662,9 @@ namespace GSTests
 	void RecordTomahawk(FTomahawkState& S)
 	{
 		S.HealthBefore.Reset();
-		for (const TWeakObjectPtr<AGSEnemyCharacter>& Bandit : S.Bandits)
+		for (const TWeakObjectPtr<AGSEnemyCharacter>& Cop : S.Cops)
 		{
-			S.HealthBefore.Add(Bandit.IsValid() ? GetHealth(Bandit->GetAbilitySystemComponent()) : 0.f);
+			S.HealthBefore.Add(Cop.IsValid() ? GetHealth(Cop->GetAbilitySystemComponent()) : 0.f);
 		}
 		S.ThrowsBefore = GetTomahawk()->GetThrows();
 		S.HitsBefore = GetTomahawk()->GetHitsDealt();
@@ -12673,8 +12673,8 @@ namespace GSTests
 
 	float TomahawkLost(const FTomahawkState& S, int32 Index)
 	{
-		const TWeakObjectPtr<AGSEnemyCharacter>& Bandit = S.Bandits[Index];
-		return Bandit.IsValid() ? S.HealthBefore[Index] - GetHealth(Bandit->GetAbilitySystemComponent()) : -1.f;
+		const TWeakObjectPtr<AGSEnemyCharacter>& Cop = S.Cops[Index];
+		return Cop.IsValid() ? S.HealthBefore[Index] - GetHealth(Cop->GetAbilitySystemComponent()) : -1.f;
 	}
 
 	/** Enqueue: wait until no tomahawk is in the air, then record. */
@@ -12698,12 +12698,12 @@ namespace GSTests
 		}, 30.0);
 	}
 
-	/** A line of Count tough frozen bandits from Start along Dir, Spacing apart. */
-	void SpawnBanditLine(FTomahawkState& S, float Start, float Spacing, int32 Count)
+	/** A line of Count tough frozen cops from Start along Dir, Spacing apart. */
+	void SpawnCopLine(FTomahawkState& S, float Start, float Spacing, int32 Count)
 	{
 		for (int32 Index = 0; Index < Count; ++Index)
 		{
-			S.Bandits.Add(SpawnToughBandit(S.Ground + S.Dir * (Start + Spacing * Index)));
+			S.Cops.Add(SpawnToughCop(S.Ground + S.Dir * (Start + Spacing * Index)));
 		}
 	}
 }
@@ -12775,7 +12775,7 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Owned: level 1"), GetTomahawk()->GetLevel(), 1);
 		TestEqual(TEXT("Power 0: one tomahawk"), GetTomahawk()->GetTomahawksPerThrow(), 1);
 		TestEqual(TEXT("Power 0: 12 per hit"), GetTomahawk()->GetHitDamage(), 12.f, 0.0001f);
-		S->Bandits.Reset();
+		S->Cops.Reset();
 		RecordTomahawk(*S);
 	});
 	// No enemy: nothing is thrown and nothing banked.
@@ -12783,7 +12783,7 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 	Step([this, S]()
 	{
 		TestEqual(TEXT("No target: no throws"), GetTomahawk()->GetThrows(), S->ThrowsBefore);
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 400.f));
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 400.f));
 		S->SpawnedAt = GetPIEWorld()->GetTimeSeconds();
 		RecordTomahawk(*S);
 	});
@@ -12795,24 +12795,24 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 		TestTrue(FString::Printf(TEXT("The first throw comes at once (%.3f s)"), Delay), Delay < 0.3);
 	});
 
-	// One bandit: hit once out and once back each throw. DPS against one enemy.
+	// One cop: hit once out and once back each throw. DPS against one enemy.
 	WaitTomahawksDownAndRecord(this, S);
 	WaitThrowsBack(this, S, 2);
 	Step([this, S]()
 	{
 		const int32 Throws = GetTomahawk()->GetThrows() - S->ThrowsBefore;
-		TestEqual(TEXT("One bandit: 24 a throw (12 out, 12 back)"), TomahawkLost(*S, 0), 24.f * Throws, 0.01f);
-		TestEqual(TEXT("One bandit: two hits a throw"), GetTomahawk()->GetHitsDealt() - S->HitsBefore, 2 * Throws);
+		TestEqual(TEXT("One cop: 24 a throw (12 out, 12 back)"), TomahawkLost(*S, 0), 24.f * Throws, 0.01f);
+		TestEqual(TEXT("One cop: two hits a throw"), GetTomahawk()->GetHitsDealt() - S->HitsBefore, 2 * Throws);
 		// DPS at the asset's interval (3 s); the damage per throw is the same in the test copy.
 		const double AssetInterval = TomahawkTestInterval / TomahawkTimeScale;
 		AddInfo(FString::Printf(TEXT("DPS vs one enemy: %.1f (%.0f in %d throws, one every %.0f s)"), TomahawkLost(*S, 0) / (Throws * AssetInterval),
 			TomahawkLost(*S, 0), Throws, AssetInterval));
 
-		// A line of five, 3 m apart, and one bandit 2.5 m beside the line.
+		// A line of five, 3 m apart, and one cop 2.5 m beside the line.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		SpawnBanditLine(*S, 400.f, 300.f, 5);                                         // [0..4]
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 700.f + S->Side * 250.f)); // [5] beside
+		S->Cops.Reset();
+		SpawnCopLine(*S, 400.f, 300.f, 5);                                         // [0..4]
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 700.f + S->Side * 250.f)); // [5] beside
 	});
 	WaitTomahawksDownAndRecord(this, S);
 	Step([S]() { S->bScheduleOk = true; S->Frames = 0; });
@@ -12822,11 +12822,11 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 		UGSTomahawkComponent* Tomahawk = GetTomahawk();
 		const int32 Throws = Tomahawk->GetThrows() - S->ThrowsBefore;
 		TestTrue(FString::Printf(TEXT("Every frame on the exact schedule (the test's %.2f s interval; %d frames)"), Tomahawk->GetThrowInterval(), S->Frames), S->bScheduleOk);
-		TestEqual(TEXT("Thrown at the nearest"), Tomahawk->GetLastTargets().Num() == 1 ? Tomahawk->GetLastTargets()[0].Get() : nullptr, S->Bandits[0].Get());
+		TestEqual(TEXT("Thrown at the nearest"), Tomahawk->GetLastTargets().Num() == 1 ? Tomahawk->GetLastTargets()[0].Get() : nullptr, S->Cops[0].Get());
 		float Lost = 0.f;
 		for (int32 Index = 0; Index < 5; ++Index)
 		{
-			TestEqual(FString::Printf(TEXT("Line of five: bandit %d hit once out and once back"), Index), TomahawkLost(*S, Index), 24.f * Throws, 0.01f);
+			TestEqual(FString::Printf(TEXT("Line of five: cop %d hit once out and once back"), Index), TomahawkLost(*S, Index), 24.f * Throws, 0.01f);
 			Lost += TomahawkLost(*S, Index);
 		}
 		TestEqual(TEXT("Beside the line: untouched"), TomahawkLost(*S, 5), 0.f, 0.01f);
@@ -12834,7 +12834,7 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Run stats count it as Tomahawk damage"), GetGameState()->GetRunStats()->GetDamageDealtBy(EGSDamageSource::Tomahawk) - S->SourceDamageBefore, Lost, 0.01f);
 		AddInfo(FString::Printf(TEXT("DPS vs a line of five (3 m apart): %.1f (%.0f in %d throws)"), Lost / (Throws * (TomahawkTestInterval / TomahawkTimeScale)), Lost, Throws));
 
-		// A wall across the lane between bandits 2 (1 m before it) and 3: it turns back there.
+		// A wall across the lane between cops 2 (1 m before it) and 3: it turns back there.
 		const bool bAlongX = FMath::Abs(S->Dir.X) > FMath::Abs(S->Dir.Y);
 		const FVector WallAt = S->Ground + S->Dir * 850.f + FVector(0.f, 0.f, 150.f);
 		S->Wall = SpawnTestWall(WallAt, bAlongX ? FVector(0.2f, 6.f, 3.f) : FVector(6.f, 0.2f, 3.f));
@@ -12844,11 +12844,11 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 	WaitThrowsBack(this, S, 1);
 	Step([this, S]()
 	{
-		TestEqual(TEXT("Wall: bandit 0 (in front) hit out and back"), TomahawkLost(*S, 0), 24.f, 0.01f);
-		TestEqual(TEXT("Wall: bandit 1 (in front) hit out and back"), TomahawkLost(*S, 1), 24.f, 0.01f);
+		TestEqual(TEXT("Wall: cop 0 (in front) hit out and back"), TomahawkLost(*S, 0), 24.f, 0.01f);
+		TestEqual(TEXT("Wall: cop 1 (in front) hit out and back"), TomahawkLost(*S, 1), 24.f, 0.01f);
 		for (int32 Index = 2; Index < 5; ++Index)
 		{
-			TestEqual(FString::Printf(TEXT("Wall: bandit %d (behind) untouched"), Index), TomahawkLost(*S, Index), 0.f, 0.01f);
+			TestEqual(FString::Printf(TEXT("Wall: cop %d (behind) untouched"), Index), TomahawkLost(*S, Index), 0.f, 0.01f);
 		}
 		if (S->Wall.IsValid())
 		{
@@ -12864,8 +12864,8 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 	WaitThrowsBack(this, S, 1);
 	Step([this, S]()
 	{
-		TestEqual(TEXT("Power 1: bandit 0 takes 2 x 13.2"), TomahawkLost(*S, 0), 26.4f, 0.05f);
-		TestEqual(TEXT("Power 1: the far bandit too (no wall now)"), TomahawkLost(*S, 4), 26.4f, 0.05f);
+		TestEqual(TEXT("Power 1: cop 0 takes 2 x 13.2"), TomahawkLost(*S, 0), 26.4f, 0.05f);
+		TestEqual(TEXT("Power 1: the far cop too (no wall now)"), TomahawkLost(*S, 4), 26.4f, 0.05f);
 
 		// An Epic pick (+2): power 3, x1.3, two tomahawks: at the nearest and the next nearest.
 		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Tomahawk"), 1, EGSUpgradeRarity::Epic);
@@ -12879,11 +12879,11 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 		UGSTomahawkComponent* Tomahawk = GetTomahawk();
 		const TArray<TWeakObjectPtr<AGSEnemyCharacter>>& Targets = Tomahawk->GetLastTargets();
 		TestTrue(TEXT("Power 3: two tomahawks, at the nearest and the next nearest"),
-			Targets.Num() == 2 && Targets[0].Get() == S->Bandits[0].Get() && Targets[1].Get() == S->Bandits[1].Get());
-		TestEqual(TEXT("Power 3: both pass bandit 0, out and back (4 hits)"), TomahawkLost(*S, 0), 4.f * 15.6f, 0.05f);
+			Targets.Num() == 2 && Targets[0].Get() == S->Cops[0].Get() && Targets[1].Get() == S->Cops[1].Get());
+		TestEqual(TEXT("Power 3: both pass cop 0, out and back (4 hits)"), TomahawkLost(*S, 0), 4.f * 15.6f, 0.05f);
 		TestEqual(TEXT("Power 3: 20 hits a throw"), Tomahawk->GetHitsDealt() - S->HitsBefore, 20);
 
-		// Its kill is the player's: a weak bandit, Leech, a sure health orb.
+		// Its kill is the player's: a weak cop, Leech, a sure health orb.
 		RemoveAllEnemies(GetPIEWorld());
 		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Leech"), 1);
 		GetGameMode()->SetHealthOrbDropChanceOverride(1.f);
@@ -12895,13 +12895,13 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 		S->KillsBefore = GetGameState()->GetRunStats()->GetTotalKills();
 		S->XPOrbsBefore = GetCashSubsystem()->GetNumXPOrbsDropped();
 		S->HealthOrbsBefore = GetCashSubsystem()->GetNumHealthOrbsDropped();
-		S->Weak = SpawnFrozenBandit(S->Ground + S->Dir * 400.f);
+		S->Weak = SpawnFrozenCop(S->Ground + S->Dir * 400.f);
 		if (S->Weak.IsValid())
 		{
 			S->Weak->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 3.f);
 		}
 	});
-	WaitUntil(this, TEXT("a tomahawk to kill the bandit"), [S]() { return !S->Weak.IsValid() || S->Weak->GetHealthComponent()->IsDead(); }, 10.0);
+	WaitUntil(this, TEXT("a tomahawk to kill the cop"), [S]() { return !S->Weak.IsValid() || S->Weak->GetHealthComponent()->IsDead(); }, 10.0);
 	Step([this, S]()
 	{
 		TestEqual(TEXT("Tomahawk kill: counted in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), S->KillsBefore + 1);
@@ -12914,8 +12914,8 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 
 		// Paused with a tomahawk in the air: it stays put, nothing is thrown.
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 400.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 400.f));
 	});
 	WaitUntil(this, TEXT("a tomahawk in the air"), []() { return GetTomahawk()->GetActiveTomahawks().Num() > 0; }, 10.0);
 	Step([S]()
@@ -12938,8 +12938,8 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 		GetPlayer()->TeleportTo(S->PlayerSpot, S->Dir.Rotation());
 		TestEqual(TEXT("New run: no tomahawk in the air"), GetTomahawk()->GetActiveTomahawks().Num(), 0);
 		RemoveAllEnemies(GetPIEWorld());
-		S->Bandits.Reset();
-		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 400.f));
+		S->Cops.Reset();
+		S->Cops.Add(SpawnToughCop(S->Ground + S->Dir * 400.f));
 		RecordTomahawk(*S);
 	});
 	WaitWorldSeconds(this, 2.0 * TomahawkTimeScale);
@@ -12949,7 +12949,7 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: level 0"), Tomahawk->GetLevel(), 0);
 		TestEqual(TEXT("New run: power 0"), Tomahawk->GetPower(), 0.f);
 		TestEqual(TEXT("New run: no throws"), Tomahawk->GetThrows(), S->ThrowsBefore);
-		TestEqual(TEXT("New run: a bandit in range takes nothing"), TomahawkLost(*S, 0), 0.f, 0.01f);
+		TestEqual(TEXT("New run: a cop in range takes nothing"), TomahawkLost(*S, 0), 0.f, 0.01f);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
 		GetGameMode()->SetTomahawkSettingsOverride(nullptr);
 		RestoreWorldSpeed();
@@ -13262,6 +13262,227 @@ bool FGSArtPlayerMeshTest::RunTest(const FString& Parameters)
 	WaitUntil(this, TEXT("PIE to end"), []() { return GetPIEWorld() == nullptr; }, 15.0);
 	BeginPIE(this, HubMap);
 	Step([this]() { GSArtTests::CheckPlayerMesh(this, TEXT("Hub")); });
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Prompt 57: the two cops (Beat Cop, Patrol Officer) wear the low-poly body with their own colours and props, set
+// through UGSEnemyData (SlotMaterials, MeshAttachments, the gun from Weapon->Mesh).
+
+namespace GSCopLooksTests
+{
+	const TCHAR* LowPolyBodyPath = TEXT("/Game/Art/Placeholders/Characters/SK_LowPolyBody.SK_LowPolyBody");
+	const TCHAR* UnarmedAnimPath = TEXT("/Game/Characters/Mannequins/Anims/Unarmed/ABP_Unarmed.ABP_Unarmed_C");
+
+	struct FCopExpectation
+	{
+		const TCHAR* Type;
+		const TCHAR* DisplayName;
+		/** Props by mesh name -> the bone they follow. */
+		TArray<TPair<FString, FName>> Props;
+		/** Gun mesh name (empty = no gun). */
+		FString Gun;
+	};
+
+	/** A cop of Type 6 m in front of the player, AI and movement stopped. */
+	AGSEnemyCharacter* SpawnStillCop(const TCHAR* Type, float SideOffset)
+	{
+		const AGSCharacter* Player = GetPlayer();
+		const float HalfHeight = Player->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		const FVector Ground = Player->GetActorLocation() - FVector(0.f, 0.f, HalfHeight)
+			+ Player->GetActorForwardVector() * 600.f + Player->GetActorRightVector() * SideOffset;
+		AGSEnemyCharacter* Cop = AGSEnemyCharacter::SpawnEnemy(GetPIEWorld(), UGSDebugLibrary::FindEnemyData(Type), Ground, Player->GetActorLocation());
+		if (!Cop)
+		{
+			return nullptr;
+		}
+		if (AAIController* AIC = Cast<AAIController>(Cop->GetController()))
+		{
+			if (UBrainComponent* Brain = AIC->GetBrainComponent())
+			{
+				Brain->StopLogic(TEXT("Cop looks test"));
+			}
+			AIC->StopMovement();
+		}
+		Cop->GetCharacterMovement()->DisableMovement();
+		return Cop;
+	}
+
+	void CheckCop(FAutomationTestBase* Test, AGSEnemyCharacter* Cop, const FCopExpectation& Expect)
+	{
+		if (!Test->TestNotNull(*FString::Printf(TEXT("%s spawned"), Expect.Type), Cop))
+		{
+			return;
+		}
+		const UGSEnemyData* Data = Cop->GetEnemyData();
+		if (!Test->TestNotNull(*FString::Printf(TEXT("%s has enemy data"), Expect.Type), Data))
+		{
+			return;
+		}
+		Test->TestEqual(*FString::Printf(TEXT("%s: display name"), Expect.Type), Data->DisplayName.ToString(), FString(Expect.DisplayName));
+
+		USkeletalMeshComponent* MeshComp = Cop->GetMesh();
+		const USkeletalMesh* Mesh = MeshComp->GetSkeletalMeshAsset();
+		Test->TestEqual(*FString::Printf(TEXT("%s: wears SK_LowPolyBody"), Expect.Type), Mesh ? Mesh->GetPathName() : FString(), FString(LowPolyBodyPath));
+		Test->TestEqual(*FString::Printf(TEXT("%s: today's animations (ABP_Unarmed)"), Expect.Type),
+			MeshComp->GetAnimClass() ? MeshComp->GetAnimClass()->GetPathName() : FString(), FString(UnarmedAnimPath));
+
+		// One dynamic material per slot, made from that slot's entry in SlotMaterials, each with TelegraphAmount.
+		const TArray<FName> SlotNames = MeshComp->GetMaterialSlotNames();
+		const TArray<TObjectPtr<UMaterialInstanceDynamic>>& Materials = Cop->GetBodyMaterials();
+		Test->TestEqual(*FString::Printf(TEXT("%s: a body material for each of the 6 slots"), Expect.Type), Materials.Num(), 6);
+		for (int32 Slot = 0; Slot < Materials.Num() && Slot < SlotNames.Num(); ++Slot)
+		{
+			const UMaterialInstanceDynamic* MID = Materials[Slot];
+			const TObjectPtr<UMaterialInterface>* Entry = Data->SlotMaterials.Find(SlotNames[Slot]);
+			Test->TestTrue(*FString::Printf(TEXT("%s: slot %s has its own material"), Expect.Type, *SlotNames[Slot].ToString()), Entry && *Entry);
+			Test->TestTrue(*FString::Printf(TEXT("%s: slot %s uses it"), Expect.Type, *SlotNames[Slot].ToString()),
+				MID && Entry && MID->Parent == Entry->Get() && MeshComp->GetMaterial(Slot) == MID);
+			float Telegraph = -1.f;
+			Test->TestTrue(*FString::Printf(TEXT("%s: slot %s has TelegraphAmount (0 at rest)"), Expect.Type, *SlotNames[Slot].ToString()),
+				MID && MID->GetScalarParameterValue(FHashedMaterialParameterInfo(FName("TelegraphAmount")), Telegraph) && Telegraph == 0.f);
+		}
+
+		// Props: the cap on the head, the baton in the hand; no collision.
+		const TArray<TObjectPtr<UStaticMeshComponent>>& Props = Cop->GetMeshAttachmentComponents();
+		Test->TestEqual(*FString::Printf(TEXT("%s: %d prop(s)"), Expect.Type, Expect.Props.Num()), Props.Num(), Expect.Props.Num());
+		for (const TPair<FString, FName>& Want : Expect.Props)
+		{
+			const TObjectPtr<UStaticMeshComponent>* Found = Props.FindByPredicate([&Want](const UStaticMeshComponent* Prop)
+			{
+				return Prop && Prop->GetStaticMesh() && Prop->GetStaticMesh()->GetName() == Want.Key;
+			});
+			if (!Test->TestNotNull(*FString::Printf(TEXT("%s: wears %s"), Expect.Type, *Want.Key), Found))
+			{
+				continue;
+			}
+			const UStaticMeshComponent* Prop = *Found;
+			Test->TestTrue(*FString::Printf(TEXT("%s: %s on the body"), Expect.Type, *Want.Key), Prop->GetAttachParent() == MeshComp);
+			Test->TestEqual(*FString::Printf(TEXT("%s: %s follows %s"), Expect.Type, *Want.Key, *Want.Value.ToString()), Prop->GetAttachSocketName(), Want.Value);
+			Test->TestEqual(*FString::Printf(TEXT("%s: %s has no collision"), Expect.Type, *Want.Key),
+				static_cast<int32>(Prop->GetCollisionEnabled()), static_cast<int32>(ECollisionEnabled::NoCollision));
+			Test->TestTrue(*FString::Printf(TEXT("%s: %s is visible"), Expect.Type, *Want.Key), Prop->IsVisible());
+			const FVector Bone = MeshComp->GetSocketLocation(Want.Value);
+			Test->TestTrue(*FString::Printf(TEXT("%s: %s sits at its bone (%.0f cm)"), Expect.Type, *Want.Key, FVector::Dist(Prop->Bounds.Origin, Bone)),
+				FVector::Dist(Prop->Bounds.Origin, Bone) < 45.f);
+		}
+		if (Expect.Props.ContainsByPredicate([](const TPair<FString, FName>& P) { return P.Value == FName("head"); }))
+		{
+			const TObjectPtr<UStaticMeshComponent>* Cap = Props.FindByPredicate([](const UStaticMeshComponent* Prop) { return Prop && Prop->GetAttachSocketName() == FName("head"); });
+			if (Cap && *Cap)
+			{
+				Test->TestTrue(*FString::Printf(TEXT("%s: the cap is on top of the head"), Expect.Type),
+					(*Cap)->Bounds.Origin.Z > MeshComp->GetSocketLocation(FName("head")).Z);
+			}
+		}
+
+		// The gun comes from the weapon data, not from a second attachment.
+		UStaticMeshComponent* Gun = Cop->GetWeaponMeshComponent();
+		const UStaticMesh* GunMesh = Gun ? Gun->GetStaticMesh() : nullptr;
+		Test->TestEqual(*FString::Printf(TEXT("%s: gun"), Expect.Type), GunMesh ? GunMesh->GetName() : FString(), Expect.Gun);
+		if (GunMesh && Data->Weapon)
+		{
+			Test->TestEqual(*FString::Printf(TEXT("%s: the gun is in the hand socket"), Expect.Type), Gun->GetAttachSocketName(), Data->Weapon->AttachSocket);
+			Test->TestTrue(*FString::Printf(TEXT("%s: the muzzle is near the gun"), Expect.Type),
+				FVector::Dist(Cop->GetMuzzleLocation(), Gun->Bounds.Origin) < 100.f);
+		}
+	}
+
+	/** Every slot's TelegraphAmount equals Value. */
+	bool AllTelegraph(const AGSEnemyCharacter* Cop, float Value)
+	{
+		for (const UMaterialInstanceDynamic* MID : Cop->GetBodyMaterials())
+		{
+			float Telegraph = -1.f;
+			if (!MID || !MID->GetScalarParameterValue(FHashedMaterialParameterInfo(FName("TelegraphAmount")), Telegraph) || !FMath::IsNearlyEqual(Telegraph, Value))
+			{
+				return false;
+			}
+		}
+		return Cop->GetBodyMaterials().Num() > 0;
+	}
+
+	struct FState
+	{
+		TWeakObjectPtr<AGSEnemyCharacter> BeatCop;
+		TWeakObjectPtr<AGSEnemyCharacter> PatrolOfficer;
+	};
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSEnemiesCopLooksTest, "BanditBaller.Enemies.CopLooks", GSTests::TestFlags)
+bool FGSEnemiesCopLooksTest::RunTest(const FString& Parameters)
+{
+	using namespace GSCopLooksTests;
+	TSharedRef<FState> S = MakeShared<FState>();
+	BeginPIE(this);
+	Step([this, S]()
+	{
+		RemoveAllEnemies(GetPIEWorld());
+		if (AGSGameMode* GameMode = GetGameMode())
+		{
+			GameMode->SetRoundTimerPaused(true);
+		}
+		GetPlayerASC()->AddLooseGameplayTag(GSGameplayTags::State_Invulnerable); // the cops' attacks below hurt nobody
+		S->BeatCop = SpawnStillCop(TEXT("BeatCop"), -200.f);
+		S->PatrolOfficer = SpawnStillCop(TEXT("PatrolOfficer"), 200.f);
+	});
+	WaitUntil(this, TEXT("both cops"), [S]() { return S->BeatCop.IsValid() && S->PatrolOfficer.IsValid(); }, 5.0);
+	Step([this, S]()
+	{
+		FCopExpectation Beat{ TEXT("BeatCop"), TEXT("Beat Cop"), { { TEXT("SM_PoliceCap"), FName("head") }, { TEXT("SM_PoliceBaton"), FName("hand_r") } }, FString() };
+		FCopExpectation Patrol{ TEXT("PatrolOfficer"), TEXT("Patrol Officer"), { { TEXT("SM_PoliceCap"), FName("head") } }, TEXT("SM_PatrolCarbine") };
+		CheckCop(this, S->BeatCop.Get(), Beat);
+		CheckCop(this, S->PatrolOfficer.Get(), Patrol);
+
+		// Neither cop is dressed like the robber: different top and trousers.
+		const AGSCharacter* Player = GetPlayer();
+		for (const AGSEnemyCharacter* Cop : { S->BeatCop.Get(), S->PatrolOfficer.Get() })
+		{
+			if (!Cop)
+			{
+				continue;
+			}
+			for (const FName Slot : { FName("Top"), FName("Trousers") })
+			{
+				const int32 Index = Player->GetMesh()->GetMaterialIndex(Slot);
+				const UMaterialInterface* Robber = Player->GetMesh()->GetMaterial(Index);
+				const UMaterialInterface* Mine = Cop->GetMesh()->GetMaterial(Cop->GetMesh()->GetMaterialIndex(Slot));
+				const UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(Mine);
+				TestTrue(*FString::Printf(TEXT("%s: %s is not the robber's"), *Cop->GetEnemyData()->DisplayName.ToString(), *Slot.ToString()),
+					Index != INDEX_NONE && MID && MID->Parent != Robber);
+			}
+		}
+		if (S->BeatCop.IsValid() && S->PatrolOfficer.IsValid())
+		{
+			const UMaterialInterface* BeatTop = S->BeatCop->GetEnemyData()->SlotMaterials.FindRef(FName("Top"));
+			const UMaterialInterface* PatrolTop = S->PatrolOfficer->GetEnemyData()->SlotMaterials.FindRef(FName("Top"));
+			TestTrue(TEXT("The two cops wear different tops"), BeatTop && PatrolTop && BeatTop != PatrolTop);
+		}
+
+		// The wind-ups still glow on the new body; the Patrol Officer's aim laser still shows.
+		TestTrue(TEXT("Beat Cop: no glow at rest"), S->BeatCop.IsValid() && AllTelegraph(S->BeatCop.Get(), 0.f));
+		TestTrue(TEXT("Beat Cop: the melee wind-up starts"), S->BeatCop.IsValid()
+			&& S->BeatCop->GetAbilitySystemComponent()->TryActivateAbilitiesByTag(FGameplayTagContainer(GSGameplayTags::Ability_Attack_Melee)));
+		TestTrue(TEXT("Beat Cop: telegraphing"), S->BeatCop.IsValid() && S->BeatCop->IsTelegraphing());
+		TestTrue(TEXT("Beat Cop: every body slot glows (TelegraphAmount 1)"), S->BeatCop.IsValid() && AllTelegraph(S->BeatCop.Get(), 1.f));
+
+		TestTrue(TEXT("Patrol Officer: laser hidden at rest"), S->PatrolOfficer.IsValid() && S->PatrolOfficer->GetAimLaserComponent()->bHiddenInGame);
+		TestTrue(TEXT("Patrol Officer: the aim starts"), S->PatrolOfficer.IsValid()
+			&& S->PatrolOfficer->GetAbilitySystemComponent()->TryActivateAbilitiesByTag(FGameplayTagContainer(GSGameplayTags::Ability_Attack_Ranged)));
+		TestTrue(TEXT("Patrol Officer: every body slot glows while aiming"), S->PatrolOfficer.IsValid() && AllTelegraph(S->PatrolOfficer.Get(), 1.f));
+		TestTrue(TEXT("Patrol Officer: the aim laser shows"), S->PatrolOfficer.IsValid() && !S->PatrolOfficer->GetAimLaserComponent()->bHiddenInGame);
+	});
+	// The wind-ups end: the glow goes back to 0.
+	WaitUntil(this, TEXT("the glow to end"), [S]()
+	{
+		return S->BeatCop.IsValid() && S->PatrolOfficer.IsValid() && AllTelegraph(S->BeatCop.Get(), 0.f) && AllTelegraph(S->PatrolOfficer.Get(), 0.f);
+	}, 5.0);
+	Step([this]()
+	{
+		GetPlayerASC()->RemoveLooseGameplayTag(GSGameplayTags::State_Invulnerable);
+		RemoveAllEnemies(GetPIEWorld());
+	});
 	EndPIE();
 	return true;
 }

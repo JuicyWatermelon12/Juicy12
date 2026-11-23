@@ -5,7 +5,7 @@
 // be opened and edited in the StateTree editor afterwards.
 //
 // Console:  gs.Editor.BuildEnemyStateTree [melee|ranged|all] [/Game/Path/ST_Name]
-//           (default: all -> /Game/BanditBaller/Enemies/ST_MeleeBandit and ST_RangedBandit)
+//           (default: all -> /Game/BanditBaller/Enemies/ST_BeatCop and ST_PatrolOfficer)
 
 #if WITH_EDITOR
 
@@ -153,12 +153,12 @@ namespace GSStateTreeBuilder
 
 		if (Which == TEXT("melee") || Which == TEXT("all"))
 		{
-			BuildTree(PathOverride.IsEmpty() || Which == TEXT("all") ? TEXT("/Game/BanditBaller/Enemies/ST_MeleeBandit") : PathOverride, &BuildMeleeEnemyTree);
+			BuildTree(PathOverride.IsEmpty() || Which == TEXT("all") ? TEXT("/Game/BanditBaller/Enemies/ST_BeatCop") : PathOverride, &BuildMeleeEnemyTree);
 			bKnown = true;
 		}
 		if (Which == TEXT("ranged") || Which == TEXT("all"))
 		{
-			BuildTree(PathOverride.IsEmpty() || Which == TEXT("all") ? TEXT("/Game/BanditBaller/Enemies/ST_RangedBandit") : PathOverride, &BuildRangedEnemyTree);
+			BuildTree(PathOverride.IsEmpty() || Which == TEXT("all") ? TEXT("/Game/BanditBaller/Enemies/ST_PatrolOfficer") : PathOverride, &BuildRangedEnemyTree);
 			bKnown = true;
 		}
 		if (!bKnown)

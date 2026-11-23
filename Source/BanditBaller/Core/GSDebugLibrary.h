@@ -26,7 +26,7 @@ struct FGSEnemyDebugInfo
 	UPROPERTY(BlueprintReadOnly, Category = "Debug")
 	FString Name;
 
-	/** Enemy data asset name, e.g. DA_Enemy_MeleeBandit. */
+	/** Enemy data asset name, e.g. DA_Enemy_BeatCop. */
 	UPROPERTY(BlueprintReadOnly, Category = "Debug")
 	FString EnemyType;
 
@@ -124,10 +124,10 @@ public:
 	/** The given world if it is a game world, else the first PIE/game world (nullptr if none). */
 	static UWorld* FindGameWorld(UWorld* World);
 
-	/** Finds a UGSEnemyData asset by name: "DA_Enemy_MeleeBandit", "MeleeBandit" or "meleebandit". */
+	/** Finds a UGSEnemyData asset by name: "DA_Enemy_BeatCop", "BeatCop" or "beatcop". */
 	static UGSEnemyData* FindEnemyData(const FString& Name);
 
-	/** Finds a UGSWeaponData asset by name: "DA_Pistol", "Pistol", "BanditCarbine". */
+	/** Finds a UGSWeaponData asset by name: "DA_Pistol", "Pistol", "PatrolCarbine". */
 	static UGSWeaponData* FindWeaponData(const FString& Name);
 
 	/** Finds a UGSUpgradeData asset by name: "DA_Upgrade_Damage", "Damage" or "damage". */

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+#include "GSMeshAttachment.h"
 #include "GSEnemyData.generated.h"
 
 class UAnimInstance;
@@ -52,9 +53,23 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Look")
 	TSubclassOf<UAnimInstance> AnimClass;
 
-	/** Applied to every material slot (placeholder readable color). Needs a "TelegraphAmount" scalar param for attack wind-ups. */
+	/**
+	 * Material per body slot, by the mesh's slot name (SK_LowPolyBody: Skin, Top, Trousers, Shoes, Gloves, Headwear).
+	 * Each needs a "TelegraphAmount" scalar parameter (M_LowPoly has one) for the attack wind-up glow.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Look")
+	TMap<FName, TObjectPtr<UMaterialInterface>> SlotMaterials;
+
+	/** Fallback for slots with no SlotMaterials entry (unset = the mesh's own material). Needs "TelegraphAmount" too. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Look")
 	TObjectPtr<UMaterialInterface> BodyMaterial;
+
+	/**
+	 * Props worn or held on the body (a cap, a baton), the same struct the player uses (FGSMeshAttachment). A ranged
+	 * enemy's gun comes from Weapon->Mesh instead, so it isn't listed here.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Look")
+	TArray<FGSMeshAttachment> MeshAttachments;
 
 	/** Health bar shown above the head after taking damage (WBP_EnemyHealthBar). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Look")
@@ -66,7 +81,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Abilities")
 	TObjectPtr<UGSAbilitySet> AbilitySet;
 
-	/** Behavior run by AGSEnemyAIController (ST_MeleeBandit). */
+	/** Behavior run by AGSEnemyAIController (ST_BeatCop). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "AI")
 	TObjectPtr<UStateTree> StateTree;
 

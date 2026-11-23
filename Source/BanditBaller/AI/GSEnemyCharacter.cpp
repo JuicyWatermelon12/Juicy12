@@ -15,6 +15,7 @@
 #include "GSEnemyHealthBarWidget.h"
 #include "GSGameMode.h"
 #include "GSHealthComponent.h"
+#include "GSMeshAttachment.h"
 #include "GSRunRandom.h"
 #include "Components/StaticMeshComponent.h"
 #include "DrawDebugHelpers.h"
@@ -139,14 +140,22 @@ void AGSEnemyCharacter::ApplyEnemyDataVisuals()
 		MeshComp->SetAnimInstanceClass(EnemyData->AnimClass);
 	}
 
+	// One dynamic material per slot (the slot's own entry, else the fallback), so the wind-up glow (TelegraphAmount)
+	// reaches every part of the body.
 	BodyMaterials.Reset();
-	if (EnemyData->BodyMaterial)
+	const TArray<FName> SlotNames = MeshComp->GetMaterialSlotNames();
+	for (int32 Slot = 0; Slot < MeshComp->GetNumMaterials(); ++Slot)
 	{
-		for (int32 Slot = 0; Slot < MeshComp->GetNumMaterials(); ++Slot)
+		const TObjectPtr<UMaterialInterface>* Entry = SlotNames.IsValidIndex(Slot) ? EnemyData->SlotMaterials.Find(SlotNames[Slot]) : nullptr;
+		UMaterialInterface* Source = (Entry && *Entry) ? Entry->Get() : EnemyData->BodyMaterial.Get();
+		if (Source)
 		{
-			BodyMaterials.Add(MeshComp->CreateDynamicMaterialInstance(Slot, EnemyData->BodyMaterial));
+			BodyMaterials.Add(MeshComp->CreateDynamicMaterialInstance(Slot, Source));
 		}
 	}
+
+	// Worn / held props (cap, baton): no collision, built like the player's (FGSMeshAttachment).
+	GSMeshAttachments::Apply(this, MeshComp, EnemyData->MeshAttachments, MeshAttachmentComponents);
 
 	if (EnemyData->HealthBarWidgetClass)
 	{

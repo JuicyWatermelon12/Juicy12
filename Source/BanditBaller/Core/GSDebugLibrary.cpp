@@ -61,7 +61,7 @@
 
 namespace GSDebug
 {
-	/** "DA_Enemy_MeleeBandit" -> "meleebandit"; also strips DA_Weapon_ / DA_. */
+	/** "DA_Enemy_BeatCop" -> "beatcop"; also strips DA_Weapon_ / DA_. */
 	FString NormalizeAssetName(FString Name)
 	{
 		Name = Name.TrimStartAndEnd().ToLower();

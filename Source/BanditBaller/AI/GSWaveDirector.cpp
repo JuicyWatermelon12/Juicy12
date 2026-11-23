@@ -31,7 +31,7 @@ namespace
 		return Name;
 	}
 
-	/** "20 MeleeBandit, 10 RangedBandit" */
+	/** "20 BeatCop, 10 PatrolOfficer" */
 	FString DescribeComposition(const TArray<TObjectPtr<UGSEnemyData>>& Enemies)
 	{
 		TMap<const UGSEnemyData*, int32> Counts;
