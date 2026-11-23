@@ -5,13 +5,21 @@ milestone section (what was built, new assets/commands, known issues) and update
 
 ## The game
 
-Third-person roguelike shooter set in an off-grid bandit gambling town (UE 5.8, C++ + GAS). **Single-player
-first**; 2–4 player listen-server co-op is planned for **M6** (see **Later — co-op (M6)**).
-- **Hub:** the game starts in the safe **Market District** hub (shop + casino), its own map. A "Start Run" portal
-  takes the player to the town map (`OpenLevel`).
-- **Run:** PreRound → Combat → RoundClear → PreRound … with harder rounds, until the player dies. Bandits drop cash
+Third-person roguelike shooter, cops and robbers (UE 5.8, C++ + GAS): the player is the robber, out to get all the
+cash, and the enemies are law enforcement (since M2d; it was "bandits in a bandit town"). **Single-player first**;
+2–4 player listen-server co-op is planned for **M6** (see **Later — co-op (M6)**).
+- **Hub:** the game starts in the safe **Market District** hub, the black market and casino (shop + casino), its own
+  map. A "Start Run" portal takes the player to the run map (`OpenLevel`): today the 300 × 300 m town, from Prompt 67 a
+  500 × 500 m city with a 100 m ceiling.
+- **Run:** PreRound → Combat → RoundClear → PreRound … with harder rounds, until the player dies. Cops drop cash
   and XP as pickups, collected during the run. Cash and XP per enemy are flat (the same every round); income grows
-  through more enemies and faster kills.
+  through more enemies and faster kills. In M2d the rounds roll over into each other (no countdown, a steady stream,
+  a pop-up bonus) with a 10 s breather every 10 rounds.
+- **Enemies:** eight law-enforcement types that unlock round by round (Beat Cop and Patrol Officer built, still
+  named MeleeBandit / RangedBandit in code until Prompt 57; Rusher, Shield, Grenadier, Heavy, Sniper and Drone in
+  M2d). Dodgeable projectile shots, at most 40% ranged per generated wave, up to 100 alive.
+- **Look:** low poly with high-quality shaders and lighting (reference: RevenBlade); placeholders made in Blender
+  until the art pass (M5).
 - **After death:** a run summary, then back to the hub to spend or gamble the cash.
 - **Playthrough progression:** cash, owned items and the gear loadout (saved profile). Everything owned is active or
   usable from the start of the next run, depending on the item type (M3):
@@ -38,7 +46,9 @@ scope then changed to single-player first; see **Scope change — single-player 
 before M3; see **Design update — decisions before M3**. The market, prestige and economy were settled after that;
 see **Design update — market, prestige and economy**. After M2, eleven more level-up upgrades were planned as block
 **M2b**, before M3; see **Design update — M2b upgrades**. Before the M2b checkpoint the upgrade design was reworked
-as block **M2c**; see **Design update — upgrade rework (M2c)**.
+as block **M2c**; see **Design update — upgrade rework (M2c)**. After the weapons checkpoint the theme, look, map and
+round flow changed (cops and robbers in a city, roll-over rounds, more enemy types) as block **M2d**; see **Design
+update — cops, city and round flow (M2d)**.
 The in-run market is gone from the round loop (Prompt 14). The streamed district and its debug teleport stay until
 the hub map replaces them.
 
@@ -52,9 +62,10 @@ M2b + M2c checkpoint (48), which replaced the old M2b checkpoint). See **M2b + M
 **Weapons** after M2c: Dynamite (49), Lucky Coin (50), Molotov (51) and Tomahawk (52) are built: all seven weapons exist.
 Dynamite and the Molotov lead a moving target since 52b. **The weapons checkpoint (53) is done:** see **Weapons checkpoint**
 under Prompt 53. **The weapons block is complete.**
-**Next: M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
+**M2d** (cops, city and round flow) is planned (Prompt 54, docs only); **next is Prompt 55** (connect Blender). After
+M2d's checkpoint (69): **M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Weapons checkpoint" (Prompt 53), not pushed. The build is clean and all 63 automation tests pass in about 160 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Docs: cops, city and round flow (M2d)" (Prompt 54), not pushed. The build is clean and all 63 automation tests pass in about 160 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -124,7 +135,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | W 51 | Molotov (weapon): every 5 s a bottle lobbed at the nearest enemy within 15 m; a 2.5 m fire patch where it lands burns every enemy in it every 0.5 s for 4 s (4 per burn); `AGSFirePatch`; `gs.Molotov.Patches`; pool of 20 | e4746d4 |
 | W 52 | Tomahawk (weapon): every 3 s a tomahawk at the nearest enemy flies 18 m out and back, hitting every enemy on its line once each way (12 per hit); a wall turns it back; +1 tomahawk per 3 power; `AGSTomahawk`; pool of 21 | bae9432 |
 | W 52b | Fix: Dynamite and Molotov lead a moving target (LeadFactor 1, in data); PROGRESS.md repair; the four new weapon tests run on faster settings copies (suite 182 → 160 s); unity-build naming rule | 4878371 |
-| W 53 | Weapons checkpoint: `Checkpoint.SevenWeapons` (pool contents, the slot limit for all 35 sets of three, real runs with rerolls, first offers), the simulator with owned upgrades, a DPS table for all seven weapons, two PIE loops with auto-pick, frame time with three weapons and 30+ enemies | see git log |
+| W 53 | Weapons checkpoint: `Checkpoint.SevenWeapons` (pool contents, the slot limit for all 35 sets of three, real runs with rerolls, first offers), the simulator with owned upgrades, a DPS table for all seven weapons, two PIE loops with auto-pick, frame time with three weapons and 30+ enemies | 412063a |
+| M2d 54 | Design update: cops and robbers, the city map, the low-poly look, Blender placeholders, enemy names, dodgeable shots, the 40% ranged cap, eight enemy types by round, 100 alive, roll-over rounds and the breather; Prompts 55–69 planned (docs only) | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -3434,6 +3446,117 @@ was kept.
   - Fast clear was missed in round 1 of both loops (37 s and 20 s against 14 s), as in Prompt 48.
 - **Full suite:** 63 tests, all passing, in 160.4 s.
 
+## Design update — cops, city and round flow (M2d)
+
+Prompt 54. Docs only; no code changed. **M2d** is a block after the weapons checkpoint (Prompt 53) and before the
+market (M3). It gives the game a new theme, look and round flow, and adds six enemy types. Until the prompts below
+build them, the code still follows the old design: bandits, the 300 × 300 m town, hit-scan enemy shots, an alive cap
+of 30 and separate rounds with a countdown.
+
+**Decisions (user).** Every number is a placeholder and lives in data.
+
+1. **Theme: cops and robbers.** The player is the robber, out to get all the cash. The enemies are law enforcement.
+   This replaces "bandits in a bandit town". The project and code names (BanditBaller, the `GS` prefix) stay.
+2. **Setting.** A run takes place in a city. The hub stays the black market and casino (`L_Hub_Graybox`). The run map
+   becomes a **city graybox of 500 × 500 m with a 100 m ceiling**, built later in this block (Prompt 67). It replaces
+   the 300 × 300 m `L_Town_Graybox` and its 75 m ceiling.
+3. **Look: low poly** (faceted, flat shaded, clean blocks of colour, no texture detail) **with high-quality shaders
+   and lighting:** coloured rim light, glowing emissives with bloom, coloured shadows, soft gradient skies. The
+   reference is the game RevenBlade. The art pass is still M5; until then placeholders follow the low-poly look.
+4. **Placeholder models are made in Blender from now on** (set up in Prompts 55 and 56), not from engine cubes, cones
+   and cylinders.
+   - That includes new models for the player (the robber) and for every enemy: very basic low poly that gives the
+     idea of the theme and the final look, with props such as a cap, a baton, a carbine and a shield.
+   - No new animations yet: the models use the skeleton and the animations the game has today.
+   - The older engine-shape placeholders (weapons, pickups, the portal, cover) are remade in Prompt 68.
+5. **Enemy names.** MeleeBandit becomes the **Beat Cop** (a regular cop with a baton). RangedBandit becomes the
+   **Patrol Officer** (carbine). The code, assets, commands and tests keep the old names until Prompt 57.
+6. **Dodgeable ranged shots.** Ranged enemies fire projectiles the player can dodge: visible, about 28 m/s, aimed at
+   where the player was when the shot was fired (no lead). The aim warning and the burst stay. No enemy uses instant
+   hit-scan shots. (Today GA_EnemyFire traces each shot instantly, an object query, after its 0.4 s laser aim.)
+7. **At most 40% of a generated wave is ranged** (all ranged types together), for now. (Today the budget buys ranged
+   bandits freely: round 6 is 8 of 12 ranged, round 7 9 of 13; see the M2 checkpoint.)
+8. **Enemy types unlock as the rounds go on**, so later rounds mix more types. There is no wanted level and there are
+   no agency tiers. Eight types in all (placeholder unlock rounds; `UGSEnemyData::MinRound` already exists):
+
+   | Enemy | Unlocks in round | Kind | Status | Prompt |
+   |---|---|---|---|---|
+   | Beat Cop | 1 | melee (baton) | built as MeleeBandit | 57 |
+   | Patrol Officer | 2 | ranged (carbine) | built as RangedBandit | 57, 58 |
+   | Rusher | 4 | melee | new | 61 |
+   | Shield | 6 | melee | new | 62 |
+   | Grenadier | 8 | ranged | new | 64 |
+   | Heavy | 10 | melee | new | 63 |
+   | Sniper | 12 | ranged | new | 65 |
+   | Drone | 14 | ranged | new | 66 |
+
+9. **The new types in short** (the details come with their prompts):
+   - **Rusher:** half a Beat Cop's health, about 1.5 times its speed, comes in packs of 4–6, a quick weak hit.
+   - **Shield:** the shield stops the rifle, the pistol and weapon projectiles from the front. Area damage, Piercing
+     Rounds and hits from the side or behind get through. The shield breaks after enough damage and leaves a normal
+     cop. Slow; melee only (a bash).
+   - **Grenadier:** keeps 12–20 m away and lobs an explosive grenade every 4 s; a red circle shows for 1.5 s before
+     it explodes. It doesn't hurt other enemies.
+   - **Heavy:** about 8 times a Beat Cop's health, slow, a ground slam that marks a 3 m circle for 1 s before it
+     lands. About 4 times the cash, and it always drops a health orb (instead of the 20% chance).
+   - **Sniper:** stands 30–45 m away, on the ground for now. A laser follows the player for 1.5 s, locks in place and
+     flashes for 0.4 s, then it fires one very fast visible projectile along the locked line for heavy damage.
+     Moving or dashing during the lock dodges it; cover blocks it.
+   - **Drone:** flies over cover at about 3 m, low health. It hovers, beeps just before it starts shooting, then fires
+     dodgeable shots. When it is shot down it explodes and hurts enemies near it, never the player.
+10. **Many more enemies.** The alive cap (`DA_WaveSettings.MaxAliveEnemies`, 30 today) goes to **100** in this block,
+    and the game must hold **60 fps on the user's PC with 100 alive** (Prompt 60). The long-term goal is thousands of
+    enemies at once, like Megabonk; that is a later block and is not designed yet.
+11. **Roll-over rounds.** Play stays split into rounds but feels continuous:
+    - The next round's enemies start arriving when only a few of the current round are left, with no countdown.
+    - Enemies arrive in a steady stream, not in a few batches. (Today: DT_Waves rows spawn in batches of 2–3 every
+      1.6–2 s, generated waves 3 every 1.5 s; a wave ends when all have spawned and died; PreRound is a 3 s countdown
+      and RoundClear a 4 s pause with the summary panel.)
+    - The round-clear bonus shows as a small pop-up while play goes on (not the RoundClear summary panel).
+    - Level-ups still pause the game for the card pick.
+12. **A breather every 10 rounds:** 10 seconds (both numbers are placeholders). A boss goes there later.
+13. **The block ends with a checkpoint (Prompt 69)** whose income numbers (cash per round and per run at real
+    play) set the M3 prices.
+
+**What this changes in the code and tests** (checked for this plan; built in Prompts 55–69)
+- Names (57): `DA_Enemy_MeleeBandit` / `_RangedBandit`, their BPs, ability sets, StateTrees, materials, `gs.Spawn`
+  names, the MCP toolset's `spawn_enemies` types, log lines and every test that names them.
+- Models (56, 57, 68): the player and enemies use the template mannequins with tinted materials today; the pickups,
+  weapons, portal and cover use engine shapes.
+- Shots (58): GA_EnemyFire's instant trace becomes a projectile. The player-side projectile (`AGSProjectile`) ignores
+  player pawns, so enemy shots need their own path. `Balance.TimeToKill` and the Floating Shield test (a ranged burst
+  blocked) rely on enemy shots landing.
+- The ranged cap (58): the budget purchase in `UGSWaveDirector`; `Round.WaveBudget` checks today's purchase.
+- Round flow (59): `EGSRoundPhase` (PreRound / Combat / RoundClear), the profile save at the end of RoundClear, the
+  round-clear bonus (its fast-clear and no-damage rules assume one round at a time), `WBP_RoundSummary`, the round
+  banners and countdown in WBP_HUD, and `Round.PhaseLoop`, `Round.ClearBonus`, `Round.WaveDirector`, `UI.RoundHUD`,
+  `Profile.PermanentCash`.
+- Alive cap (60): `MaxAliveEnemies`, `MaxGeneratedEnemies` 150, per-enemy cost (StateTree, sight perception, health
+  bar widgets, CharacterMovement), the weapons' target searches over every enemy.
+- City (67): `L_Town_Graybox`, `BeginPIE`'s default map, `Map.Town`, `Map.TownLayout`, `Map.Boundary`, the hub's
+  RunMap, and the spawn ring (12–25 m) in a bigger map.
+
+**Open questions** (settled in each prompt; not decided)
+- Roll-over (59): how many enemies are "a few left" (a count or a share of the round), whether PreRound and RoundClear
+  stay as phases, when the profile saves without a RoundClear pause, and how the no-damage and fast-clear bonuses work
+  when two rounds overlap.
+- Breather (59): does it count as a round, and is the pickup vacuum there or at every round's end?
+- Shield (62): the angle that counts as "from the front", the shield's health, and whether the weapons' area damage
+  (Barbed Wire, Dynamite, Molotov, Powder Keg) all counts as area.
+- Drone (66): do enemies killed by its explosion count as the player's kills (cash, XP, combo)?
+- Heavy (63): does its always-dropped health orb replace or add to the 20% roll?
+- How the new types fit the budget waves: their SpawnCost, and whether DT_Waves (rounds 1–5) changes.
+
+**Docs changed**
+- CLAUDE.md: the game summary (theme, city, roll-over rounds, enemies), a new **Art and placeholders** rule, the
+  combat rule's map note, the enemy-name convention (old code names until Prompt 57) and the current block.
+- This file: the game summary, the intro and the step table, this entry, **Decided (user)**, the open items (the
+  round-6 ranged share is decided by item 7), a known issue and **Next up** (Prompts 54–69, then M3).
+
+## M2d — Cops, city and round flow (Prompts 54–69)
+
+Prompt 54 is the design update above.
+
 ---
 
 ## Console commands and CVars
@@ -3834,7 +3957,10 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 
 **Not built yet / stubs**
 - The M2c upgrade rework is complete (Prompts 41–48), and so are the last four weapons (49–52) and the weapons checkpoint
-  (53). M3 is next.
+  (53). M2d (Prompts 55–69) is next, then M3.
+- M2d (designed in Prompt 54) isn't built: the code still has bandits (MeleeBandit / RangedBandit), mannequin and
+  engine-shape placeholders, hit-scan enemy shots, no ranged cap, an alive cap of 30, separate rounds with a PreRound
+  countdown and a RoundClear pause, and the 300 × 300 m town.
 - Tomahawk (Prompt 52):
   - Placeholder look: a flattened grey engine cone spinning end over end, the RadialBurst template on hits, an editor
     click sound that may not cook. No trail, so it is hard to follow at 20 m/s.
@@ -4005,7 +4131,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Balance is unexamined with real shooting. The PIE loops cleared waves with god mode and `gs.KillAll`, so their
     round times are the spawn time plus command delay, and the no-damage bonus was always paid.
   - Generated waves start smaller than the last DT_Waves row (round 6: 12 enemies vs 13 in round 5) and are mostly
-    ranged (8 of 12, 9 of 13).
+    ranged (8 of 12, 9 of 13). The ranged share is decided (M2d item 7: at most 40% ranged, built in Prompt 58); the
+    smaller round 6 is still open.
   - A player who stands still dies in 7–10 s of combat in rounds 1–7.
 - Profile: there are no upgrade steps yet (version 1 is the only layout). A crash between save points loses the cash
   earned since the last RoundClear.
@@ -4210,16 +4337,45 @@ questions). Each prompt updates the tests that assume the old design.
     the unity-build naming rule).~~ Done (see Prompt 52b).
 53. ~~**Weapons checkpoint.**~~ Done (see Prompt 53 and **Weapons checkpoint**). **The weapons block is complete.**
 
-**Then M3** (after the weapons checkpoint; not planned in detail yet; each item needs its own prompt). From the decisions so far:
+**Next: M2d — cops, city and round flow** (after the weapons checkpoint, before M3; see **Design update — cops, city
+and round flow (M2d)** for the decisions and open questions). Each prompt updates the tests that assume the old design.
+
+54. ~~**M2d docs.**~~ Done (see **Design update — cops, city and round flow (M2d)**; docs only).
+55. **Connect Blender:** a Blender MCP server for this project, checked from a session.
+56. **Placeholder pipeline and the robber:** Blender → Unreal for low-poly placeholders (export, import, materials in
+    the low-poly look), and the player's robber model on today's skeleton and animations.
+57. **Rename the enemies and give them cop models:** MeleeBandit → Beat Cop (baton), RangedBandit → Patrol Officer
+    (carbine) in code, assets, commands and tests; Blender models with cap, baton and carbine.
+58. **Dodgeable ranged shots and the ranged cap:** enemy shots become visible projectiles (~28 m/s, aimed at where
+    the player was, no lead; aim warning and burst kept); at most 40% of a generated wave ranged.
+59. **Roll-over rounds and the breather:** the next round starts arriving when a few enemies are left, no countdown,
+    a steady stream, the round-clear bonus as a pop-up; a 10 s breather every 10 rounds.
+60. **One hundred enemies:** the alive cap to 100 at 60 fps on the user's PC (profile and optimize).
+61. **Rusher** (unlocks in round 4).
+62. **Shield** (round 6).
+63. **Heavy** (round 10).
+64. **Grenadier** (round 8).
+65. **Sniper** (round 12).
+66. **Drone** (round 14).
+67. **The city map:** a 500 × 500 m city graybox with a 100 m ceiling replaces the town (NavMesh, boundary, spawns,
+    tests).
+68. **Remake the older placeholders in Blender:** the engine-shape placeholders (weapons, pickups, portal, cover) in
+    the low-poly look.
+69. **M2d tests + checkpoint:** tests for the M2d rules and a PIE checkpoint, like Prompt 53; its income numbers set
+    the M3 prices.
+
+**Then M3** (after the M2d checkpoint; not planned in detail yet; each item needs its own prompt). From the decisions so far:
 - The two-layer save (playthrough data: cash, owned items, loadout, total cash earned; prestige data, empty until
   prestige), with an upgrade step from save version 1.
 - Item types: usable items (consumables, bought again to restock, used up in a run) and gear (bought once, one per
   loadout slot). Other types (abilities, powerups) are decided in M3.
 - The static shop in the hub (a fixed catalogue, `TrySpendCash`), owned items in the profile, the hub loadout, and
   owned things applied at the start of the next run.
+- Prices set from the M2d checkpoint's income numbers.
 
 Suggestions from the M2 checkpoint (not scheduled): look at the DT_Waves → budget hand-off (round 6 is smaller than
-round 5 and mostly ranged), and replace `gs.KillAll` play with real shooting before balance work.
+round 5), and replace `gs.KillAll` play with real shooting before balance work. (The ranged share is decided: M2d
+item 7.)
 
 Decided (user):
 - **Single-player first;** co-op is M6.
@@ -4296,6 +4452,37 @@ Decided (user):
 - **Casino bets** risk cash only, never owned items.
 - **XP pickups:** XP comes from pickups enemies drop, not instantly on the kill.
 - **Map boundary:** every map has invisible walls around the play area and a ceiling, blocking pawns only.
+- **Cops, city and round flow (M2d, Prompt 54).** Every number is a placeholder in data.
+  - Theme: cops and robbers. The player is the robber, out to get all the cash; the enemies are law enforcement. The
+    project and code names (BanditBaller, GS) stay.
+  - Setting: runs take place in a city; the hub stays the black market and casino. A 500 × 500 m city graybox with
+    a 100 m ceiling replaces the 300 × 300 m town (75 m ceiling) later in M2d.
+  - Look: low poly (faceted, flat shaded, clean blocks of colour, no texture detail) with high-quality shaders and
+    lighting (coloured rim light, glowing emissives with bloom, coloured shadows, soft gradient skies); reference
+    RevenBlade. The art pass is still M5; placeholders follow the look until then.
+  - Placeholder models are made in Blender, not from engine shapes: the robber and every enemy, very basic low poly
+    with props (cap, baton, carbine, shield), on today's skeleton and animations (no new animations yet).
+  - Names: MeleeBandit → Beat Cop (baton), RangedBandit → Patrol Officer (carbine); the code keeps the old names
+    until Prompt 57.
+  - Ranged enemies fire visible, dodgeable projectiles (about 28 m/s, aimed at where the player was when fired, no
+    lead); the aim warning and the burst stay; no enemy uses hit-scan.
+  - At most 40% of a generated wave is ranged (all ranged types together), for now.
+  - Eight enemy types unlock by round (no wanted level, no agency tiers): Beat Cop 1, Patrol Officer 2, Rusher 4,
+    Shield 6, Grenadier 8, Heavy 10, Sniper 12, Drone 14. Rusher: half health, ×1.5 speed, packs of 4–6, a quick weak
+    hit. Shield: blocks the rifle, pistol and weapon projectiles from the front (area damage, Piercing Rounds and side
+    or rear hits get through), breaks after enough damage into a normal cop, slow, melee bash. Grenadier: 12–20 m
+    away, a grenade every 4 s with a 1.5 s red circle, doesn't hurt enemies. Heavy: ×8 health, slow, a ground slam
+    with a 3 m circle 1 s before it lands, ×4 cash, always drops a health orb. Sniper: 30–45 m away on the ground, a
+    laser follows for 1.5 s, locks and flashes 0.4 s, then one very fast visible heavy shot along the locked line
+    (moving or dashing dodges it, cover blocks it). Drone: flies over cover at about 3 m, low health, hovers, beeps
+    before shooting, dodgeable shots, explodes when shot down and hurts nearby enemies, never the player.
+  - Alive cap 30 → 100 in M2d, holding 60 fps on the user's PC. Thousands at once (like Megabonk) is a later,
+    undesigned block.
+  - Roll-over rounds: rounds stay but feel continuous. The next round's enemies start arriving when only a few of the
+    current round are left, with no countdown; a steady stream instead of a few batches; the round-clear bonus as a
+    small pop-up while play goes on. Level-ups still pause for the card pick.
+  - A 10-second breather every 10 rounds; a boss goes there later.
+  - M2d ends with a checkpoint whose income numbers set the M3 prices.
 
 Still open from M2: more DA_LevelRewards entries.
 

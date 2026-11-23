@@ -2,14 +2,27 @@
 
 Read @docs/PROGRESS.md at the start of every session. After finishing any prompt, add a short entry to docs/PROGRESS.md (what was built, new assets/commands, known issues) and update 'Next up'.
 
-Third-person roguelike shooter in an off-grid bandit gambling town. **Single-player first**; 2–4 player
-listen-server co-op is planned for **M6**, after single-player is finished or nearly finished.
-- **Hub:** the game starts in the safe **Market District** (shop + casino), its own map `L_Hub_Graybox`
-  (`AGSHubGameMode`; the startup map). The "Start Run" portal (`AGSStartRunPortal`) opens the town map
-  (`L_Town_Graybox`), and the run starts when it loads.
-- **Run:** PreRound → Combat → RoundClear → PreRound … in the town until the player dies. There are no market visits
-  during a run. Enemies drop cash and XP as pickups: a **flat amount per enemy type, the same in every round**.
-  Income grows because later rounds spawn more enemies and the player kills faster.
+Third-person roguelike shooter, **cops and robbers**: the player is the robber, out to get all the cash, and the
+enemies are law enforcement (since M2d, Prompt 54; this replaced "bandits in a bandit town"). The project and code
+names (BanditBaller, `GS`) stay. **Single-player first**; 2–4 player listen-server co-op is planned for **M6**, after
+single-player is finished or nearly finished.
+- **Hub:** the game starts in the safe **Market District**, the black market and casino (shop + casino), its own
+  map `L_Hub_Graybox` (`AGSHubGameMode`; the startup map). The "Start Run" portal (`AGSStartRunPortal`) opens the run
+  map, and the run starts when it loads.
+- **Run map:** today the 300 × 300 m town `L_Town_Graybox` (75 m ceiling). In M2d (Prompt 67) a **city graybox of
+  500 × 500 m with a 100 m ceiling** replaces it.
+- **Run:** PreRound → Combat → RoundClear → PreRound … until the player dies. There are no market visits during a
+  run. Enemies drop cash and XP as pickups: a **flat amount per enemy type, the same in every round**. Income grows
+  because later rounds spawn more enemies and the player kills faster.
+  - **Roll-over rounds** (M2d, Prompt 59): play stays split into rounds but feels continuous. The next round's
+    enemies start arriving when only a few of the current round are left, with no countdown; enemies arrive in a
+    steady stream, not a few batches; the round-clear bonus is a small pop-up while play goes on. Every 10 rounds
+    there is a 10-second breather (placeholders; a boss goes there later). Level-ups still pause for the card pick.
+- **Enemies** (law enforcement): eight types that unlock as the rounds go on (no wanted level, no agency tiers).
+  Beat Cop (baton, melee) and Patrol Officer (carbine) are built; Rusher, Shield, Grenadier, Heavy, Sniper and Drone
+  come in M2d. Ranged enemies fire visible, dodgeable projectiles (no hit-scan), and at most 40% of a generated wave
+  is ranged. The alive cap goes to 100 in M2d, at 60 fps. **The code still uses the old names until Prompt 57:**
+  MeleeBandit = Beat Cop, RangedBandit = Patrol Officer (`DA_Enemy_MeleeBandit`, `gs.Spawn MeleeBandit`, …).
 - **After death:** a run summary, then back to the hub to spend or gamble cash.
 - **Playthrough progression:** cash, owned items and the gear loadout, saved to a player profile and kept across
   runs and deaths. Everything the player owns is active or usable from the start of the next run; how depends on the
@@ -38,8 +51,13 @@ listen-server co-op is planned for **M6**, after single-player is finished or ne
     has a pick cap.
   - The 15 upgrades were built in **M2b** (after M2, before the market, M3). **M2c** reworked them (17 upgrades
     with Razor Cards and Barbed Wire); the M2b + M2c checkpoint is Prompt 48. Prompts 49–52 added the last four
-    weapons (21 upgrades); the weapons checkpoint (Prompt 53) is done, and M3 is next. The design and its rules are in `docs/PROGRESS.md` (**Design update — upgrade rework (M2c)**; the
-    original list is under **Design update — M2b upgrades**).
+    weapons (21 upgrades); the weapons checkpoint (Prompt 53) is done. The design and its rules are in
+    `docs/PROGRESS.md` (**Design update — upgrade rework (M2c)**; the original list is under **Design update — M2b
+    upgrades**).
+- **Current block: M2d** (Prompts 54–69, after the weapons checkpoint and before the market, M3): the cops theme,
+  Blender placeholders, dodgeable shots, roll-over rounds, 100 enemies, six new enemy types and the city map. Its
+  checkpoint (Prompt 69) gives the income numbers that set the M3 prices. The design is in `docs/PROGRESS.md`
+  (**Design update — cops, city and round flow (M2d)**).
   - The player must take one (no skip), but can reroll the 3 choices a limited number of times per run (3 to start).
   - The game pauses while the player chooses (the co-op party pause is M6).
 
@@ -144,8 +162,18 @@ docs/PROGRESS.md  progress log and reference
 - **Everything goes through GAS**: stats, buffs/debuffs, abilities and item effects are AttributeSets,
   GameplayEffects and GameplayAbilities with GameplayTags. Damage always goes through `GE_Damage`
   (SetByCaller `Data.Damage`).
-- **Combat only in the town.** Enemies spawn, path and fight only in `L_Town_Graybox` (NavMesh covers the town
-  only). The Market District hub map is safe: no spawns, no NavMesh, no round loop, and players there have
+- **Art and placeholders** (M2d):
+  - **The target look is low poly** (faceted, flat shaded, clean blocks of colour, no texture detail) with
+    high-quality shaders and lighting: coloured rim light, glowing emissives with bloom, coloured shadows, soft
+    gradient skies. The reference is the game RevenBlade. The art pass is M5; until then placeholders follow this
+    look.
+  - **Placeholder models are made in Blender** (from Prompts 55–56 on), not from engine cubes, cones and cylinders.
+    That includes the player (the robber) and every enemy: very basic low poly that gives the idea of the theme and
+    the final look, with props such as a cap, a baton, a carbine and a shield. Older engine-shape placeholders are
+    remade in Blender in Prompt 68.
+  - No new animations yet: the models use the skeleton and the animations the game has today.
+- **Combat only in the run map.** Enemies spawn, path and fight only in `L_Town_Graybox` (NavMesh covers the town
+  only; the city map replaces it in Prompt 67). The Market District hub map is safe: no spawns, no NavMesh, no round loop, and players there have
   `State.SafeZone` (GE_SafeZone: no firing, no damage). Shop and casino actors live only in the hub.
 - **Every map has a boundary**: invisible walls around the play area and a ceiling (`AGSMapBoundary`, object type
   `GSCollision::MapBoundary`). It blocks pawns only (players and enemies); shots, traces, pickups and the camera pass
@@ -182,6 +210,9 @@ docs/PROGRESS.md  progress log and reference
 ## Conventions
 - C++ classes use the `GS` prefix (`AGSGameMode`, `UGSWaveDirector`); asset prefixes `BP_`, `DA_`, `DT_`, `GA_`,
   `GE_`, `ST_`, `WBP_`, `M_`, `MI_`, `IA_`, `IMC_`.
+- Enemy names: the design names are Beat Cop and Patrol Officer, but until Prompt 57 the code, assets, commands and
+  tests keep `MeleeBandit` / `RangedBandit` (and "bandit" in comments and logs). Use the code names when talking about
+  code before then.
 - Tuning lives in a `UPrimaryDataAsset` subclass (`UGS…Settings`, `Const`), with an asset in `Data/` assigned on
   `BP_GSGameMode` or the owning Blueprint.
 - Native gameplay tags only, in `Abilities/GSGameplayTags.*`.
