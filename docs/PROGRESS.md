@@ -3606,8 +3606,9 @@ Tooling only: no game code, assets or tests changed.
   3. In the 3D viewport press `N`, open the **MCP for Blender** tab and click **Start MCP Server**. Leave the host on
      localhost and the port on 9876.
   4. Don't press "Connect to Claude" or connect any other client: only this project's Claude Code session uses it.
-- **Not checked yet:** the `blender` server only loads when Claude Code starts, so its tools and the connection to
-  Blender are checked at the start of the next session (Prompt 56).
+- **Checked after a Claude Code restart:** the `blender` server loaded and `get_addon_status` reached Blender 5.3.0
+  (add-on 2.0, protocol 16, up to date, telemetry off; no asset libraries or 3D generators switched on). `unreal-mcp`
+  answered `list_toolsets` once the editor was started (it refuses connections while the editor is closed).
 - **CLAUDE.md:** a new **Blender** section (Blender open with its server started before a model prompt; the session
   start check confirms `blender` too; save .blend files before running code; one client only; the MSIX rule) and
   Blender MCP in the tooling split.
@@ -4401,8 +4402,8 @@ questions). Each prompt updates the tests that assume the old design.
 and round flow (M2d)** for the decisions and open questions). Each prompt updates the tests that assume the old design.
 
 54. ~~**M2d docs.**~~ Done (see **Design update — cops, city and round flow (M2d)**; docs only).
-55. ~~**Connect Blender:** a Blender MCP server for this project, checked from a session.~~ Done (see Prompt 55); the
-    `blender` server's tools are checked at the start of the next session.
+55. ~~**Connect Blender:** a Blender MCP server for this project, checked from a session.~~ Done (see Prompt 55); both
+    servers checked after the restart.
 56. **Placeholder pipeline and the robber:** Blender → Unreal for low-poly placeholders (export, import, materials in
     the low-poly look), and the player's robber model on today's skeleton and animations.
 57. **Rename the enemies and give them cop models:** MeleeBandit → Beat Cop (baton), RangedBandit → Patrol Officer
