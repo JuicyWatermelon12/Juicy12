@@ -193,17 +193,26 @@ public:
 	/** Barbed Wire tuning (DA_BarbedWireSettings); no ring if unset. */
 	const UGSBarbedWireSettings* GetBarbedWireSettings() const { return BarbedWireSettings; }
 
-	/** Dynamite tuning (DA_DynamiteSettings); nothing is thrown if unset. */
-	const UGSDynamiteSettings* GetDynamiteSettings() const { return DynamiteSettings; }
+	/** Dynamite tuning (DA_DynamiteSettings, or the test override); nothing is thrown if unset. */
+	const UGSDynamiteSettings* GetDynamiteSettings() const { return DynamiteSettingsOverride ? DynamiteSettingsOverride.Get() : DynamiteSettings.Get(); }
 
-	/** Lucky Coin tuning (DA_LuckyCoinSettings); nothing is flipped if unset. */
-	const UGSLuckyCoinSettings* GetLuckyCoinSettings() const { return LuckyCoinSettings; }
+	/** Lucky Coin tuning (DA_LuckyCoinSettings, or the test override); nothing is flipped if unset. */
+	const UGSLuckyCoinSettings* GetLuckyCoinSettings() const { return LuckyCoinSettingsOverride ? LuckyCoinSettingsOverride.Get() : LuckyCoinSettings.Get(); }
 
-	/** Molotov tuning (DA_MolotovSettings); nothing is thrown if unset. */
-	const UGSMolotovSettings* GetMolotovSettings() const { return MolotovSettings; }
+	/** Molotov tuning (DA_MolotovSettings, or the test override); nothing is thrown if unset. */
+	const UGSMolotovSettings* GetMolotovSettings() const { return MolotovSettingsOverride ? MolotovSettingsOverride.Get() : MolotovSettings.Get(); }
 
-	/** Tomahawk tuning (DA_TomahawkSettings); nothing is thrown if unset. */
-	const UGSTomahawkSettings* GetTomahawkSettings() const { return TomahawkSettings; }
+	/** Tomahawk tuning (DA_TomahawkSettings, or the test override); nothing is thrown if unset. */
+	const UGSTomahawkSettings* GetTomahawkSettings() const { return TomahawkSettingsOverride ? TomahawkSettingsOverride.Get() : TomahawkSettings.Get(); }
+
+	/**
+	 * Tests: use Settings instead of the weapon's settings asset until cleared (nullptr), e.g. a copy with a shorter
+	 * interval or another LeadFactor. Lives as long as this world.
+	 */
+	void SetDynamiteSettingsOverride(const UGSDynamiteSettings* Settings) { DynamiteSettingsOverride = Settings; }
+	void SetLuckyCoinSettingsOverride(const UGSLuckyCoinSettings* Settings) { LuckyCoinSettingsOverride = Settings; }
+	void SetMolotovSettingsOverride(const UGSMolotovSettings* Settings) { MolotovSettingsOverride = Settings; }
+	void SetTomahawkSettingsOverride(const UGSTomahawkSettings* Settings) { TomahawkSettingsOverride = Settings; }
 
 	// --- Powder Keg (server) ---
 
@@ -458,6 +467,19 @@ private:
 	/** SetRoundClearSettingsOverride (tests). */
 	UPROPERTY(Transient)
 	TObjectPtr<const UGSRoundClearSettings> RoundClearSettingsOverride;
+
+	/** Set<Weapon>SettingsOverride (tests). */
+	UPROPERTY(Transient)
+	TObjectPtr<const UGSDynamiteSettings> DynamiteSettingsOverride;
+
+	UPROPERTY(Transient)
+	TObjectPtr<const UGSLuckyCoinSettings> LuckyCoinSettingsOverride;
+
+	UPROPERTY(Transient)
+	TObjectPtr<const UGSMolotovSettings> MolotovSettingsOverride;
+
+	UPROPERTY(Transient)
+	TObjectPtr<const UGSTomahawkSettings> TomahawkSettingsOverride;
 
 	/** Combat -> RoundClear: work out this round's bonus, pay it into the profile and record it in run stats. */
 	void PayRoundClearBonus();

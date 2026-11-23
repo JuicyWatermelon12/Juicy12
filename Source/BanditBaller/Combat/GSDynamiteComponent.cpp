@@ -269,30 +269,34 @@ void UGSDynamiteComponent::ThrowAt(AGSEnemyCharacter* AtTarget, float Lateness)
 		return;
 	}
 
-	// It lands at the target's feet where it stands now; the blast is centered on its body (where Powder Keg measures).
-	const FVector Center = AtTarget->GetActorLocation();
-	const float HalfHeight = AtTarget->GetCapsuleComponent() ? AtTarget->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f;
+	// It lands where the target will be when it comes down (its flat velocity x the flight time left x LeadFactor, on the
+	// ground there), at its feet; the blast is centered on the body over that point (where Powder Keg measures).
+	const float AlreadyFlown = FMath::Clamp(Lateness, 0.f, Settings->FlightTime); // a late throw starts that far along its arc
+	const FGSLobAim Aim = AGSLobbedThrow::AimAt(AtTarget, Settings->FlightTime - AlreadyFlown, Settings->LeadFactor);
+	const FVector Center = Aim.BodyCenter;
 	const float Radius = GetBlastRadius();
 	const float Damage = GetBlastDamage(); // set at the throw, like the projectiles
 	LastTarget = AtTarget;
-	LastLanding = Center - FVector(0.f, 0.f, HalfHeight);
+	LastLanding = Aim.Landing;
+	bLastThrowLed = Aim.bLed;
 
 	FGSLobLaunch Lob;
 	Lob.Start = GetThrowOrigin();
 	Lob.Landing = LastLanding;
 	Lob.FlightTime = Settings->FlightTime;
 	Lob.ArcHeight = Settings->ArcHeight;
-	Lob.AlreadyFlown = FMath::Max(Lateness, 0.f); // a late throw starts that far along its arc
+	Lob.AlreadyFlown = AlreadyFlown;
 	Lob.Mesh = Settings->StickMesh;
 	Lob.Material = Settings->StickMaterial;
 	Lob.Scale = Settings->StickScale;
 	Lob.SpinRate = Settings->StickSpinRate;
 	TWeakObjectPtr<UGSDynamiteComponent> WeakThis(this);
-	Lob.OnLanded = [WeakThis, Center, Radius, Damage](const FVector&)
+	TWeakObjectPtr<AGSEnemyCharacter> WeakTarget(AtTarget);
+	Lob.OnLanded = [WeakThis, WeakTarget, Center, Radius, Damage](const FVector&)
 	{
 		if (UGSDynamiteComponent* Self = WeakThis.Get())
 		{
-			Self->Explode(Center, Radius, Damage);
+			Self->Explode(Center, Radius, Damage, WeakTarget.Get());
 		}
 	};
 	Stick->Launch(MoveTemp(Lob));
@@ -303,11 +307,12 @@ void UGSDynamiteComponent::ThrowAt(AGSEnemyCharacter* AtTarget, float Lateness)
 	{
 		UGameplayStatics::PlaySoundAtLocation(this, Settings->ThrowSound, GetThrowOrigin());
 	}
-	UE_LOG(LogBanditBaller, Verbose, TEXT("[dynamite] stick %d at %s (%d neighbour(s)), %.1f damage in %.0f cm, %.3f s late"),
-		Throws, *GetNameSafe(AtTarget), CountNeighbours(AtTarget), Damage, Radius, Lateness);
+	UE_LOG(LogBanditBaller, Log, TEXT("[dynamite] stick %d at %s (%d neighbour(s), moving %.0f cm/s), %.1f damage in %.0f cm, %.3f s late, %s"),
+		Throws, *GetNameSafe(AtTarget), CountNeighbours(AtTarget), AtTarget->GetVelocity().Size2D(), Damage, Radius, Lateness,
+		Aim.bLed ? *FString::Printf(TEXT("led %.0f cm ahead"), FVector::Dist2D(Aim.Landing, AtTarget->GetActorLocation())) : TEXT("not led"));
 }
 
-int32 UGSDynamiteComponent::Explode(const FVector& Center, float Radius, float Damage)
+int32 UGSDynamiteComponent::Explode(const FVector& Center, float Radius, float Damage, const AGSEnemyCharacter* Target)
 {
 	AGSCharacter* Character = GetCharacter();
 	UAbilitySystemComponent* SourceASC = Character ? Character->GetAbilitySystemComponent() : nullptr;
@@ -330,6 +335,8 @@ int32 UGSDynamiteComponent::Explode(const FVector& Center, float Radius, float D
 			Targets.Add(*It);
 		}
 	}
+	bLastBlastHitTarget = Target && Targets.ContainsByPredicate([Target](const AGSEnemyCharacter* Enemy) { return Enemy == Target; });
+	TargetHits += bLastBlastHitTarget ? 1 : 0;
 	LastBlastHits = 0;
 	if (Settings->DamageEffect && Damage > 0.f)
 	{
@@ -381,7 +388,8 @@ int32 UGSDynamiteComponent::Explode(const FVector& Center, float Radius, float D
 	{
 		DrawDebugSphere(GetWorld(), Center, Radius, 16, FColor::Red, false, GSWeaponDebug::DrawDuration);
 	}
-	UE_LOG(LogBanditBaller, Log, TEXT("[dynamite] blast %d at %s: radius %.0f, damage %.1f, %d enemies hit"),
-		Blasts, *Center.ToCompactString(), Radius, Damage, LastBlastHits);
+	UE_LOG(LogBanditBaller, Log, TEXT("[dynamite] blast %d at %s: radius %.0f, damage %.1f, %d enemies hit%s"),
+		Blasts, *Center.ToCompactString(), Radius, Damage, LastBlastHits,
+		Target ? (bLastBlastHitTarget ? TEXT(", target hit") : TEXT(", target missed")) : TEXT(""));
 	return LastBlastHits;
 }

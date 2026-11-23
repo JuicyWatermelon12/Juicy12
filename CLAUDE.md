@@ -185,6 +185,9 @@ docs/PROGRESS.md  progress log and reference
 - Tuning lives in a `UPrimaryDataAsset` subclass (`UGS…Settings`, `Const`), with an asset in `Data/` assigned on
   `BP_GSGameMode` or the owning Blueprint.
 - Native gameplay tags only, in `Abilities/GSGameplayTags.*`.
+- File-local constants and helper functions (anonymous namespace, `static`) get names unique to their file, e.g.
+  `MaxDynamiteThrowsPerFrame`, not `MaxThrowsPerFrame`. The unity build compiles several `.cpp` files as one, so two
+  files with the same local name break the build (it did in Prompt 52).
 - Debug commands: `gs.` prefix, cheat-only, implemented in `UGSDebugLibrary` and registered in
   `GSCheatCommands.cpp`. Clients forward them through `ServerExecDebugCommand`. Debug toggles are `gs.Debug.*`
   cvars.
@@ -223,7 +226,7 @@ docs/PROGRESS.md  progress log and reference
 - `CaptureViewport` shows the editor world, not PIE; use `CaptureEditorImage` (base64 PNG; decode with PowerShell).
 - Tests: stop PIE, then `AutomationTestToolset` → `DiscoverTests`. Area tests: `RunTests(["BanditBaller.Round.PhaseLoop",
   ...])` or `RunTestsByFilter("StartsWith:BanditBaller.Round")`. Full suite (once per prompt, before the commit):
-  `RunTestsByFilter("StartsWith:BanditBaller")`, about 3 minutes (182 s for 62 tests in Prompt 52). The editor console also works:
+  `RunTestsByFilter("StartsWith:BanditBaller")`, under 3 minutes (160 s for 62 tests in Prompt 52b). The editor console also works:
   `Automation RunTests BanditBaller`. Each result has a `duration` for speed checks.
 - Playing in PIE through MCP: a console command takes 1–3 s to arrive, too slow to fight. Read live round state with
   `ObjectTools.get_properties` on `...UEDPIE_0_L_Town_Graybox...:PersistentLevel.BP_GSGameState_C_0` (`RoundPhase`,

@@ -6,8 +6,20 @@
 #include "GSThrownActor.h"
 #include "GSLobbedThrow.generated.h"
 
+class ACharacter;
 class UMaterialInterface;
 class UStaticMesh;
+
+/** Where a lob thrown at a target comes down (AGSLobbedThrow::AimAt). */
+struct FGSLobAim
+{
+	/** The landing point: on the ground, under where the target will be. */
+	FVector Landing = FVector::ZeroVector;
+	/** The target's body center over the landing point (where Dynamite's blast is centered). */
+	FVector BodyCenter = FVector::ZeroVector;
+	/** True when the landing was moved ahead of the target (it moves, LeadFactor > 0 and there is ground there). */
+	bool bLed = false;
+};
 
 /** Everything one lob needs (AGSLobbedThrow::Launch). */
 struct FGSLobLaunch
@@ -44,6 +56,13 @@ public:
 	virtual void DeactivateThrown() override;
 
 	void Launch(FGSLobLaunch&& InLaunch);
+
+	/**
+	 * Aim a lob at Target that lands FlightTime from now: its position plus its flat velocity x FlightTime x LeadFactor,
+	 * on the ground under that point (a WorldStatic trace down). LeadFactor 0, a target standing still, or no ground there
+	 * (off the map): where it stands now, at its feet, exactly as before leading existed.
+	 */
+	static FGSLobAim AimAt(const ACharacter* Target, float FlightTime, float LeadFactor);
 
 	/** The point on the arc after Seconds of flight (0 = Start, FlightTime = Landing). */
 	FVector GetArcLocation(float Seconds) const;

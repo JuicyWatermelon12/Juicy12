@@ -71,7 +71,8 @@ public:
 
 	/** Light a patch at a floor point now, at the current power (what a landing does; also the debug command). */
 	AGSFirePatch* IgnitePatch(const FVector& FloorPoint);
-	AGSFirePatch* IgnitePatch(const FVector& FloorPoint, float Radius, float Damage);
+	/** Target: the enemy the bottle was thrown at (optional); whether it stood in the fire at the first burn is counted. */
+	AGSFirePatch* IgnitePatch(const FVector& FloorPoint, float Radius, float Damage, const AGSEnemyCharacter* Target = nullptr);
 
 	/** Debug (gs.Molotov.Patches): Count patches around the player, 4 m out, at the current power. Returns how many. */
 	int32 SpawnPatchesForDebug(int32 Count);
@@ -89,6 +90,11 @@ public:
 	int32 GetHitsDealt() const { return HitsDealt; }
 	FVector GetLastLanding() const { return LastLanding; }
 	AGSEnemyCharacter* GetLastTarget() const { return LastTarget.Get(); }
+	/** Whether the last bottle's landing was led ahead of its target (it was moving and LeadFactor > 0). */
+	bool WasLastThrowLed() const { return bLastThrowLed; }
+	/** Patches whose first burn caught the enemy their bottle was thrown at, and whether the last one did. */
+	int32 GetFirstBurnTargetHits() const { return FirstBurnTargetHits; }
+	bool DidLastPatchHitTarget() const { return bLastPatchHitTarget; }
 	double GetBurstStartTime() const { return BurstStartTime; }
 	int32 GetBurstShots() const { return BurstShots; }
 
@@ -111,6 +117,9 @@ private:
 	int32 HitsDealt = 0;
 	FVector LastLanding = FVector::ZeroVector;
 	TWeakObjectPtr<AGSEnemyCharacter> LastTarget;
+	bool bLastThrowLed = false;
+	int32 FirstBurnTargetHits = 0;
+	bool bLastPatchHitTarget = false;
 	int32 LoggedLevel = 0;
 	float LoggedPower = 0.f;
 };

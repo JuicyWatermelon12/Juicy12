@@ -74,6 +74,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stick", meta = (ClampMin = "0", Units = "cm"))
 	float ArcHeight = 300.f;
 
+	/**
+	 * How far ahead of a moving target the stick lands: its flat velocity x the flight time x this, on the ground under that
+	 * point (the blast is centered there). 1 = where it will be when the stick lands, 0 = where it stood at the throw.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stick", meta = (ClampMin = "0"))
+	float LeadFactor = 1.f;
+
 	// --- Look (placeholder) ---
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Look")

@@ -11120,7 +11120,40 @@ namespace GSTests
 		int32 KillsBefore = 0;
 		int32 XPOrbsBefore = 0;
 		int32 HealthOrbsBefore = 0;
+		/** The test's own copy of DA_DynamiteSettings (the GameMode override): a shorter interval, LeadFactor per step. */
+		TWeakObjectPtr<UGSDynamiteSettings> TestSettings;
 	};
+
+	/**
+	 * Speed (Prompt 52b): the weapon tests run on a copy of their settings asset with shorter intervals, set as the
+	 * GameMode's override. The asset's own values are still checked first; every fixed wait shrinks by the same factor,
+	 * so each wait still covers the same number of intervals.
+	 */
+	template <typename TSettings>
+	TSettings* MakeWeaponSettingsCopy(const TSettings* Asset)
+	{
+		return Asset ? DuplicateObject<TSettings>(Asset, GetTransientPackage()) : nullptr;
+	}
+
+	/** Dynamite throws every 1 s in the test instead of 4 s. */
+	constexpr float DynamiteTestInterval = 1.f;
+	constexpr double DynamiteTimeScale = DynamiteTestInterval / 4.0;
+
+	/** The lead runs: a bandit running straight down the lane at this steady speed (0.6 s of flight = 4.8 m). */
+	constexpr float LeadRunnerSpeed = 800.f;
+
+	/** A tough bandit with AI off and movement on, at Location, facing along the lane, with MaxWalkSpeed LeadRunnerSpeed. */
+	AGSEnemyCharacter* SpawnLeadRunner(const FVector& Location, const FVector& Dir)
+	{
+		AGSEnemyCharacter* Runner = SpawnFrozenBandit(Location, Location + Dir * 3000.f);
+		if (Runner)
+		{
+			Runner->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetMaxHealthAttribute(), 100000.f);
+			Runner->GetAbilitySystemComponent()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), 100000.f);
+			Runner->GetCharacterMovement()->MaxWalkSpeed = LeadRunnerSpeed;
+		}
+		return Runner;
+	}
 
 	UGSThrownSubsystem* GetThrown()
 	{
@@ -11199,6 +11232,81 @@ namespace GSTests
 			return GetDynamite()->GetBlasts() >= S->BlastsBefore + Count;
 		}, 30.0);
 	}
+
+	/**
+	 * Enqueue one lead run: the player in a safe zone (no throws) while a bandit 2 m ahead speeds up to a steady
+	 * LeadRunnerSpeed straight down the lane; then the safe zone goes, one stick is thrown at it with LeadFactor, and the
+	 * blast is checked against where the runner is when the stick lands.
+	 */
+	void EnqueueDynamiteLeadRun(FAutomationTestBase* Test, TSharedRef<FDynamiteState> S, float LeadFactor)
+	{
+		Step([S, LeadFactor]()
+		{
+			GetPlayerASC()->AddLooseGameplayTag(GSGameplayTags::State_SafeZone);
+			RemoveAllEnemies(GetPIEWorld());
+			S->Bandits.Reset();
+			if (S->TestSettings.IsValid())
+			{
+				S->TestSettings->LeadFactor = LeadFactor;
+			}
+		});
+		WaitNoStickInFlight(Test);
+		Step([S]() { S->Bandits.Add(SpawnLeadRunner(S->Ground + S->Dir * 200.f, S->Dir)); });
+		WaitUntil(Test, TEXT("the runner at a steady speed"), [S]()
+		{
+			AGSEnemyCharacter* Runner = S->Bandits.Num() > 0 ? S->Bandits[0].Get() : nullptr;
+			if (!Runner)
+			{
+				return true;
+			}
+			Runner->AddMovementInput(S->Dir, 1.f);
+			return Runner->GetVelocity().Size2D() >= LeadRunnerSpeed * 0.99f;
+		}, 10.0);
+		Step([S]()
+		{
+			RecordDynamite(*S);
+			GetPlayerASC()->RemoveLooseGameplayTag(GSGameplayTags::State_SafeZone);
+		});
+		WaitUntil(Test, TEXT("the blast at the runner"), [S]()
+		{
+			if (AGSEnemyCharacter* Runner = S->Bandits.Num() > 0 ? S->Bandits[0].Get() : nullptr)
+			{
+				Runner->AddMovementInput(S->Dir, 1.f);
+			}
+			return GetDynamite()->GetBlasts() > S->BlastsBefore;
+		}, 10.0);
+		Step([Test, S, LeadFactor]()
+		{
+			UGSDynamiteComponent* Dynamite = GetDynamite();
+			const AGSEnemyCharacter* Runner = S->Bandits.Num() > 0 ? S->Bandits[0].Get() : nullptr;
+			if (!Test->TestNotNull(TEXT("Lead: the runner"), Runner))
+			{
+				return;
+			}
+			const FString Tag = FString::Printf(TEXT("LeadFactor %.0f"), LeadFactor);
+			const float Away = FVector::Dist(Runner->GetActorLocation(), Dynamite->GetLastBlastCenter());
+			Test->AddInfo(FString::Printf(TEXT("%s: runner at %.0f cm/s, %.0f cm from the blast center when it went off (radius %.0f); the landing %.0f cm %s the runner"),
+				*Tag, Runner->GetVelocity().Size2D(), Away, Dynamite->GetLastBlastRadius(), FVector::Dist2D(Dynamite->GetLastLanding(), Runner->GetActorLocation()),
+				FVector::DotProduct(Dynamite->GetLastLanding() - Runner->GetActorLocation(), S->Dir) < 0.f ? TEXT("behind") : TEXT("in front of")));
+			Test->TestEqual(Tag + TEXT(": one throw"), Dynamite->GetThrows(), S->ThrowsBefore + 1);
+			Test->TestEqual(Tag + TEXT(": thrown at the runner"), Dynamite->GetLastTarget(), S->Bandits[0].Get());
+			Test->TestTrue(Tag + (LeadFactor > 0.f ? TEXT(": the landing was led") : TEXT(": the landing was not led")), Dynamite->WasLastThrowLed() == (LeadFactor > 0.f));
+			const float Feet = Runner->GetActorLocation().Z - Runner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+			Test->TestTrue(Tag + TEXT(": the stick landed on the ground"), FMath::Abs(Dynamite->GetLastLanding().Z - Feet) < 5.f);
+			if (LeadFactor > 0.f)
+			{
+				Test->TestTrue(Tag + TEXT(": the moving runner is inside the blast"), Away <= Dynamite->GetLastBlastRadius());
+				Test->TestTrue(Tag + TEXT(": counted as a target hit"), Dynamite->DidLastBlastHitTarget());
+				Test->TestEqual(Tag + TEXT(": the runner takes the blast"), DynamiteLost(*S, 0), 40.f, 0.01f);
+			}
+			else
+			{
+				Test->TestTrue(Tag + TEXT(": the moving runner is outside the blast"), Away > Dynamite->GetLastBlastRadius());
+				Test->TestFalse(Tag + TEXT(": counted as a miss"), Dynamite->DidLastBlastHitTarget());
+				Test->TestEqual(Tag + TEXT(": the runner takes nothing"), DynamiteLost(*S, 0), 0.f, 0.01f);
+			}
+		});
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSDynamiteTest, "BanditBaller.Upgrades.Dynamite", GSTests::TestFlags)
@@ -11244,6 +11352,18 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Card line of a Rare later pick (halves)"), Upgrade->FormatValueText(1.5f).ToString(), FString(TEXT("+15% Dynamite damage, +7.5% blast size")));
 		TestEqual(TEXT("The card's +10% damage matches the settings"), Upgrade->GetDisplayScale() / 100.f, Settings->DamageBonusPerPower, 0.0001f);
 		TestEqual(TEXT("The card's +5% blast size matches the settings"), Upgrade->SecondaryDisplayScale / 100.f, Settings->RadiusBonusPerPower, 0.0001f);
+		TestEqual(TEXT("LeadFactor 1: it aims where the target will be"), Settings->LeadFactor, 1.f);
+
+		// From here on the test runs on a copy with a 1 s interval (the asset's 4 s is checked above).
+		UGSDynamiteSettings* Copy = MakeWeaponSettingsCopy(Settings);
+		if (!TestNotNull(TEXT("A test copy of DA_DynamiteSettings"), Copy))
+		{
+			return;
+		}
+		Copy->ThrowInterval = DynamiteTestInterval;
+		GameMode->SetDynamiteSettingsOverride(Copy);
+		S->TestSettings = Copy;
+		TestEqual(TEXT("The test copy is in use"), GetDynamite()->GetThrowInterval(), static_cast<double>(DynamiteTestInterval), 1e-6);
 
 		FVector Lane;
 		if (!TestTrue(TEXT("A clear lane in the town"), FindClearLane(2600.f, Lane, S->Dir)))
@@ -11271,13 +11391,13 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 2150.f));
 		RecordDynamite(*S);
 	});
-	WaitWorldSeconds(this, 9.0);
+	WaitWorldSeconds(this, 9.0 * DynamiteTimeScale); // 2.25 throw intervals
 	Step([this, S]()
 	{
 		UGSDynamiteComponent* Dynamite = GetDynamite();
 		TestTrue(TEXT("It could throw (owned, alive, no safe zone)"), Dynamite->CanThrow());
 		TestNull(TEXT("No target out of range"), Dynamite->FindTarget());
-		TestEqual(TEXT("Out of range: no throws in 9 s"), Dynamite->GetThrows(), S->ThrowsBefore);
+		TestEqual(TEXT("Out of range: no throws in 2.25 intervals"), Dynamite->GetThrows(), S->ThrowsBefore);
 		// The bandit walks into range: the first throw comes at once (nothing banked, nothing owed).
 		AGSEnemyCharacter* Bandit = S->Bandits[0].Get();
 		if (TestNotNull(TEXT("Bandit"), Bandit))
@@ -11338,8 +11458,9 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		const int32 Blasts = GetDynamite()->GetBlasts() - S->BlastsBefore;
 		const float Lost = DynamiteLost(*S, 0);
 		TestEqual(TEXT("One bandit: 40 per blast"), Lost, 40.f * Blasts, 0.01f);
-		AddInfo(FString::Printf(TEXT("DPS vs one enemy: %.1f (%.0f in %d blasts, one every %.1f s)"), Lost / (Blasts * GetDynamite()->GetThrowInterval()), Lost, Blasts,
-			GetDynamite()->GetThrowInterval()));
+		// DPS at the asset's interval (4 s); the damage per blast is the same in the test copy.
+		const double AssetInterval = DynamiteTestInterval / DynamiteTimeScale;
+		AddInfo(FString::Printf(TEXT("DPS vs one enemy: %.1f (%.0f in %d blasts, one every %.1f s)"), Lost / (Blasts * AssetInterval), Lost, Blasts, AssetInterval));
 		RemoveAllEnemies(GetPIEWorld());
 		S->Bandits.Reset();
 		const FVector Center = S->Ground + S->Dir * 700.f;
@@ -11361,7 +11482,7 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 			Lost += DynamiteLost(*S, Index);
 		}
 		TestEqual(TEXT("Group of five: every blast hits all five"), GetDynamite()->GetLastBlastHits(), 5);
-		AddInfo(FString::Printf(TEXT("DPS vs a group of five: %.1f (%.0f in %d blasts)"), Lost / (Blasts * GetDynamite()->GetThrowInterval()), Lost, Blasts));
+		AddInfo(FString::Printf(TEXT("DPS vs a group of five: %.1f (%.0f in %d blasts)"), Lost / (Blasts * (DynamiteTestInterval / DynamiteTimeScale)), Lost, Blasts));
 
 		// The blast: T 2 m in front of the player, A 2.5 m beside it (inside), B 3.4 m further on (outside at 3 m).
 		// The player (god mode off) is 2 m from the blast center.
@@ -11385,15 +11506,21 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 	{
 		UGSDynamiteComponent* Dynamite = GetDynamite();
 		const int32 Blasts = Dynamite->GetBlasts() - S->BlastsBefore;
-		TestTrue(FString::Printf(TEXT("Every frame on the exact 4 s schedule (%d frames)"), S->Frames), S->bScheduleOk);
+		TestTrue(FString::Printf(TEXT("Every frame on the exact schedule (the test's %.0f s interval; %d frames)"), Dynamite->GetThrowInterval(), S->Frames), S->bScheduleOk);
 		TestEqual(TEXT("Target T"), Dynamite->GetLastTarget(), S->Bandits[0].Get());
 		const AGSEnemyCharacter* T = S->Bandits[0].Get();
 		if (T)
 		{
+			// LeadFactor 1 (the default) with a standing target: exactly the old landing point.
+			TestEqual(TEXT("LeadFactor 1 in this part"), Dynamite->GetSettings()->LeadFactor, 1.f);
+			TestFalse(TEXT("A standing target: the landing isn't led"), Dynamite->WasLastThrowLed());
 			TestTrue(TEXT("The blast is centered on where T stood"), Dynamite->GetLastBlastCenter().Equals(T->GetActorLocation(), 1.f));
 			const float Feet = T->GetActorLocation().Z - T->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
 			TestTrue(TEXT("The stick landed at T's feet"), FVector::Dist2D(Dynamite->GetLastLanding(), T->GetActorLocation()) < 1.f
 				&& FMath::IsNearlyEqual(Dynamite->GetLastLanding().Z, Feet, 1.f));
+			const FGSLobAim Led = AGSLobbedThrow::AimAt(T, 0.6f, 1.f);
+			const FGSLobAim Old = AGSLobbedThrow::AimAt(T, 0.6f, 0.f);
+			TestTrue(TEXT("A standing target: LeadFactor 1 aims exactly where LeadFactor 0 does"), Led.Landing == Old.Landing && Led.BodyCenter == Old.BodyCenter && !Led.bLed);
 		}
 		TestEqual(TEXT("Two hit per blast"), Dynamite->GetLastBlastHits(), 2);
 		TestEqual(TEXT("T: 40 per blast"), DynamiteLost(*S, 0), 40.f * Blasts, 0.01f);
@@ -11404,6 +11531,57 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Run stats count it as Dynamite damage"), GetGameState()->GetRunStats()->GetDamageDealtBy(EGSDamageSource::Dynamite) - S->SourceDamageBefore,
 			80.f * Blasts, 0.01f);
 		UGSDebugLibrary::SetGodMode(GetPC(), true);
+
+		// The aim on its own (Prompt 52b): a frozen bandit given a velocity by hand.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		AGSEnemyCharacter* Moving = SpawnFrozenBandit(S->Ground + S->Dir * 600.f);
+		if (!TestNotNull(TEXT("Aim: a bandit"), Moving))
+		{
+			return;
+		}
+		UCharacterMovementComponent* CMC = Moving->GetCharacterMovement();
+		const float HalfHeight = Moving->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		const FVector Feet = Moving->GetActorLocation() - FVector(0.f, 0.f, HalfHeight);
+		CMC->Velocity = S->Dir * 800.f + FVector(0.f, 0.f, 300.f);
+		const FGSLobAim Full = AGSLobbedThrow::AimAt(Moving, 0.6f, 1.f);
+		TestTrue(TEXT("Aim: led"), Full.bLed);
+		TestTrue(FString::Printf(TEXT("Aim: 800 cm/s x 0.6 s = 480 cm ahead, flat (%.1f cm)"), FVector::Dist2D(Full.Landing, Feet + S->Dir * 480.f)),
+			FVector::Dist2D(Full.Landing, Feet + S->Dir * 480.f) < 1.f);
+		TestTrue(TEXT("Aim: on the ground there"), FMath::Abs(Full.Landing.Z - Feet.Z) < 5.f);
+		TestTrue(TEXT("Aim: the blast center is the body over the landing"), Full.BodyCenter.Equals(Full.Landing + FVector(0.f, 0.f, HalfHeight), 0.01f));
+		const FGSLobAim Half = AGSLobbedThrow::AimAt(Moving, 0.6f, 0.5f);
+		TestTrue(TEXT("Aim: LeadFactor 0.5 = 240 cm ahead"), FVector::Dist2D(Half.Landing, Feet + S->Dir * 240.f) < 1.f);
+		const FGSLobAim None = AGSLobbedThrow::AimAt(Moving, 0.6f, 0.f);
+		TestTrue(TEXT("Aim: LeadFactor 0 = the old landing point"), !None.bLed && None.Landing == Feet && None.BodyCenter == Moving->GetActorLocation());
+		CMC->Velocity = FVector(0.f, 0.f, -900.f);
+		TestTrue(TEXT("Aim: only vertical speed = no lead"), !AGSLobbedThrow::AimAt(Moving, 0.6f, 1.f).bLed);
+		// Off the map: running out over the edge of the town's ground (300 x 300 m, so the edge is at 150 m).
+		const FVector EdgeSpot(14900.f, Moving->GetActorLocation().Y, Moving->GetActorLocation().Z);
+		Moving->SetActorLocation(EdgeSpot, false, nullptr, ETeleportType::TeleportPhysics);
+		CMC->Velocity = FVector(2000.f, 0.f, 0.f); // 12 m out past the edge
+		const FGSLobAim Off = AGSLobbedThrow::AimAt(Moving, 0.6f, 1.f);
+		TestTrue(TEXT("Aim: no ground ahead (off the map) = where it stands now"), !Off.bLed && Off.BodyCenter == Moving->GetActorLocation()
+			&& Off.Landing == Moving->GetActorLocation() - FVector(0.f, 0.f, HalfHeight));
+		RemoveAllEnemies(GetPIEWorld());
+	});
+	// A bandit running straight down the lane: inside the blast with LeadFactor 1, outside with 0.
+	EnqueueDynamiteLeadRun(this, S, 1.f);
+	EnqueueDynamiteLeadRun(this, S, 0.f);
+	Step([this, S]()
+	{
+		if (S->TestSettings.IsValid())
+		{
+			S->TestSettings->LeadFactor = 1.f;
+		}
+		// T, A and B again for the power checks.
+		RemoveAllEnemies(GetPIEWorld());
+		S->Bandits.Reset();
+		const FVector T = S->Ground + S->Dir * 200.f;
+		S->Bandits.Add(SpawnToughBandit(T));                       // [0] T, the target
+		S->Bandits.Add(SpawnToughBandit(T + S->Side * 250.f));     // [1] A
+		S->Bandits.Add(SpawnToughBandit(T + S->Dir * 340.f));      // [2] B
+		UGSDynamiteComponent* Dynamite = GetDynamite();
 
 		// Power 1: +10% damage, +5% radius (315 cm: B is still outside).
 		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("Dynamite"), 1);
@@ -11506,11 +11684,11 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 	});
 	WaitNoStickInFlight(this);
 	Step([S]() { RecordDynamite(*S); });
-	WaitWorldSeconds(this, 9.0);
+	WaitWorldSeconds(this, 9.0 * DynamiteTimeScale);
 	Step([this, S]()
 	{
 		TestFalse(TEXT("Safe zone: it can't throw"), GetDynamite()->CanThrow());
-		TestEqual(TEXT("Safe zone: no throws in 9 s"), GetDynamite()->GetThrows(), S->ThrowsBefore);
+		TestEqual(TEXT("Safe zone: no throws in 2.25 intervals"), GetDynamite()->GetThrows(), S->ThrowsBefore);
 		GetPlayerASC()->RemoveLooseGameplayTag(GSGameplayTags::State_SafeZone);
 		S->InRangeAt = GetPIEWorld()->GetTimeSeconds();
 	});
@@ -11531,7 +11709,7 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
 		RecordDynamite(*S);
 	});
-	WaitWorldSeconds(this, 6.0);
+	WaitWorldSeconds(this, 6.0 * DynamiteTimeScale);
 	Step([this, S]()
 	{
 		UGSDynamiteComponent* Dynamite = GetDynamite();
@@ -11552,12 +11730,13 @@ bool FGSDynamiteTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("The player is dead"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
 		S->ThrowsBefore = GetDynamite()->GetThrows();
 	});
-	WaitWorldSeconds(this, 9.0);
+	WaitWorldSeconds(this, 9.0 * DynamiteTimeScale);
 	Step([this, S]()
 	{
 		TestFalse(TEXT("Dead: it can't throw"), GetDynamite()->CanThrow());
-		TestEqual(TEXT("Dead: no throws in 9 s"), GetDynamite()->GetThrows(), S->ThrowsBefore);
+		TestEqual(TEXT("Dead: no throws in 2.25 intervals"), GetDynamite()->GetThrows(), S->ThrowsBefore);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		GetGameMode()->SetDynamiteSettingsOverride(nullptr);
 		RestoreWorldSpeed();
 	});
 	EndPIE();
@@ -11590,6 +11769,13 @@ namespace GSTests
 		int32 XPOrbsBefore = 0;
 		int32 HealthOrbsBefore = 0;
 	};
+
+	/**
+	 * The Lucky Coin test's copy flips every 1.25 s instead of 1.5 s: a five-enemy flip (6 m, then four 4 m bounces) takes
+	 * about 0.9-1.1 s, so this still leaves a moment with no coin in the air between flips. Fixed waits scale with it.
+	 */
+	constexpr float LuckyCoinTestInterval = 1.25f;
+	constexpr double LuckyCoinTimeScale = LuckyCoinTestInterval / 1.5;
 
 	bool LuckyCoinOnSchedule()
 	{
@@ -11704,6 +11890,16 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 			FString(TEXT("+10% Lucky Coin damage")));
 		TestEqual(TEXT("The card's +10% matches the settings"), Upgrade->GetDisplayScale() / 100.f, Settings->DamageBonusPerPower, 0.0001f);
 
+		// From here on the test runs on a copy that flips every 1.25 s (the asset's 1.5 s is checked above).
+		UGSLuckyCoinSettings* Copy = MakeWeaponSettingsCopy(Settings);
+		if (!TestNotNull(TEXT("A test copy of DA_LuckyCoinSettings"), Copy))
+		{
+			return;
+		}
+		Copy->FlipInterval = LuckyCoinTestInterval;
+		GameMode->SetLuckyCoinSettingsOverride(Copy);
+		TestEqual(TEXT("The test copy is in use"), GetLuckyCoin()->GetFlipInterval(), static_cast<double>(LuckyCoinTestInterval), 1e-6);
+
 		FVector Lane;
 		if (!TestTrue(TEXT("A clear lane in the town"), FindClearLane(2600.f, Lane, S->Dir)))
 		{
@@ -11722,10 +11918,10 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 		RecordCoin(*S);
 	});
 	// No enemy: nothing is flipped and nothing banked.
-	WaitWorldSeconds(this, 2.0);
+	WaitWorldSeconds(this, 2.0 * LuckyCoinTimeScale); // 1.33 flip intervals
 	Step([this, S]()
 	{
-		TestEqual(TEXT("No target: no flips in 2 s"), GetLuckyCoin()->GetFlips(), S->FlipsBefore);
+		TestEqual(TEXT("No target: no flips in 1.33 intervals"), GetLuckyCoin()->GetFlips(), S->FlipsBefore);
 		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
 		S->SpawnedAt = GetPIEWorld()->GetTimeSeconds();
 		RecordCoin(*S);
@@ -11746,8 +11942,10 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 		const int32 Done = GetLuckyCoin()->GetFlipsDone() - S->DoneBefore;
 		TestTrue(TEXT("One bandit: the flip hit it once"), LastFlipHitExactly(*S, { 0 }));
 		TestEqual(TEXT("One bandit: 10 per flip"), CoinLost(*S, 0), 10.f * Done, 0.01f);
-		AddInfo(FString::Printf(TEXT("DPS vs one enemy: %.1f (%.0f in %d flips, one every %.1f s)"), CoinLost(*S, 0) / (Done * GetLuckyCoin()->GetFlipInterval()),
-			CoinLost(*S, 0), Done, GetLuckyCoin()->GetFlipInterval()));
+		// DPS at the asset's interval (1.5 s); the damage per flip is the same in the test copy.
+		const double AssetInterval = LuckyCoinTestInterval / LuckyCoinTimeScale;
+		AddInfo(FString::Printf(TEXT("DPS vs one enemy: %.1f (%.0f in %d flips, one every %.1f s)"), CoinLost(*S, 0) / (Done * AssetInterval),
+			CoinLost(*S, 0), Done, AssetInterval));
 
 		// Five in a row, 4 m apart: a flip hits the first four in order, each once; the fifth is left (3 bounces).
 		RemoveAllEnemies(GetPIEWorld());
@@ -11764,7 +11962,7 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 	{
 		UGSLuckyCoinComponent* Coin = GetLuckyCoin();
 		const int32 Done = Coin->GetFlipsDone() - S->DoneBefore;
-		TestTrue(FString::Printf(TEXT("Every frame on the exact 1.5 s schedule (%d frames)"), S->Frames), S->bScheduleOk);
+		TestTrue(FString::Printf(TEXT("Every frame on the exact schedule (the test's %.2f s interval; %d frames)"), Coin->GetFlipInterval(), S->Frames), S->bScheduleOk);
 		TestTrue(TEXT("Five in a row: the flip hit the first four, in order, each once"), LastFlipHitExactly(*S, { 0, 1, 2, 3 }));
 		float Lost = 0.f;
 		for (int32 Index = 0; Index < 4; ++Index)
@@ -11774,7 +11972,7 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 		}
 		TestEqual(TEXT("Five in a row: the fifth is out of bounces"), CoinLost(*S, 4), 0.f, 0.01f);
 		TestEqual(TEXT("Run stats count it as Lucky Coin damage"), GetGameState()->GetRunStats()->GetDamageDealtBy(EGSDamageSource::LuckyCoin) - S->SourceDamageBefore, Lost, 0.01f);
-		AddInfo(FString::Printf(TEXT("DPS vs a group of five (4 m apart): %.1f (%.0f in %d flips)"), Lost / (Done * Coin->GetFlipInterval()), Lost, Done));
+		AddInfo(FString::Printf(TEXT("DPS vs a group of five (4 m apart): %.1f (%.0f in %d flips)"), Lost / (Done * (LuckyCoinTestInterval / LuckyCoinTimeScale)), Lost, Done));
 
 		// Power 1: x1.1, still 3 bounces.
 		UGSDebugLibrary::GrantUpgradeTo(GetPC(), TEXT("LuckyCoin"), 1);
@@ -11885,7 +12083,7 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 600.f));
 		RecordCoin(*S);
 	});
-	WaitWorldSeconds(this, 2.0);
+	WaitWorldSeconds(this, 2.0 * LuckyCoinTimeScale);
 	Step([this, S]()
 	{
 		UGSLuckyCoinComponent* Coin = GetLuckyCoin();
@@ -11895,6 +12093,7 @@ bool FGSLuckyCoinTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: nothing in the air"), Coin->GetFlipsInAir(), 0);
 		TestEqual(TEXT("New run: a bandit in range takes nothing"), CoinLost(*S, 0), 0.f, 0.01f);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		GetGameMode()->SetLuckyCoinSettingsOverride(nullptr);
 		RestoreWorldSpeed();
 	});
 	EndPIE();
@@ -11929,7 +12128,20 @@ namespace GSTests
 		int32 KillsBefore = 0;
 		int32 XPOrbsBefore = 0;
 		int32 HealthOrbsBefore = 0;
+		int32 TargetHitsBefore = 0;
+		/** The test's own copy of DA_MolotovSettings (the GameMode override): shorter times, LeadFactor per step. */
+		TWeakObjectPtr<UGSMolotovSettings> TestSettings;
 	};
+
+	/**
+	 * The Molotov test's copy: a throw every 2.75 s (5 s), a burn every 0.25 s (0.5 s) for 2 s (4 s), so still 8 burns a
+	 * patch and still a gap between patches (0.6 s flight + 2 s of fire < 2.75 s). Fixed waits scale with them.
+	 */
+	constexpr float MolotovTestThrowInterval = 2.75f;
+	constexpr float MolotovTestBurnInterval = 0.25f;
+	constexpr float MolotovTestPatchDuration = 2.f;
+	constexpr double MolotovThrowTimeScale = MolotovTestThrowInterval / 5.0;
+	constexpr double MolotovBurnTimeScale = MolotovTestBurnInterval / 0.5;
 
 	int32 NumThrownActive()
 	{
@@ -11994,6 +12206,84 @@ namespace GSTests
 			return GetMolotov()->GetPatchesLit() >= S->PatchesBefore + Count && GetMolotov()->GetActivePatches().Num() == 0;
 		}, 40.0);
 	}
+
+	/**
+	 * Enqueue one lead run: the player in a safe zone (no throws) while a bandit 2 m ahead speeds up to a steady
+	 * LeadRunnerSpeed straight down the lane; then the safe zone goes, one bottle is thrown at it with LeadFactor, and the
+	 * patch's first burn is checked against where the runner is when the bottle lands.
+	 */
+	void EnqueueMolotovLeadRun(FAutomationTestBase* Test, TSharedRef<FMolotovState> S, float LeadFactor)
+	{
+		Step([S, LeadFactor]()
+		{
+			GetPlayerASC()->AddLooseGameplayTag(GSGameplayTags::State_SafeZone);
+			RemoveAllEnemies(GetPIEWorld());
+			S->Bandits.Reset();
+			if (S->TestSettings.IsValid())
+			{
+				S->TestSettings->LeadFactor = LeadFactor;
+			}
+		});
+		WaitUntil(Test, TEXT("no bottle or patch"), []() { return NumThrownActive() == 0; }, 20.0);
+		Step([S]() { S->Bandits.Add(SpawnLeadRunner(S->Ground + S->Dir * 200.f, S->Dir)); });
+		WaitUntil(Test, TEXT("the runner at a steady speed"), [S]()
+		{
+			AGSEnemyCharacter* Runner = S->Bandits.Num() > 0 ? S->Bandits[0].Get() : nullptr;
+			if (!Runner)
+			{
+				return true;
+			}
+			Runner->AddMovementInput(S->Dir, 1.f);
+			return Runner->GetVelocity().Size2D() >= LeadRunnerSpeed * 0.99f;
+		}, 10.0);
+		Step([S]()
+		{
+			RecordMolotov(*S);
+			S->TargetHitsBefore = GetMolotov()->GetFirstBurnTargetHits();
+			GetPlayerASC()->RemoveLooseGameplayTag(GSGameplayTags::State_SafeZone);
+		});
+		WaitUntil(Test, TEXT("the patch under the runner"), [S]()
+		{
+			if (AGSEnemyCharacter* Runner = S->Bandits.Num() > 0 ? S->Bandits[0].Get() : nullptr)
+			{
+				Runner->AddMovementInput(S->Dir, 1.f);
+			}
+			return GetMolotov()->GetPatchesLit() > S->PatchesBefore;
+		}, 10.0);
+		Step([Test, S, LeadFactor]()
+		{
+			UGSMolotovComponent* Molotov = GetMolotov();
+			const AGSEnemyCharacter* Runner = S->Bandits.Num() > 0 ? S->Bandits[0].Get() : nullptr;
+			const AGSFirePatch* Patch = FindActivePatch();
+			if (!Test->TestNotNull(TEXT("Lead: the runner"), Runner) || !Test->TestNotNull(TEXT("Lead: the patch"), Patch))
+			{
+				return;
+			}
+			const FString Tag = FString::Printf(TEXT("LeadFactor %.0f"), LeadFactor);
+			// The first burn came when the bottle landed, in the frame the patch was lit (this one); later burns may have
+			// followed in a long frame, so the first burn is read from the hit flag and the runner's damage.
+			const float Away = FVector::Dist2D(Runner->GetActorLocation(), Patch->GetParams().Center);
+			Test->AddInfo(FString::Printf(TEXT("%s: runner at %.0f cm/s, %.0f cm from the patch center at the first burn (radius %.0f); %d burn(s) so far"),
+				*Tag, Runner->GetVelocity().Size2D(), Away, Patch->GetParams().Radius, Patch->GetBurns()));
+			Test->TestEqual(Tag + TEXT(": one throw"), Molotov->GetThrows(), S->ThrowsBefore + 1);
+			Test->TestEqual(Tag + TEXT(": thrown at the runner"), Molotov->GetLastTarget(), S->Bandits[0].Get());
+			Test->TestTrue(Tag + (LeadFactor > 0.f ? TEXT(": the landing was led") : TEXT(": the landing was not led")), Molotov->WasLastThrowLed() == (LeadFactor > 0.f));
+			const float Feet = Runner->GetActorLocation().Z - Runner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+			Test->TestTrue(Tag + TEXT(": the patch is on the ground"), FMath::Abs(Patch->GetParams().Center.Z - Feet) < 5.f);
+			if (LeadFactor > 0.f)
+			{
+				Test->TestTrue(Tag + TEXT(": the moving runner is in the patch at its first burn"), Molotov->DidLastPatchHitTarget() && Away <= Patch->GetParams().Radius);
+				Test->TestEqual(Tag + TEXT(": counted as a target hit"), Molotov->GetFirstBurnTargetHits(), S->TargetHitsBefore + 1);
+				Test->TestTrue(Tag + TEXT(": the runner burns"), MolotovLost(*S, 0) >= 4.f - 0.01f);
+			}
+			else
+			{
+				Test->TestTrue(Tag + TEXT(": the moving runner is outside the patch at its first burn"), !Molotov->DidLastPatchHitTarget() && Away > Patch->GetParams().Radius);
+				Test->TestEqual(Tag + TEXT(": counted as a miss"), Molotov->GetFirstBurnTargetHits(), S->TargetHitsBefore);
+				Test->TestEqual(Tag + TEXT(": the runner takes nothing"), MolotovLost(*S, 0), 0.f, 0.01f);
+			}
+		});
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSMolotovTest, "BanditBaller.Upgrades.Molotov", GSTests::TestFlags)
@@ -12040,6 +12330,20 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Card line of a Rare later pick (halves)"), Upgrade->FormatValueText(1.5f).ToString(), FString(TEXT("+15% Molotov burn damage, +7.5% patch size")));
 		TestEqual(TEXT("The card's +10% matches the settings"), Upgrade->GetDisplayScale() / 100.f, Settings->DamageBonusPerPower, 0.0001f);
 		TestEqual(TEXT("The card's +5% matches the settings"), Upgrade->SecondaryDisplayScale / 100.f, Settings->RadiusBonusPerPower, 0.0001f);
+		TestEqual(TEXT("LeadFactor 1: it aims where the target will be"), Settings->LeadFactor, 1.f);
+
+		// From here on the test runs on a copy with shorter times (the asset's are checked above).
+		UGSMolotovSettings* Copy = MakeWeaponSettingsCopy(Settings);
+		if (!TestNotNull(TEXT("A test copy of DA_MolotovSettings"), Copy))
+		{
+			return;
+		}
+		Copy->ThrowInterval = MolotovTestThrowInterval;
+		Copy->BurnInterval = MolotovTestBurnInterval;
+		Copy->PatchDuration = MolotovTestPatchDuration;
+		GameMode->SetMolotovSettingsOverride(Copy);
+		S->TestSettings = Copy;
+		TestEqual(TEXT("The test copy is in use"), GetMolotov()->GetThrowInterval(), static_cast<double>(MolotovTestThrowInterval), 1e-6);
 
 		FVector Lane;
 		if (!TestTrue(TEXT("A clear lane in the town"), FindClearLane(2600.f, Lane, S->Dir)))
@@ -12061,7 +12365,7 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 1600.f));
 		RecordMolotov(*S);
 	});
-	WaitWorldSeconds(this, 1.5);
+	WaitWorldSeconds(this, 1.5 * MolotovThrowTimeScale);
 	Step([this, S]()
 	{
 		TestNull(TEXT("16 m: no target"), GetMolotov()->FindTarget());
@@ -12091,8 +12395,21 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 				&& FMath::IsNearlyEqual(Patch->GetParams().Center.Z, Feet, 1.f));
 			TestTrue(TEXT("The patch has no collision"), Patch->GetMesh()->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
 			TestEqual(TEXT("The patch is drawn at its radius"), static_cast<float>(Patch->GetActorScale3D().X * 50.0), 250.f, 0.1f);
+			// LeadFactor 1 (the default) with a standing target: exactly the old landing point.
+			TestFalse(TEXT("A standing target: the landing isn't led"), Molotov->WasLastThrowLed());
+			TestTrue(TEXT("A standing target: its first burn caught it"), Molotov->DidLastPatchHitTarget());
 		}
+	});
 
+	// A bandit running straight down the lane: in the patch at its first burn with LeadFactor 1, outside it with 0.
+	EnqueueMolotovLeadRun(this, S, 1.f);
+	EnqueueMolotovLeadRun(this, S, 0.f);
+	Step([this, S]()
+	{
+		if (S->TestSettings.IsValid())
+		{
+			S->TestSettings->LeadFactor = 1.f;
+		}
 		// The burn test: T 1.2 m in front of the player (who stands in the fire, god mode off); A 1.5 m and B 2.4 m from T
 		// (inside), C 2.7 m (outside at 2.5 m), D floating 3 m above the patch.
 		RemoveAllEnemies(GetPIEWorld());
@@ -12117,9 +12434,10 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 	{
 		UGSMolotovComponent* Molotov = GetMolotov();
 		const int32 Patches = Molotov->GetPatchesLit() - S->PatchesBefore;
-		TestTrue(FString::Printf(TEXT("Every frame on the exact 5 s schedule (%d frames)"), S->Frames), S->bScheduleOk);
+		TestTrue(FString::Printf(TEXT("Every frame on the exact schedule (the test's %.2f s interval; %d frames)"), Molotov->GetThrowInterval(), S->Frames), S->bScheduleOk);
 		TestEqual(TEXT("Target T"), Molotov->GetLastTarget(), S->Bandits[0].Get());
-		TestEqual(TEXT("8 burns per patch (4 s at 0.5 s, the first on landing)"), Molotov->GetBurns() - S->BurnsBefore, 8 * Patches);
+		TestEqual(TEXT("8 burns per patch (the first on landing, then one every burn interval for the duration: 4 s at 0.5 s, here 2 s at 0.25 s)"),
+			Molotov->GetBurns() - S->BurnsBefore, 8 * Patches);
 		const FString Names[] = { TEXT("T"), TEXT("A (1.5 m)"), TEXT("B (2.4 m)"), TEXT("C (2.7 m, outside)"), TEXT("D (3 m up, outside)") };
 		const float Expect[] = { 32.f, 32.f, 32.f, 0.f, 0.f };
 		for (int32 Index = 0; Index < 5; ++Index)
@@ -12183,7 +12501,7 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		GetPlayerASC()->AddLooseGameplayTag(GSGameplayTags::State_SafeZone);
 		RecordMolotov(*S);
 	});
-	WaitWorldSeconds(this, 1.2);
+	WaitWorldSeconds(this, 1.2 * MolotovBurnTimeScale); // 2.4 burn intervals
 	Step([this, S]()
 	{
 		TestFalse(TEXT("Safe zone: it can't throw"), GetMolotov()->CanThrow());
@@ -12200,9 +12518,12 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 	WaitPatchesDone(this, S, 1);
 	Step([this, S]()
 	{
+		// DPS at the asset's times (a throw every 5 s, a patch burns 4 s); the damage per patch is the same in the copy.
 		const float Lost = MolotovLost(*S, 0);
+		const double AssetThrowInterval = MolotovTestThrowInterval / MolotovThrowTimeScale;
+		const double AssetPatchDuration = MolotovTestPatchDuration / MolotovBurnTimeScale;
 		AddInfo(FString::Printf(TEXT("DPS vs one enemy (power 3): %.1f (%.1f per patch, a throw every %.0f s; %.1f DPS while it burns)"),
-			Lost / GetMolotov()->GetThrowInterval(), Lost, GetMolotov()->GetThrowInterval(), Lost / 4.f));
+			Lost / AssetThrowInterval, Lost, AssetThrowInterval, Lost / AssetPatchDuration));
 		RemoveAllEnemies(GetPIEWorld());
 		S->Bandits.Reset();
 		const FVector Center = S->Ground + S->Dir * 600.f;
@@ -12221,7 +12542,7 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 			Lost += MolotovLost(*S, Index);
 		}
 		TestEqual(TEXT("Five in the fire: all burn every tick"), Lost, 5.f * 8.f * GetMolotov()->GetBurnDamage(), 0.5f);
-		AddInfo(FString::Printf(TEXT("DPS vs five enemies (power 3): %.1f (%.1f per patch)"), Lost / GetMolotov()->GetThrowInterval(), Lost));
+		AddInfo(FString::Printf(TEXT("DPS vs five enemies (power 3): %.1f (%.1f per patch)"), Lost / (MolotovTestThrowInterval / MolotovThrowTimeScale), Lost));
 
 		// Its kill is the player's: a weak bandit, Leech, a sure health orb.
 		RemoveAllEnemies(GetPIEWorld());
@@ -12269,7 +12590,7 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 500.f));
 		RecordMolotov(*S);
 	});
-	WaitWorldSeconds(this, 2.0);
+	WaitWorldSeconds(this, 2.0 * MolotovThrowTimeScale);
 	Step([this, S]()
 	{
 		UGSMolotovComponent* Molotov = GetMolotov();
@@ -12280,6 +12601,7 @@ bool FGSMolotovTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: no patches"), Molotov->GetActivePatches().Num(), 0);
 		TestEqual(TEXT("New run: a bandit in range takes nothing"), MolotovLost(*S, 0), 0.f, 0.01f);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		GetGameMode()->SetMolotovSettingsOverride(nullptr);
 		RestoreWorldSpeed();
 	});
 	EndPIE();
@@ -12314,6 +12636,13 @@ namespace GSTests
 		int32 XPOrbsBefore = 0;
 		int32 HealthOrbsBefore = 0;
 	};
+
+	/**
+	 * The Tomahawk test's copy throws every 2.25 s instead of 3 s: out 18 m and back at 20 m/s takes about 1.8 s, so this
+	 * still leaves a moment with no tomahawk in the air between throws. Fixed waits scale with it.
+	 */
+	constexpr float TomahawkTestInterval = 2.25f;
+	constexpr double TomahawkTimeScale = TomahawkTestInterval / 3.0;
 
 	bool TomahawkOnSchedule()
 	{
@@ -12418,6 +12747,16 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 			FString(TEXT("+10% Tomahawk damage")));
 		TestEqual(TEXT("The card's +10% matches the settings"), Upgrade->GetDisplayScale() / 100.f, Settings->DamageBonusPerPower, 0.0001f);
 
+		// From here on the test runs on a copy that throws every 2.25 s (the asset's 3 s is checked above).
+		UGSTomahawkSettings* Copy = MakeWeaponSettingsCopy(Settings);
+		if (!TestNotNull(TEXT("A test copy of DA_TomahawkSettings"), Copy))
+		{
+			return;
+		}
+		Copy->ThrowInterval = TomahawkTestInterval;
+		GameMode->SetTomahawkSettingsOverride(Copy);
+		TestEqual(TEXT("The test copy is in use"), GetTomahawk()->GetThrowInterval(), static_cast<double>(TomahawkTestInterval), 1e-6);
+
 		FVector Lane;
 		if (!TestTrue(TEXT("A clear lane in the town"), FindClearLane(2600.f, Lane, S->Dir)))
 		{
@@ -12436,7 +12775,7 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 		RecordTomahawk(*S);
 	});
 	// No enemy: nothing is thrown and nothing banked.
-	WaitWorldSeconds(this, 1.5);
+	WaitWorldSeconds(this, 1.5 * TomahawkTimeScale); // half a throw interval
 	Step([this, S]()
 	{
 		TestEqual(TEXT("No target: no throws"), GetTomahawk()->GetThrows(), S->ThrowsBefore);
@@ -12460,8 +12799,10 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 		const int32 Throws = GetTomahawk()->GetThrows() - S->ThrowsBefore;
 		TestEqual(TEXT("One bandit: 24 a throw (12 out, 12 back)"), TomahawkLost(*S, 0), 24.f * Throws, 0.01f);
 		TestEqual(TEXT("One bandit: two hits a throw"), GetTomahawk()->GetHitsDealt() - S->HitsBefore, 2 * Throws);
-		AddInfo(FString::Printf(TEXT("DPS vs one enemy: %.1f (%.0f in %d throws, one every %.0f s)"), TomahawkLost(*S, 0) / (Throws * GetTomahawk()->GetThrowInterval()),
-			TomahawkLost(*S, 0), Throws, GetTomahawk()->GetThrowInterval()));
+		// DPS at the asset's interval (3 s); the damage per throw is the same in the test copy.
+		const double AssetInterval = TomahawkTestInterval / TomahawkTimeScale;
+		AddInfo(FString::Printf(TEXT("DPS vs one enemy: %.1f (%.0f in %d throws, one every %.0f s)"), TomahawkLost(*S, 0) / (Throws * AssetInterval),
+			TomahawkLost(*S, 0), Throws, AssetInterval));
 
 		// A line of five, 3 m apart, and one bandit 2.5 m beside the line.
 		RemoveAllEnemies(GetPIEWorld());
@@ -12476,7 +12817,7 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 	{
 		UGSTomahawkComponent* Tomahawk = GetTomahawk();
 		const int32 Throws = Tomahawk->GetThrows() - S->ThrowsBefore;
-		TestTrue(FString::Printf(TEXT("Every frame on the exact 3 s schedule (%d frames)"), S->Frames), S->bScheduleOk);
+		TestTrue(FString::Printf(TEXT("Every frame on the exact schedule (the test's %.2f s interval; %d frames)"), Tomahawk->GetThrowInterval(), S->Frames), S->bScheduleOk);
 		TestEqual(TEXT("Thrown at the nearest"), Tomahawk->GetLastTargets().Num() == 1 ? Tomahawk->GetLastTargets()[0].Get() : nullptr, S->Bandits[0].Get());
 		float Lost = 0.f;
 		for (int32 Index = 0; Index < 5; ++Index)
@@ -12487,7 +12828,7 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Beside the line: untouched"), TomahawkLost(*S, 5), 0.f, 0.01f);
 		TestEqual(TEXT("Ten hits a throw"), Tomahawk->GetHitsDealt() - S->HitsBefore, 10 * Throws);
 		TestEqual(TEXT("Run stats count it as Tomahawk damage"), GetGameState()->GetRunStats()->GetDamageDealtBy(EGSDamageSource::Tomahawk) - S->SourceDamageBefore, Lost, 0.01f);
-		AddInfo(FString::Printf(TEXT("DPS vs a line of five (3 m apart): %.1f (%.0f in %d throws)"), Lost / (Throws * Tomahawk->GetThrowInterval()), Lost, Throws));
+		AddInfo(FString::Printf(TEXT("DPS vs a line of five (3 m apart): %.1f (%.0f in %d throws)"), Lost / (Throws * (TomahawkTestInterval / TomahawkTimeScale)), Lost, Throws));
 
 		// A wall across the lane between bandits 2 (1 m before it) and 3: it turns back there.
 		const bool bAlongX = FMath::Abs(S->Dir.X) > FMath::Abs(S->Dir.Y);
@@ -12597,7 +12938,7 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 		S->Bandits.Add(SpawnToughBandit(S->Ground + S->Dir * 400.f));
 		RecordTomahawk(*S);
 	});
-	WaitWorldSeconds(this, 2.0);
+	WaitWorldSeconds(this, 2.0 * TomahawkTimeScale);
 	Step([this, S]()
 	{
 		UGSTomahawkComponent* Tomahawk = GetTomahawk();
@@ -12606,6 +12947,7 @@ bool FGSTomahawkTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("New run: no throws"), Tomahawk->GetThrows(), S->ThrowsBefore);
 		TestEqual(TEXT("New run: a bandit in range takes nothing"), TomahawkLost(*S, 0), 0.f, 0.01f);
 		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		GetGameMode()->SetTomahawkSettingsOverride(nullptr);
 		RestoreWorldSpeed();
 	});
 	EndPIE();

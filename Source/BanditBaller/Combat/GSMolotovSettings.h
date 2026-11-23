@@ -45,6 +45,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Throwing", meta = (ClampMin = "0", Units = "cm"))
 	float ArcHeight = 300.f;
 
+	/**
+	 * How far ahead of a moving target the bottle lands: its flat velocity x the flight time x this, on the ground under
+	 * that point (the patch is centered there). 1 = where it will be when the bottle lands, 0 = where it stood at the throw.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Throwing", meta = (ClampMin = "0"))
+	float LeadFactor = 1.f;
+
 	/** Where bottles leave the player: from the capsule center, in the player's facing frame (X forward, Z up). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Throwing")
 	FVector ThrowOffset = FVector(20.f, 0.f, 60.f);

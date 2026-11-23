@@ -395,10 +395,11 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 			}
 			if (const UGSDynamiteComponent* Dynamite = GunOwner->GetDynamite())
 			{
-				Text += FString::Printf(TEXT("\n  Dynamite: %d pick(s), power %g, x%.2f damage (%.1f per blast x Damage), blast radius %.0f cm, every %.2f s, %d thrown, %d blast(s), %d hit(s), %d hit by the last blast"),
+				Text += FString::Printf(TEXT("\n  Dynamite: %d pick(s), power %g, x%.2f damage (%.1f per blast x Damage), blast radius %.0f cm, every %.2f s, lead x%.2f, %d thrown, %d blast(s) (%d caught their target), %d hit(s), %d hit by the last blast"),
 					Dynamite->GetLevel(), Dynamite->GetPower(), Dynamite->GetDamageMultiplier(),
 					Dynamite->GetSettings() ? Dynamite->GetSettings()->Damage * Dynamite->GetDamageMultiplier() : 0.f, Dynamite->GetBlastRadius(),
-					Dynamite->GetThrowInterval(), Dynamite->GetThrows(), Dynamite->GetBlasts(), Dynamite->GetHitsDealt(), Dynamite->GetLastBlastHits());
+					Dynamite->GetThrowInterval(), Dynamite->GetSettings() ? Dynamite->GetSettings()->LeadFactor : 0.f, Dynamite->GetThrows(), Dynamite->GetBlasts(),
+					Dynamite->GetTargetHits(), Dynamite->GetHitsDealt(), Dynamite->GetLastBlastHits());
 			}
 			if (const UGSLuckyCoinComponent* Coin = GunOwner->GetLuckyCoin())
 			{
@@ -410,10 +411,11 @@ void UGSDebugLibrary::ListUpgrades(AGSPlayerController* PC)
 			if (const UGSMolotovComponent* Molotov = GunOwner->GetMolotov())
 			{
 				const UGSMolotovSettings* MolotovSettings = Molotov->GetSettings();
-				Text += FString::Printf(TEXT("\n  Molotov: %d pick(s), power %g, x%.2f damage (%.2f per burn x Damage), patch radius %.0f cm, every %.2f s, %d thrown, %d patch(es) lit, %d burning now, %d burn(s), %d hit(s)"),
+				Text += FString::Printf(TEXT("\n  Molotov: %d pick(s), power %g, x%.2f damage (%.2f per burn x Damage), patch radius %.0f cm, every %.2f s, lead x%.2f, %d thrown, %d patch(es) lit (%d caught their target at the first burn), %d burning now, %d burn(s), %d hit(s)"),
 					Molotov->GetLevel(), Molotov->GetPower(), Molotov->GetDamageMultiplier(),
 					MolotovSettings ? MolotovSettings->BurnDamage * Molotov->GetDamageMultiplier() : 0.f, Molotov->GetPatchRadius(), Molotov->GetThrowInterval(),
-					Molotov->GetThrows(), Molotov->GetPatchesLit(), Molotov->GetActivePatches().Num(), Molotov->GetBurns(), Molotov->GetHitsDealt());
+					MolotovSettings ? MolotovSettings->LeadFactor : 0.f, Molotov->GetThrows(), Molotov->GetPatchesLit(), Molotov->GetFirstBurnTargetHits(),
+					Molotov->GetActivePatches().Num(), Molotov->GetBurns(), Molotov->GetHitsDealt());
 			}
 			if (const UGSTomahawkComponent* Tomahawk = GunOwner->GetTomahawk())
 			{

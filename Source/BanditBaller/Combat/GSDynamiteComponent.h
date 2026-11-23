@@ -73,8 +73,11 @@ public:
 	/** It could throw now if an enemy were in range: owned, settings, alive, not in a safe zone, server. */
 	bool CanThrow() const;
 
-	/** Blow up a stick at Center now (what a landing does): returns the number of enemies hit. */
-	int32 Explode(const FVector& Center, float Radius, float Damage);
+	/**
+	 * Blow up a stick at Center now (what a landing does): returns the number of enemies hit. Target is the enemy the stick
+	 * was thrown at (optional): whether the blast caught it is counted (GetTargetHits) and logged.
+	 */
+	int32 Explode(const FVector& Center, float Radius, float Damage, const AGSEnemyCharacter* Target = nullptr);
 
 	// --- State for tests / debug ---
 	int32 GetThrows() const { return Throws; }
@@ -85,6 +88,11 @@ public:
 	float GetLastBlastRadius() const { return LastBlastRadius; }
 	FVector GetLastLanding() const { return LastLanding; }
 	AGSEnemyCharacter* GetLastTarget() const { return LastTarget.Get(); }
+	/** Whether the last stick's landing was led ahead of its target (it was moving and LeadFactor > 0). */
+	bool WasLastThrowLed() const { return bLastThrowLed; }
+	/** Blasts that caught the enemy their stick was thrown at, and whether the last one did. */
+	int32 GetTargetHits() const { return TargetHits; }
+	bool DidLastBlastHitTarget() const { return bLastBlastHitTarget; }
 	double GetBurstStartTime() const { return BurstStartTime; }
 	int32 GetBurstShots() const { return BurstShots; }
 	double GetThrowInterval() const;
@@ -111,6 +119,9 @@ private:
 	float LastBlastRadius = 0.f;
 	FVector LastLanding = FVector::ZeroVector;
 	TWeakObjectPtr<AGSEnemyCharacter> LastTarget;
+	bool bLastThrowLed = false;
+	int32 TargetHits = 0;
+	bool bLastBlastHitTarget = false;
 	int32 LoggedLevel = 0;
 	float LoggedPower = 0.f;
 };

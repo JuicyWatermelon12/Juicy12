@@ -255,30 +255,34 @@ void UGSMolotovComponent::ThrowAt(AGSEnemyCharacter* AtTarget, float Lateness)
 		return;
 	}
 
-	// It lands at the target's feet where it stands now; damage and radius are set at the throw.
-	const float HalfHeight = AtTarget->GetCapsuleComponent() ? AtTarget->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f;
-	const FVector Landing = AtTarget->GetActorLocation() - FVector(0.f, 0.f, HalfHeight);
+	// It lands at the target's feet where it will be when it comes down (its flat velocity x the flight time left x
+	// LeadFactor, on the ground there); damage and radius are set at the throw.
+	const float AlreadyFlown = FMath::Clamp(Lateness, 0.f, Settings->FlightTime); // a late throw starts that far along its arc
+	const FGSLobAim Aim = AGSLobbedThrow::AimAt(AtTarget, Settings->FlightTime - AlreadyFlown, Settings->LeadFactor);
+	const FVector Landing = Aim.Landing;
 	const float Radius = GetPatchRadius();
 	const float Damage = GetBurnDamage();
 	LastTarget = AtTarget;
 	LastLanding = Landing;
+	bLastThrowLed = Aim.bLed;
 
 	FGSLobLaunch Lob;
 	Lob.Start = GetThrowOrigin();
 	Lob.Landing = Landing;
 	Lob.FlightTime = Settings->FlightTime;
 	Lob.ArcHeight = Settings->ArcHeight;
-	Lob.AlreadyFlown = FMath::Max(Lateness, 0.f); // a late throw starts that far along its arc
+	Lob.AlreadyFlown = AlreadyFlown;
 	Lob.Mesh = Settings->BottleMesh;
 	Lob.Material = Settings->BottleMaterial;
 	Lob.Scale = Settings->BottleScale;
 	Lob.SpinRate = Settings->BottleSpinRate;
 	TWeakObjectPtr<UGSMolotovComponent> WeakThis(this);
-	Lob.OnLanded = [WeakThis, Radius, Damage](const FVector& Where)
+	TWeakObjectPtr<AGSEnemyCharacter> WeakTarget(AtTarget);
+	Lob.OnLanded = [WeakThis, WeakTarget, Radius, Damage](const FVector& Where)
 	{
 		if (UGSMolotovComponent* Self = WeakThis.Get())
 		{
-			Self->IgnitePatch(Where, Radius, Damage);
+			Self->IgnitePatch(Where, Radius, Damage, WeakTarget.Get());
 		}
 	};
 	Bottle->Launch(MoveTemp(Lob));
@@ -289,7 +293,9 @@ void UGSMolotovComponent::ThrowAt(AGSEnemyCharacter* AtTarget, float Lateness)
 	{
 		UGameplayStatics::PlaySoundAtLocation(this, Settings->ThrowSound, GetThrowOrigin());
 	}
-	UE_LOG(LogBanditBaller, Verbose, TEXT("[molotov] bottle %d at %s, %.2f per burn in %.0f cm, %.3f s late"), Throws, *GetNameSafe(AtTarget), Damage, Radius, Lateness);
+	UE_LOG(LogBanditBaller, Log, TEXT("[molotov] bottle %d at %s (moving %.0f cm/s), %.2f per burn in %.0f cm, %.3f s late, %s"), Throws, *GetNameSafe(AtTarget),
+		AtTarget->GetVelocity().Size2D(), Damage, Radius, Lateness,
+		Aim.bLed ? *FString::Printf(TEXT("led %.0f cm ahead"), FVector::Dist2D(Aim.Landing, AtTarget->GetActorLocation())) : TEXT("not led"));
 }
 
 AGSFirePatch* UGSMolotovComponent::IgnitePatch(const FVector& FloorPoint)
@@ -297,7 +303,7 @@ AGSFirePatch* UGSMolotovComponent::IgnitePatch(const FVector& FloorPoint)
 	return IgnitePatch(FloorPoint, GetPatchRadius(), GetBurnDamage());
 }
 
-AGSFirePatch* UGSMolotovComponent::IgnitePatch(const FVector& FloorPoint, float Radius, float Damage)
+AGSFirePatch* UGSMolotovComponent::IgnitePatch(const FVector& FloorPoint, float Radius, float Damage, const AGSEnemyCharacter* Target)
 {
 	const UGSMolotovSettings* Settings = GetSettings();
 	UGSThrownSubsystem* Thrown = GetWorld() ? GetWorld()->GetSubsystem<UGSThrownSubsystem>() : nullptr;
@@ -326,16 +332,23 @@ AGSFirePatch* UGSMolotovComponent::IgnitePatch(const FVector& FloorPoint, float 
 	Params.Material = Settings->PatchMaterial;
 	Params.Thickness = Settings->PatchThickness;
 	Params.HeightAboveFloor = Settings->PatchHeightAboveFloor;
+	// Whether the enemy it was thrown at stands in the fire at the first burn (Ignite burns at once; checked first, in
+	// case that burn kills it). A target that died before the landing counts as missed.
+	const UGSHealthComponent* TargetHealth = IsValid(Target) ? Target->GetHealthComponent() : nullptr;
+	const FVector ToTarget = TargetHealth ? Target->GetActorLocation() - FloorPoint : FVector::ZeroVector;
+	bLastPatchHitTarget = TargetHealth && !TargetHealth->IsDead() && ToTarget.Size2D() <= Radius && FMath::Abs(ToTarget.Z) <= Params.MaxHeightDifference;
+	FirstBurnTargetHits += bLastPatchHitTarget ? 1 : 0;
 	++PatchesLit;
-	Patch->Ignite(Params);
+	Patch->Ignite(Params); // the first burn happens here
 
 	// Placeholder sound (local: single-player). TODO(co-op): play it on every machine.
 	if (Settings->LandSound)
 	{
 		UGameplayStatics::PlaySoundAtLocation(this, Settings->LandSound, FloorPoint);
 	}
-	UE_LOG(LogBanditBaller, Log, TEXT("[molotov] patch %d at %s: radius %.0f, %.2f per burn every %.2f s for %.1f s, %d enemies in it"),
-		PatchesLit, *FloorPoint.ToCompactString(), Radius, Damage, Params.BurnInterval, Params.Duration, Patch->GetLastBurnHits());
+	UE_LOG(LogBanditBaller, Log, TEXT("[molotov] patch %d at %s: radius %.0f, %.2f per burn every %.2f s for %.1f s, %d enemies in it%s"),
+		PatchesLit, *FloorPoint.ToCompactString(), Radius, Damage, Params.BurnInterval, Params.Duration, Patch->GetLastBurnHits(),
+		Target ? (bLastPatchHitTarget ? TEXT(", target in it") : TEXT(", target missed")) : TEXT(""));
 	return Patch;
 }
 

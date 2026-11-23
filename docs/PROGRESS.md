@@ -1,71 +1,6 @@
 # BanditBaller — Progress
 
-Read this at the start of
-### Prompt 52 — Tomahawk
-Every 3 s it throws a tomahawk at the nearest enemy; it cuts through every enemy on its line, out and back.
-- **New: `Combat/GSTomahawk.*` (`AGSTomahawk`)**, an `AGSThrownActor` in the `UGSThrownSubsystem` pool (a new run removes
-  the tomahawks in the air):
-  - **Out:** it flies level (horizontally, at the throw height) toward where its target was, at `Speed` 20 m/s for
-    `Distance` 18 m, sweeping a 30 cm sphere against world geometry and pawns. Every living enemy it touches is hit once
-    on the way out. The first wall (world geometry) turns it back on the spot.
-  - **Back:** it homes on the player's current position, sweeping pawns only, so it flies through walls and always comes
-    home; every living enemy it touches is hit once on the way back. It is caught within 1 m of the player (and gone after
-    `MaxFlightTime` 4 s whatever happens).
-  - Every hit: GE_Damage from the player's ASC with its own crit roll, a hit result for its damage number, the new
-    `Damage.Source.Tomahawk` tag and the hit effect. Players are never hit. It ticks with the world, so it pauses with the
-    game.
-- **`Combat/GSTomahawkSettings.h` (`UGSTomahawkSettings`) → `Data/DA_TomahawkSettings`**, set as `TomahawkSettings` on
-  BP_GSGameMode (`AGSGameMode::GetTomahawkSettings()`): Damage 12, ThrowInterval 3 s, Range 1,800 cm,
-  TargetRefreshInterval 0.1 s, BaseTomahawks 1, PowerPerTomahawk 3, DamageBonusPerPower 0.1, DamageEffect GE_Damage,
-  ThrowOffset (30, 0, 40); Distance 1,800 cm, Speed 2,000 cm/s, SweepRadius 30 cm, CatchDistance 100 cm, MaxFlightTime
-  4 s; look: the engine cone at (0.3, 0.05, 0.3) with the new `Materials/MI_Tomahawk` (an instance of M_XPOrb, grey),
-  spinning end over end 900°/s, ThrowSound `VR_click3_Cue` (editor content), RadialBurst ×0.1 on every hit.
-  `GetTomahawks(Power)` = BaseTomahawks + floor(power / PowerPerTomahawk).
-- **`Combat/GSTomahawkComponent.*` (`UGSTomahawkComponent`, on `AGSCharacter`, `GetTomahawk()`)**: active while the new
-  attribute **`TomahawkLevel`** (picks) is 1 or more; **`TomahawkPower`** gives +10% damage per point and a tomahawk per 3
-  full points (both not replicated, `TODO(co-op)`).
-  - **Targets**: living enemies within 18 m of the throw point with a clear line, nearest first (`FindTargets`). Each
-    tomahawk of a throw goes at the next one; with fewer targets than tomahawks they go round the targets again.
-  - Exact schedule like the other weapons; no target, dead or a safe zone: nothing banked. Power doesn't change the
-    interval. The damage is set at the throw.
-  - Test hooks: `GetThrows`, `GetTomahawksThrown`, `GetHitsDealt`, `GetLastTargets`, `GetActiveTomahawks`,
-    `GetBurstStartTime`, `GetBurstShots`, `FindTargets`, `CanThrow`. Log prefix `[tomahawk]`: one line when the picks or
-    power change ("Tomahawk 3 pick(s), power 3 -> x1.30 damage (15.6 per hit), 2 tomahawk(s) a throw, every 3.00 s").
-- **Run stats:** `EGSDamageSource::Tomahawk` ("Tomahawk").
-- **Upgrade:** `UGSUpgradeEffect_Tomahawk` → `Abilities/GE_Upgrade_Tomahawk`. `Data/Upgrades/DA_Upgrade_Tomahawk`: Weapon,
-  BaseValue 1, WeaponGivingPicks 1, DisplayScale 10, ValueText "+{Value}% Tomahawk damage"; card texts "New weapon: throws
-  a tomahawk that cuts through enemies and comes back." and "Makes the Tomahawk stronger and, in time, adds tomahawks.".
-  Added to DA_UpgradePool (21 upgrades, all seven weapons).
-- **Debug:** `gs.Upgrade.Grant Tomahawk [N] [Rarity]`; `gs.Upgrade.List` adds TomahawkLevel / TomahawkPower and a line
-  "Tomahawk: 1 pick(s), power 0, x1.00 damage (12.0 per hit x Damage), 1 tomahawk(s) a throw, every 3.00 s, 4 throw(s), 4
-  tomahawk(s) thrown, 1 in the air, 7 hit(s)".
-- **Damage per second** (Damage 1, no crits; measured in the test): **8 against one enemy** (12 out + 12 back every 3 s;
-  48 in 2 throws), **40 against a line of five** 3 m apart (240 in 2 throws). Off the line it does nothing: a crowd
-  around the player is hit only where the tomahawk's line crosses it.
-- **Unity-build fix:** the Dynamite and Molotov components (and this one) each had an anonymous-namespace constant named
-  `MaxThrowsPerFrame`; with the new files the unity build put them in one translation unit, so they are now
-  `MaxDynamiteThrowsPerFrame`, `MaxMolotovThrowsPerFrame` and `MaxTomahawkThrowsPerFrame` (no behaviour change).
-- **Tests:** new `Upgrades.Tomahawk` (see the test table). Changed, because a seventh weapon made them untrue:
-  - `Upgrades.Offers`: 21 upgrades, "the 20 other upgrades come up evenly".
-  - `Upgrades.PickValues`: Tomahawk's expectation and card lines; "all 21 upgrades checked".
-  - `Upgrades.WeaponSlots`: its two-weapon pool copy also leaves Tomahawk out. Its "later offers" share check (Prompt 49)
-    failed with seven weapons: 37.0% weapon-free against 25.1% expected. The expected share assumed no weapons owned, but
-    an offer of three weapons makes the "first non-weapon card" pick a weapon, and with three owned only those three are
-    offered. The expected share is now worked out per offer from the weapons that can be offered at that moment (36.0%
-    expected, 37.0% measured). The ±10-point tolerance is unchanged.
-  - `Checkpoint.WeaponPicksAndNewRun`: Tomahawk's power after each rarity; owned before the new run, gone after it.
-- **Decided here, to confirm:**
-  - The tomahawk flies level at the throw height (the target's height is ignored), so it doesn't dive into the ground at
-    a target standing lower or rise over one standing higher.
-  - On the way back it flies through walls and homes on where the player is now, so it always comes home.
-  - With fewer targets than tomahawks, the extra ones go at the same targets again.
-  - "An enemy is hit at most once on the way out and once on the way back" is per tomahawk: two tomahawks on the same line
-    hit an enemy four times.
-  - The damage is set at the throw.
-- **PIE check** (town, god mode, round paused, editor throttling off; restored after): `gs.Upgrade.Grant Tomahawk`,
-  `gs.Spawn MeleeBandit 5`. In about 10 s: 4 throws, 7 hits, a "12" damage number on a bandit; the weapon slot showed the
-  Tomahawk icon.
-- **Full suite:** 62 tests, all passing, in 181.9 s. every session. After finishing a prompt, add a short entry at the end of the current
+Read this at the start of every session. After finishing a prompt, add a short entry at the end of the current
 milestone section (what was built, new assets/commands, known issues) and update **Next up**.
 
 ## The game
@@ -115,9 +50,10 @@ held-fire fix (31b), Bigger Mags + Leech (32), Loaded Dice (33), Piercing Rounds
 (42), weapon slots (43), overflow effects (44), the Move Speed fix for the slide and dash (44b), endless levels (45), Razor Cards (46), Barbed Wire (47) and the
 M2b + M2c checkpoint (48), which replaced the old M2b checkpoint). See **M2b + M2c checkpoint** under Prompt 48.
 **Weapons** after M2c: Dynamite (49), Lucky Coin (50), Molotov (51) and Tomahawk (52) are built: all seven weapons exist.
+Dynamite and the Molotov lead a moving target since 52b.
 **Next:** the weapons checkpoint (53). **Then M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Tomahawk" (Prompt 52), not pushed. The build is clean and all 62 automation tests pass in about 182 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Fix: Dynamite and Molotov lead their target" (Prompt 52b), not pushed. The build is clean and all 62 automation tests pass in about 160 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -185,7 +121,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | W 49 | Dynamite (weapon): every 4 s a stick lobbed at the enemy in range with the most neighbours, a 3 m blast where it lands (40 damage, crit per enemy); `AGSLobbedThrow` + `UGSThrownSubsystem`; Dynamite damage source; pool of 18 | f5d3d83 |
 | W 50 | Lucky Coin (weapon): every 1.5 s a coin at the nearest enemy, bouncing to the nearest other enemy within 8 m (3 bounces, +1 per 2 power), each enemy once per flip; `AGSProjectile` ignore list + finish callback; pool of 19 | bceb293 |
 | W 51 | Molotov (weapon): every 5 s a bottle lobbed at the nearest enemy within 15 m; a 2.5 m fire patch where it lands burns every enemy in it every 0.5 s for 4 s (4 per burn); `AGSFirePatch`; `gs.Molotov.Patches`; pool of 20 | e4746d4 |
-| W 52 | Tomahawk (weapon): every 3 s a tomahawk at the nearest enemy flies 18 m out and back, hitting every enemy on its line once each way (12 per hit); a wall turns it back; +1 tomahawk per 3 power; `AGSTomahawk`; pool of 21 | see git log |
+| W 52 | Tomahawk (weapon): every 3 s a tomahawk at the nearest enemy flies 18 m out and back, hitting every enemy on its line once each way (12 per hit); a wall turns it back; +1 tomahawk per 3 power; `AGSTomahawk`; pool of 21 | bae9432 |
+| W 52b | Fix: Dynamite and Molotov lead a moving target (LeadFactor 1, in data); PROGRESS.md repair; the four new weapon tests run on faster settings copies (suite 182 → 160 s); unity-build naming rule | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -3197,7 +3134,165 @@ Every 5 s it throws a bottle at the nearest enemy; where it lands it leaves a pa
   - Added `gs.Molotov.Patches` to measure the 4-patch frame time.
 - **PIE check:** the frame-time run above. The patches showed as flat orange discs under the crowd, a damage number on
   every bandit each burn; the `[molotov]` lines showed a patch every 5.0 s with all 30 enemies in it.
-- **Full suite:** 61 tests, all passing, in 173.7 s.---
+- **Full suite:** 61 tests, all passing, in 173.7 s.
+
+### Prompt 52 — Tomahawk
+Every 3 s it throws a tomahawk at the nearest enemy; it cuts through every enemy on its line, out and back.
+- **New: `Combat/GSTomahawk.*` (`AGSTomahawk`)**, an `AGSThrownActor` in the `UGSThrownSubsystem` pool (a new run removes
+  the tomahawks in the air):
+  - **Out:** it flies level (horizontally, at the throw height) toward where its target was, at `Speed` 20 m/s for
+    `Distance` 18 m, sweeping a 30 cm sphere against world geometry and pawns. Every living enemy it touches is hit once
+    on the way out. The first wall (world geometry) turns it back on the spot.
+  - **Back:** it homes on the player's current position, sweeping pawns only, so it flies through walls and always comes
+    home; every living enemy it touches is hit once on the way back. It is caught within 1 m of the player (and gone after
+    `MaxFlightTime` 4 s whatever happens).
+  - Every hit: GE_Damage from the player's ASC with its own crit roll, a hit result for its damage number, the new
+    `Damage.Source.Tomahawk` tag and the hit effect. Players are never hit. It ticks with the world, so it pauses with the
+    game.
+- **`Combat/GSTomahawkSettings.h` (`UGSTomahawkSettings`) → `Data/DA_TomahawkSettings`**, set as `TomahawkSettings` on
+  BP_GSGameMode (`AGSGameMode::GetTomahawkSettings()`): Damage 12, ThrowInterval 3 s, Range 1,800 cm,
+  TargetRefreshInterval 0.1 s, BaseTomahawks 1, PowerPerTomahawk 3, DamageBonusPerPower 0.1, DamageEffect GE_Damage,
+  ThrowOffset (30, 0, 40); Distance 1,800 cm, Speed 2,000 cm/s, SweepRadius 30 cm, CatchDistance 100 cm, MaxFlightTime
+  4 s; look: the engine cone at (0.3, 0.05, 0.3) with the new `Materials/MI_Tomahawk` (an instance of M_XPOrb, grey),
+  spinning end over end 900°/s, ThrowSound `VR_click3_Cue` (editor content), RadialBurst ×0.1 on every hit.
+  `GetTomahawks(Power)` = BaseTomahawks + floor(power / PowerPerTomahawk).
+- **`Combat/GSTomahawkComponent.*` (`UGSTomahawkComponent`, on `AGSCharacter`, `GetTomahawk()`)**: active while the new
+  attribute **`TomahawkLevel`** (picks) is 1 or more; **`TomahawkPower`** gives +10% damage per point and a tomahawk per 3
+  full points (both not replicated, `TODO(co-op)`).
+  - **Targets**: living enemies within 18 m of the throw point with a clear line, nearest first (`FindTargets`). Each
+    tomahawk of a throw goes at the next one; with fewer targets than tomahawks they go round the targets again.
+  - Exact schedule like the other weapons; no target, dead or a safe zone: nothing banked. Power doesn't change the
+    interval. The damage is set at the throw.
+  - Test hooks: `GetThrows`, `GetTomahawksThrown`, `GetHitsDealt`, `GetLastTargets`, `GetActiveTomahawks`,
+    `GetBurstStartTime`, `GetBurstShots`, `FindTargets`, `CanThrow`. Log prefix `[tomahawk]`: one line when the picks or
+    power change ("Tomahawk 3 pick(s), power 3 -> x1.30 damage (15.6 per hit), 2 tomahawk(s) a throw, every 3.00 s").
+- **Run stats:** `EGSDamageSource::Tomahawk` ("Tomahawk").
+- **Upgrade:** `UGSUpgradeEffect_Tomahawk` → `Abilities/GE_Upgrade_Tomahawk`. `Data/Upgrades/DA_Upgrade_Tomahawk`: Weapon,
+  BaseValue 1, WeaponGivingPicks 1, DisplayScale 10, ValueText "+{Value}% Tomahawk damage"; card texts "New weapon: throws
+  a tomahawk that cuts through enemies and comes back." and "Makes the Tomahawk stronger and, in time, adds tomahawks.".
+  Added to DA_UpgradePool (21 upgrades, all seven weapons).
+- **Debug:** `gs.Upgrade.Grant Tomahawk [N] [Rarity]`; `gs.Upgrade.List` adds TomahawkLevel / TomahawkPower and a line
+  "Tomahawk: 1 pick(s), power 0, x1.00 damage (12.0 per hit x Damage), 1 tomahawk(s) a throw, every 3.00 s, 4 throw(s), 4
+  tomahawk(s) thrown, 1 in the air, 7 hit(s)".
+- **Damage per second** (Damage 1, no crits; measured in the test): **8 against one enemy** (12 out + 12 back every 3 s;
+  48 in 2 throws), **40 against a line of five** 3 m apart (240 in 2 throws). Off the line it does nothing: a crowd
+  around the player is hit only where the tomahawk's line crosses it.
+- **Unity-build fix:** the Dynamite and Molotov components (and this one) each had an anonymous-namespace constant named
+  `MaxThrowsPerFrame`; with the new files the unity build put them in one translation unit, so they are now
+  `MaxDynamiteThrowsPerFrame`, `MaxMolotovThrowsPerFrame` and `MaxTomahawkThrowsPerFrame` (no behaviour change).
+- **Tests:** new `Upgrades.Tomahawk` (see the test table). Changed, because a seventh weapon made them untrue:
+  - `Upgrades.Offers`: 21 upgrades, "the 20 other upgrades come up evenly".
+  - `Upgrades.PickValues`: Tomahawk's expectation and card lines; "all 21 upgrades checked".
+  - `Upgrades.WeaponSlots`: its two-weapon pool copy also leaves Tomahawk out. Its "later offers" share check (Prompt 49)
+    failed with seven weapons: 37.0% weapon-free against 25.1% expected. The expected share assumed no weapons owned, but
+    an offer of three weapons makes the "first non-weapon card" pick a weapon, and with three owned only those three are
+    offered. The expected share is now worked out per offer from the weapons that can be offered at that moment (36.0%
+    expected, 37.0% measured). The ±10-point tolerance is unchanged.
+  - `Checkpoint.WeaponPicksAndNewRun`: Tomahawk's power after each rarity; owned before the new run, gone after it.
+- **Decided here, to confirm:**
+  - The tomahawk flies level at the throw height (the target's height is ignored), so it doesn't dive into the ground at
+    a target standing lower or rise over one standing higher.
+  - On the way back it flies through walls and homes on where the player is now, so it always comes home.
+  - With fewer targets than tomahawks, the extra ones go at the same targets again.
+  - "An enemy is hit at most once on the way out and once on the way back" is per tomahawk: two tomahawks on the same line
+    hit an enemy four times.
+  - The damage is set at the throw.
+- **PIE check** (town, god mode, round paused, editor throttling off; restored after): `gs.Upgrade.Grant Tomahawk`,
+  `gs.Spawn MeleeBandit 5`. In about 10 s: 4 throws, 7 hits, a "12" damage number on a bandit; the weapon slot showed the
+  Tomahawk icon.
+- **Full suite:** 62 tests, all passing, in 181.9 s.
+
+### Prompt 52b — Fix: Dynamite and Molotov lead their target
+Between 52 and 53. Both lobbed weapons used to land where the target stood at the throw, so a running bandit was out of the
+blast or the patch by the time it came down. They now aim where it will be.
+- **The aim** (`AGSLobbedThrow::AimAt(Target, FlightTime, LeadFactor)` → `FGSLobAim { Landing, BodyCenter, bLed }`, shared by
+  both): the target's position plus its flat velocity (Z dropped) × the flight time left × `LeadFactor`, then a WorldStatic
+  trace down from body height to the ground under that point. The landing is that ground point; `BodyCenter` is the body
+  over it (half the capsule up), which is where Dynamite's blast is centred. With `LeadFactor` 0, a target standing still
+  or no ground there (off the map) it returns exactly the old point: the target's feet where it stands.
+  - "Flight time left": the flight time minus the part a late throw has already flown (at most a frame).
+  - Dynamite's blast is still centred at body height over the landing (Powder Keg measures the same way); the Molotov's
+    patch is centred on the landing. Nothing else changed: target choice (Dynamite's neighbour count still uses current
+    positions), flight time, schedule, damage, radius.
+- **`LeadFactor`** (new, default 1.0; 0 = the old landing point) on `UGSDynamiteSettings` ("Stick") and
+  `UGSMolotovSettings` ("Throwing"). The assets use the class default.
+- **Counters and logs:**
+  - Dynamite: `WasLastThrowLed`, `GetTargetHits` / `DidLastBlastHitTarget` (blasts that caught the enemy the stick was
+    thrown at; `Explode` takes the target as an optional last argument).
+  - Molotov: `WasLastThrowLed`, `GetFirstBurnTargetHits` / `DidLastPatchHitTarget` (patches whose first burn caught the
+    target; checked before that burn, in case it kills it; `IgnitePatch` takes the target as an optional last argument).
+  - The throw lines are now `Log` (were `Verbose`) and add the target's speed and the lead: "[dynamite] stick 44 at
+    GSEnemyCharacter_0 (2 neighbour(s), moving 452 cm/s), 0.4 damage in 300 cm, 0.000 s late, led 271 cm ahead". The
+    blast and patch lines end with "target hit" / "target missed" / "target in it".
+  - `gs.Upgrade.List`: "lead x1.00" and "(N caught their target)" on the Dynamite and Molotov lines.
+- **Test hooks:** `AGSGameMode::SetDynamiteSettingsOverride`, `SetLuckyCoinSettingsOverride`, `SetMolotovSettingsOverride`
+  and `SetTomahawkSettingsOverride` (like `SetCombatSettingsOverride`); the `Get…Settings()` getters return the override when
+  one is set.
+- **Tests** (see the test table):
+  - `Upgrades.Dynamite`: `AimAt` on its own (800 cm/s × 0.6 s = 480 cm ahead, flat, on the ground; LeadFactor 0.5 = 240 cm;
+    0 = the old point; vertical speed only = no lead; running off the edge of the town's ground = where it stands now); a
+    standing target at LeadFactor 1 lands exactly where LeadFactor 0 does and the blast is as before; a bandit running
+    straight down the lane at a steady 800 cm/s is inside the blast with LeadFactor 1 (27 cm from its centre) and outside
+    with 0 (453 cm).
+  - `Upgrades.Molotov`: a standing target's first burn catches it; the same runner is in the patch at its first burn with
+    LeadFactor 1 (27 cm from the centre) and outside it with 0 (453 cm).
+  - The existing checks are unchanged.
+- **PIE check** (town, god mode, round paused, editor throttling off; restored after): Dynamite and Molotov at power 0,
+  the player's Damage at 0.01 (nobody dies, nobody levels up), 3 melee bandits. The player teleported (`BugItGo`) back and
+  forth between two spots 50 m apart on the ring road every 5–7 s. That kept the bandits running at the player when they
+  came into range (Dynamite 20 m, Molotov 15 m). `LeadFactor` was set on the two assets in memory, 0 then 1, and set back to
+  1 afterwards. Counted from the throw and blast / patch log lines, the first 10 throws at a bandit moving 300 cm/s or more:
+
+  | | LeadFactor 0 | LeadFactor 1 |
+  |---|---|---|
+  | Dynamite: blasts that caught their target | 7 of 10 | 9 of 10 |
+  | Molotov: first burns that caught their target | 0 of 10 | 10 of 10 |
+
+  - Dynamite's 3 m blast (3D, from body height) still catches a melee bandit at LeadFactor 0 most of the time: at 452–556
+    cm/s it covers 2.7–3.3 m in the 0.6 s flight. All three misses were the bandit running at 530 cm/s, and the 452 cm/s
+    one was always caught. The one miss at LeadFactor 1 was the 556 cm/s bandit (likely turning or stopping at the
+    player after the throw).
+  - The Molotov's 2.5 m patch (flat) missed every running bandit without the lead and caught every one with it.
+  - Throws at bandits that had already reached the player (standing): all hit with either setting (29 Dynamite, 21 Molotov).
+- **Faster weapon tests.** Each of the four tests now runs on a copy of its settings asset with shorter times, set as the
+  GameMode override (`MakeWeaponSettingsCopy`). The asset's own values are still checked first. Every fixed wait shrinks by
+  the same factor, so it still covers the same number of intervals ("no throws in 2.25 intervals" was "in 9 s"). The DPS info
+  lines are worked out at the asset's intervals. No check was removed or loosened.
+
+  | Test | Test copy | Before | After |
+  |---|---|---|---|
+  | `Upgrades.Dynamite` | a throw every 1 s (4 s) | 22.7 s | 7.2 s (lead checks included) |
+  | `Upgrades.LuckyCoin` | a flip every 1.25 s (1.5 s; a five-enemy flip takes 0.9–1.1 s and needs a gap before the next) | 7.0 s | 6.0 s |
+  | `Upgrades.Molotov` | a throw every 2.75 s (5 s), a burn every 0.25 s (0.5 s) for 2 s (4 s): still 8 burns a patch | 12.1 s | 8.8 s (lead checks included) |
+  | `Upgrades.Tomahawk` | a throw every 2.25 s (3 s; out and back takes about 1.8 s) | 8.0 s | 6.3 s |
+
+  The four together went from 49.9 s to 28.7 s (run on their own), and the full suite from 181.9 s to 160.1 s.
+- **How `Upgrades.WeaponSlots` works out its expected share** of later offers with no weapon card (changed in Prompts 49
+  and 52). Checked: it doesn't call the offer roll it tests, so nothing needed changing.
+  - From the pool's contents: it counts the pool's non-weapon upgrades (Legendary abilities left out) and lists its weapons.
+  - For each of the 200 offers, it counts the weapons that can be offered at that moment, using the pool's weapon-slot
+    rule `CanOfferWeapon` with the owned picks.
+  - It takes the chance that three cards drawn without repeats from those upgrades are all non-weapons:
+    ∏ (N − k) / (N + W − k) for k = 0..2. It averages that over the 200 offers.
+  - Only then does it roll each offer (`QueueUpgradeOfferForDebug`) and count the ones with no weapon card. The roll's
+    result never feeds the expected share.
+  - The formula counts upgrades, so it assumes equal `AppearanceWeight` (all 1 today). A pool with uneven weights would
+    need weights in the formula.
+- **CLAUDE.md:** a new convention: file-local constants and helper functions (anonymous namespace, `static`) get names
+  unique to their file, because the unity build compiles several files as one (it broke the build in Prompt 52). The
+  test-run note now says 160 s.
+- **docs/PROGRESS.md repaired:** the Prompt 52 entry had been written into the middle of the intro sentence at the top of
+  the file. It was moved here after Prompt 51, and the intro sentence was restored. Prompt 51's last line ran into the
+  separator ("173.7 s.---"); fixed. Nothing else changed: the text was compared character by character apart from the
+  line breaks.
+- **Decided here, to confirm:**
+  - The lead uses the flight time left (a late throw has already flown part of it), not the full flight time.
+  - Dynamite's blast stays centred at body height over the new landing point, as before over the old one. "Centred on the
+    landing point" is read as "over it", so the 3D radius measures the same way.
+  - The ground trace is world geometry only (WorldStatic), from body height down 5 m past the feet. A point ahead over a
+    crate lands on the crate; one with nothing under it falls back to the old point.
+
+---
 
 ## Console commands and CVars
 
@@ -3211,7 +3306,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.GiveWeapon <Weapon>` | Equip `Rifle` / `Pistol` / `BanditCarbine` with a full mag (replaces the equipped one if both slots are full). |
 | `gs.SetAttr <Attr> <Value>` | Set a player attribute base value (Health, MaxHealth, MoveSpeed, Damage, FireRate, PickupRadius, XPGain, ReloadSpeed). |
 | `gs.Upgrade.Grant <Name> [Count=1] [Rarity=Common]` | Add picks of an upgrade at a rarity (Common, Rare, Epic, Legendary or C / R / E / L; Count and Rarity in any order; whole-unit upgrades have no Rare) (`ReloadSpeed`, `Damage`, `MoveSpeed`, `FireRate`, `Magnet`, `BiggerMags`, `ExtraJump`, `DashCharge`, `Leech`, `LoadedDice`, `PiercingRounds`, `PowderKeg`, `FloatingShield`, `SecondWind`, `FloatingGun`, `RazorCards`, `BarbedWire`, `Dynamite`, `LuckyCoin`, `Molotov`, `Tomahawk` or `DA_Upgrade_*`). E.g. `gs.Upgrade.Grant ExtraJump 45`, `gs.Upgrade.Grant Damage 2 Epic`. |
-| `gs.Upgrade.List` | List every upgrade by category (Stat Boosts, Abilities, Legendary abilities, Weapons) with this run's picks by rarity, total value, Common pick value, cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps / MagazineSizeMultiplier / HealthOnKill / CritChance / Pierce / PowderKeg / Shields / SecondWinds / FloatingGunLevel / FloatingGunPower, the magazine (ammo / size), the dash charges (max = base + ExtraDashCharges, ready now), the floating shields (ready / each recharge / hits blocked), the Floating Gun (picks, power, guns, shots and target), Razor Cards (picks, power, damage per card, cards a second, cards thrown, target), Barbed Wire (picks, power, radius, damage per tick, ticks, hits, enemies inside on the last tick), Dynamite (picks, power, damage per blast, blast radius, interval, throws, blasts, hits, hits of the last blast), Lucky Coin (picks, power, damage per hit, bounces, interval, flips, hits, hits of the last flip, target), Molotov (picks, power, damage per burn, patch radius, interval, throws, patches lit, patches burning now, burns, hits), Tomahawk (picks, power, damage per hit, tomahawks a throw, interval, throws, tomahawks thrown, in the air, hits), Second Wind (left / used this run) and Powder Keg (stacks, chance per kill, blast damage and radius). The Stats line also shows the slide / dash speed ratio (MoveSpeed / base walk speed, at least 1), the current slide speed cap and dash distance. |
+| `gs.Upgrade.List` | List every upgrade by category (Stat Boosts, Abilities, Legendary abilities, Weapons) with this run's picks by rarity, total value, Common pick value, cap and description, plus ReloadSpeed / Damage / FireRate / MoveSpeed / PickupRadius / ExtraJumps / MagazineSizeMultiplier / HealthOnKill / CritChance / Pierce / PowderKeg / Shields / SecondWinds / FloatingGunLevel / FloatingGunPower, the magazine (ammo / size), the dash charges (max = base + ExtraDashCharges, ready now), the floating shields (ready / each recharge / hits blocked), the Floating Gun (picks, power, guns, shots and target), Razor Cards (picks, power, damage per card, cards a second, cards thrown, target), Barbed Wire (picks, power, radius, damage per tick, ticks, hits, enemies inside on the last tick), Dynamite (picks, power, damage per blast, blast radius, interval, lead factor, throws, blasts and how many caught their target, hits, hits of the last blast), Lucky Coin (picks, power, damage per hit, bounces, interval, flips, hits, hits of the last flip, target), Molotov (picks, power, damage per burn, patch radius, interval, lead factor, throws, patches lit and how many caught their target at the first burn, patches burning now, burns, hits), Tomahawk (picks, power, damage per hit, tomahawks a throw, interval, throws, tomahawks thrown, in the air, hits), Second Wind (left / used this run) and Powder Keg (stacks, chance per kill, blast damage and radius). The Stats line also shows the slide / dash speed ratio (MoveSpeed / base walk speed, at least 1), the current slide speed cap and dash distance. |
 | `gs.Upgrade.Offer` | Queue a level-up offer without the level (opens at once if none is open) and print the open offer. Refused in GameOver. |
 | `gs.Upgrade.Choose <0-2>` | Take a choice of the open offer; the next queued offer opens. |
 | `gs.Upgrade.Reroll` | Reroll the open offer for one of this run's rerolls (refused with none left or no offer). |
@@ -3341,7 +3436,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (62, all passing, about 182 s)
+## Automation tests (62, all passing, about 160 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
@@ -3403,10 +3498,10 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Upgrades.PickValues` | DA_UpgradePool multipliers 1 / 1.5 / 2 / 3 and whole-unit values 1 / – / 2 / 3; all 21 DA_Upgrade_* (Razor Cards since Prompt 46, Barbed Wire since 47, "+10% Barbed Wire damage, +5% size", Dynamite since 49, "+10% Dynamite damage, +5% blast size", Lucky Coin since 50, "+10% Lucky Coin damage", Molotov since 51, "+10% Molotov burn damage, +5% patch size", Tomahawk since 52, "+10% Tomahawk damage"): category, Legendary ability, whole units, BaseValue (= the old per-pick value), AppearanceWeight 1, percent or not, in the pool; Floating Gun WeaponGivingPicks 2; card number and FormatValue; ParseRarity; for every stat boost and ability one pick of each rarity: the attribute = base × (1 + total) or base + total after each, a Common pick = exactly the old pick, whole units refuse Rare, picks and total tracked, one active effect; 6 shields, JumpMaxCount 7, Powder Keg 7.5 stacks = 22.5%, crit 37.5%; `gs.Upgrade.Grant Damage 2 Epic` / `Damage Legendary`, ExtraJump Rare refused; Floating Gun Rare → Legendary → Common → Epic: power 0.5 / 2.5 / 3.5 / 5.5, 4 picks, two guns, ×1.55; Second Wind Common / Legendary / Rare = 3 charges, a killing blow uses one (2 picks, total 2, one effect); a new run removes all. |
 | `Upgrades.RazorCards` | DA_RazorCardsSettings (6 damage, 2 a second, 25 m, 30 m/s, homing, +10% per power, GE_Damage, a thin card) and DA_Upgrade_RazorCards (Weapon, first pick gives it, GE class, in the pool, card text, the +10% matches the settings); a hand-thrown homing card turns toward its bandit, and when the bandit dies it loses its target and flies on straight; granted: level 1, power 0, 0.5 s, ×1; no cards with no enemy, with one 27 m away (out of range) or behind a wall; a bandit in range: about 4 cards in 2 s, every frame on the exact schedule, every card a hit for 6; power 1: on schedule at 1/2.2 s, 6.6 per card; power 3 (an Epic pick): 2.6 a second, 7.8 per card; a bandit running past (17 m in 3 s, 4 m to the side): 8 of 8 cards hit, none hit the world or expired; its kill is the player's (run-stats kill, combo, XP orb, health orb, cash, Leech); paused: no cards; a new run: level 0, no cards in flight, none thrown at a bandit in range. Game time ×4. |
 | `Upgrades.BarbedWire` | DA_BarbedWireSettings (3.5 m, 5 per tick, every 0.5 s, +10% damage / +5% radius per power, GE_Damage, ring segments, a hit effect) and DA_Upgrade_BarbedWire (Weapon, first pick gives it, GE class, in the pool, card texts, "+15% Barbed Wire damage, +7.5% size" for a Rare pick, both numbers match the settings); not owned: no ring; granted: level 1, power 0, radius 350, 5 per tick; the ring is shown with one instance per segment at the radius, at the feet, no collision; four tough frozen bandits at 2 m, 3.3 m (inside), 3.8 m and 1.5 m but 3 m up (outside); 4 ticks on the exact schedule every frame, two hit per tick, 5 each, the outside ones untouched; power 1: radius 367.5 (3.8 m still outside), 5.5 per tick, the ring redrawn; power 3 (an Epic pick): radius 402.5, 6.5 per tick, the 3.8 m bandit now inside (three per tick), the one above still untouched; its kill is the player's (run-stats kill, combo, XP orb, health orb, cash, Leech); paused: no ticks; a new run: level 0, no ring, no ticks, a bandit next to the player untouched. Game time ×4. |
-| `Upgrades.Dynamite` | DA_DynamiteSettings (40 damage, 3 m blast, every 4 s, 20 m, 0.6 s flight, +10% damage / +5% radius per power, GE_Damage, stick mesh and material, an explosion) and DA_Upgrade_Dynamite (Weapon, first pick gives it, GE class, in the pool, card texts, "+15% Dynamite damage, +7.5% blast size" for a Rare pick, both numbers match the settings); granted: level 1, power 0, radius 300, 40 per blast; one bandit 21.5 m away: no throw in 9 s; moved into range: one throw at once (nothing banked); a lone bandit at 5 m and a group of three at 14 m: it picks the group's nearest member (two neighbours each, none for the lone one); a tie goes to the nearest; one tough bandit: 40 per blast (logs 10 DPS), a group of five: all five hit every blast (logs 50 DPS); T 2 m ahead, A 2.5 m from T, B 3.4 m from T, the player 2 m from T with god mode off: the blast centered on T, the stick at T's feet, T and A take 40 per blast, B nothing, the player nothing, one damage number per hit, the damage counted as Dynamite in run stats, every frame on the exact 4 s schedule; power 1: x1.1, 315 cm, T 44, B still outside; power 3 (an Epic pick): 52, 345 cm, B hit; Loaded Dice x20: T takes 104 and a critical number for each of the three hit; its kill is the player's (run-stats kill, combo, XP orb, health orb, cash, Leech); paused with a stick in the air: the stick doesn't move, no throw or blast; safe zone: no throws in 9 s, then one at once; a new run with a stick in the air: no stick left, it never explodes, level 0, no throws, a bandit in range untouched; dead: no throws in 9 s. Game time x4. |
-| `Upgrades.LuckyCoin` | DA_LuckyCoinSettings (10 damage, every 1.5 s, 20 m, 8 m bounce range, 3 bounces, +1 bounce per 2 full power: 3 3 3 4 4 5 at power 0 / 1 / 1.9 / 2 / 3.5 / 4, +10% damage per power, GE_Damage, coin mesh and material) and DA_Upgrade_LuckyCoin (Weapon, first pick gives it, GE class, in the pool, card texts, "+10% Lucky Coin damage", the number matches the settings); granted: level 1, 3 bounces, 10 per hit; no enemy: no flips in 2 s, then one at once when a bandit appears (nothing banked); one bandit: one hit a flip (logs 6.7 DPS); five tough bandits in a row 4 m apart: every frame on the exact 1.5 s schedule, a flip hits the first four in order, each once (10 a flip each), the fifth never (out of bounces), the damage counted as Lucky Coin in run stats (logs 26.7 DPS); power 1: 11 per hit, still four hit; power 2: 4 bounces, all five hit, 12 each; power 3.5 (a Rare pick): 13.5 per hit, still 4 bounces; two bandits 12 m apart: the flip stops after the first, the far one never hit; its kill is the player's (run-stats kill, combo, XP orb, health orb, cash, Leech); paused: no flips; a new run with a coin in the air: no projectile left, level 0, no flips, a bandit in range untouched. Game time x4. |
-| `Upgrades.Molotov` | DA_MolotovSettings (every 5 s, 15 m, 0.6 s flight, 4 per burn every 0.5 s for 4 s, 2.5 m patch, +10% damage / +5% radius per power, GE_Damage, bottle and patch meshes and materials) and DA_Upgrade_Molotov (Weapon, first pick gives it, GE class, in the pool, card texts, "+15% Molotov burn damage, +7.5% patch size" for a Rare pick, both numbers match the settings); a bandit 16 m away: no target, no throw; moved to 8 m: a throw at once (nothing banked), the patch at its feet, no collision, drawn at its radius; T 1.2 m in front of the player (in the fire, god mode off), A 1.5 m and B 2.4 m from T, C 2.7 m, D 3 m above: two patches, every frame on the exact 5 s schedule, 8 burns per patch, T / A / B take 32 a patch, C and D nothing, the player nothing, the damage counted as Molotov in run stats; power 1: 4.4 per burn, 262.5 cm, C still outside; power 3 (an Epic pick): 5.2, 287.5 cm, C burns, D still doesn't; paused: the patch doesn't age, no burns, no damage; safe zone: no throws, no burns; one bandit and five bandits in a patch at power 3 (logs DPS); its kill is the player's (run-stats kill, combo, XP orb, health orb, cash, Leech); a new run with a patch burning: no patch or bottle left, level 0, no throws or burns, a bandit in range untouched. Game time x4. |
-| `Upgrades.Tomahawk` | DA_TomahawkSettings (12 damage, every 3 s, 18 m range, 18 m out, 1 tomahawk, +1 per 3 full power: 1 1 2 2 3 at power 0 / 2.9 / 3 / 5.9 / 6, +10% damage per power, GE_Damage, mesh and material) and DA_Upgrade_Tomahawk (Weapon, first pick gives it, GE class, in the pool, card texts, "+10% Tomahawk damage", the number matches the settings); granted: level 1, one tomahawk, 12 per hit; no enemy: no throws, then one at once when a bandit appears (nothing banked); one bandit: 24 a throw, two hits (logs 8 DPS); a line of five 3 m apart and one 2.5 m beside it: every frame on the exact 3 s schedule, thrown at the nearest, each in the line hit once out and once back (24 a throw), the one beside untouched, ten hits a throw, the damage counted as Tomahawk in run stats (logs 40 DPS); a wall across the lane 1.5 m past the second: the two in front hit out and back, the three behind untouched; power 1: 13.2 per hit, still one tomahawk, the far bandit hit again once the wall is gone; power 3 (an Epic pick): 15.6 per hit, two tomahawks at the nearest and the next nearest, 20 hits a throw; its kill is the player's (run-stats kill, combo, XP orb, health orb, cash, Leech); paused: the tomahawk in the air doesn't move, no throws; a new run with a tomahawk in the air: none left, level 0, no throws, a bandit in range untouched. Game time x4. |
+| `Upgrades.Dynamite` | DA_DynamiteSettings (40 damage, 3 m blast, every 4 s, 20 m, 0.6 s flight, +10% damage / +5% radius per power, GE_Damage, stick mesh and material, an explosion) and DA_Upgrade_Dynamite (Weapon, first pick gives it, GE class, in the pool, card texts, "+15% Dynamite damage, +7.5% blast size" for a Rare pick, both numbers match the settings); granted: level 1, power 0, radius 300, 40 per blast; one bandit 21.5 m away: no throw in 9 s; moved into range: one throw at once (nothing banked); a lone bandit at 5 m and a group of three at 14 m: it picks the group's nearest member (two neighbours each, none for the lone one); a tie goes to the nearest; one tough bandit: 40 per blast (logs 10 DPS), a group of five: all five hit every blast (logs 50 DPS); T 2 m ahead, A 2.5 m from T, B 3.4 m from T, the player 2 m from T with god mode off: the blast centered on T, the stick at T's feet, T and A take 40 per blast, B nothing, the player nothing, one damage number per hit, the damage counted as Dynamite in run stats, every frame on the exact 4 s schedule; power 1: x1.1, 315 cm, T 44, B still outside; power 3 (an Epic pick): 52, 345 cm, B hit; Loaded Dice x20: T takes 104 and a critical number for each of the three hit; its kill is the player's (run-stats kill, combo, XP orb, health orb, cash, Leech); paused with a stick in the air: the stick doesn't move, no throw or blast; safe zone: no throws in 9 s, then one at once; a new run with a stick in the air: no stick left, it never explodes, level 0, no throws, a bandit in range untouched; dead: no throws in 9 s. Since Prompt 52b: LeadFactor 1 on the asset; the aim on its own (800 cm/s x 0.6 s = 480 cm ahead, flat, on the ground; LeadFactor 0.5 = 240 cm; 0 = the old point; vertical speed only = no lead; running off the edge of the ground = where it stands now); a standing target at LeadFactor 1 lands exactly where LeadFactor 0 does; a bandit running straight down the lane at a steady 800 cm/s is inside the blast with LeadFactor 1 and outside it with 0 (one throw each, counted as a target hit / miss). Runs on a test copy with a 1 s interval (fixed waits x0.25). Game time x4. |
+| `Upgrades.LuckyCoin` | DA_LuckyCoinSettings (10 damage, every 1.5 s, 20 m, 8 m bounce range, 3 bounces, +1 bounce per 2 full power: 3 3 3 4 4 5 at power 0 / 1 / 1.9 / 2 / 3.5 / 4, +10% damage per power, GE_Damage, coin mesh and material) and DA_Upgrade_LuckyCoin (Weapon, first pick gives it, GE class, in the pool, card texts, "+10% Lucky Coin damage", the number matches the settings); granted: level 1, 3 bounces, 10 per hit; no enemy: no flips in 2 s, then one at once when a bandit appears (nothing banked); one bandit: one hit a flip (logs 6.7 DPS); five tough bandits in a row 4 m apart: every frame on the exact 1.5 s schedule, a flip hits the first four in order, each once (10 a flip each), the fifth never (out of bounces), the damage counted as Lucky Coin in run stats (logs 26.7 DPS); power 1: 11 per hit, still four hit; power 2: 4 bounces, all five hit, 12 each; power 3.5 (a Rare pick): 13.5 per hit, still 4 bounces; two bandits 12 m apart: the flip stops after the first, the far one never hit; its kill is the player's (run-stats kill, combo, XP orb, health orb, cash, Leech); paused: no flips; a new run with a coin in the air: no projectile left, level 0, no flips, a bandit in range untouched. Since Prompt 52b it runs on a test copy that flips every 1.25 s. Game time x4. |
+| `Upgrades.Molotov` | DA_MolotovSettings (every 5 s, 15 m, 0.6 s flight, 4 per burn every 0.5 s for 4 s, 2.5 m patch, +10% damage / +5% radius per power, GE_Damage, bottle and patch meshes and materials) and DA_Upgrade_Molotov (Weapon, first pick gives it, GE class, in the pool, card texts, "+15% Molotov burn damage, +7.5% patch size" for a Rare pick, both numbers match the settings); a bandit 16 m away: no target, no throw; moved to 8 m: a throw at once (nothing banked), the patch at its feet, no collision, drawn at its radius; T 1.2 m in front of the player (in the fire, god mode off), A 1.5 m and B 2.4 m from T, C 2.7 m, D 3 m above: two patches, every frame on the exact 5 s schedule, 8 burns per patch, T / A / B take 32 a patch, C and D nothing, the player nothing, the damage counted as Molotov in run stats; power 1: 4.4 per burn, 262.5 cm, C still outside; power 3 (an Epic pick): 5.2, 287.5 cm, C burns, D still doesn't; paused: the patch doesn't age, no burns, no damage; safe zone: no throws, no burns; one bandit and five bandits in a patch at power 3 (logs DPS); its kill is the player's (run-stats kill, combo, XP orb, health orb, cash, Leech); a new run with a patch burning: no patch or bottle left, level 0, no throws or burns, a bandit in range untouched. Since Prompt 52b: LeadFactor 1 on the asset; a standing target is caught by the first burn and the landing isn't led; a bandit running straight down the lane at a steady 800 cm/s is in the patch at its first burn with LeadFactor 1 and outside it with 0. Runs on a test copy: a throw every 2.75 s, a burn every 0.25 s for 2 s (still 8 burns a patch). Game time x4. |
+| `Upgrades.Tomahawk` | DA_TomahawkSettings (12 damage, every 3 s, 18 m range, 18 m out, 1 tomahawk, +1 per 3 full power: 1 1 2 2 3 at power 0 / 2.9 / 3 / 5.9 / 6, +10% damage per power, GE_Damage, mesh and material) and DA_Upgrade_Tomahawk (Weapon, first pick gives it, GE class, in the pool, card texts, "+10% Tomahawk damage", the number matches the settings); granted: level 1, one tomahawk, 12 per hit; no enemy: no throws, then one at once when a bandit appears (nothing banked); one bandit: 24 a throw, two hits (logs 8 DPS); a line of five 3 m apart and one 2.5 m beside it: every frame on the exact 3 s schedule, thrown at the nearest, each in the line hit once out and once back (24 a throw), the one beside untouched, ten hits a throw, the damage counted as Tomahawk in run stats (logs 40 DPS); a wall across the lane 1.5 m past the second: the two in front hit out and back, the three behind untouched; power 1: 13.2 per hit, still one tomahawk, the far bandit hit again once the wall is gone; power 3 (an Epic pick): 15.6 per hit, two tomahawks at the nearest and the next nearest, 20 hits a throw; its kill is the player's (run-stats kill, combo, XP orb, health orb, cash, Leech); paused: the tomahawk in the air doesn't move, no throws; a new run with a tomahawk in the air: none left, level 0, no throws, a bandit in range untouched. Since Prompt 52b it runs on a test copy that throws every 2.25 s. Game time x4. |
 | `Upgrades.WeaponSlots` | MaxWeapons 3; the real first offer has a weapon card (any weapon); the limit step uses a pool copy without Razor Cards, Barbed Wire, Dynamite, Lucky Coin, Molotov and Tomahawk; test pool with two test weapons, MaxWeapons 1: none owned → both offered, one owned → the other never offered (CanOfferWeapon false) and the owned one still offered, MaxWeapons 2 → offered again; the first offer's weapon card in 400 of 400 offers, 3 different cards, at all three positions, Common and Rare both rolled; slots full → it is the owned weapon; MaxWeapons 0 → no weapon card, 3 cards; card labels NEW WEAPON / WEAPON UPGRADE / STAT BOOST; real run: first offer has the Floating Gun, 3 rerolls keep a weapon card, after the first pick not pending and in 200 later offers the share without a weapon card is within 10 points of the share expected from the weapons that can be offered at each offer (since Prompt 49, per offer since 52; it was "more than 5 of 20"), a new run → pending; a copy of the pool with a test weapon and MaxWeapons 1 (`SetUpgradePoolOverride`): one HUD slot, 30 offers + rerolls never offer the test weapon but offer the Floating Gun, the first one includes it; MaxWeapons 3: the test weapon is offered and picked, slots Floating Gun / test weapon / empty, no weapon in the upgrade row; real pool HUD: 3 empty slots without an icon, Damage in the upgrade row, two Epic Floating Gun picks → slot 1 shows it (icon, no count), the others empty, no Floating Gun in the upgrade row; a new run empties the slots; death → summary weapons line "Floating Gun", upgrades "Damage x1", one upgrade icon. |
 | `Upgrades.MoveSpeedSlideDash` | Base Move Speed: ratio exactly 1, the scaled settings getters equal the plain values at 1; half Move Speed → ratio 1 (never below), ×2 → 2; a Move Speed pick raises it, a new run resets it; on a clear 34 m lane of the ring road, a slide from a full run and a dash at ×1 and ×2: each keeps its start ratio; slide start = min(run + SpeedBoost × r, MaxSpeed × r) and faster than running, end = EndSpeed × r; dash = Distance × r in its Duration (±0.02 / +0.06 s), exit = min(ExitSpeed, dash speed) × r = the running speed; ×1 = the old numbers exactly; ×2 = twice the distance in the same time (within 0.05 s), the slide ends at twice EndSpeed; ×33: a dash and a slide into the east boundary wall stop inside. |
 | `Upgrades.MoveSpeedCover` | A crate, a low wall, a shack, a tower and the silo, each with a clear 6 m run-up; at Move Speed ×1, ×5 and ×33, a dash and a slide from a full run into each, the player's location sampled every frame in the piece's own frame: no frame overlaps the piece, the player stays on the ground, and if it ends behind the piece it went round it. Logs each path. Game time ×3. |
@@ -3568,10 +3663,17 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   bandits inside = 40 DPS. Look: 48 segments of the engine cube, 4 cm wire, 3 cm above the floor, MI_BarbedWire (grey);
   RadialBurst ×0.06 on each enemy hit.
 - **Dynamite** (DA_DynamiteSettings): every 4 s (exact schedule) a stick lobbed at the enemy within 20 m with the most
-  other enemies within the blast radius of it (nearest on a tie; no clear line needed); it lands at that enemy's feet
-  0.6 s later (arc 3 m high) and blasts every enemy within 3 m of where it stood for 40 × the player's Damage, each with
-  its own crit roll. Each point of power: +10% damage, +5% blast radius (power 3: 52 per enemy, 3.45 m). Look: the engine
+  other enemies within the blast radius of it (nearest on a tie; no clear line needed); it lands 0.6 s later (arc 3 m
+  high) on the ground where that enemy will be (`LeadFactor` 1: its flat velocity × the flight time; a melee bandit at
+  520 cm/s is led about 3.1 m) and blasts every enemy within 3 m of the body over that point for 40 × the player's
+  Damage, each with its own crit roll. Each point of power: +10% damage, +5% blast radius (power 3: 52 per enemy, 3.45 m). Look: the engine
   cylinder (0.08, 0.08, 0.3) with MI_Dynamite (red), tumbling 720°/s, SimpleExplosion scaled to the radius.
+- **Molotov** (DA_MolotovSettings): every 5 s (exact schedule) a bottle lobbed at the nearest enemy within 15 m; it lands
+  0.6 s later on the ground where that enemy will be (`LeadFactor` 1, as Dynamite) and leaves a 2.5 m patch (flat, 2 m up
+  or down) that burns every enemy in it for 4 × the player's Damage every 0.5 s for 4 s (8 burns). Each point of power:
+  +10% burn damage, +5% patch radius.
+- **Lead in the PIE check (Prompt 52b),** the first 10 throws at running melee bandits: Dynamite caught its target 7 of 10
+  times with LeadFactor 0 and 9 of 10 with 1; the Molotov's first burn caught it 0 of 10 times with 0 and 10 of 10 with 1.
 - **Weapons at power 0, Damage 1, no crits:**
 
   | Weapon | One enemy | Five enemies |
@@ -3604,8 +3706,9 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   - Placeholder look: a dark green cylinder for the bottle, a flat orange glowing disc for the fire (no flames, no
     particles), editor sounds (`VR_click3_Cue`, `VR_negative_Cue`) that may not cook. Big patches (high power) cover the
     floor in flat orange.
-  - The patch lands where the target stood when the bottle was thrown; a walking bandit can be out of it by then, and
-    bandits walk through it rather than avoiding it (no AI reaction to fire).
+  - Since Prompt 52b the patch lands where the target will be (its velocity at the throw × the flight time). A bandit
+    that turns, stops or reaches the player during the 0.6 s flight can still be out of it. Bandits walk through the
+    fire rather than avoiding it (no AI reaction to fire).
   - Burns ignore walls (an enemy behind a thin wall inside the radius burns), like Barbed Wire.
   - The burn damage and radius are set when the bottle is thrown; a pick doesn't change a patch already burning.
   - Every burn shows a damage number per enemy: with a crowd in a patch that is many numbers every 0.5 s.
@@ -3621,11 +3724,13 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - Dynamite (Prompt 49):
   - Placeholder look: a red cylinder tumbling through the air, the `SimpleExplosion` template scaled to the blast, editor
     sounds (`VR_click3_Cue`, `VR_negative_Cue`) that may not cook.
-  - The stick lands where the target stood when it was thrown. A bandit walking at full speed covers about 3 m in the
-    0.6 s flight, so against a running crowd the blast often hits the bandits around the spot rather than the target.
+  - Since Prompt 52b the stick lands where the target will be (its velocity at the throw × the flight time). A bandit
+    that turns or stops at the player during the 0.6 s flight can be missed, and one running straight at the player can
+    have its lead land past the player (the blast then still covers the player's spot, but not always the bandit).
+  - The lead uses the velocity at the throw only, with no path prediction: a bandit pathing round cover can leave the
+    led spot.
   - The blast has no line-of-sight check (like Powder Keg): enemies behind a wall inside the radius are hit.
-  - `Upgrades.Dynamite` is the slowest test (about 23 s): the 4 s interval at ×4 and several waits longer than an
-    interval.
+  - `Upgrades.Dynamite` took about 23 s; since 52b it runs on a test copy with a 1 s interval (about 7 s).
   - Not replicated (`TODO(co-op)`).
 - M2b + M2c checkpoint (Prompt 48), seen in the PIE loops:
   - The PIE loops cleared rounds with god mode and `gs.KillAll`, as in Prompt 28, so health stayed full: the health
@@ -3958,6 +4063,8 @@ questions). Each prompt updates the tests that assume the old design.
 50. ~~**Lucky Coin** (weapon).~~ Done (see Prompt 50): a coin that bounces from enemy to enemy, each once per flip.
 51. ~~**Molotov** (weapon).~~ Done (see Prompt 51): a bottle that leaves a burning patch for 4 s.
 52. ~~**Tomahawk** (weapon).~~ Done (see Prompt 52): a tomahawk that cuts through a line of enemies and comes back.
+52b. ~~**Fix: Dynamite and Molotov lead their target**, plus tidying from 49–52 (PROGRESS.md repair, faster weapon tests,
+    the unity-build naming rule).~~ Done (see Prompt 52b).
 53. **Weapons checkpoint.**
 
 **Then M3** (after the weapons checkpoint; not planned in detail yet; each item needs its own prompt). From the decisions so far:
