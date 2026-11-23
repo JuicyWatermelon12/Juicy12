@@ -9,6 +9,7 @@
 
 class AGSEnemyCharacter;
 class AGSGameMode;
+class USkeletalMesh;
 class AGSPlayerController;
 class UGSUpgradeComponent;
 struct FGSUpgradeChoice;
@@ -159,6 +160,15 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "BanditBaller|Debug")
 	static FGSUpgradeOfferSimulation SimulateUpgradeOffersOwning(int32 Count, int32 Seed, const TArray<FString>& OwnedUpgrades);
+
+	/**
+	 * Placeholder pipeline check (Prompt 56): one line per bone of the skeletal mesh's own reference pose, local
+	 * (parent-space) translation, rotation and scale, plus the component-space location; MaxBones 0 = all. Compare a
+	 * Blender export against the mesh it replaces (e.g. SKM_Quinn_Simple) to catch scale or axis errors on the bones.
+	 * No PIE needed (MCP: BanditBallerTools.describe_ref_pose).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "BanditBaller|Debug")
+	static FString DescribeRefPose(USkeletalMesh* Mesh, const TArray<FName>& Bones, int32 MaxBones = 0);
 
 	/**
 	 * Debug (cvar gs.Debug.AutoPickUpgrades 1): a frame later, take every open upgrade offer by a fixed policy, for

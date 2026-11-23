@@ -62,11 +62,12 @@ M2b + M2c checkpoint (48), which replaced the old M2b checkpoint). See **M2b + M
 **Weapons** after M2c: Dynamite (49), Lucky Coin (50), Molotov (51) and Tomahawk (52) are built: all seven weapons exist.
 Dynamite and the Molotov lead a moving target since 52b. **The weapons checkpoint (53) is done:** see **Weapons checkpoint**
 under Prompt 53. **The weapons block is complete.**
-**M2d** (cops, city and round flow) is planned (Prompt 54, docs only) and Blender is connected through MCP (55); **next
-is Prompt 56** (placeholder pipeline and the robber). After M2d's checkpoint (69): **M3** (shop, owned items, gear
-loadout, two-layer save); not planned in detail yet.
+**M2d** (cops, city and round flow) is planned (Prompt 54, docs only), Blender is connected through MCP (55), and the
+Blender placeholder pipeline, the low-poly body and the robber are built (56); **next is Prompt 57** (rename the enemies
+and give them cop models). After M2d's checkpoint (69): **M3** (shop, owned items, gear loadout, two-layer save); not
+planned in detail yet.
 
-State at the time of writing: `main` after "Blender MCP setup" (Prompt 55), not pushed. The build is clean and all 63 automation tests pass in about 160 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Blender placeholder pipeline and the robber" (Prompt 56), not pushed. The build is clean and all 64 automation tests pass in about 161 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -138,7 +139,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | W 52b | Fix: Dynamite and Molotov lead a moving target (LeadFactor 1, in data); PROGRESS.md repair; the four new weapon tests run on faster settings copies (suite 182 → 160 s); unity-build naming rule | 4878371 |
 | W 53 | Weapons checkpoint: `Checkpoint.SevenWeapons` (pool contents, the slot limit for all 35 sets of three, real runs with rerolls, first offers), the simulator with owned upgrades, a DPS table for all seven weapons, two PIE loops with auto-pick, frame time with three weapons and 30+ enemies | 412063a |
 | M2d 54 | Design update: cops and robbers, the city map, the low-poly look, Blender placeholders, enemy names, dodgeable shots, the 40% ranged cap, eight enemy types by round, 100 alive, roll-over rounds and the breather; Prompts 55–69 planned (docs only) | 23a6880 |
-| M2d 55 | Blender MCP setup: uv 0.13.9, mcp-for-blender 2.3.1 and its Blender 5.3 add-on, the `blender` server in `.mcp.json` (safe mode, no telemetry), CLAUDE.md **Blender** section (tooling only) | see git log |
+| M2d 55 | Blender MCP setup: uv 0.13.9, mcp-for-blender 2.3.1 and its Blender 5.3 add-on, the `blender` server in `.mcp.json` (safe mode, no telemetry), CLAUDE.md **Blender** section (tooling only) | fd5d46d, e0c39e6 |
+| M2d 56 | Blender placeholder pipeline (FBX; `M_LowPoly`; CLAUDE.md **Placeholder models**), baton / cap / carbine, `SK_LowPolyBody` (1,524 triangles) on `SK_Mannequin`, the robber on the player (ski mask and loot bag as worn props, `FGSMeshAttachment`), `Art.PlayerMesh`, MCP tools `export_asset_fbx` / `import_mesh_file` / `describe_ref_pose` / `console_command` | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -3613,6 +3615,95 @@ Tooling only: no game code, assets or tests changed.
   start check confirms `blender` too; save .blend files before running code; one client only; the MSIX rule) and
   Blender MCP in the tooling split.
 
+### Prompt 56 — Blender placeholder pipeline and the robber
+How placeholder models get from Blender into Unreal, the first props, a low-poly body on the mannequin skeleton, and
+the robber on the player. Nothing about how the game plays changed. The routine and the style rules are in CLAUDE.md
+(**Placeholder models**).
+- **Folders:** `Art/Blender/` (`Props.blend`, `LowPolyBody.blend`) and `Art/Export/<Kind>/` in the repo;
+  `.gitattributes` already sends `.blend`, `.fbx`, `.glb` / `.gltf` and `.bin` to LFS; `.gitignore` now skips Blender's
+  `.blend1` backups. In Unreal `/Game/Art/Placeholders/` with `Characters`, `Props`, `Enemies`, `Weapons`, `City` and
+  `Materials`.
+- **FBX, not glTF** (the baton both ways): both gave the same geometry in UE 5.8 (140 triangles, 240 vertices, flat
+  shading kept, X forward, the right size, the Blender material names as slots). FBX through the MCP tools imports one
+  mesh where it is asked, with no extra assets and Nanite off, and it is the only path that binds a mesh to an
+  existing skeleton (`SkeletalMeshTools.import_file`). glTF needs Interchange (the MCP import only takes FBX / OBJ),
+  which adds its own `<file>/StaticMeshes` and `/Materials` folders, makes three material assets we'd throw away and
+  turns Nanite on.
+- **`/Game/Art/Placeholders/Materials/M_LowPoly`**: `Color` (vector) → Base Color, `Roughness` (0.75), `Metallic` (0),
+  `EmissiveColor` × `EmissiveStrength` (0) → Emissive; usage flags for skeletal and instanced meshes. 26 `MI_` colour
+  instances so far (`MI_LowPoly_*` for props and the body's neutral defaults, `MI_Robber_*` for the player).
+- **Props** (`Props.blend`, Unit Scale 1, metres), checked in Blender and in Unreal (sizes below are the UE bounds):
+
+  | Asset | Folder | Triangles | Size | Origin | Slots |
+  |---|---|---|---|---|---|
+  | `SM_PoliceBaton` | Props | 140 | 62 cm long (−2 to 60 on X) | grip end | Baton, Rubber, Metal |
+  | `SM_PoliceCap` | Props | 134 | 28 × 24 × 12 cm, visor toward +X | bottom of the band | CapNavy, CapVisor, CapBadge (gold, faint glow) |
+  | `SM_PatrolCarbine` | Weapons | 148 | 87 cm (−28.5 to 58.5 on X) | top of the pistol grip, muzzle toward +X | GunMetal, Polymer, GunAccent (tan magazine) |
+
+  Not attached to anything yet (Prompt 57).
+- **`SK_LowPolyBody`** (`/Game/Art/Placeholders/Characters`), on the existing **`SK_Mannequin`** skeleton with
+  **`PA_Mannequin`**, so `ABP_Unarmed` and every existing animation drive it unchanged:
+  - Made from `SKM_Quinn_Simple` exported from Unreal (new tool `export_asset_fbx`) and imported into Blender: the
+    armature (88 bones) was kept, Quinn's mesh dropped, and blocks built on the bones: head (+ nose, ears, a headwear
+    block), neck, chest, belly, hips with a belt, upper and lower arms, hands with a thumb, upper and lower legs, feet.
+    17 bones carry geometry; **every vertex is weighted 1.0 to exactly one bone** (checked: 0 vertices with another
+    count or weight), so nothing needs weight painting and nothing stretches.
+  - **1,524 triangles** (Quinn's LOD 0: 87,280). Six slots for re-colouring: Skin, Top, Trousers, Shoes, Gloves,
+    Headwear (neutral `MI_LowPoly_Body*` defaults on the asset).
+  - Its reference pose matches `SKM_Quinn_Simple` bone for bone (new `describe_ref_pose`): `root` scale 1, `pelvis`
+    (0, 2.38, 98.69), `head` (0, 0.14, 162.5), the same rotations. Bounds 181.5 cm tall (Quinn 180.2).
+  - **The trap that cost the most time:** exported from a metre-scale file, Blender's FBX writes the ×100 unit scale on
+    the armature node. Unreal then keeps `root` at scale 100 with every other bone in metres; the mesh looks right in
+    its reference pose (and its bounds are right), but every animation sets `root` back to 1 and the body shrinks to
+    1.8 cm. "Apply Transform" (`bake_space_transform`) and `FBX_SCALE_ALL` didn't help (the second gave 0.9 cm bounds).
+    Fix: the body file works in centimetres (Unit Scale 0.01, data ×100), so the exporter needs no scale at all.
+    `Art.PlayerMesh` now checks `root` scale 1 and the animated height.
+  - Updating an asset already in use goes through the new `import_mesh_file` (Interchange reimport in place). The MCP
+    import refuses an existing name, and delete + import failed while the old object stayed in memory.
+- **The robber** (the player, `BP_GSCharacter`, in the hub and in a run): `SK_LowPolyBody` with the robber's colour
+  overrides (`MI_Robber_*`: charcoal top, dark navy trousers, black gloves, dark brown shoes) and two **worn props, not
+  part of the mesh**, so the body stays one shared mesh for every character:
+  - `SM_SkiMask` (242 triangles): black, crown over the head, a strip round the sides and back, a chin piece with a
+    nose, a neck cuff, a thin red trim; only the eyes show through a slit. On the `head` bone.
+  - `SM_LootBag` (308 triangles): a tan sack on the back with a tie, two dark straps over the shoulders, and a green
+    "$" with a faint glow. On `spine_04`.
+  - Robber total: 2,074 triangles (body + mask + bag).
+  - **`Core/GSMeshAttachment.*`** (new): `FGSMeshAttachment` (Mesh, Bone, `bModeledInMeshSpace`, Offset, Materials)
+    and `GSMeshAttachments::Apply`. `AGSCharacter::MeshAttachments` (set on BP_GSCharacter) builds one static mesh
+    component per entry in `OnConstruction`: no collision, no overlaps, no navigation effect, created by the
+    construction script. With `bModeledInMeshSpace` the prop keeps the mesh's own axes at the bone's joint in the
+    reference pose and then moves rigidly with the bone, so a prop modelled around the body in Blender fits without
+    any hand-tuned offset (both props have offset 0). `GetMeshAttachmentComponents()` for tests. The cops can use the
+    same list for caps and batons (Prompt 57; enemies don't use it yet).
+- **New MCP tools** (`BanditBallerTools`, editor): `export_asset_fbx(asset_path, file_path)` (skeletal or static mesh,
+  LOD 0, into the project folder), `import_mesh_file(file_path, destination_path, asset_name)` (Unreal's default
+  importer, Interchange in 5.8; replaces an existing asset in place), `describe_ref_pose(mesh_path, bones, max_bones)`
+  (`UGSDebugLibrary::DescribeRefPose`) and `console_command(command)` (runs in PIE or the editor world; much faster than
+  typing into the Cmd box).
+- **New debug execs** on the controller: `GSAim 1|0`, `GSSwapShoulder`, `GSRun <seconds>` (MCP can't hold keys).
+- **Checks in PIE** (town and hub, screenshots with `shot` / `shot showui`):
+
+  | Check | Result |
+  |---|---|
+  | Right shoulder, hip fire, level / looking up / looking down ~50° | Crosshair clear. The masked head comes within ~50 px when looking up; the bag never comes near it. |
+  | Right shoulder, aiming down sights | Clear; the robber and bag on the left third. |
+  | Left shoulder, hip fire and aiming down sights | Clear; the robber on the right. (A shot taken during the 1 s shoulder blend shows the body crossing the centre, as before.) |
+  | Rifle and pistol | Both sit in the right hand as before (`hand_r`, unchanged weapon transforms); both fire (30 → 29, 12 → 11). They are still the engine-cube placeholders. |
+  | Run, jump, slide, dash | All play with the existing animations; the blocks stay together at the joints (small gaps at bent knees and elbows). The slide plays the run pose (there is no slide animation), as before. |
+  | Floating Gun (2 guns) and Floating Shields (3) | Same positions as before: the guns above the shoulders, the shields at chest height; neither collides with the bag. Shields orbit through the view as before. |
+  | Death | The ragdoll (`PA_Mannequin`) falls; the mask and the bag stay on their bones. |
+  | Hub | The robber under the hub's warm light. |
+
+- **Frame time** (`gs.Perf 5`, town, PlayerStart, round paused, no enemies, 120 fps cap): before (Quinn, its own
+  session) 8.33 ms, game 2.46, render 2.76, GPU 2.66; after (the robber) 8.33 ms, game 2.57, render 2.83, GPU 2.64. A/B
+  in that same session with Quinn swapped back in: 8.37 ms, game 2.66, render 2.87, GPU 2.71. The difference is noise:
+  one character's triangles don't show at this scale.
+- **Tests:** new `Art.PlayerMesh` (see the test table). No existing test named the old player mesh, so none changed.
+- **Fixed along the way:** the export tool first lowercased the folders it created (`art/export/reference`); fixed, and
+  the folder renamed back to `Art`. A "save all dirty" call had saved `L_Hub_Graybox` while test actors were placed
+  in it; the map was restored from git (no change to the hub).
+- **Full suite:** 64 tests, all passing, in 161.0 s.
+
 ---
 
 ## Console commands and CVars
@@ -3658,6 +3749,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.Wave.MaxAlive <N>` (cvar) | Override the alive cap (0 = DA_WaveSettings). |
 | `gs.Cash.Lifetime <s>` (cvar) | Lifetime of uncollected cash pieces (0 = DA_CashSettings). |
 | `GSFire`, `GSPress <InputTag>`, `GSAimAt X Y Z`, `GSJump` | Exec on the controller: drive fire, any ability input, the camera, or a jump tap from the console. |
+| `GSAim 1\|0`, `GSSwapShoulder`, `GSRun <Seconds>` | Exec on the controller (Prompt 56): aim down sights on / off, swap the camera shoulder, hold the move input toward the camera's facing for that long (game time). For camera and animation checks from MCP. |
 
 Launch arg: `-GSSeed=N` fixes the run seed.
 
@@ -3668,6 +3760,11 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - `list_enemies_alive()` (PIE)
 - `simulate_upgrade_offers(count=10000, seed=1, owned="")` (no PIE needed): rolls DA_UpgradePool offers with its own stream (with the comma-separated `owned` upgrades counted as one pick each, e.g. three weapons for full slots) and
   returns JSON text with how often each upgrade and rarity appears.
+- Editor tools (Prompt 56, no PIE needed): `export_asset_fbx(asset_path, file_path)` (a skeletal or static mesh to FBX,
+  LOD 0, inside the project folder), `import_mesh_file(file_path, destination_path, asset_name)` (Unreal's default
+  importer; replaces an existing asset in place, which is how placeholder meshes are updated), `describe_ref_pose(mesh_path,
+  bones="", max_bones=0)` (a skeletal mesh's reference pose per bone) and `console_command(command)` (one console command
+  in PIE, else in the editor world).
 
 ## GAS reference
 
@@ -3757,7 +3854,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (63, all passing, about 160 s)
+## Automation tests (64, all passing, about 161 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
@@ -3830,6 +3927,7 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Checkpoint.WeaponLimitAllThree` | Real pool (since Prompt 49): three real weapons owned, 60 offers and their rerolls never offer an unowned real weapon, the owned ones still offered. Then all three M2c weapons owned, plus a fourth test weapon in a pool copy: HUD slots in pick order (Barbed Wire, Razor Cards, Floating Gun), no weapon in the upgrade row; slots full: `CanOfferWeapon` refuses the fourth; 60 offers and their rerolls never offer it, and owned weapons are still offered (31 times in the run); still three weapons; with MaxWeapons 4 the fourth is offered; the auto-pick policy (owned weapon with full slots, new weapon with a free slot, reroll when all Common, first without rerolls, else the rarest). |
 | `Checkpoint.SevenWeapons` | Real DA_UpgradePool (Prompt 53): 21 upgrades, each once and in its category (7 Stat Boosts, 7 Abilities with Second Wind the only Legendary ability, 7 Weapons), every DA_Upgrade_* asset in the pool, MaxWeapons 3, three HUD slots; the roll for each of the 35 sets of three owned weapons (200 offers each, half of them first offers with the weapon card): the other four never rolled, each owned one still rolled; 8 real runs of 40 offers, taking weapon cards and keeping the rerolls for when the slots are full: never more than three weapons, every run fills its slots, no unowned weapon in the 293 offers and 24 rerolls after that; 48 new runs: every first offer and its 3 rerolls has a weapon card, and all seven weapons come up as first-offer weapons. |
 | `Upgrades.PowderKegChainEnds` | 34 stacks (102%), 8 frozen 10 HP bandits in a line 2.5 m apart. One kill starts a chain that runs down the line and ends: all 8 die, exactly 8 blasts, nothing pending. The player (no god mode, 6 m from the first) is never hurt. Run stats record the Powder Keg damage. Game time ×4. |
+| `Art.PlayerMesh` | Prompt 56, in the town and then the hub: the player's mesh is `SK_LowPolyBody` on the same skeleton as before (`SK_Mannequin`), with `PA_Mannequin` and `ABP_Unarmed` running; six colour slots; bones `hand_r`, `head`, `spine_04`, `foot_l`; in the animated pose the head is 140–175 cm above the foot and `root` has scale 1 in the reference pose (the FBX unit-scale trap); two worn props (`SM_SkiMask` on `head`, `SM_LootBag` on `spine_04`), attached to the body, no collision, visible, the mask at the head and the bag more than 10 cm behind the chest. |
 | `Economy.HealthOrbsAllSources` | For each kind of player kill (own kill, Floating Gun, Razor Cards, Barbed Wire, a Powder Keg blast kill) in a fresh run: at drop chance 1 every kill drops an orb, at 0 none, and the damage is recorded under that source in run stats. Chance 0.3 in bulk: 60 own kills and a crowd killed by one Barbed Wire tick (5 Legendary picks) drop at about the same rate (23 of 60 and 16 of 50 in the run). Game time ×4. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
@@ -4014,9 +4112,25 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 **Not built yet / stubs**
 - The M2c upgrade rework is complete (Prompts 41–48), and so are the last four weapons (49–52) and the weapons checkpoint
   (53). M2d (Prompts 55–69) is next, then M3.
-- M2d (designed in Prompt 54) isn't built: the code still has bandits (MeleeBandit / RangedBandit), mannequin and
-  engine-shape placeholders, hit-scan enemy shots, no ranged cap, an alive cap of 30, separate rounds with a PreRound
-  countdown and a RoundClear pause, and the 300 × 300 m town.
+- M2d (designed in Prompt 54) is only started: the player is the robber (Prompt 56), but the code still has bandits
+  (MeleeBandit / RangedBandit) on the mannequins, engine-shape placeholders for weapons, pickups and cover, hit-scan
+  enemy shots, no ranged cap, an alive cap of 30, separate rounds with a PreRound countdown and a RoundClear pause, and
+  the 300 × 300 m town.
+- Placeholder pipeline and the robber (Prompt 56):
+  - The level-up glow (`M_LevelUpGlow`) still lacks the skeletal-mesh usage flag (known since Prompt 14), so on
+    `SK_LowPolyBody` the overlay falls back to the default material (tests log "Overlay material with missing skel mesh
+    usage flag"). It doesn't reach the worn props either.
+  - The rifle and pistol are still the engine-cube placeholders (Prompt 68), held by the `ABP_Unarmed` hand pose:
+    there are no weapon-holding, slide or aim animations yet.
+  - Rigid one-bone parts leave small gaps or overlaps at bent knees, elbows and the neck. That's by design (no weight
+    painting).
+  - The ski mask and loot bag aren't part of the run summary or any gameplay; they are cosmetic components built in
+    `OnConstruction`.
+  - `AssetTools.exists` reported false for assets that exist in this session, and `AssetTools.delete` removed
+    `_ImportTest/SK_Body_FbxFactory` from the registry but left its file until the editor closed. Use `find_assets` to
+    check.
+  - The two `.blend` files and every export are in git LFS; re-export after editing a .blend, or Unreal and the
+    exports drift apart.
 - Tomahawk (Prompt 52):
   - Placeholder look: a flattened grey engine cone spinning end over end, the RadialBurst template on hits, an editor
     click sound that may not cook. No trail, so it is hard to follow at 20 m/s.
@@ -4232,7 +4346,9 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 
 **Placeholder art**:
-- Mannequins with tinted materials.
+- The player is the robber since Prompt 56: `SK_LowPolyBody` (Blender, low poly) with `SM_SkiMask` and `SM_LootBag`;
+  see CLAUDE.md **Placeholder models**. Props ready for the cops: `SM_PoliceBaton`, `SM_PoliceCap`, `SM_PatrolCarbine`.
+- Enemies: mannequins with tinted materials (until Prompt 57).
 - `MI_CashCoin` / `MI_CashBill` are instances of `M_Enemy_MeleeBandit` (changing that material changes the cash).
 - The telegraph uses `M_EnemyLaser`.
 - Level-up: `M_LevelUpGlow` overlay and the `CompileSuccess` editor sound.
@@ -4278,6 +4394,12 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 - Screenshots: `CaptureEditorImage` → `AssetTools.write_file` into `Saved/` as `.txt` (only .csv / .html / .json /
   .md / .py / .txt are allowed), then base64-decode with PowerShell. `SlateInspectorToolset.PressKey` (key names
   like `Two`, `R`, `Gamepad_DPad_Right`) sends real key presses to the focused widget, e.g. the choice screen.
+- MCP calls now arrive within a frame or two (since the Prompt 56 session; earlier notes say 1–3 s). Wait with
+  PowerShell `Start-Sleep` between a command and what should follow it (a run before a slide, a camera blend before a
+  screenshot); `slomo 0.1` helps catch a move mid-way. Screenshots: `console_command("shot")` →
+  `Saved/Screenshots/WindowsEditor/`.
+- The `cd` in a Bash call moves the session's working directory for later calls; a folder can't be renamed while a
+  shell sits in it ("in use").
 - Holding an input in PIE from MCP: the engine console commands `Input.+key <Key>` / `Input.-key <Key>` hold and
   release a key (`LeftMouseButton` holds fire). Reads inside one `ProgrammaticToolset` script all come from the same
   frame (no world time passes between calls in a script), so read changing values across separate tool calls.
@@ -4404,8 +4526,8 @@ and round flow (M2d)** for the decisions and open questions). Each prompt update
 54. ~~**M2d docs.**~~ Done (see **Design update — cops, city and round flow (M2d)**; docs only).
 55. ~~**Connect Blender:** a Blender MCP server for this project, checked from a session.~~ Done (see Prompt 55); both
     servers checked after the restart.
-56. **Placeholder pipeline and the robber:** Blender → Unreal for low-poly placeholders (export, import, materials in
-    the low-poly look), and the player's robber model on today's skeleton and animations.
+56. ~~**Placeholder pipeline and the robber:** Blender → Unreal for low-poly placeholders (export, import, materials in
+    the low-poly look), and the player's robber model on today's skeleton and animations.~~ Done (see Prompt 56).
 57. **Rename the enemies and give them cop models:** MeleeBandit → Beat Cop (baton), RangedBandit → Patrol Officer
     (carbine) in code, assets, commands and tests; Blender models with cap, baton and carbine.
 58. **Dodgeable ranged shots and the ranged cap:** enemy shots become visible projectiles (~28 m/s, aimed at where

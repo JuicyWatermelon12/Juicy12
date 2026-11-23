@@ -84,7 +84,7 @@ Source/BanditBaller/
               character, settings data classes, run random/stats, progression (XP/levels/rewards, upgrades),
               kill combo, floating shields (state on the PlayerState, visuals on the character), second wind,
               debug library + cheat commands, profile subsystem + save (permanent cash),
-              map boundary (AGSMapBoundary) + collision channels
+              map boundary (AGSMapBoundary) + collision channels, worn props (FGSMeshAttachment)
   Abilities/  GAS: ASC, AttributeSet, tags, abilities, effects, ability sets
   Combat/     weapons, health/death component, target dummy, hit camera shake, critical hits, projectile + pool
               (optional homing, ignore list, finish callback), floating gun (gun actor + character component +
@@ -101,7 +101,9 @@ Source/BanditBaller/
 Content/BanditBaller/
   Core (framework BPs), Abilities (GA_/GE_/ability sets), Data (DA_/DT_ tuning), Enemies, Weapons, Input,
   UI (WBP_), Materials, Maps (L_Hub_Graybox, L_Town_Graybox), Characters, Hub (hub actors: BP_GSStartRunPortal)
+Content/Art/Placeholders/  Blender placeholders: Characters, Props, Enemies, Weapons, City, Materials (M_LowPoly + MI_)
 Content/Python/   init_unreal.py + banditballer_toolset/ (project MCP toolset; restart the editor after edits)
+Art/Blender/      Blender sources (.blend); Art/Export/<Kind>/ the FBX exports (both in git LFS)
 docs/PROGRESS.md  progress log and reference
 ```
 
@@ -247,9 +249,15 @@ docs/PROGRESS.md  progress log and reference
   `banditballer_toolset.toolsets.BanditBallerTools`.
 - After `ObjectTools.set_properties` on a Blueprint CDO (e.g. `BP_GSGameMode.Default__BP_GSGameMode_C`), run
   `BlueprintTools.compile_blueprint` before saving/PIE. Otherwise spawned instances keep the old value.
-- Console commands: `SlateInspectorToolset` → `Observe(ref "")`, `Snapshot` to find the textbox right after the
-  "Cmd" combobox (`tb2`/`tb3`, changes per session), then `Click` + `Type <ref> "<command>" submit=true`. Send
-  several at once with one `ProgrammaticToolset.execute_tool_script`.
+- Console commands: `BanditBallerTools.console_command` (runs in PIE when PIE is running, else in the editor world;
+  since Prompt 56). The old way still works: `SlateInspectorToolset` → `Observe(ref "")`, `Snapshot` to find the
+  textbox right after the "Cmd" combobox, then `Click` + `Type <ref> "<command>" submit=true`.
+- Screenshots in PIE: `console_command("shot")` (game view only) or `"shot showui"` (with the HUD and the editor
+  frame) writes `Saved/Screenshots/WindowsEditor/ScreenShotNNNNN.png`; read it with the Read tool. `slomo 0.1` first
+  catches a jump or dash mid-move. MCP calls arrive within a frame or two now, so wait with PowerShell `Start-Sleep`
+  between a command and the screenshot (camera blends take ~1 s).
+- Debug execs for camera checks: `GSAim 1|0` (aim down sights), `GSSwapShoulder`, `GSRun <s>` (hold forward input),
+  besides `GSAimAt`, `GSJump`, `GSFire`, `GSPress <InputTag>`.
 - PIE: `remove_from_scene` is refused (teleport below KillZ instead). Round 1 Combat starts 3 s in, so send
   `gs.God 1` / `gs.Round.Pause 1` right after starting PIE. With the editor in the background PIE runs at ~3 FPS:
   set `/Script/UnrealEd.Default__EditorPerformanceSettings` `bThrottleCPUWhenNotForeground` false in memory for
@@ -257,9 +265,9 @@ docs/PROGRESS.md  progress log and reference
 - `CaptureViewport` shows the editor world, not PIE; use `CaptureEditorImage` (base64 PNG; decode with PowerShell).
 - Tests: stop PIE, then `AutomationTestToolset` → `DiscoverTests`. Area tests: `RunTests(["BanditBaller.Round.PhaseLoop",
   ...])` or `RunTestsByFilter("StartsWith:BanditBaller.Round")`. Full suite (once per prompt, before the commit):
-  `RunTestsByFilter("StartsWith:BanditBaller")`, under 3 minutes (160 s for 63 tests in Prompt 53). The editor console also works:
+  `RunTestsByFilter("StartsWith:BanditBaller")`, under 3 minutes (161 s for 64 tests in Prompt 56). The editor console also works:
   `Automation RunTests BanditBaller`. Each result has a `duration` for speed checks.
-- Playing in PIE through MCP: a console command takes 1–3 s to arrive, too slow to fight. Read live round state with
+- Playing in PIE through MCP: still too slow to fight (each call is a round trip). Read live round state with
   `ObjectTools.get_properties` on `...UEDPIE_0_L_Town_Graybox...:PersistentLevel.BP_GSGameState_C_0` (`RoundPhase`,
   `WaveEnemiesTotal/Remaining/Alive`). Clear waves with `gs.God 1` + `gs.KillAll`, and read results from the `[round]`
   / `[upgrade]` log lines (the log file flushes a few seconds late). Click run-summary buttons with
@@ -283,6 +291,51 @@ docs/PROGRESS.md  progress log and reference
   So run uv installs and updates (`uvx mcp-for-blender install-addon`, `uvx mcp-for-blender@latest update`, new Python
   versions) in a normal PowerShell from the Start menu, not from this session or the app's terminal panel. Otherwise
   uv's Python links break and the add-on lands where Blender can't see it.
+
+## Placeholder models
+"Make it in Blender" means this section. Set up in Prompt 56; details and the reasons in `docs/PROGRESS.md`
+(**Prompt 56**).
+- **Style:** very basic low poly that gives the idea of the theme (cops and robbers) and of the final look. Flat shaded
+  (every face `use_smooth = False`, FBX smoothing "Face"), clean blocks of colour from a few plain materials, no
+  textures, no UVs needed.
+- **Budget:** props up to about 300 triangles; characters and vehicles up to about 2,000.
+- **Size and axes:** real size. X forward, Z up after import: Blender +X = Unreal +X, Blender +Z = Unreal +Z, Blender
+  +Y = Unreal −Y. Props point along +X (a barrel, a baton). Bodies face −Y in Blender (Unreal +Y, as the mannequins;
+  the character's mesh component turns them to face +X).
+- **Origin:** at the base (a cap, a crate) or the grip (a weapon). Props worn on a body sit on their bone's joint.
+- **Names:** meshes `SM_<Name>` / `SK_<Name>`, materials `MI_<Name>` (instances of `M_LowPoly`). A Blender material's
+  name becomes the Unreal slot name (`Rubber`, `Top`, …).
+- **Folders:** Blender sources `Art/Blender/<Group>.blend` (`Props.blend`, `LowPolyBody.blend`; one file per group);
+  exports `Art/Export/<Kind>/<Asset>.fbx`; Unreal `/Game/Art/Placeholders/<Kind>/` with Kind = Characters, Props,
+  Enemies, Weapons or City, and `/Game/Art/Placeholders/Materials/` for `M_LowPoly` and the `MI_` colours.
+- **Units (important):**
+  - Static props: the file's Unit Scale is 1.0 and a Blender unit is a metre.
+  - Anything on the `SK_Mannequin` skeleton (`LowPolyBody.blend` and everything modelled around the body): Unit Scale
+    0.01 and a Blender unit is a centimetre (lengths still display in metres). Otherwise the FBX puts a ×100 scale on the
+    `root` bone and the animations shrink the body 100 times. The armature object must be named `root` (it becomes the
+    root bone).
+- **The routine** (FBX; glTF was tried and is not used, see PROGRESS):
+  1. Blender open with its MCP server; save the .blend before running code.
+  2. Build with `execute_blender_code`. Bodies: one block per part, each vertex weighted 1.0 to exactly one bone (no
+     weight painting, nothing stretches).
+  3. Check in Blender: `look` (angles, solid) and the triangle count (`calc_loop_triangles`); bodies also posed.
+  4. Export with `bpy.ops.export_scene.fbx(use_selection=True, apply_unit_scale=True,
+     apply_scale_options='FBX_SCALE_NONE', mesh_smooth_type='FACE', bake_anim=False)`, with the object moved to the
+     world origin for the export (props) and `object_types={'MESH'}`. Skeletal: select `root` + the mesh,
+     `object_types={'ARMATURE','MESH'}`, `add_leaf_bones=False`, `primary_bone_axis='Y'`, `secondary_bone_axis='X'`,
+     `use_armature_deform_only=False`, `armature_nodetype='NULL'`, `use_mesh_modifiers=False`. Run the operator inside
+     `bpy.context.temp_override(window=…, area=<the VIEW_3D area>, region=…)`.
+  5. Import a **new** asset with `StaticMeshTools.import_file` / `SkeletalMeshTools.import_file` (FBX,
+     `import_materials=False`; skeletal: `skeleton` = `SK_Mannequin`, then `assign_physics_asset` `PA_Mannequin`).
+     **Update an existing** one with `BanditBallerTools.import_mesh_file` (Interchange reimport in place: keeps the
+     skeleton, physics asset, materials and every reference). Never delete and re-import a mesh that is in use.
+  6. Assign the `MI_` colours per slot (`set_material`), check Nanite is off, `save_assets`.
+  7. Check in Unreal: `get_bounds` (size in cm) and `get_triangle_count`; skeletal: `BanditBallerTools.describe_ref_pose`
+     must show `root` scale 1 and `pelvis` at (0, 2.38, 98.69) like `SKM_Quinn_Simple`; then look at it animated (PIE,
+     or an editor actor playing `MM_Idle`).
+- **Worn props** (a mask, a bag, a cap): model them in `LowPolyBody.blend` around the body with the origin on the
+  bone's joint, export as static meshes, and list them in the character's `MeshAttachments` (`FGSMeshAttachment`,
+  `bModeledInMeshSpace` on): they then sit exactly as modelled, with no hand-tuned offsets.
 
 Enabled plugins of note: ModelContextProtocol + AllToolsets, GameplayAbilities, StateTree, GameplayStateTree,
 EnhancedInput, CommonUI, ModelingToolsEditorMode, PCG. No online subsystems yet.

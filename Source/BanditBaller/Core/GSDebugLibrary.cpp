@@ -55,6 +55,9 @@
 #include "GSWeaponComponent.h"
 #include "GSWeaponData.h"
 #include "NavigationSystem.h"
+#include "Engine/SkeletalMesh.h"
+#include "Animation/Skeleton.h"
+#include "GSMeshAttachment.h"
 
 namespace GSDebug
 {
@@ -608,6 +611,36 @@ void UGSDebugLibrary::ScheduleAutoPickUpgrades(AGSGameMode* GameMode)
 FGSUpgradeOfferSimulation UGSDebugLibrary::SimulateUpgradeOffers(int32 Count, int32 Seed)
 {
 	return SimulateUpgradeOffersOwning(Count, Seed, TArray<FString>());
+}
+
+FString UGSDebugLibrary::DescribeRefPose(USkeletalMesh* Mesh, const TArray<FName>& Bones, int32 MaxBones)
+{
+	if (!Mesh)
+	{
+		return TEXT("No mesh");
+	}
+	const FReferenceSkeleton& RefSkeleton = Mesh->GetRefSkeleton();
+	const TArray<FTransform>& Pose = RefSkeleton.GetRefBonePose();
+	TArray<FString> Lines;
+	Lines.Add(FString::Printf(TEXT("%s: %d bones, skeleton %s"), *Mesh->GetName(), RefSkeleton.GetNum(),
+		Mesh->GetSkeleton() ? *Mesh->GetSkeleton()->GetName() : TEXT("none")));
+	for (int32 Index = 0; Index < RefSkeleton.GetNum(); ++Index)
+	{
+		const FName Name = RefSkeleton.GetBoneName(Index);
+		if (Bones.Num() > 0 ? !Bones.Contains(Name) : (MaxBones > 0 && Index >= MaxBones))
+		{
+			continue;
+		}
+		const FTransform& Local = Pose[Index];
+		const FTransform Component = GSMeshAttachments::GetRefPoseComponentTransform(Mesh, Name);
+		const FRotator Rot = Local.Rotator();
+		Lines.Add(FString::Printf(TEXT("%s (parent %s): local T(%.2f, %.2f, %.2f) R(p %.1f, y %.1f, r %.1f) S(%.3f, %.3f, %.3f) | component T(%.2f, %.2f, %.2f)"),
+			*Name.ToString(), *RefSkeleton.GetBoneName(FMath::Max(RefSkeleton.GetParentIndex(Index), 0)).ToString(),
+			Local.GetLocation().X, Local.GetLocation().Y, Local.GetLocation().Z, Rot.Pitch, Rot.Yaw, Rot.Roll,
+			Local.GetScale3D().X, Local.GetScale3D().Y, Local.GetScale3D().Z,
+			Component.GetLocation().X, Component.GetLocation().Y, Component.GetLocation().Z));
+	}
+	return FString::Join(Lines, TEXT("\n"));
 }
 
 FGSUpgradeOfferSimulation UGSDebugLibrary::SimulateUpgradeOffersOwning(int32 Count, int32 Seed, const TArray<FString>& OwnedUpgrades)

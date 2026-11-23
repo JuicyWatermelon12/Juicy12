@@ -521,6 +521,12 @@ bool AGSCharacter::CanJumpWhileFalling() const
 // Camera
 // ---------------------------------------------------------------------------
 
+void AGSCharacter::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+	GSMeshAttachments::Apply(this, GetMesh(), MeshAttachments, MeshAttachmentComponents);
+}
+
 void AGSCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);

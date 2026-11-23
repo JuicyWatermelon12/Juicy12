@@ -77,6 +77,19 @@ public:
 	UFUNCTION(Exec)
 	void GSJump();
 
+	/** Debug: aim down sights on (1) or off (0), as holding / releasing the aim input does. */
+	UFUNCTION(Exec)
+	void GSAim(int32 bOn);
+
+	/** Debug: swap the camera to the other shoulder, as the shoulder-swap input does. */
+	UFUNCTION(Exec)
+	void GSSwapShoulder();
+
+	/** Debug: hold the move input toward where the camera faces for Seconds (game time), e.g. "GSRun 2" then
+	 *  "GSPress Ability.Slide" to slide from a full run. MCP can't hold a key, so runs and slides come from here. */
+	UFUNCTION(Exec)
+	void GSRun(float Seconds);
+
 	/** Debug console commands (gs.Spawn, gs.God, ...) from a client run on the server through this. */
 	UFUNCTION(Server, Reliable)
 	void ServerExecDebugCommand(const FString& Command, const TArray<FString>& Args);

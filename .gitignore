@@ -1,3 +1,7 @@
+# Blender backups (Art/Blender keeps only the .blend)
+*.blend1
+*.blend2
+
 # Unreal generated / build output
 Binaries/
 Intermediate/

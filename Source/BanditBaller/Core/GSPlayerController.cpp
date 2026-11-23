@@ -9,6 +9,7 @@
 #include "GameplayEffect.h"
 #include "TimerManager.h"
 #include "GSAbilitySystemComponent.h"
+#include "GSCharacter.h"
 #include "GSDebugLibrary.h"
 #include "GSGameMode.h"
 #include "GSGameplayTags.h"
@@ -248,6 +249,56 @@ void AGSPlayerController::GSJump()
 			C->StopJumping();
 		}
 	});
+#endif
+}
+
+void AGSPlayerController::GSAim(int32 bOn)
+{
+#if !UE_BUILD_SHIPPING
+	if (AGSCharacter* MyCharacter = Cast<AGSCharacter>(GetCharacter()))
+	{
+		MyCharacter->SetAimingForDebug(bOn != 0);
+	}
+#endif
+}
+
+void AGSPlayerController::GSSwapShoulder()
+{
+#if !UE_BUILD_SHIPPING
+	if (AGSCharacter* MyCharacter = Cast<AGSCharacter>(GetCharacter()))
+	{
+		MyCharacter->SwapShoulderForDebug();
+	}
+#endif
+}
+
+void AGSPlayerController::GSRun(float Seconds)
+{
+#if !UE_BUILD_SHIPPING
+	ACharacter* MyCharacter = GetCharacter();
+	if (!MyCharacter || Seconds <= 0.f)
+	{
+		return;
+	}
+	const double EndTime = GetWorld()->GetTimeSeconds() + Seconds;
+	TWeakObjectPtr<ACharacter> WeakCharacter = MyCharacter;
+	TWeakObjectPtr<AGSPlayerController> WeakThis = this;
+	TSharedRef<FTimerHandle> HandleRef = MakeShared<FTimerHandle>();
+	GetWorldTimerManager().SetTimer(*HandleRef, FTimerDelegate::CreateLambda([WeakCharacter, WeakThis, EndTime, HandleRef]()
+	{
+		ACharacter* C = WeakCharacter.Get();
+		AGSPlayerController* PC = WeakThis.Get();
+		if (!C || !PC || C->GetWorld()->GetTimeSeconds() >= EndTime)
+		{
+			if (PC)
+			{
+				PC->GetWorldTimerManager().ClearTimer(*HandleRef);
+			}
+			return;
+		}
+		const FRotator Yaw(0.f, PC->GetControlRotation().Yaw, 0.f);
+		C->AddMovementInput(Yaw.Vector(), 1.f);
+	}), 1.f / 120.f, true);
 #endif
 }
 

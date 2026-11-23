@@ -80,6 +80,10 @@
 #include "Engine/StaticMeshActor.h"
 #include "Engine/StaticMesh.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/SkeletalMesh.h"
+#include "Animation/Skeleton.h"
+#include "PhysicsEngine/PhysicsAsset.h"
 #include "Blueprint/WidgetTree.h"
 #include "GSMovementAbilitySettings.h"
 #include "GSMovementSettings.h"
@@ -13172,6 +13176,92 @@ bool FGSCheckpointSevenWeaponsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Every weapon came up as a first-offer weapon"), FirstWeapons.Num(), 7);
 		GameMode->RestartRunWithSeed(5499);
 	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Prompt 56: the player wears the Blender low-poly body (SK_LowPolyBody) on the skeleton the mannequins used, so every
+// existing animation drives it; the robber's ski mask and loot bag are worn props.
+
+namespace GSArtTests
+{
+	const TCHAR* LowPolyBodyPath = TEXT("/Game/Art/Placeholders/Characters/SK_LowPolyBody.SK_LowPolyBody");
+	const TCHAR* MannequinSkeletonPath = TEXT("/Game/Characters/Mannequins/Meshes/SK_Mannequin.SK_Mannequin");
+	const TCHAR* MannequinPhysicsPath = TEXT("/Game/Characters/Mannequins/Rigs/PA_Mannequin.PA_Mannequin");
+	const TCHAR* UnarmedAnimPath = TEXT("/Game/Characters/Mannequins/Anims/Unarmed/ABP_Unarmed.ABP_Unarmed_C");
+
+	void CheckPlayerMesh(FAutomationTestBase* Test, const TCHAR* Where)
+	{
+		const AGSCharacter* Player = GetPlayer();
+		if (!Test->TestNotNull(*FString::Printf(TEXT("%s: player"), Where), Player))
+		{
+			return;
+		}
+		USkeletalMeshComponent* MeshComp = Player->GetMesh();
+		const USkeletalMesh* Mesh = MeshComp ? MeshComp->GetSkeletalMeshAsset() : nullptr;
+		if (!Test->TestNotNull(*FString::Printf(TEXT("%s: player mesh"), Where), Mesh))
+		{
+			return;
+		}
+		Test->TestEqual(*FString::Printf(TEXT("%s: the player's mesh is SK_LowPolyBody"), Where), Mesh->GetPathName(), FString(LowPolyBodyPath));
+		Test->TestEqual(*FString::Printf(TEXT("%s: on the same skeleton as before (SK_Mannequin)"), Where),
+			Mesh->GetSkeleton() ? Mesh->GetSkeleton()->GetPathName() : FString(), FString(MannequinSkeletonPath));
+		Test->TestEqual(*FString::Printf(TEXT("%s: ragdoll physics asset PA_Mannequin"), Where),
+			Mesh->GetPhysicsAsset() ? Mesh->GetPhysicsAsset()->GetPathName() : FString(), FString(MannequinPhysicsPath));
+		Test->TestEqual(*FString::Printf(TEXT("%s: driven by the same animation blueprint (ABP_Unarmed)"), Where),
+			MeshComp->GetAnimClass() ? MeshComp->GetAnimClass()->GetPathName() : FString(), FString(UnarmedAnimPath));
+		Test->TestNotNull(*FString::Printf(TEXT("%s: the animation instance runs"), Where), MeshComp->GetAnimInstance());
+		Test->TestEqual(*FString::Printf(TEXT("%s: six colour slots"), Where), MeshComp->GetNumMaterials(), 6);
+		for (const FName Bone : { FName("hand_r"), FName("head"), FName("spine_04"), FName("foot_l") })
+		{
+			Test->TestTrue(*FString::Printf(TEXT("%s: has bone %s"), Where, *Bone.ToString()), MeshComp->GetBoneIndex(Bone) != INDEX_NONE);
+		}
+		// The animated pose is life-size: a root bone with a unit scale baked in (the Blender FBX trap, Prompt 56) would
+		// shrink the body 100x as soon as the animation sets root's scale to 1.
+		const float HeadAboveFoot = MeshComp->GetSocketLocation(FName("head")).Z - MeshComp->GetSocketLocation(FName("foot_l")).Z;
+		Test->TestTrue(*FString::Printf(TEXT("%s: animated head %.0f cm above the foot (140-175)"), Where, HeadAboveFoot),
+			HeadAboveFoot > 140.f && HeadAboveFoot < 175.f);
+		Test->TestEqual(*FString::Printf(TEXT("%s: root bone scale 1 in the mesh's reference pose"), Where),
+			GSMeshAttachments::GetRefPoseComponentTransform(Mesh, FName("root")).GetScale3D().X, 1.0, 0.001);
+
+		const TArray<TObjectPtr<UStaticMeshComponent>>& Props = Player->GetMeshAttachmentComponents();
+		Test->TestEqual(*FString::Printf(TEXT("%s: two worn props (ski mask, loot bag)"), Where), Props.Num(), 2);
+		for (const UStaticMeshComponent* Prop : Props)
+		{
+			if (!Test->TestNotNull(*FString::Printf(TEXT("%s: prop"), Where), Prop))
+			{
+				continue;
+			}
+			const FString Name = Prop->GetStaticMesh() ? Prop->GetStaticMesh()->GetName() : FString();
+			Test->TestTrue(*FString::Printf(TEXT("%s: %s attached to the body"), Where, *Name), Prop->GetAttachParent() == MeshComp);
+			Test->TestEqual(*FString::Printf(TEXT("%s: %s has no collision"), Where, *Name),
+				static_cast<int32>(Prop->GetCollisionEnabled()), static_cast<int32>(ECollisionEnabled::NoCollision));
+			Test->TestTrue(*FString::Printf(TEXT("%s: %s is visible"), Where, *Name), Prop->IsVisible());
+		}
+		if (Props.Num() == 2 && Props[0] && Props[1])
+		{
+			Test->TestEqual(*FString::Printf(TEXT("%s: the ski mask follows the head"), Where), Props[0]->GetAttachSocketName(), FName("head"));
+			Test->TestEqual(*FString::Printf(TEXT("%s: the loot bag follows the chest"), Where), Props[1]->GetAttachSocketName(), FName("spine_04"));
+			// Worn on the body: the mask at head height, the bag behind the back.
+			const FVector Head = MeshComp->GetSocketLocation(FName("head"));
+			Test->TestTrue(*FString::Printf(TEXT("%s: the mask is at the head"), Where), FVector::Dist(Props[0]->Bounds.Origin, Head) < 25.f);
+			const FVector Chest = MeshComp->GetSocketLocation(FName("spine_04"));
+			const float BehindBy = -FVector::DotProduct(Props[1]->Bounds.Origin - Chest, Player->GetActorForwardVector());
+			Test->TestTrue(*FString::Printf(TEXT("%s: the bag is on the back (%.0f cm behind the chest)"), Where, BehindBy), BehindBy > 10.f);
+		}
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSArtPlayerMeshTest, "BanditBaller.Art.PlayerMesh", GSTests::TestFlags)
+bool FGSArtPlayerMeshTest::RunTest(const FString& Parameters)
+{
+	BeginPIE(this);
+	Step([this]() { GSArtTests::CheckPlayerMesh(this, TEXT("Town")); });
+	EndPIE();
+	WaitUntil(this, TEXT("PIE to end"), []() { return GetPIEWorld() == nullptr; }, 15.0);
+	BeginPIE(this, HubMap);
+	Step([this]() { GSArtTests::CheckPlayerMesh(this, TEXT("Hub")); });
 	EndPIE();
 	return true;
 }

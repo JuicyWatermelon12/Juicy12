@@ -5,10 +5,15 @@ agents can set up and inspect fights in a running PIE session. All tools need PI
 """
 
 import json
+import os
 
 import unreal
 
 import toolset_registry
+
+
+def _project_dir() -> str:
+    return os.path.normcase(os.path.abspath(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir())))
 
 
 def _game_world() -> unreal.World:
@@ -73,6 +78,113 @@ class BanditBallerTools(unreal.ToolsetDefinition):
             distance_to_player (cm) and attacking (State.Attacking).
         """
         return list(unreal.GSDebugLibrary.list_enemies_alive(_game_world()))
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def export_asset_fbx(asset_path: str, file_path: str) -> str:
+        """Exports a mesh asset (SkeletalMesh with its skeleton, or StaticMesh) to an FBX file, LOD 0 only.
+
+        Editor tool for the Blender placeholder pipeline (docs/PROGRESS.md, Prompt 56): Unreal MCP can import meshes
+        but has no exporter. Doesn't need PIE.
+
+        Args:
+            asset_path: The asset, e.g. "/Game/Characters/Mannequins/Meshes/SKM_Quinn_Simple".
+            file_path: Absolute .fbx path inside the project folder (e.g. <project>/Art/Export/X.fbx).
+
+        Returns:
+            The written file path and its size in bytes, as text.
+        """
+        target = os.path.normcase(os.path.abspath(file_path))
+        if not target.startswith(_project_dir()) or not target.endswith('.fbx'):
+            raise ValueError('file_path must be an .fbx file inside the project folder')
+        asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+        if asset is None:
+            raise ValueError(f'No asset at {asset_path}')
+        os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)  # not `target`: normcase lowercases
+        options = unreal.FbxExportOption()
+        options.level_of_detail = False
+        options.collision = False
+        options.export_morph_targets = False
+        options.vertex_color = True
+        task = unreal.AssetExportTask()
+        task.object = asset
+        task.filename = os.path.abspath(file_path)
+        task.automated = True
+        task.prompt = False
+        task.replace_identical = True
+        task.options = options
+        if not unreal.Exporter.run_asset_export_task(task) or not os.path.exists(task.filename):
+            raise RuntimeError(f'Export of {asset_path} failed: {list(task.errors)}')
+        return f'{task.filename} ({os.path.getsize(task.filename)} bytes)'
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def describe_ref_pose(mesh_path: str, bones: str = "", max_bones: int = 0) -> str:
+        """Lists a skeletal mesh's own reference pose per bone: local translation / rotation / scale and the
+        component-space location (UGSDebugLibrary::DescribeRefPose). Doesn't need PIE.
+
+        Args:
+            mesh_path: e.g. "/Game/Art/Placeholders/Characters/SK_LowPolyBody".
+            bones: Comma-separated bone names to list (empty = all, or the first max_bones).
+            max_bones: Limit when bones is empty (0 = all).
+
+        Returns:
+            One line per bone, as text.
+        """
+        mesh = unreal.EditorAssetLibrary.load_asset(mesh_path)
+        if mesh is None:
+            raise ValueError(f'No asset at {mesh_path}')
+        names = [unreal.Name(b.strip()) for b in bones.split(',') if b.strip()]
+        return unreal.GSDebugLibrary.describe_ref_pose(mesh, names, max_bones)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def console_command(command: str) -> str:
+        """Runs one console command (e.g. "gs.God 1", "gs.Perf 5", "shot showui") in the PIE world if PIE is
+        running, otherwise in the editor world. Faster than typing into the Cmd box through SlateInspectorToolset.
+
+        Args:
+            command: The console command line.
+
+        Returns:
+            Which world it ran in.
+        """
+        subsystem = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
+        world = subsystem.get_game_world() or subsystem.get_editor_world()
+        player = unreal.GameplayStatics.get_player_controller(world, 0) if subsystem.get_game_world() else None
+        unreal.SystemLibrary.execute_console_command(world, command, player)
+        return f'ran "{command}" in {"PIE" if subsystem.get_game_world() else "the editor world"}'
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def import_mesh_file(file_path: str, destination_path: str, asset_name: str) -> list[str]:
+        """Imports a mesh file (.glb, .gltf, .fbx, .obj) with Unreal's default importer (Interchange in UE 5.8),
+        unlike StaticMeshTools.import_file, which only takes FBX / OBJ through the legacy FbxFactory.
+
+        Editor tool for the Blender placeholder pipeline (Prompt 56: the FBX vs glTF comparison). Doesn't need PIE.
+
+        Args:
+            file_path: Absolute path of the source file.
+            destination_path: Content folder, e.g. "/Game/Art/Placeholders/_ImportTest".
+            asset_name: Name for the imported asset.
+
+        Returns:
+            The object paths of every asset the import created.
+        """
+        if not os.path.exists(file_path):
+            raise ValueError(f'No file at {file_path}')
+        task = unreal.AssetImportTask()
+        task.filename = file_path
+        task.destination_path = destination_path
+        task.destination_name = asset_name
+        task.automated = True
+        task.replace_existing = True
+        task.save = False
+        unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+        paths = [str(p) for p in task.imported_object_paths]
+        if not paths:
+            raise RuntimeError(f'Nothing imported from {file_path}; see the output log.')
+        return paths
 
     @toolset_registry.tool_call
     @staticmethod

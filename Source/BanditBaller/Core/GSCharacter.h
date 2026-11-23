@@ -6,6 +6,7 @@
 #include "AbilitySystemInterface.h"
 #include "BanditBallerCharacter.h"
 #include "GameplayTagContainer.h"
+#include "GSMeshAttachment.h"
 #include "GSCharacter.generated.h"
 
 class UAbilitySystemComponent;
@@ -52,6 +53,11 @@ public:
 
 	//~ AActor
 	virtual void Tick(float DeltaSeconds) override;
+	/** Builds the cosmetic MeshAttachments (also in the editor's Blueprint preview). */
+	virtual void OnConstruction(const FTransform& Transform) override;
+
+	/** The worn props built from MeshAttachments, in the same order (tests / debug). */
+	const TArray<TObjectPtr<UStaticMeshComponent>>& GetMeshAttachmentComponents() const { return MeshAttachmentComponents; }
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	/** Aiming down sights. Local input on the owning client, replicated value elsewhere (server uses it for spread). */
@@ -227,7 +233,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Health")
 	TSubclassOf<UCameraShakeBase> HitCameraShake;
 
+	/** Cosmetic props worn on the mesh (the robber's ski mask and loot bag; set on BP_GSCharacter). No collision. */
+	UPROPERTY(EditDefaultsOnly, Category = "Appearance")
+	TArray<FGSMeshAttachment> MeshAttachments;
+
 private:
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UStaticMeshComponent>> MeshAttachmentComponents;
+
 	// --- Ability system ---
 	void InitAbilitySystem();
 	void ClearAbilitySystem();
