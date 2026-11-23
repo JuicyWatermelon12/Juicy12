@@ -184,7 +184,7 @@ void AGSEnemyCharacter::SetEnemyData(UGSEnemyData* InEnemyData)
 	EnemyData = InEnemyData;
 }
 
-AGSEnemyCharacter* AGSEnemyCharacter::SpawnEnemy(UWorld* World, UGSEnemyData* InEnemyData, const FVector& NavLocation, const FVector& FaceTowards)
+AGSEnemyCharacter* AGSEnemyCharacter::SpawnEnemy(UWorld* World, UGSEnemyData* InEnemyData, const FVector& NavLocation, const FVector& FaceTowards, int32 WaveRound)
 {
 	if (!World || !InEnemyData)
 	{
@@ -199,6 +199,7 @@ AGSEnemyCharacter* AGSEnemyCharacter::SpawnEnemy(UWorld* World, UGSEnemyData* In
 	if (Enemy)
 	{
 		Enemy->SetEnemyData(InEnemyData);
+		Enemy->SetWaveRound(WaveRound); // before BeginPlay: its round scaling uses it
 		Enemy->FinishSpawning(Transform);
 	}
 	return Enemy;

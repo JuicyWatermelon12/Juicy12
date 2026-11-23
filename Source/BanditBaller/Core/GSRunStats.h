@@ -48,57 +48,7 @@ struct FGSEnemyKillCount
 	int32 Count = 0;
 };
 
-/** The current round so far: from its PreRound until the next round's PreRound (so RoundClear's vacuum counts). */
-USTRUCT(BlueprintType)
-struct FGSRoundStats
-{
-	GENERATED_BODY()
-
-	/** Round number (0 before the first round starts). */
-	UPROPERTY(BlueprintReadOnly, Category = "Stats")
-	int32 Round = 0;
-
-	/** Enemies the party killed. */
-	UPROPERTY(BlueprintReadOnly, Category = "Stats")
-	int32 Kills = 0;
-
-	/** Cash from pickups (the round-clear bonus is not included). */
-	UPROPERTY(BlueprintReadOnly, Category = "Stats")
-	int32 CashCollected = 0;
-
-	/** XP granted to players (after XPGain). */
-	UPROPERTY(BlueprintReadOnly, Category = "Stats")
-	int32 XPEarned = 0;
-
-	/** Health players lost. */
-	UPROPERTY(BlueprintReadOnly, Category = "Stats")
-	float DamageTaken = 0.f;
-
-	/** Size of the round's wave when Combat started. */
-	UPROPERTY(BlueprintReadOnly, Category = "Stats")
-	int32 WaveEnemies = 0;
-
-	/** Server world time when Combat started; < 0 until it does. */
-	UPROPERTY(BlueprintReadOnly, Category = "Stats")
-	double CombatStartTime = -1.0;
-
-	/** Health orbs enemies dropped, orbs collected, and the health they healed (overheal not counted). */
-	UPROPERTY(BlueprintReadOnly, Category = "Stats")
-	int32 HealthOrbsDropped = 0;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Stats")
-	int32 HealthOrbsCollected = 0;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Stats")
-	float HealthHealedByOrbs = 0.f;
-
-	/** Damage the players dealt this round, by source (EGSDamageSource). */
-	float DamageBySource[GSDamageSource::Num] = {};
-
-	float GetDamageBy(EGSDamageSource Source) const { return DamageBySource[static_cast<int32>(Source)]; }
-};
-
-/** The bonus paid when a round's Combat ended (RoundClear). A bonus that wasn't earned is 0. */
+/** The bonus paid when a round was cleared (its last enemy died). A bonus that wasn't earned is 0. */
 USTRUCT(BlueprintType)
 struct FGSRoundClearPayout
 {
@@ -123,7 +73,7 @@ struct FGSRoundClearPayout
 	UPROPERTY(BlueprintReadOnly, Category = "Stats")
 	bool bFastClear = false;
 
-	/** Seconds from Combat start to RoundClear. */
+	/** Seconds from the round's start to its clear. */
 	UPROPERTY(BlueprintReadOnly, Category = "Stats")
 	float ClearTime = 0.f;
 
@@ -134,14 +84,86 @@ struct FGSRoundClearPayout
 	int32 GetTotal() const { return BaseBonus + NoDamageBonus + FastClearBonus; }
 };
 
+/**
+ * One round of the run (Prompt 59: rounds overlap, so each has its own record). It opens when the round starts (round
+ * 1: at its PreRound) and closes when its last enemy dies (cleared) or the run moves on without it (gs.Round.Set, death).
+ * Kills, cash, XP, health orbs and damage dealt count for the round the enemy belonged to; damage taken counts for
+ * every open round.
+ */
+USTRUCT(BlueprintType)
+struct FGSRoundStats
+{
+	GENERATED_BODY()
+
+	/** Round number (0 before the first round starts). */
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	int32 Round = 0;
+
+	/** Enemies of this round the party killed. */
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	int32 Kills = 0;
+
+	/** Cash from this round's pickups (the round-clear bonus is not included). */
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	int32 CashCollected = 0;
+
+	/** XP granted to players from this round's orbs (after XPGain). */
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	int32 XPEarned = 0;
+
+	/** Health players lost while this round was open. */
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	float DamageTaken = 0.f;
+
+	/** Size of the round's wave. */
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	int32 WaveEnemies = 0;
+
+	/** Server world time when the round's wave started; < 0 until it does. */
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	double CombatStartTime = -1.0;
+
+	/** Still running: damage taken counts for it, its clear is still to come. */
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	bool bOpen = false;
+
+	/** Its last enemy died (bonus paid). */
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	bool bCleared = false;
+
+	/** Server world time of the clear; < 0 until then. */
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	double ClearedAt = -1.0;
+
+	/** The bonus paid at its clear (Round 0 = none). */
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	FGSRoundClearPayout Payout;
+
+	/** Health orbs this round's enemies dropped, orbs collected, and the health they healed (overheal not counted). */
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	int32 HealthOrbsDropped = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	int32 HealthOrbsCollected = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stats")
+	float HealthHealedByOrbs = 0.f;
+
+	/** Damage the players dealt to this round's enemies, by source (EGSDamageSource). */
+	float DamageBySource[GSDamageSource::Num] = {};
+
+	float GetDamageBy(EGSDamageSource Source) const { return DamageBySource[static_cast<int32>(Source)]; }
+};
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FGSOnRunStatsChanged);
 
 /**
  * Party-wide stats for the current run, on AGSGameState (replicated). Written only by AGSGameMode on the
  * server: rounds cleared, kills (total + per enemy type), cash earned/spent, damage dealt/taken, XP earned,
  * highest player level, best kill combo, run time.
- * Also the current round (FGSRoundStats: kills, cash collected, XP, damage taken, Combat start) and the last
- * round-clear payout (FGSRoundClearPayout), for the payout and the RoundClear summary.
+ * Also a record per round (FGSRoundStats: kills, cash collected, XP, damage taken, start, clear, bonus): rounds roll
+ * over into each other (Prompt 59), so several can be open at once. And the last round-clear payout
+ * (FGSRoundClearPayout), for the round-clear pop-up.
  * Damage is the health actually removed (overkill not counted).
  */
 UCLASS(ClassGroup = (BanditBaller), meta = (BlueprintSpawnableComponent))
@@ -156,29 +178,35 @@ public:
 
 	// --- Server-only mutations (AGSGameMode) ---
 
+	// Round = the round the enemy / pickup belonged to; 0 (or a round with no record) = the newest round.
+
 	void ResetStats(double InRunStartTime);
-	void RecordRoundCleared();
-	void RecordKill(FName EnemyType);
-	/** Cash from pickups: run CashEarned and this round's CashCollected. */
-	void AddCashEarned(int32 Amount);
+	/** Round's last enemy died: it counts as cleared and closes (no more damage taken counts for it). */
+	void RecordRoundCleared(int32 Round);
+	void RecordKill(FName EnemyType, int32 Round = 0);
+	/** Cash from pickups: run CashEarned and that round's CashCollected. */
+	void AddCashEarned(int32 Amount, int32 Round = 0);
 	void AddCashSpent(int32 Amount);
-	/** Health the players removed from enemies, from Source (run total, by source, and this round by source). */
-	void AddDamageDealt(float Amount, EGSDamageSource Source = EGSDamageSource::Other);
+	/** Health the players removed from enemies, from Source (run total, by source, and that round by source). */
+	void AddDamageDealt(float Amount, EGSDamageSource Source = EGSDamageSource::Other, int32 Round = 0);
 	/** An enemy dropped a health orb (run and round). */
-	void RecordHealthOrbDropped();
+	void RecordHealthOrbDropped(int32 Round = 0);
+	/** Health a player lost: the run total and every open round (a hit while two rounds overlap counts for both). */
 	void AddDamageTaken(float Amount);
-	void AddXPEarned(int32 Amount);
+	void AddXPEarned(int32 Amount, int32 Round = 0);
 	/** Highest player level reached this run (keeps the max). */
 	void RecordLevelReached(int32 Level);
 	/** A player's kill combo reached Count kills (keeps the max). */
 	void RecordCombo(int32 Count);
 	/** A health orb was collected and healed Healed (0 if the player was already full, e.g. from the vacuum). */
-	void RecordHealthOrbCollected(float Healed);
-	/** A new round's PreRound: this round's stats start over. */
+	void RecordHealthOrbCollected(float Healed, int32 Round = 0);
+	/** A round opens (round 1 at its PreRound, the others when they start): a fresh record (an old one is replaced). */
 	void BeginRound(int32 Round);
-	/** This round's Combat started at server time Time with a wave of WaveEnemies. */
-	void RecordCombatStarted(double Time, int32 WaveEnemies);
-	/** The round-clear bonus was paid: keeps it for the summary and adds its total to CashEarned. */
+	/** Round's wave started at server time Time with WaveEnemies enemies (the fast-clear clock starts). */
+	void RecordCombatStarted(int32 Round, double Time, int32 WaveEnemies);
+	/** Every open round closes without a clear (gs.Round.Set, the run ended). */
+	void CloseOpenRounds();
+	/** A round's clear bonus was paid: kept in its record and as the last payout; its total goes to CashEarned. */
 	void RecordRoundClearPayout(const FGSRoundClearPayout& Payout);
 	/** Freezes the run timer (game over). */
 	void EndRun(double InRunEndTime);
@@ -239,9 +267,25 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Stats")
 	float GetHealthHealedByOrbs() const { return HealthHealedByOrbs; }
 
-	/** The current round so far (until the next round's PreRound). */
+	/** The newest round's record (an empty record before the first round). */
 	UFUNCTION(BlueprintPure, Category = "Stats")
-	const FGSRoundStats& GetCurrentRound() const { return CurrentRound; }
+	const FGSRoundStats& GetCurrentRound() const;
+
+	/** Round's record, or nullptr if it never started this run. */
+	const FGSRoundStats* FindRound(int32 Round) const;
+
+	/** Every round record this run, in the order the rounds started. */
+	const TArray<FGSRoundStats>& GetRounds() const { return Rounds; }
+
+	/** Rounds still open (started, not cleared), oldest first. */
+	TArray<int32> GetOpenRounds() const;
+
+	/** The record Round's stats go to: Round if it has one, else the newest round (0 if none). */
+	int32 ResolveRound(int32 Round) const;
+
+	/** Fires on the server when a round's clear bonus has been paid (the HUD's round-clear pop-up). */
+	DECLARE_MULTICAST_DELEGATE_OneParam(FGSOnRoundClearPaid, const FGSRoundClearPayout&);
+	FGSOnRoundClearPaid OnRoundClearPaid;
 
 	/** The last round-clear payout this run (Round 0 = none yet). */
 	UFUNCTION(BlueprintPure, Category = "Stats")
@@ -305,11 +349,11 @@ protected:
 	/** Damage dealt by source (EGSDamageSource). TODO(co-op): not replicated yet (single-player first). */
 	float DamageDealtBySource[GSDamageSource::Num] = {};
 
-	/** TODO(co-op): not replicated yet (single-player first); clients' RoundClear summary needs it in M6. */
+	/** Every round this run, in start order. TODO(co-op): not replicated yet; clients' round-clear pop-up needs it in M6. */
 	UPROPERTY(VisibleInstanceOnly, Category = "Stats")
-	FGSRoundStats CurrentRound;
+	TArray<FGSRoundStats> Rounds;
 
-	/** TODO(co-op): not replicated yet (single-player first); clients' RoundClear summary needs it in M6. */
+	/** TODO(co-op): not replicated yet (single-player first); clients' round-clear pop-up needs it in M6. */
 	UPROPERTY(VisibleInstanceOnly, Category = "Stats")
 	FGSRoundClearPayout LastRoundClearPayout;
 
@@ -326,4 +370,6 @@ private:
 
 	bool CanWrite() const;
 	void Changed();
+	/** The record Round's stats go to (ResolveRound), or nullptr before the first round. */
+	FGSRoundStats* FindRoundForStats(int32 Round);
 };

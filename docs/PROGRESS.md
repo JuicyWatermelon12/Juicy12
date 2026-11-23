@@ -11,10 +11,11 @@ cash, and the enemies are law enforcement (since M2d; it was "bandits in a bandi
 - **Hub:** the game starts in the safe **Market District** hub, the black market and casino (shop + casino), its own
   map. A "Start Run" portal takes the player to the run map (`OpenLevel`): today the 300 × 300 m town, from Prompt 67 a
   500 × 500 m city with a 100 m ceiling.
-- **Run:** PreRound → Combat → RoundClear → PreRound … with harder rounds, until the player dies. Cops drop cash
+- **Run:** a 3 s countdown, then rounds that roll over into each other (since Prompt 59): the next round's cops start
+  arriving when only 3 of the current round are left, in a steady stream, and each round's clear pays a small pop-up
+  bonus while play goes on; after every 10th round a 10 s breather. Harder rounds, until the player dies. Cops drop cash
   and XP as pickups, collected during the run. Cash and XP per enemy are flat (the same every round); income grows
-  through more enemies and faster kills. In M2d the rounds roll over into each other (no countdown, a steady stream,
-  a pop-up bonus) with a 10 s breather every 10 rounds.
+  through more enemies and faster kills.
 - **Enemies:** eight law-enforcement types that unlock round by round (Beat Cop and Patrol Officer built, `BeatCop` /
   `PatrolOfficer` in code since Prompt 57; Rusher, Shield, Grenadier, Heavy, Sniper and Drone in M2d). Dodgeable
   projectile shots, at most 40% ranged per generated wave, up to 100 alive.
@@ -67,10 +68,10 @@ under Prompt 53. **The weapons block is complete.**
 **M2d** (cops, city and round flow) is planned (Prompt 54, docs only), Blender is connected through MCP (55), and the
 Blender placeholder pipeline, the low-poly body and the robber are built (56), and the enemies are the Beat Cop and the
 Patrol Officer with cop models (57); enemy shots are dodgeable bolts and generated waves are at most 40% ranged (58);
-**next is Prompt 59** (roll-over rounds and the breather). After M2d's
+rounds roll over with a breather every 10 rounds (59); **next is Prompt 60** (one hundred enemies). After M2d's
 checkpoint (69): **M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Dodgeable enemy shots and ranged cap" (Prompt 58), not pushed. The build is clean and all 67 automation tests pass in about 180 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Roll-over rounds and breather" (Prompt 59), not pushed. The build is clean and all 70 automation tests pass in about 250 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -145,7 +146,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2d 55 | Blender MCP setup: uv 0.13.9, mcp-for-blender 2.3.1 and its Blender 5.3 add-on, the `blender` server in `.mcp.json` (safe mode, no telemetry), CLAUDE.md **Blender** section (tooling only) | fd5d46d, e0c39e6 |
 | M2d 56 | Blender placeholder pipeline (FBX; `M_LowPoly`; CLAUDE.md **Placeholder models**), baton / cap / carbine, `SK_LowPolyBody` (1,524 triangles) on `SK_Mannequin`, the robber on the player (ski mask and loot bag as worn props, `FGSMeshAttachment`), `Art.PlayerMesh`, MCP tools `export_asset_fbx` / `import_mesh_file` / `describe_ref_pose` / `console_command` | 927ee52 |
 | M2d 57 | Rename the enemies: MeleeBandit → Beat Cop (`BeatCop`), RangedBandit → Patrol Officer (`PatrolOfficer`), BanditCarbine → `PatrolCarbine` (assets, code, commands, tests); cop models on `SK_LowPolyBody` (`SlotMaterials`, `MeshAttachments` on `UGSEnemyData`; police cap placed on the head, baton, carbine); `TelegraphAmount` in `M_LowPoly`; `Enemies.CopLooks` | 8ece272 |
-| M2d 58 | Dodgeable enemy shots: `GA_EnemyFire` fires a pooled `AGSProjectile` bolt per shot (`bEnemyShot`: hits the player or world only, passes other enemies), 2,800 cm/s at the chest with no lead, `SM_EnemyBolt` (Blender) with `MI_EnemyBolt_*`, no tracer; ranged cap `MaxRangedShare` 0.4 (`UGSEnemyData::bRanged`); `Enemies.DodgeableShots`, `Round.RangedCap` | see git log |
+| M2d 58 | Dodgeable enemy shots: `GA_EnemyFire` fires a pooled `AGSProjectile` bolt per shot (`bEnemyShot`: hits the player or world only, passes other enemies), 2,800 cm/s at the chest with no lead, `SM_EnemyBolt` (Blender) with `MI_EnemyBolt_*`, no tracer; ranged cap `MaxRangedShare` 0.4 (`UGSEnemyData::bRanged`); `Enemies.DodgeableShots`, `Round.RangedCap` | 995328a |
+| M2d 59 | Roll-over rounds: phases PreRound (round 1 only) / Combat / Breather / GameOver, no RoundClear; the next round starts at `RollOverRemaining` 3 left; several open rounds in `UGSWaveDirector`, one enemy at a time (20 s window, 0.25–2 s gap), waves from a per-round stream; per-round stats, bonus, vacuum and save at each round's clear; HUD "N enemies left · N alive", ROUND N banner, round-clear pop-up (`WBP_RoundSummary` removed); a 10 s breather after every 10th round; `Round.RollOver`, `Round.Breather`, `Round.RollOverPace` | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -3885,6 +3887,183 @@ The Patrol Officer's shots are visible bolts the player can step out of, and a g
   - Sounds: the carbine gets a fire sound (`VR_click2_Cue`) and the bolt an impact click; both are editor sounds.
 - **Full suite:** 67 tests, all passing, in 179.7 s.
 
+### Prompt 59 — Roll-over rounds and the breather
+Rounds stay, but play no longer stops between them: the next round's enemies start arriving while the current round
+still has a few left, every round pays its own bonus at its own clear, and every 10 rounds there is a 10 s breather.
+- **Phases** (`EGSRoundPhase`): WaitingToStart, PreRound (only the 3 s countdown before round 1), Combat, **Breather**,
+  GameOver. **RoundClear is gone.** `RoundNumber` is always the newest round.
+
+  | From | To | When |
+  |---|---|---|
+  | PreRound | Combat | its 3 s timer; round 1 starts |
+  | Combat | Combat (round N + 1 starts) | the newest round N has `RollOverRemaining` 3 or fewer enemies left (not yet spawned + telegraphing + alive) and at least one of its own enemies has died |
+  | Combat | Breather | the newest round is a breather round (N % `BreatherEveryRounds` 10 = 0), so nothing rolls over, and every open round is cleared |
+  | Breather | Combat | its `BreatherDuration` 10 s timer; round N + 1 starts |
+  | any | GameOver | the player dies |
+
+- **Several open rounds at once** (`UGSWaveDirector`, rewritten): one `FGSRoundWave` per open round, with its queue,
+  counts (total / spawned / killed / lost / telegraphing), its living enemies, start time and spawn gap. Every enemy
+  carries its round (`AGSEnemyCharacter::GetWaveRound`, set before it begins play). A round's leftovers stay and stay
+  its own: a round clears when its own last enemy dies (`OnRoundCleared`); `OnRollOverReady` fires once per round.
+  Events are sent after the director's state is consistent, so the GameMode can start the next round from inside them.
+  - **Steady spawns:** each round places its enemies **one at a time**, the next one gap after the last, gap =
+    `RoundSpawnWindow` 20 s ÷ wave size, kept between `MinSpawnGap` 0.25 s and `MaxSpawnGap` 2 s
+    (`UGSRoundSettings::GetSpawnGap`). Older rounds go first. The alive cap (`MaxAliveEnemies` 30, unchanged) counts
+    every open round together; while it is full nothing is banked: when room appears one enemy comes and the next is
+    due one gap later.
+  - **Removed:** `FGSWaveRow::SpawnInterval` / `SpawnBatchSize` (DT_Waves) and `UGSWaveSettings::GeneratedSpawnInterval`
+    / `GeneratedBatchSize`. `UGSRoundSettings::RoundClearDuration` is removed too.
+  - **Same seed, same waves:** a round's contents (its DT_Waves row or bought wave, then the shuffle) come from a stream
+    made from the run seed and the round (`UGSRunRandom::MakeRoundStream`), so the waves don't depend on how fast the
+    player kills or on anything else that drew from the run stream before. Spawn points, drops, crits and the AI stay
+    on the run stream. `BuildRoundWave(Round, OutQueue)` gives a round's wave without starting it.
+  - GameState counts: `WaveEnemiesTotal` / `Remaining` are the newest round's, `WaveEnemiesAlive` is every round's.
+  - API: `StartRoundWave`, `StopAll(bDespawn)` (death: leftovers stay; `gs.Round.Set`: removed),
+    `ForceClearOpenRounds(Why)` (skip, safety guard), `FindRoundWave`, `GetActiveRounds`, `GetNewestRound`,
+    `IsRollOverReady`. The "current wave" getters report the newest open round (else the last finished one).
+- **The round loop** (`AGSGameMode`): `StartRound(N)`, `TryRollOver` (held while `gs.Round.Pause` is on),
+  `HandleRoundCleared`, `HandleSafetyTimerExpired`. `DA_RoundSettings` (`UGSRoundSettings`): PreRoundDuration 3,
+  **RollOverRemaining 3, RoundSpawnWindow 20, MinSpawnGap 0.25, MaxSpawnGap 2, BreatherEveryRounds 10, BreatherDuration
+  10, ClearSaveMaxWait 3** (new), CombatFallbackDuration 180 (now only the guard below). `SetRoundSettingsOverride`
+  for tests.
+  - **The breather:** after a breather round nothing rolls over: the run waits until every open round is cleared,
+    then Breather for 10 s with nothing spawning, then the next round. It has no round number of its own (still N), no
+    bonus and no stats row. The vacuum is the one at that round's clear.
+  - **Safety guard:** the 180 s Combat fallback now only guards the wait before a breather. It starts when the breather
+    round is down to where it would have rolled over; when it runs out, the stuck leftovers are removed and the open
+    rounds clear as usual (their fast-clear bonus is usually missed).
+  - Death: GameOver stops every open round (no spawns, telegraphs cancelled, leftovers stay), their stats records close
+    without a clear, and no bonus is paid for them. Killing the leftovers afterwards pays nothing.
+- **Per-round stats** (`UGSRunStats`): a record (`FGSRoundStats`) for every round of the run, with `bOpen`, `bCleared`,
+  `ClearedAt` and its `Payout` (new). `FindRound(N)`, `GetRounds()`, `GetOpenRounds()`; `GetCurrentRound()` is the
+  newest. Kills, cash, XP, health orbs and damage dealt count to **the enemy's round**: pickups carry their round
+  (`AGSCashPickup::SourceRound`; `UGSCashPickupSubsystem::SetDropRound` around a kill's drops), and the awards take it.
+  Enemies with no round (debug spawns) and dummies count to the newest round. **Damage taken counts to every open
+  round**, so one hit while two rounds overlap costs both their no-damage bonus. Run-summary "rounds cleared" counts
+  cleared rounds.
+- **At a round's clear** (when its last enemy dies): the round is recorded as cleared, its bonus is worked out and
+  paid as before (base $20; no damage between its start and its clear $15; fast clear $15 within 8 s + 1.5 s per enemy
+  of its own start), every pickup on the ground is vacuumed, and **the profile is saved once that vacuum has landed**
+  (at most `ClearSaveMaxWait` 3 s later; `GetRoundClearSaves`, `IsClearSavePending`). The `[round] Round N cleared`
+  line is written with that save, so its cash and XP include the vacuum as before. Saves also happen at death and on
+  quit, as before.
+- **HUD** (WBP_HUD, MCP):
+  - Round line: "ROUND 4", phase "COMBAT" / "BREATHER" / "PRE-ROUND", "7 enemies left · 12 alive" (the newest round's
+    enemies left, every round's alive). The countdown shows before round 1 ("Round 1 in 3…") and in the breather
+    ("Round 11 in 10…").
+  - A short **"ROUND N"** banner (still "GET READY") when a round starts, also when it rolls over. **No ROUND CLEAR
+    banner.**
+  - **Round-clear pop-up** (new `RoundClearPopup` VerticalBox under the round info with `RoundClearPopupTitle` /
+    `RoundClearPopupLines`): "Round 4 clear  +$50" and "Round clear +$20 · No damage +$15 · Fast clear +$15 (12 s / 23
+    s)" (or "missed"), green, about 3 s (`RoundClearPopupDuration`), fading. It is bound to the new
+    `UGSRunStats::OnRoundClearPaid`. It shares the banner queue: one banner or pop-up at a time, none while LEVEL UP!
+    or the cards are up; a queued "ROUND N" is dropped once a newer round has started; pop-ups are never dropped.
+  - Test hooks: `IsAnyBannerShowing`, `IsRoundClearPopupShowing`, `GetRoundClearPopupRound / Title / Lines`,
+    `GetRoundClearPopupsShown`, `GetQueuedRoundClearPopupCount`.
+- **Removed:** `UGSRoundSummaryWidget` (`UI/GSRoundSummaryWidget.*`), `WBP_RoundSummary` and
+  `AGSPlayerController::RoundSummaryWidgetClass` / `GetRoundSummaryWidget` (BP_GSPlayerController re-saved).
+- **Debug:**
+  - `gs.Round.Skip`: PreRound → Combat; in Combat it removes what is left of every open round, so each clears now
+    (bonus, vacuum, save) and the run moves on (the next round, or the breather); in the breather it starts the next
+    round.
+  - `gs.Round.Set N`: stops every open round without a bonus (leftovers removed), then round N's 3 s countdown.
+  - `gs.Round.Pause 1`: freezes the phase timer and the safety guard and holds the roll-over.
+  - `gs.Debug.Round 1` adds the open rounds (each with its enemies left / alive and "ready"), the roll-over point, the
+    breather rule, the safety guard and "PAUSED".
+- **Numbers** (`Round.RollOverPace`, game time; `gs.KillAll` once a game second from round 1's Combat):
+  - **Empty time between rounds 1–6:** before, 7.75 s each (RoundClear 4 s + PreRound 3 s + the 0.75 s telegraph,
+    from the settings). After, **0 s**: in every pair the next round's first enemy was on the field 4.3–5.3 s before
+    the round before it cleared.
+
+    | Rounds | Empty before | Empty after | Next round's first enemy arrived before the clear by |
+    |---|---|---|---|
+    | 1–2 | 7.75 s | 0 s | 5.26 s |
+    | 2–3 | 7.75 s | 0 s | 5.25 s |
+    | 3–4 | 7.75 s | 0 s | 5.25 s |
+    | 4–5 | 7.75 s | 0 s | 5.25 s |
+    | 5–6 | 7.75 s | 0 s | 4.25 s |
+
+  - **Time to reach round 10** with `gs.KillAll` once a second: **109.1 s** after round 1's Combat started.
+  - **Arrival vs the fast-clear limit, rounds 1–20** (last enemy on the field after the round starts =
+    (size − 1) × gap + 0.75 s; rounds 1–8 measured, the same to 0.1 s; rounds 9–20 from the wave sizes of seed 5903):
+    **no round's limit is shorter than its arrival time** (limit not changed).
+
+    | Round | Size | Gap | Last arrives | Fast-clear limit |
+    |---|---|---|---|---|
+    | 1 | 4 | 2.00 s | 6.8 s | 14.0 s |
+    | 2 | 6 | 2.00 s | 10.8 s | 17.0 s |
+    | 3 | 8 | 2.00 s | 14.8 s | 20.0 s |
+    | 4 | 10 | 2.00 s | 18.8 s | 23.0 s |
+    | 5 | 13 | 1.54 s | 19.2 s | 27.5 s |
+    | 6 | 16 | 1.25 s | 19.5 s | 32.0 s |
+    | 7 | 16 | 1.25 s | 19.5 s | 32.0 s |
+    | 8 | 19 | 1.05 s | 19.7 s | 36.5 s |
+    | 9 | 20 | 1.00 s | 19.8 s | 38.0 s |
+    | 10 | 22 | 0.91 s | 19.8 s | 41.0 s |
+    | 11 | 24 | 0.83 s | 19.9 s | 44.0 s |
+    | 12 | 27 | 0.74 s | 20.0 s | 48.5 s |
+    | 13 | 28 | 0.71 s | 20.0 s | 50.0 s |
+    | 14 | 29 | 0.69 s | 20.1 s | 51.5 s |
+    | 15 | 32 | 0.62 s | 20.1 s | 56.0 s |
+    | 16 | 33 | 0.61 s | 20.1 s | 57.5 s |
+    | 17 | 35 | 0.57 s | 20.2 s | 60.5 s |
+    | 18 | 37 | 0.54 s | 20.2 s | 63.5 s |
+    | 19 | 39 | 0.51 s | 20.2 s | 66.5 s |
+    | 20 | 40 | 0.50 s | 20.2 s | 68.0 s |
+
+    The closest is round 4 (18.8 s against 23 s). From round 5 on every round arrives in about 20 s while the limit
+    grows by 1.5 s per enemy, so the fast-clear bonus gets easier with the round (a balance note, not changed).
+- **Tests:**
+  - New `Round.RollOver`, `Round.Breather`, `Round.RollOverPace` (see the test table). The same-seed waves check was
+    added to `Run.SameSeedSameRun`.
+  - **Changed, because the new round flow made them untrue** (what each checks is otherwise unchanged):
+    - `Round.PhaseLoop`: no RoundClear phase; a skip clears round 1 and round 2 starts in Combat with no countdown;
+      round 10's clear → Breather → its timer → round 11 (was: RoundClear timer → PreRound).
+    - `Round.WaveDirector`: runs with RollOverRemaining 0 (a settings copy) so round 1's wave is checked alone; "round
+      1 cleared" by its record instead of "phase is RoundClear"; the skip clears round 2 and round 3 starts (was: the
+      wave stops and the counts reset).
+    - `Round.ClearBonus`: the RoundClear summary panel is gone, so it checks the HUD pop-up and each round's record and
+      payout; one round at a time (RollOverRemaining 0); "RoundClear from PreRound pays nothing" became "`gs.Round.Set`
+      stops an open round without a bonus"; round 9 instead of 10 for "pays the same as round 1" (10 is a breather
+      round now).
+    - `UI.RoundHUD`: no ROUND CLEAR banner: checks that it never shows and that round 2's pop-up does; the enemies line
+      has "· N alive"; round 3 rolls in during round 2 (no countdown); the stale-banner check uses ROUND 4 (two skips
+      while the cards are up) instead of ROUND CLEAR; the overlap check covers pop-ups too; XPGain 0 after the forced
+      level-up (the skips' vacuums would level up again and hold the queue).
+    - `Profile.PermanentCash`: saved at the clear (nothing on the ground, so at once), counted by
+      `GetRoundClearSaves` (was: saved when RoundClear ended).
+    - `Run.GameOver`: round 1 cleared by a skip, round 2 starts when the round timer is unpaused (was: RoundClear, then
+      PreRound); "no spawns after death" compares the spawned count with the one at death (the stopped round keeps its
+      count now).
+    - `Run.SeedAndStats` (comment only), `Progression.LevelUpRewards` ("RoundClear works the same" became "right after
+      a round's clear"), `Economy.CashPickups`, `Economy.XPOrbs`, `Economy.KillCombo`, `Economy.HealthOrbs` (they
+      entered RoundClear only for its vacuum; they call the vacuum directly now), `Round.RangedCap` (`StopWave` →
+      `StopAll`).
+- **PIE check** (hub → `gs.Market.Return`, god mode, `gs.KillAll` every few seconds): round 2 started while round 1
+  still had enemies, round 3 while round 2 did; "Round 1 clear bonus: $50 … cleared in 13.6 s of 14.0 s", then "[round]
+  Round 1 cleared: … $46 collected + $50 bonus, 40 XP" and "Saved slot GSProfile (RoundClear)". The HUD showed "ROUND 3 /
+  COMBAT / 6 enemies left · 0 alive" and the fading "Round 2 clear +$50 / Round clear +$20 · No damage +$15 · Fast
+  clear +$15 (11 s / 17 s)" pop-up under it.
+  - Found and fixed there: the `[round]` line was written at the clear, before the vacuum landed ("$0 collected"); it
+    now waits for the clear's save.
+- **Decided here, to confirm:**
+  - The phases: PreRound only before round 1; no RoundClear; Breather after rounds 10, 20, …
+  - Roll-over needs at least one of the newest round's own enemies to have died, so a round with 3 or fewer enemies
+    doesn't start the next one the moment it starts.
+  - The breather waits for **every** open round (older leftovers too) to be cleared.
+  - The safety guard (180 s) starts once the breather round is down to where it would have rolled over, and clears the
+    leftovers when it runs out.
+  - Waves come from a stream per round (run seed + round), not from the run stream.
+  - Enemies with no round (`gs.Spawn`) count to the newest round; enemy scaling uses the enemy's own round.
+  - The save at a clear waits for its vacuum to land (at most 3 s).
+  - `gs.Round.Skip` in Combat clears every open round at once (each pays its bonus); `gs.Round.Set` stops them with
+    none; `gs.Round.Pause` holds the roll-over.
+  - The batch and interval fields are removed (not left unused).
+  - The "ROUND N" banner keeps "GET READY" as its subtitle; the pop-up shares the banner queue in its own panel.
+  - `CombatFallbackDuration`'s class default is now 180 (the asset's value) instead of 60.
+- **CLAUDE.md:** the run line (no RoundClear phase), "saves at each round's clear", the suite time (about 4 minutes).
+- **Full suite:** 70 tests, all passing, in 249.8 s.
+
 ---
 
 ## Console commands and CVars
@@ -3913,15 +4092,15 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.Profile.Print` | Print slot, save version, cash and owned items to the log and screen. |
 | `gs.Damage.Self <n>` | Damage the local player through GAS. |
 | `gs.Perf [Seconds=5]` | Log avg/p95/max frame time, game/render/GPU time and enemies alive. |
-| `gs.Round.Skip` | Advance to the next round phase (nothing in GameOver, after death). |
-| `gs.Round.Set <N>` | Jump to round N and restart it from PreRound. |
-| `gs.Round.Pause [0\|1]` | Freeze / resume the phase timer. |
+| `gs.Round.Skip` | PreRound → Combat; in Combat, remove what is left of every open round so each clears now (bonus, vacuum, save) and the run moves on (next round or the breather); in the breather, start the next round; nothing in GameOver. |
+| `gs.Round.Set <N>` | Stop every open round without a bonus (leftovers removed), then round N's 3 s countdown. |
+| `gs.Round.Pause [0\|1]` | Freeze / resume the phase timer and the safety guard; while paused nothing rolls over. |
 | `gs.Run.Seed [N]` | Town: print the run seed, or restart the run (stream + stats, round 1) with seed N. Hub: print / set the next run's seed (0 = random); the portal passes it on. |
 | `gs.Run.Stats` | Print run stats to log and screen (works on clients), plus this round's stats and the last round-clear bonus. Since Prompt 48 also the damage dealt by source (rifle/pistol, Floating Gun, Razor Cards, Barbed Wire, Powder Keg, Dynamite (Prompt 49), Lucky Coin (50), Molotov (51), Tomahawk (52), other) and the health orbs dropped / collected / healed. |
 | `gs.Market.Teleport` / `gs.Market.Return` | Debug shortcuts. Teleport (in a run) opens the hub map (`AGSGameMode::OpenHubMap`). Return (in the hub) starts a run like the portal (`AGSHubGameMode::StartRun`). |
 | `gs.Editor.RemoveSublevel <ShortName>` | Editor only: remove a streaming sublevel from the open map (MCP can't); save the map afterwards. |
 | `gs.Editor.BuildEnemyStateTree [melee\|ranged\|all]` | Editor only: regenerate ST_BeatCop / ST_PatrolOfficer from code. |
-| `gs.Debug.Round 1` (cvar) | On-screen round, phase, time left, area, wave counts, enemy HP/DMG multipliers. |
+| `gs.Debug.Round 1` (cvar) | On-screen round, phase, time left, area, wave counts (alive in every round, the newest round's remaining / total), enemy HP/DMG multipliers, and since Prompt 59 the open rounds (each with its enemies left / alive and "ready"), the roll-over point, the breather rule, the safety guard and "PAUSED". |
 | `gs.Debug.Spawns 1` (cvar) | Draw the spawn ring and chosen points (green ring, yellow fallback) for 8 s. |
 | `gs.Debug.Boundary 1` (cvar) | Draw the map boundary's play area (walls + ceiling) every frame. |
 | `gs.Debug.Weapons 1` (cvar) | Debug-draw shots and log enemy shots (`[shot]`). |
@@ -4035,14 +4214,14 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (67, all passing, about 180 s)
+## Automation tests (70, all passing, about 250 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
 the area's tests; run the full suite once per prompt before the commit (see **Workflow update — faster test runs**).
 `UI.RoundHUD`, `Round.PhaseLoop`, `Round.ClearBonus`, `Map.TownLayout` and `Upgrades.DashCharge` run game time ×4 and
 `Upgrades.ExtraJump` ×3 (`SpeedUpWorld`). `Economy.HealthOrbs` also runs ×4. `Upgrades.FireRateAndMagnet` measures its shots at ×1 (throttling off) and
-runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLevels` run at ×4. `Weapons.HeldFire` runs at ×4, and ×16 for its slow-frame burst. `Upgrades.MoveSpeedSlideDash` measures at ×1 (throttling off) and `Upgrades.MoveSpeedCover` runs at ×3. `UI.RoundHUD` also shortens its HUD's banners.
+runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLevels` run at ×4. `Weapons.HeldFire` runs at ×4, and ×16 for its slow-frame burst. `Upgrades.MoveSpeedSlideDash` measures at ×1 (throttling off) and `Upgrades.MoveSpeedCover` runs at ×3. `UI.RoundHUD` also shortens its HUD's banners. `Round.RollOver`, `Round.Breather`, `Round.RollOverPace` and `Round.ClearBonus` run at ×4 (Prompt 59).
 
 | Test | Checks |
 |---|---|
@@ -4057,16 +4236,16 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Map.TownLayout` | Town 300 × 300 m: boundary PlayAreaSize 30000 × 30000, centered, ceiling 7500; ground with its top at Z 0 at the center, the edge midpoints and the corners; Kill Z below the ground; NavMesh bounds cover the ground; a tagged landmark on each side, more than 110 m out and at least 15 m tall; PlayerStart at the center; 4 EnemySpawn points at least 130 m out, inside the boundary, on the NavMesh; no ground NavMesh islands (5 m grid, at least 2800 ground samples, every one with a path from the PlayerStart); a path to every edge and corner; launched into the wall at each edge and corner, the player stays inside and on the ground; a spawn ring of 6 rolled at each corner: every point inside the boundary, on the NavMesh, in the ring or a fallback. |
 | `Map.StartRunPortal` | PIE in the hub: a portal at MarketExitPortalSpot ("START RUN"), RunMap = L_Town_Graybox; gs.Run.Seed 4242 in the hub sets the next seed; walking into the trigger starts the run (fade to black, a second start refused); the town loads with seed 4242 (GameMode + GameState), round 1, fresh run stats, area Town, same cash, no safe zone; round 1's first spawns: no fallback points, closest ≥ ring min, farthest ≤ ring max, every enemy on the NavMesh and inside the boundary. |
 | `Map.Boundary` | AGSMapBoundary in the town (ceiling 7500), player inside, cvar exists; 5 boxes: MapBoundary object type, block Pawn, ignore Visibility/Camera/WorldStatic/WorldDynamic/PhysicsBody, no NavMesh effect; player and enemy capsules block MapBoundary; Visibility / Camera / enemy-shot / pickup traces pass through a wall and the ceiling, a pawn sweep doesn't; spawn points near a corner are inside; player and a frozen enemy launched at a wall stay inside; dash and slide into the wall stop inside; a launch up stops at the ceiling (no damage, same XY); gs.Upgrade.Grant ExtraJump 3; an air jump under the ceiling works and is stopped by it. |
-| `Round.PhaseLoop` | PreRound on start, timer → Combat; no market phases in the enum; RoundClear timer → round 2 PreRound; skips round 2 → round 3 PreRound; gs.Round.Set; death → GameOver (no end time, a skip doesn't leave it), still GameOver in round 5 after the PreRound time. |
+| `Round.PhaseLoop` | PreRound on start, timer → Combat; no market phases and no RoundClear in the enum, a Breather phase; Combat is untimed and round 1's wave runs; a skip clears round 1 and round 2 starts in Combat (no countdown), again → round 3; gs.Round.Set 10 → PreRound, open rounds stopped; round 10's clear → Breather (still round 10) for BreatherDuration; its timer → round 11 in Combat; gs.Round.Set 5; death → GameOver (no end time, a skip doesn't leave it), still GameOver in round 5 after the PreRound time. |
 | `Player.ReturnToHubRestoresInput` | Die → run summary with UI input and the cursor → R once the input lock is over (the widget's key path) → returning → the hub map (AGSHubGameMode, no run) → game input back, no cursor, no summary, pawn not dead. |
-| `Run.GameOver` | Return refused while alive; run time format; a level-up pick + 3 upgrade stacks, round 1 with 2 kills, a pickup and its clear bonus; round 2 wave running with enemies to come; an offer open at death (paused) → death: GameOver, still round 2, wave stopped (no telegraphs, nothing left to spawn), living enemies stay, untimed, a skip does nothing, offer closed and unpaused; debug XP after death levels up with no offer or pause; run time recorded, profile saved; summary shown with UI input + cursor, locked (R and the button do nothing); 3 s later: no spawns or new enemies, no RoundClear / bonus, run time frozen, same cash; killing the leftovers clears nothing; summary lines (rounds, level, kills, combo, cash earned, total cash, run time, seed, upgrades text + one icon per upgrade with stacks); held R (repeat) and Space do nothing; the "Return to Market" button → returning, second press / request refused, camera fades to black, the summary fades out before the hub opens; the hub: cash kept, no summary, game input, no cursor, unfaded, no upgrades. |
+| `Run.GameOver` | Return refused while alive; run time format; a level-up pick + 3 upgrade stacks, round 1 with 2 kills, a pickup and its clear bonus; round 2 wave running with enemies to come; an offer open at death (paused) → death: GameOver, still round 2, wave stopped (no telegraphs, nothing left to spawn), living enemies stay, untimed, a skip does nothing, offer closed and unpaused; debug XP after death levels up with no offer or pause; run time recorded, profile saved; summary shown with UI input + cursor, locked (R and the button do nothing); 3 s later: no spawns or new enemies, no round clear / bonus, run time frozen, same cash; killing the leftovers clears nothing; summary lines (rounds, level, kills, combo, cash earned, total cash, run time, seed, upgrades text + one icon per upgrade with stacks); held R (repeat) and Space do nothing; the "Return to Market" button → returning, second press / request refused, camera fades to black, the summary fades out before the hub opens; the hub: cash kept, no summary, game input, no cursor, unfaded, no upgrades. |
 | `Spawn.LocationFinder` | 12 points: on NavMesh, reachable, in ring, spaced, inside the boundary; same seed → same points; no ring NavMesh (player 50 m up) → 2 flagged EnemySpawn fallbacks, on NavMesh, inside, spaced, and the fallback warning is logged. (No spawns in the Market District: `Map.Hub`.) |
-| `Round.WaveDirector` | Round 1 size matches DT_Waves; killing the first arrivals while more are to come keeps Combat; killing the whole wave ends Combat; skipping removes leftovers. |
+| `Round.WaveDirector` | Round 1 alone (RollOverRemaining 0): its size matches DT_Waves, its first enemy telegraphs at once; killing the first arrivals while more are to come keeps round 1 open (still round 1); killing as they arrive clears it (its record: kills = wave), round 2 starts at that clear and the GameState counts are round 2's; a skip removes round 2's leftovers and telegraphs and clears it, round 3 starts. |
 | `Round.WaveBudget` | Seeded purchase within budget, MinRound respected, alive cap with telegraphs, spawns resume. |
 | `Round.DifficultyScaling` | Round 1 base stats; round 10 = base × curve, full health; GameState multipliers. |
 | `Balance.TimeToKill` | Rifle/pistol shots-to-kill at rounds 1/5/10 vs both cops via the real fire path (`[ttk]` log). XPGain 0, so kills don't open upgrade offers. |
 | `Run.SeedAndStats` | Same seed replays rolls; restart resets stats; kills per type; damage dealt/taken; rounds cleared. |
-| `Run.SameSeedSameRun` | Rounds 1, 2, 5, 8 (generated) replayed with one seed, in one frame: the same enemies in spawn order and the same spawn point for each (all batches run at once, player still), the same level-up offer, 3 rerolls, refused 4th and next offer; every enemy placed; another seed gives another run. |
+| `Run.SameSeedSameRun` | Rounds 1, 2, 5, 8 (generated) replayed with one seed, in one frame: the same enemies in spawn order and the same spawn point for each (all placed at once, player still), the same level-up offer, 3 rerolls, refused 4th and next offer; every enemy placed; another seed gives another run. Since Prompt 59: rounds 1–20's waves (per-round stream) are the same after 5,000 other run-stream draws and in a new run with the same seed, and differ with another seed. |
 | `Run.NewRunResets` | A run with 2 level-ups (a reroll), 6 upgrade picks, air jumps, +20 MaxHealth, a kill and $77 → death → hub (cash kept) → Start Run → town: level 1, 0 XP, no upgrades / offers, rerolls back to 3, ExtraJumps 0 / JumpMaxCount 1, base Damage / MoveSpeed / MaxHealth at full health, round 1, no kills / cash earned / combo, cash kept; HUD level 1, no icons, cash. |
 | `Economy.FlatDropsPerRound` | Melee and Patrol Officers (frozen) killed in round 1 and round 10 with no combo: round 10 has more HP, but the cash (CashValue, same pieces) and the single XP orb (XPValue) are the same. |
 | `Economy.CashPickups` | Exact split; out-of-reach drop stays; radius collects into Cash/CashEarned/HUD + popup; pool reuse; RoundClear vacuum; short lifetime blinks, expires unpaid. Counts cash pickups only (the kills' XP orbs never expire). Ends the kill combo before each kill, so every drop is exactly CashValue. |
@@ -4078,9 +4257,9 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Progression.LevelUpRewards` | DA_LevelRewards wiring; +10 per stack; damaged → two level-ups → MaxHealth +20, Health full, 2 stacks, HUD health/level/XP follow; same in RoundClear; new run removes stacks and clamps Health; dead player gets the stack but no heal. Takes each upgrade offer (choice 0) so the game unpauses. |
 | `Progression.LevelUpFeedback` | DescribeRewards "+10" / "+20 Max Health"; kill → no popup, collected orb → "+XPValue XP" at the collection point; double level-up → banner "Level 3" + "+20 Max Health", label, XP bar pulse, one sound, player glow; non-kill XP pops above the player; level-up during the banner merges (level 4, "+30"); 3 upgrade offers taken; banner/pulse/glow end. |
 | `UI.UpgradeChoice` | Choice widget from the PlayerController; level-up pauses (GameMode owns the pause) and the cards wait for the banner; cards match the offer (order; category, rolled rarity text and frame color, pick line, "Now:" line, a description); the pick gets the card's rarity; "Reroll (3 left)", cursor shown; key / click ignored during the 0.3 s lock; R, gamepad Y and the button reroll (label 2/1/0, new cards, lock again), greyed out at 0 and R does nothing; key 2 picks the 2nd card, last pick hides, unpauses, cursor off; 1000 XP → 1 open + 3 queued; D-pad selects, A picks; next offer swaps in at once (no banner wait), locked, still paused; click / numpad 1 / key 3 pick the rest; hidden and unpaused after the queue. |
-| `UI.RoundHUD` | PreRound: "ROUND 1", "PRE-ROUND", countdown "Round 1 in 3…" → "… 2…" a second later, no enemy count, ROUND 1 banner, no icons; gs.Round.Set 2 restarts text + countdown and shows ROUND 2; a level-up hides it and queues it again (LEVEL UP!, offer open, paused); 3.5 s with the cards up: still waiting; the pick replays ROUND 2; icons: picked upgrade x1 → same again x2 (one icon) → another upgrade (two icons); Combat: "COMBAT", no countdown, "N enemies left" = wave, a kill updates it; RoundClear: phase text, no enemy count, ROUND CLEAR banner; a level-up during ROUND CLEAR then round 3 starting with the cards up → queued ROUND CLEAR + ROUND 3 → after LEVEL UP! only ROUND 3 shows (stale one dropped); no frame with a round banner over LEVEL UP! or an open offer; a new run clears the icons. |
-| `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; Combat → RoundClear pays the round-clear bonus into the profile; save when RoundClear ends includes it (version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + return to the hub (the hub's HUD shows it); quitting saves it and the next PIE session (new GameInstance) loads it (HUD too); `gs.Profile.Reset` through the console → 0 and no save file. |
-| `Round.ClearBonus` | DA_RoundClearSettings on the GameMode ($20 / $15 / $15, 8 s + 1.5 s per enemy) and the summary widget on the controller; PreRound starts the round's stats (no payout, no summary); Combat records its start and wave size; round 1 killed fast with no damage → base + no damage + fast clear, kills = wave size, profile += bonus + cash collected; summary shows round, title and each line; after the vacuum cash collected ≥ kills × CashValue, XP = kills × XPValue, profile and CashEarned += cash collected + bonus, summary lines follow; round 2 PreRound hides the summary and starts from zero; damage taken + an impossible time limit (override) → base only, "missed" lines, total = base; RoundClear from PreRound pays nothing and shows nothing; round 10 (skip) pays the same as round 1; gs.Run.Stats shows the last bonus; a new run clears payout and round stats. |
+| `UI.RoundHUD` | PreRound: "ROUND 1", "PRE-ROUND", countdown "Round 1 in 3…" → "… 2…" a second later, no enemy count, ROUND 1 banner, no icons; gs.Round.Set 2 restarts text + countdown and shows ROUND 2; a level-up hides it and queues it again (LEVEL UP!, offer open, paused); 3.5 s with the cards up: still waiting; the pick replays ROUND 2; icons: picked upgrade x1 → same again x2 (one icon) → another upgrade (two icons); Combat: "COMBAT", no countdown, "N enemies left · N alive", a kill updates it; round 3 rolls in during round 2 (still COMBAT, no countdown); round 2's clear shows the pop-up, never a ROUND CLEAR banner; a level-up during the pop-up, then two skips start round 5 with the cards up → the stale ROUND 4 is dropped, pop-ups 2–4 and ROUND 5 show one at a time after LEVEL UP!; no frame with a banner or pop-up over LEVEL UP! or an open offer; a new run clears the icons. |
+| `Profile.PermanentCash` | Test slot; reset deletes the save; pickup → profile + HUD + CashEarned; spend / no overspend; no save on change; a round's clear pays its bonus into the profile and saves at the clear (one more round-clear save, bonus included, version, no owned items); new run resets CashEarned but keeps the balance; death saves; balance survives death + return to the hub (the hub's HUD shows it); quitting saves it and the next PIE session (new GameInstance) loads it (HUD too); `gs.Profile.Reset` through the console → 0 and no save file. |
+| `Round.ClearBonus` | DA_RoundClearSettings ($20 / $15 / $15, 8 s + 1.5 s per enemy); one round at a time (RollOverRemaining 0); PreRound opens round 1's record (no payout, no pop-up); Combat records its start and wave size; round 1 killed fast with no damage → base + no damage + fast clear, kept in its record, kills = wave size, profile += bonus + cash collected, round 2 starts with no countdown; the HUD pop-up "Round 1 clear  +$50" with its three lines (not the big banner); after the vacuum round 1's cash ≥ kills × CashValue, XP = kills × XPValue, profile and CashEarned += cash + bonus; round 2's record from zero, 5 damage → round 2 only (round 1 already cleared), an impossible time limit → base only, pop-up "missed" lines; gs.Round.Set stops the open round 3 with no bonus or cash; round 9 (skip) pays the same as round 1; gs.Run.Stats shows the last bonus; a new run clears payout and records. |
 | `Upgrades.StatUpgrades` | The 3 DA_Upgrade_* assets (Common, no cap, description shows +10% / +8%); ReloadSpeed ×5 via `gs.Upgrade.Grant` → 1.5, 5 GE stacks, real reload shorter (≥ ReloadTime / 1.5); Damage ×3 → 1.3; MoveSpeed ×2 → base × 1.16 and MaxWalkSpeed follows; MaxStacks 1 refuses a second pick; unknown name refused; new run removes all upgrades and restores the stats. |
 | `Upgrades.FloatingShield` | DA_Upgrade_FloatingShield (Rare, no cap, "+1", GE class, in the pool); ShieldCooldown 10 s; Shields 0, no shields or meshes; no shield: a hit takes Health; `gs.Upgrade.Grant FloatingShield 2` → 2 shields, both ready, 2 meshes shown, no collision, on the orbit at chest height, 180° apart; a real dash's i-frames block a hit with no shield used; block 1: no Health lost, 1 of 2 ready, the first shield gone, 10 s cooldown, counted, no run-stats damage taken, the combo goes on, block flash shown; the blocked mesh hidden, the other shown; block 2 (2 s later): none ready, each shield on its own cooldown; a third hit takes Health (run stats 25 damage); shield 1 back 10 s after its block (return shown, visible again), shield 2 back 10 s after its own; a pick while one recharges: the new shield ready at once, 3 meshes 120° apart; a real Beat Cop's swing and a Patrol Officer's burst are blocked (no Health lost; 4 of 4 shots in the run); a new run → Shields 0, no shields, no meshes. Health orbs off. Game time ×4. |
 | `Upgrades.FireRateAndMagnet` | DA_Upgrade_FireRate (+8%) and DA_Upgrade_Magnet (+15%): Common, no cap, their GE classes, in DA_UpgradePool; FireRate 1 and PickupRadius 300 at start; rifle held for 12 shots: on the exact schedule every frame, 0.100 s apart on average (within a frame over the burst); `gs.Upgrade.Grant FireRate 10` → FireRate 1.8, refire interval / 1.8 (0.0556 s), 16 held shots on that schedule, 1.8 times as fast; a cop's drop (cash + XP orb) lands 380–660 cm away: nothing flies in at radius 300; `gs.Upgrade.Grant Magnet 10` → PickupRadius 750, the cash and the orb fly in (cash += CashValue, XP += XPValue); a new run resets both. |
@@ -4112,6 +4291,9 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Enemies.CopLooks` | Prompt 57: a still Beat Cop and Patrol Officer 6 m in front of the player. Each has its display name ("Beat Cop", "Patrol Officer"), wears `SK_LowPolyBody` with `ABP_Unarmed`, and has a dynamic material on each of the 6 slots made from that slot's `SlotMaterials` entry, with `TelegraphAmount` 0 at rest. Props: the cap on `head` (above the head) for both, the baton on `hand_r` for the Beat Cop; each attached to the body, no collision, visible, near its bone. Gun: none for the Beat Cop, `SM_PatrolCarbine` in the weapon's socket for the Patrol Officer, with the muzzle near it. Neither wears the robber's top or trousers, and the two tops differ. The Beat Cop's melee wind-up and the Patrol Officer's aim set `TelegraphAmount` 1 on every slot, the Patrol Officer's laser shows, and the glow goes back to 0 when they end. |
 | `Enemies.DodgeableShots` | Prompt 58, 45 m up over the town centre (no cover in the way unless placed), the player held still (flying) and Patrol Officers with their brains stopped: `DA_PatrolCarbine` 2,800 cm/s with a bolt mesh, material and impact effect; damage 7, burst 4 and the 0.4 s aim unchanged; the Patrol Officer `bRanged`, the Beat Cop not. With a spreadless copy of the Patrol Officer at 15, 20 and 25 m: no damage on the frame the shot is fired, the shot is one visible bolt at 2,800 cm/s, the first hit lands (distance − 80 cm) / 2,800 s later (±0.08 s; logs each flight time and how far a walking player moves meanwhile), and all 4 shots hit for 28. With the real carbine (spread) at 20 m and the player moved sideways at 900 cm/s every frame: 4 shots fired, none hit, no Health lost. A wall at 10 m stops all 4 (hit world), none reach the player. A Beat Cop at 10 m on the line: all 4 fly through it and hit the player, the cop untouched. `State.Invulnerable` (the dash's i-frames) with 2 shields: no Health lost and no shield used. 2 shields: two shots blocked, one shield each, the other two take 14. Second Wind at 5 Health: the player survives at 30% with it used up (the later shots hit the invulnerability). Paused with a shot in flight: it doesn't move or hit for 0.3 s real time, then lands after the unpause. A new run with a shot in flight: no enemy shot left. Game time ×1. |
 | `Round.RangedCap` | Prompt 58: `DA_WaveSettings` MaxRangedShare 0.4, generated waves from round 6; rounds 6–30 for 10 seeds (250 purchases): none above 40% ranged, and none leaves budget a non-ranged enemy could use (or hit the size cap); ranged enemies still bought in over 200 of them; logs the highest share, rounds 6–15 before (no cap) and after for one seed, and each DT_Waves row's share (all at most 40%, not capped); round 7's real wave from the director (queued + telegraphing = its total) is at most 40% ranged. |
+| `Round.RollOver` | Prompt 59: DA_RoundSettings RollOverRemaining 3, window 20 s, gap 0.25–2 s (4 enemies 2 s, 13 enemies 20/13 s, 200 enemies 0.25 s). Round 5 killed as it arrives: round 6 starts exactly when round 5 is down to 3 (not before, not later), still Combat, round 5 still open; round 5's spawns one gap apart (±0.15 s). A hit while 5 and 6 are open counts to both; both pay their bonus once, at their own clear, without the no-damage part, with clear time from their own start and fast clear iff within their own limit; each round's kills = its wave and its cash = the sum of its enemies' CashValue (combo off); a save at each clear holding the balance. RollOverRemaining 0: rounds 3 and 4 never open together, round 4 starts at round 3's full clear. The alive cap (6) holds for two open rounds together and is reached. Death: GameOver, the open round closed without a clear, killing the leftovers pays nothing. Game time ×4. |
+| `Round.Breather` | Prompt 59: a breather after every 10 rounds, 10 s; rounds 10 and 20 are breather rounds, 9 and 11 aren't. Round 9 rolls into 10, 10 never into 11; once rounds 9 and 10 are cleared → Breather, still round 10, BreatherDuration left, HUD "BREATHER" and "Round 11 in …", no enemy count. During it: nothing spawns or telegraphs, no stats row, clear or bonus, no cash once the vacuum has landed; it lasts BreatherDuration (game time); then round 11 in Combat with exactly one new record and rounds cleared unchanged. The safety guard (2 s on a settings copy): round 20 ready after a kill → guard running, no roll-over; it clears the leftovers → Breather. Game time ×4. |
+| `Round.RollOverPace` | Prompt 59, a report: `gs.KillAll` once a game second from round 1's Combat until round 10 starts (logs the time); the empty time between rounds 1–6 (a round's clear to the next round's first enemy on the field), each less than the old 7.75 s; rounds 1–20: arrival time of the last enemy next to the fast-clear limit, flagging any shorter limit (logged). Game time ×4. |
 | `Economy.HealthOrbsAllSources` | For each kind of player kill (own kill, Floating Gun, Razor Cards, Barbed Wire, a Powder Keg blast kill) in a fresh run: at drop chance 1 every kill drops an orb, at 0 none, and the damage is recorded under that source in run stats. Chance 0.3 in bulk: 60 own kills and a crowd killed by one Barbed Wire tick (5 Legendary picks) drop at about the same rate (23 of 60 and 16 of 50 in the run). Game time ×4. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
@@ -4137,26 +4319,30 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   | PatrolOfficer | 45 | 430 (±12%) | range 15–25 m, backs off < 8 m, 0.4 s aim, 4-shot bursts | 2 | 2 | $15 |
 
   Corpses stay 5 s.
-- **Rounds** (DA_RoundSettings): PreRound 3 s, Combat safety fallback 180 s, RoundClear 4 s, then straight into the
-  next PreRound. GameOver (death) is untimed.
+- **Rounds** (DA_RoundSettings, since Prompt 59): a 3 s PreRound before round 1 only; the next round starts when the
+  newest has `RollOverRemaining` 3 or fewer enemies left (after one of its own kills); each round's enemies arrive one
+  at a time over `RoundSpawnWindow` 20 s (gap kept within 0.25–2 s: 4 enemies 2 s apart, 13 enemies 1.54 s, 40+ 0.5 s);
+  after every `BreatherEveryRounds` 10th round a full clear, then a `BreatherDuration` 10 s breather; the 180 s
+  `CombatFallbackDuration` guards only the wait before a breather; the save at a clear waits up to `ClearSaveMaxWait`
+  3 s for its vacuum. GameOver (death) is untimed.
 - **Run end:** run summary input lock 1 s, fade-in 0.4 s and fade-out 0.5 s (WBP_RunSummary class defaults); camera
   fade before the hub opens 0.5 s (`ReturnToHubFadeTime`, BP_GSGameMode).
 - **Spawn ring** (DA_SpawnSettings): 12–25 m, 2 m spacing, 20 attempts, prefer off-screen. The user chose to keep
   12 m.
 - **Town map** (L_Town_Graybox, Prompt 26b): 300 × 300 m, boundary 30000 × 30000 cm with a 75 m ceiling, NavMesh
   bounds Z −5 to 35 m, EnemySpawn fallback points 142 m out on the axes, landmarks 125 m out.
-- **Wave table** (DT_Waves; interval s / batch):
+- **Wave table** (DT_Waves; the per-row interval and batch were removed in Prompt 59, spacing is the round settings'):
 
-  | Round | Enemies | Interval / batch |
+  | Round | Enemies | Spawn gap |
   |---|---|---|
-  | 1 | 4 melee | 2.0 / 2 |
-  | 2 | 5 melee + 1 ranged | 2.0 / 2 |
-  | 3 | 6 + 2 | 1.8 / 2 |
-  | 4 | 7 + 3 | 1.8 / 3 |
-  | 5 | 9 + 4 | 1.6 / 3 |
+  | 1 | 4 melee | 2.0 s |
+  | 2 | 5 melee + 1 ranged | 2.0 s |
+  | 3 | 6 + 2 | 2.0 s |
+  | 4 | 7 + 3 | 2.0 s |
+  | 5 | 9 + 4 | 1.54 s |
 - **Generated waves** (DA_WaveSettings): Budget = 5 + 2.5 × round (BudgetCurve empty), e.g. round 8 = 25,
   round 15 = 42.5. MaxRangedShare 0.4 (Prompt 58: at most 40% of a generated wave ranged, by count), MaxGeneratedEnemies 150,
-  batch 3 every 1.5 s, MaxAliveEnemies 30, telegraph 0.75 s
+  one at a time like every round (the batch fields were removed in Prompt 59), MaxAliveEnemies 30 (every open round together), telegraph 0.75 s
   (M_EnemyLaser). Pool: BeatCop, PatrolOfficer.
 - **Difficulty curve** (DA_DifficultyCurve, linear, extrapolates past 30):
 
@@ -4298,10 +4484,21 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - The M2c upgrade rework is complete (Prompts 41–48), and so are the last four weapons (49–52) and the weapons checkpoint
   (53). M2d (Prompts 55–69) is next, then M3.
 - M2d (designed in Prompt 54) is only started: the player is the robber (Prompt 56) and the enemies are cops in
-  Blender models (Prompt 57) whose shots are dodgeable bolts with a 40% ranged cap (Prompt 58), but the code still has
-  engine-shape placeholders for weapons, pickups and cover, an alive cap of 30, separate rounds with a PreRound countdown
-  and a RoundClear pause, and
-  the 300 × 300 m town.
+  Blender models (Prompt 57) whose shots are dodgeable bolts with a 40% ranged cap (Prompt 58), and rounds roll over
+  (Prompt 59), but the code still has engine-shape placeholders for weapons, pickups and cover, an alive cap of 30, only
+  the two enemy types, and the 300 × 300 m town.
+- Roll-over rounds (Prompt 59):
+  - The full suite went from 180 s to 250 s: the three new round tests take 54 s together (`Round.RollOverPace` 27 s,
+    it plays rounds 1–9 at ×4).
+  - Nothing yet fills the breather (a boss goes there later); it is 10 s of nothing spawning, with the countdown.
+  - The safety guard is 180 s (the asset's value): a round before a breather that keeps one unreachable enemy holds
+    the run for 3 minutes before it is cleared. Other rounds have no guard: their leftovers just stay while the next
+    rounds roll on.
+  - From round 5 on every round arrives in about 20 s while the fast-clear limit keeps growing (8 s + 1.5 s per enemy),
+    so the fast-clear bonus gets easier with the round (table under Prompt 59).
+  - Roll-over and its pop-ups were checked with `gs.KillAll`, not real shooting; how the stream feels in real play is
+    the M2d checkpoint's (69).
+  - `AGSGameState::OnWaveCountsChanged` and the per-round stats are server-only, as before (`TODO(co-op)`).
 - Enemy shots (Prompt 58):
   - The bolt is an opaque emissive mesh with its tail modelled in; there is no particle trail, and the impact flash and
     the two click sounds are engine / editor placeholders (the sounds may not cook).
@@ -4740,8 +4937,7 @@ and round flow (M2d)** for the decisions and open questions). Each prompt update
     the low-poly look), and the player's robber model on today's skeleton and animations.~~ Done (see Prompt 56).
 57. ~~**Rename the enemies and give them cop models.**~~ Done (see Prompt 57).
 58. ~~**Dodgeable ranged shots and the ranged cap.**~~ Done (see Prompt 58).
-59. **Roll-over rounds and the breather:** the next round starts arriving when a few enemies are left, no countdown,
-    a steady stream, the round-clear bonus as a pop-up; a 10 s breather every 10 rounds.
+59. ~~**Roll-over rounds and the breather.**~~ Done (see Prompt 59).
 60. **One hundred enemies:** the alive cap to 100 at 60 fps on the user's PC (profile and optimize).
 61. **Rusher** (unlocks in round 4).
 62. **Shield** (round 6).

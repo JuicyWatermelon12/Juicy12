@@ -11,11 +11,12 @@ single-player is finished or nearly finished.
   map, and the run starts when it loads.
 - **Run map:** today the 300 × 300 m town `L_Town_Graybox` (75 m ceiling). In M2d (Prompt 67) a **city graybox of
   500 × 500 m with a 100 m ceiling** replaces it.
-- **Run:** PreRound → Combat → RoundClear → PreRound … until the player dies. There are no market visits during a
+- **Run:** PreRound (round 1's 3 s countdown) → Combat, where rounds roll over (Breather after every 10th) … until the
+  player dies (GameOver). There is no RoundClear phase since Prompt 59. There are no market visits during a
   run. Enemies drop cash and XP as pickups: a **flat amount per enemy type, the same in every round**. Income grows
   because later rounds spawn more enemies and the player kills faster.
-  - **Roll-over rounds** (M2d, Prompt 59): play stays split into rounds but feels continuous. The next round's
-    enemies start arriving when only a few of the current round are left, with no countdown; enemies arrive in a
+  - **Roll-over rounds** (M2d, Prompt 59, built): play stays split into rounds but feels continuous. The next round's
+    enemies start arriving when only a few (3) of the current round are left, with no countdown; enemies arrive in a
     steady stream, not a few batches; the round-clear bonus is a small pop-up while play goes on. Every 10 rounds
     there is a 10-second breather (placeholders; a boss goes there later). Level-ups still pause for the card pick.
 - **Enemies** (law enforcement): eight types that unlock as the rounds go on (no wanted level, no agency tiers).
@@ -93,7 +94,7 @@ Source/BanditBaller/
   AI/         enemies, AI controller, StateTree tasks/builder, spawn finder, wave director, spawn telegraph
   Economy/    enemy-drop pickups: cash pieces, XP orbs and health orbs (actor, pool subsystem, settings)
   UI/         UMG C++ bases (HUD, run summary, ability icon, enemy health bar, upgrade choice screen + card,
-              upgrade icon, RoundClear summary)
+              upgrade icon; the round-clear pop-up is part of the HUD since Prompt 59)
   Tests/      GSGameplayTests.cpp (editor-only, PIE-based)
   Market/     hub actors (Start Run portal; shop later)
   Casino/     planned (not created yet)
@@ -134,7 +135,7 @@ docs/PROGRESS.md  progress log and reference
   - **All cash changes go through it** (`AddCash` / `TrySpendCash`): earning in a run, spending in the shop, gambling.
     Nothing else stores cash (PlayerState has none); the HUD listens to its `OnCashChanged`.
   - Casino bets only ever take cash; owned items are never at stake.
-  - It saves at each RoundClear (when it ends), at run end (death) and on quit, not on every change.
+  - It saves at each round's clear (once its vacuum has landed), at run end (death) and on quit, not on every change.
   - Automation tests use the `GSProfile_AutomationTest` slot, never the real profile.
 - **All in-run randomness uses the run stream** via `UGSRunRandom` (waves, spawn positions, drops, upgrade choices,
   AI choices), never `FMath::Rand*` / `FRandRange` / `VRandCone`. Only exceptions: local cosmetics and the player's
@@ -269,7 +270,7 @@ docs/PROGRESS.md  progress log and reference
 - `CaptureViewport` shows the editor world, not PIE; use `CaptureEditorImage` (base64 PNG; decode with PowerShell).
 - Tests: stop PIE, then `AutomationTestToolset` → `DiscoverTests`. Area tests: `RunTests(["BanditBaller.Round.PhaseLoop",
   ...])` or `RunTestsByFilter("StartsWith:BanditBaller.Round")`. Full suite (once per prompt, before the commit):
-  `RunTestsByFilter("StartsWith:BanditBaller")`, under 3 minutes (161 s for 64 tests in Prompt 56). The editor console also works:
+  `RunTestsByFilter("StartsWith:BanditBaller")`, about 4 minutes (250 s for 70 tests in Prompt 59). The editor console also works:
   `Automation RunTests BanditBaller`. Each result has a `duration` for speed checks.
 - Playing in PIE through MCP: still too slow to fight (each call is a round trip). Read live round state with
   `ObjectTools.get_properties` on `...UEDPIE_0_L_Town_Graybox...:PersistentLevel.BP_GSGameState_C_0` (`RoundPhase`,

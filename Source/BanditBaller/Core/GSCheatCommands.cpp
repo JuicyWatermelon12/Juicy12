@@ -111,19 +111,19 @@ namespace GSCheats
 
 	FAutoConsoleCommandWithWorldAndArgs RoundSkipCommand(
 		TEXT("gs.Round.Skip"),
-		TEXT("Advance the round loop to the next phase (PreRound -> Combat -> RoundClear -> next round's PreRound)."),
+		TEXT("Debug skip: PreRound -> Combat; in Combat, remove what is left of every open round so each clears now (bonus, vacuum) and the run goes on; Breather -> the next round."),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("RoundSkip"), Args, World); }),
 		ECVF_Cheat);
 
 	FAutoConsoleCommandWithWorldAndArgs RoundSetCommand(
 		TEXT("gs.Round.Set"),
-		TEXT("Jump to round N and restart it from PreRound. Usage: gs.Round.Set <N>"),
+		TEXT("Jump to round N: every open round stops (leftovers removed, no bonus), then N's countdown. Usage: gs.Round.Set <N>"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("RoundSet"), Args, World); }),
 		ECVF_Cheat);
 
 	FAutoConsoleCommandWithWorldAndArgs RoundPauseCommand(
 		TEXT("gs.Round.Pause"),
-		TEXT("Freeze / resume the round phase timer (the current phase won't time out). Usage: gs.Round.Pause [0|1]"),
+		TEXT("Freeze / resume the round timers (countdown, breather, safety guard) and hold / release roll-over into the next round. Usage: gs.Round.Pause [0|1]"),
 		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World) { Run(TEXT("RoundPause"), Args, World); }),
 		ECVF_Cheat);
 

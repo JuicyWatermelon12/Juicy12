@@ -80,32 +80,58 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Events")
 	FGSOnPlayerDiedSignature OnPlayerDied;
 
-	// --- Round loop (server) ---
+	// --- Round loop (server; Prompt 59: roll-over rounds) ---
 	//
-	//   PreRound -> Combat -> RoundClear -> PreRound (round + 1) ...
-	//   any phase -> GameOver (the player died; final)
-	//
-	// Timed phases advance on their own (durations from UGSRoundSettings). Combat also ends when its wave is cleared.
-	// Combat -> RoundClear pays the round-clear bonus (UGSRoundClearSettings) into the profile. GameOver is untimed and
-	// stops the wave (living enemies stay, nothing more spawns).
+	//   WaitingToStart -> PreRound (round 1's countdown) -> Combat
+	//   Combat: round N runs; when it is down to RollOverRemaining enemies (and one of its own has died), round N + 1
+	//           starts at once (no countdown; N's leftovers stay and still belong to N). A round clears when its own last
+	//           enemy dies: its bonus is paid, the pickups fly in and the profile is saved (once that vacuum has landed).
+	//   After every BreatherEveryRounds-th round nothing rolls over: once every open round is cleared -> Breather
+	//   (BreatherDuration, nothing spawns) -> Combat with the next round. A safety guard (CombatFallbackDuration) removes
+	//   stuck leftovers if that wait drags on.
+	//   any phase -> GameOver (the player died; final): nothing more spawns, no bonus for a round that wasn't cleared.
 
 	virtual void StartPlay() override;
 
 	/** The only way the phase changes: logs, writes AGSGameState (phase + end time) and arms the phase timer. */
 	void SetPhase(EGSRoundPhase NewPhase);
 
-	/** Leave the current phase for the next one in the loop (also used by gs.Round.Skip). */
+	/**
+	 * Debug (gs.Round.Skip): PreRound -> Combat; in Combat, remove what is left of every open round so each clears now
+	 * (bonus, vacuum), then the run goes on (the next round, or the breather); Breather -> the next round.
+	 */
 	void AdvancePhase();
 
-	/** Jump to round N (>= 1) and restart it from PreRound (gs.Round.Set). */
+	/** Jump to round N (>= 1): every open round stops (leftovers removed, no bonus), then N's countdown (gs.Round.Set). */
 	void SetRound(int32 NewRound);
 
-	/** Debug / tuning (gs.Round.Pause): freeze the phase timer so the current phase never times out. */
+	/** Debug / tuning (gs.Round.Pause): freeze the phase timers (countdown, breather, safety guard) and hold roll-over. */
 	void SetRoundTimerPaused(bool bPaused);
 	bool IsRoundTimerPaused() const { return bRoundTimerPaused; }
 
-	/** Timer length for a phase; 0 = untimed (waits for code / commands). */
+	/** Timer length for a phase; 0 = untimed (Combat runs until its rounds are cleared). */
 	float GetPhaseDuration(EGSRoundPhase Phase) const;
+
+	/** Round timing, roll-over and breather settings (DA_RoundSettings, or the class defaults). */
+	const UGSRoundSettings& GetRoundSettings() const;
+
+	/** Tests: use Settings instead of DA_RoundSettings until cleared (nullptr), e.g. a copy with RollOverRemaining 0. */
+	void SetRoundSettingsOverride(const UGSRoundSettings* Settings) { RoundSettingsOverride = Settings; }
+
+	/** After Round the next round doesn't roll over but waits for a breather (every BreatherEveryRounds rounds). */
+	bool IsBreatherRound(int32 Round) const;
+
+	/** Seconds left on the safety guard before a breather (0 = not armed). */
+	float GetSafetyTimeRemaining() const;
+
+	/** Round-clear saves of the profile so far (tests). */
+	int32 GetRoundClearSaves() const { return RoundClearSaves; }
+
+	/** A round-clear save is waiting for its vacuum to land (tests). */
+	bool IsClearSavePending() const;
+
+	/** "open rounds 9 (2 left, 1 alive), 10 (...) | roll-over at 3 | ..." for gs.Debug.Round. */
+	FString DescribeRoundLoop() const;
 
 	const UGSSpawnSettings* GetSpawnSettings() const { return SpawnSettings; }
 
@@ -149,15 +175,16 @@ public:
 
 	/**
 	 * A cash pickup reached Player: UGSProfileSubsystem::AddCash (permanent balance; local player only for now), run
-	 * stats CashEarned, and the "+$N" popup on that player's screen (Location = where it was collected).
+	 * stats CashEarned (for SourceRound, the round of the enemy that dropped it; 0 = the newest), and the "+$N" popup on
+	 * that player's screen (Location = where it was collected).
 	 */
-	void AwardCash(APlayerController* Player, int32 Amount, const FVector& Location);
+	void AwardCash(APlayerController* Player, int32 Amount, const FVector& Location, int32 SourceRound = 0);
 
 	/**
 	 * An XP orb reached Player: AwardXP for that player (XPGain applies; level-ups, rewards and upgrade offers happen
 	 * now), with the "+N XP" popup at Location (where it was collected). Returns the XP granted.
 	 */
-	int32 AwardXPPickup(APlayerController* Player, int32 BaseXP, const FVector& Location);
+	int32 AwardXPPickup(APlayerController* Player, int32 BaseXP, const FVector& Location, int32 SourceRound = 0);
 
 	/**
 	 * A health orb reached Player: heals HealAmount through the instant heal effect (DA_CashSettings HealthOrbHealEffect,
@@ -165,7 +192,10 @@ public:
 	 * (orbs collected, health healed), plays the orb sound and shows the "+N" popup at Location. Returns the health
 	 * actually healed. TODO(co-op): it heals whoever collects it.
 	 */
-	float AwardHealthPickup(APlayerController* Player, int32 HealAmount, const FVector& Location);
+	float AwardHealthPickup(APlayerController* Player, int32 HealAmount, const FVector& Location, int32 SourceRound = 0);
+
+	/** The round an enemy's stats count for: its wave round, or the newest round (gs.Spawn enemies, dummies). */
+	int32 GetEnemyStatsRound(const AActor* Enemy) const;
 
 	/** Chance an enemy the player kills drops a health orb: the test override if set (>= 0), else DA_CashSettings. */
 	float GetHealthOrbDropChance() const;
@@ -275,7 +305,7 @@ public:
 	 * Grant XP to a player: round(BaseXP x XPGain attribute) when bApplyXPGain, else round(BaseXP). Goes through
 	 * UGSProgressionComponent::AddXP and feeds run stats (XP earned, level reached). Returns the XP granted.
 	 */
-	int32 AwardXP(AGSPlayerState* Player, float BaseXP, bool bApplyXPGain = true);
+	int32 AwardXP(AGSPlayerState* Player, float BaseXP, bool bApplyXPGain = true, int32 SourceRound = 0);
 
 	/** Debug (gs.XP.SetLevel): reset Player to level 1, then AddXP exactly the total XP for Level. */
 	void SetPlayerLevelForDebug(AGSPlayerState* Player, int32 Level);
@@ -418,14 +448,36 @@ protected:
 	TSoftObjectPtr<UWorld> HubMap;
 
 private:
-	const UGSRoundSettings& GetRoundSettings() const;
+	/** Round 1: round number 1, its PreRound countdown. */
 	void StartNextRound();
-	void HandleWaveCleared();
-	/** Phase timer expiry; for Combat this is only the safety fallback (warns if the wave isn't done). */
+	/** Round starts now (Combat): the round number, its stats record and its wave. */
+	void StartRound(int32 Round);
+	/** Start the next round if the newest one is ready to roll over (or cleared), or the breather if it is due. */
+	void TryRollOver();
+	void HandleRollOverReady(int32 Round);
+	void HandleRoundCleared(int32 Round);
+	/** PreRound / Breather timer expiry. */
 	void HandlePhaseTimerExpired();
+	/** The wait before a breather dragged on: the stuck leftovers are removed and the open rounds clear. */
+	void HandleSafetyTimerExpired();
+	/** Save the profile once the round-clear vacuum has landed (at most ClearSaveMaxWait). */
+	void ScheduleClearSave();
+	void CheckClearSave();
 
 	FTimerHandle PhaseTimer;
+	FTimerHandle SafetyTimer;
+	FTimerHandle ClearSaveTimer;
+	double ClearSaveStartTime = 0.0;
+	int32 RoundClearSaves = 0;
+	/** Rounds cleared whose "[round] ... cleared" line waits for their vacuum to land (written with the clear's save). */
+	TArray<int32> PendingRoundLogs;
+	/** Write the waiting "[round] ... cleared" lines now. */
+	void FlushPendingRoundLogs();
 	bool bRoundTimerPaused = false;
+
+	/** SetRoundSettingsOverride (tests). */
+	UPROPERTY(Transient)
+	TObjectPtr<const UGSRoundSettings> RoundSettingsOverride;
 
 	/** Logged once: remote players' cash pickups are not credited yet (co-op TODO). */
 	bool bWarnedRemoteCash = false;
@@ -481,14 +533,14 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<const UGSTomahawkSettings> TomahawkSettingsOverride;
 
-	/** Combat -> RoundClear: work out this round's bonus, pay it into the profile and record it in run stats. */
-	void PayRoundClearBonus();
+	/** Round was cleared: work out its bonus (its own start, clear and damage taken), pay it and record it. */
+	void PayRoundClearBonus(int32 Round);
 
 	/** The return-to-hub fade finished: open the hub (or ?Restart without a HubMap). */
 	void FinishReturnToHub();
 
-	/** "[round] Round N cleared|died: combat time, wave, kills, cash + bonus, XP, damage, level, fallback spawns". */
-	void LogRoundSummary(const TCHAR* Ending) const;
+	/** "[round] Round N cleared|died: time, wave, kills, cash + bonus, XP, damage, level, fallback spawns". */
+	void LogRoundSummary(int32 Round, const TCHAR* Ending) const;
 
 	FTimerHandle ReturnToHubTimer;
 	bool bReturningToHub = false;

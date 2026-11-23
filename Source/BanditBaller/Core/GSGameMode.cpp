@@ -109,11 +109,12 @@ void AGSGameMode::HandleEnemyKilled(AActor* Enemy, AActor* Killer)
 {
 	UE_LOG(LogBanditBaller, Log, TEXT("OnEnemyKilled: %s killed by %s"), *GetNameSafe(Enemy), *GetNameSafe(Killer));
 
-	// Run stats count enemies the party killed.
+	// Run stats count enemies the party killed, for the round the enemy belonged to.
 	UGSRunStats* Stats = GetRunStats();
+	const int32 EnemyRound = GetEnemyStatsRound(Enemy);
 	if (Stats && IsPlayerActor(Killer))
 	{
-		Stats->RecordKill(GetEnemyTypeName(Enemy));
+		Stats->RecordKill(GetEnemyTypeName(Enemy), EnemyRound);
 	}
 
 	const AGSEnemyCharacter* EnemyCharacter = Cast<AGSEnemyCharacter>(Enemy);
@@ -143,10 +144,14 @@ void AGSGameMode::HandleEnemyKilled(AActor* Enemy, AActor* Killer)
 		}
 	}
 
-	// Drops before the broadcast: if this kill clears the wave, RoundClear's vacuum includes them. Cash and XP per
+	// Drops before the broadcast: if this kill clears its round, the clear's vacuum includes them. Cash and XP per
 	// enemy are flat (the same every round); only the combo multiplies them. No XP on the kill itself: it comes from
-	// the orb, at pickup.
+	// the orb, at pickup. Each pickup remembers the enemy's round, so its stats go to that round when collected.
 	UGSCashPickupSubsystem* Pickups = GetWorld()->GetSubsystem<UGSCashPickupSubsystem>();
+	if (Pickups)
+	{
+		Pickups->SetDropRound(EnemyRound);
+	}
 	if (EnemyData && Pickups && CashSettings)
 	{
 		const UGSComboSettings* Combos = GetComboSettings();
@@ -170,6 +175,10 @@ void AGSGameMode::HandleEnemyKilled(AActor* Enemy, AActor* Killer)
 		{
 			RollHealthOrbDrop(Enemy->GetActorLocation());
 		}
+	}
+	if (Pickups)
+	{
+		Pickups->SetDropRound(0);
 	}
 
 	OnEnemyKilled.Broadcast(Enemy, Killer);
@@ -320,7 +329,7 @@ int32 AGSGameMode::ExplodePowderKeg(const FVector& Location, const AGSPlayerStat
 	return Targets.Num();
 }
 
-int32 AGSGameMode::AwardXP(AGSPlayerState* Player, float BaseXP, bool bApplyXPGain)
+int32 AGSGameMode::AwardXP(AGSPlayerState* Player, float BaseXP, bool bApplyXPGain, int32 SourceRound)
 {
 	UGSProgressionComponent* Progression = Player ? Player->GetProgressionComponent() : nullptr;
 	if (!Progression || BaseXP <= 0.f)
@@ -341,7 +350,7 @@ int32 AGSGameMode::AwardXP(AGSPlayerState* Player, float BaseXP, bool bApplyXPGa
 	Progression->AddXP(Amount);
 	if (UGSRunStats* Stats = GetRunStats())
 	{
-		Stats->AddXPEarned(Amount);
+		Stats->AddXPEarned(Amount, SourceRound);
 		Stats->RecordLevelReached(Progression->GetLevel());
 	}
 	return Amount;
@@ -443,7 +452,7 @@ void AGSGameMode::SetPlayerLevelForDebug(AGSPlayerState* Player, int32 Level)
 	}
 }
 
-void AGSGameMode::AwardCash(APlayerController* Player, int32 Amount, const FVector& Location)
+void AGSGameMode::AwardCash(APlayerController* Player, int32 Amount, const FVector& Location, int32 SourceRound)
 {
 	if (!Player || Amount <= 0)
 	{
@@ -468,7 +477,7 @@ void AGSGameMode::AwardCash(APlayerController* Player, int32 Amount, const FVect
 	}
 	if (UGSRunStats* Stats = GetRunStats())
 	{
-		Stats->AddCashEarned(Amount);
+		Stats->AddCashEarned(Amount, SourceRound);
 	}
 	if (AGSPlayerController* PC = Cast<AGSPlayerController>(Player))
 	{
@@ -476,7 +485,7 @@ void AGSGameMode::AwardCash(APlayerController* Player, int32 Amount, const FVect
 	}
 }
 
-int32 AGSGameMode::AwardXPPickup(APlayerController* Player, int32 BaseXP, const FVector& Location)
+int32 AGSGameMode::AwardXPPickup(APlayerController* Player, int32 BaseXP, const FVector& Location, int32 SourceRound)
 {
 	AGSPlayerState* PS = Player ? Player->GetPlayerState<AGSPlayerState>() : nullptr;
 	if (!PS || BaseXP <= 0)
@@ -489,7 +498,7 @@ int32 AGSGameMode::AwardXPPickup(APlayerController* Player, int32 BaseXP, const 
 	{
 		PC->NotifyXPCollected(Location); // before AwardXP, so the popup pairs with this XP gain at once
 	}
-	return AwardXP(PS, static_cast<float>(BaseXP)); // XPGain applies here; level-ups, rewards and offers follow
+	return AwardXP(PS, static_cast<float>(BaseXP), true, SourceRound); // XPGain applies here; level-ups, rewards and offers follow
 }
 
 float AGSGameMode::GetHealthOrbDropChance() const
@@ -513,7 +522,7 @@ void AGSGameMode::RollHealthOrbDrop(const FVector& Location)
 	{
 		if (UGSRunStats* Stats = GetRunStats())
 		{
-			Stats->RecordHealthOrbDropped();
+			Stats->RecordHealthOrbDropped(Pickups->GetDropRound());
 		}
 	}
 }
@@ -534,7 +543,7 @@ int32 AGSGameMode::SpawnHealthOrbsForDebug(APlayerController* Player, int32 Coun
 	return Dropped;
 }
 
-float AGSGameMode::AwardHealthPickup(APlayerController* Player, int32 HealAmount, const FVector& Location)
+float AGSGameMode::AwardHealthPickup(APlayerController* Player, int32 HealAmount, const FVector& Location, int32 SourceRound)
 {
 	const AGSPlayerState* PS = Player ? Player->GetPlayerState<AGSPlayerState>() : nullptr;
 	UAbilitySystemComponent* ASC = PS ? PS->GetAbilitySystemComponent() : nullptr;
@@ -557,7 +566,7 @@ float AGSGameMode::AwardHealthPickup(APlayerController* Player, int32 HealAmount
 
 	if (UGSRunStats* Stats = GetRunStats())
 	{
-		Stats->RecordHealthOrbCollected(Healed);
+		Stats->RecordHealthOrbCollected(Healed, SourceRound);
 	}
 	// Placeholder sound (local: single-player). TODO(co-op): play it on the collecting player's machine.
 	if (CashSettings && CashSettings->HealthOrbSound)
@@ -595,7 +604,7 @@ void AGSGameMode::HandleDamageApplied(AActor* Victim, AActor* DamageInstigator, 
 	}
 	else if (Stats && IsPlayerActor(DamageInstigator))
 	{
-		Stats->AddDamageDealt(Amount, Source); // by source: the gun, each weapon, Powder Keg, other
+		Stats->AddDamageDealt(Amount, Source, GetEnemyStatsRound(Victim)); // by source and by the enemy's round
 	}
 }
 
@@ -609,12 +618,13 @@ const UGSRoundClearSettings* AGSGameMode::GetRoundClearSettings() const
 	return RoundClearSettingsOverride ? RoundClearSettingsOverride.Get() : RoundClearSettings.Get();
 }
 
-void AGSGameMode::PayRoundClearBonus()
+void AGSGameMode::PayRoundClearBonus(int32 RoundNumber)
 {
 	const AGSGameState* GS = GetGameState<AGSGameState>();
 	UGSRunStats* Stats = GetRunStats();
 	const UGSRoundClearSettings* Settings = GetRoundClearSettings();
-	if (!GS || !Stats)
+	const FGSRoundStats* Round = Stats ? Stats->FindRound(RoundNumber) : nullptr;
+	if (!GS || !Stats || !Round)
 	{
 		return;
 	}
@@ -625,17 +635,18 @@ void AGSGameMode::PayRoundClearBonus()
 	}
 
 	// The same amounts every round (flat economy): nothing here depends on the round number. Only the fast-clear time
-	// limit follows the wave size.
-	const FGSRoundStats& Round = Stats->GetCurrentRound();
+	// limit follows the wave size. Each round is judged on its own: its start to its clear, the damage taken while it
+	// was open (a hit while two rounds overlap counts for both).
 	FGSRoundClearPayout Payout;
-	Payout.Round = GS->GetRoundNumber();
-	Payout.ClearTime = Round.CombatStartTime >= 0.0 ? static_cast<float>(GS->GetServerWorldTimeSeconds() - Round.CombatStartTime) : 0.f;
-	Payout.FastClearTime = Settings->GetFastClearTime(Round.WaveEnemies);
-	Payout.bNoDamage = Round.DamageTaken <= 0.f;
+	Payout.Round = RoundNumber;
+	Payout.ClearTime = Round->CombatStartTime >= 0.0 ? static_cast<float>(GS->GetServerWorldTimeSeconds() - Round->CombatStartTime) : 0.f;
+	Payout.FastClearTime = Settings->GetFastClearTime(Round->WaveEnemies);
+	Payout.bNoDamage = Round->DamageTaken <= 0.f;
 	Payout.bFastClear = Payout.ClearTime <= Payout.FastClearTime;
 	Payout.BaseBonus = Settings->BaseBonus;
 	Payout.NoDamageBonus = Payout.bNoDamage ? Settings->NoDamageBonus : 0;
 	Payout.FastClearBonus = Payout.bFastClear ? Settings->FastClearBonus : 0;
+	const float DamageTaken = Round->DamageTaken;
 
 	// TODO(co-op): one party-wide bonus into this machine's profile (single player / host); M6 pays every player.
 	const int32 Total = Payout.GetTotal();
@@ -648,26 +659,27 @@ void AGSGameMode::PayRoundClearBonus()
 	}
 	Stats->RecordRoundClearPayout(Payout);
 	UE_LOG(LogBanditBaller, Log, TEXT("[cash] Round %d clear bonus: $%d (base %d, no damage %d, fast clear %d; cleared in %.1f s of %.1f s, %.0f damage taken)"),
-		Payout.Round, Total, Payout.BaseBonus, Payout.NoDamageBonus, Payout.FastClearBonus, Payout.ClearTime, Payout.FastClearTime, Round.DamageTaken);
+		Payout.Round, Total, Payout.BaseBonus, Payout.NoDamageBonus, Payout.FastClearBonus, Payout.ClearTime, Payout.FastClearTime, DamageTaken);
 }
 
-void AGSGameMode::LogRoundSummary(const TCHAR* Ending) const
+void AGSGameMode::LogRoundSummary(int32 RoundNumber, const TCHAR* Ending) const
 {
 	const AGSGameState* GS = GetGameState<AGSGameState>();
 	const UGSRunStats* Stats = GetRunStats();
-	if (!GS || !Stats)
+	const FGSRoundStats* Round = Stats ? Stats->FindRound(RoundNumber) : nullptr;
+	if (!GS || !Round)
 	{
 		return;
 	}
-	const FGSRoundStats& Round = Stats->GetCurrentRound();
-	const FGSRoundClearPayout& Payout = Stats->GetLastRoundClearPayout();
-	const bool bPaid = Payout.Round == Round.Round && Round.Round > 0;
-	const float CombatTime = bPaid ? Payout.ClearTime
-		: (Round.CombatStartTime >= 0.0 ? static_cast<float>(GS->GetServerWorldTimeSeconds() - Round.CombatStartTime) : 0.f);
-	UE_LOG(LogBanditBaller, Log, TEXT("[round] Round %d %s: combat %.1f s, wave %d, %d kills, $%d collected + $%d bonus, %d XP, %.0f damage taken, level %d, fallback spawns %d, health orbs %d dropped / %d collected / %.0f healed, damage dealt: %s"),
-		Round.Round, Ending, CombatTime, Round.WaveEnemies, Round.Kills, Round.CashCollected, bPaid ? Payout.GetTotal() : 0, Round.XPEarned, Round.DamageTaken,
-		Stats->GetLevelReached(), WaveDirector ? WaveDirector->GetFallbackSpawns() : 0, Round.HealthOrbsDropped, Round.HealthOrbsCollected, Round.HealthHealedByOrbs,
-		*Stats->DescribeDamageBySource(Round.DamageBySource));
+	const FGSRoundClearPayout& Payout = Round->Payout;
+	const bool bPaid = Payout.Round == Round->Round && Round->Round > 0;
+	const float Time = bPaid ? Payout.ClearTime
+		: (Round->CombatStartTime >= 0.0 ? static_cast<float>(GS->GetServerWorldTimeSeconds() - Round->CombatStartTime) : 0.f);
+	const FGSRoundWave* Wave = WaveDirector ? WaveDirector->FindRoundWave(RoundNumber) : nullptr;
+	UE_LOG(LogBanditBaller, Log, TEXT("[round] Round %d %s: %.1f s from its start, wave %d, %d kills, $%d collected + $%d bonus, %d XP, %.0f damage taken, level %d, fallback spawns %d, health orbs %d dropped / %d collected / %.0f healed, damage dealt: %s"),
+		Round->Round, Ending, Time, Round->WaveEnemies, Round->Kills, Round->CashCollected, bPaid ? Payout.GetTotal() : 0, Round->XPEarned, Round->DamageTaken,
+		Stats->GetLevelReached(), Wave ? Wave->FallbackSpawns : (WaveDirector ? WaveDirector->GetFallbackSpawns() : 0), Round->HealthOrbsDropped,
+		Round->HealthOrbsCollected, Round->HealthHealedByOrbs, *Stats->DescribeDamageBySource(Round->DamageBySource));
 }
 
 UGSRunStats* AGSGameMode::GetRunStats() const
@@ -689,6 +701,7 @@ int32 AGSGameMode::MakeRandomSeed()
 
 void AGSGameMode::StartRun(int32 Seed, const TCHAR* Source)
 {
+	PendingRoundLogs.Reset(); // the last run's waiting lines (its stats are about to reset)
 	RunSeed = Seed;
 	RunStream.Initialize(Seed);
 
@@ -767,7 +780,7 @@ void AGSGameMode::HandlePlayerDeath(APawn* Player, AActor* Killer)
 	AGSGameState* GS = GetGameState<AGSGameState>();
 	if (GS && GS->GetRoundPhase() != EGSRoundPhase::GameOver)
 	{
-		// Stops the wave and the phase timer: nothing more spawns and no RoundClear (or its bonus) can follow.
+		// Stops the waves and the phase timers: nothing more spawns and no round clears (or pays its bonus) after this.
 		SetPhase(EGSRoundPhase::GameOver);
 	}
 	// No upgrade picks after the run: close open offers (which lifts their pause; the return to the hub runs on a world
@@ -904,7 +917,8 @@ void AGSGameMode::StartPlay()
 		StartRun(MakeRandomSeed(), TEXT("random"));
 	}
 
-	WaveDirector->OnWaveCleared.AddUObject(this, &AGSGameMode::HandleWaveCleared);
+	WaveDirector->OnRoundCleared.AddUObject(this, &AGSGameMode::HandleRoundCleared);
+	WaveDirector->OnRollOverReady.AddUObject(this, &AGSGameMode::HandleRollOverReady);
 
 	// Clients describe level-up rewards from this (HUD banner).
 	if (AGSGameState* GS = GetGameState<AGSGameState>())
@@ -918,29 +932,18 @@ void AGSGameMode::StartPlay()
 	}
 }
 
-void AGSGameMode::HandleWaveCleared()
-{
-	const AGSGameState* GS = GetGameState<AGSGameState>();
-	if (GS && GS->GetRoundPhase() == EGSRoundPhase::Combat)
-	{
-		SetPhase(EGSRoundPhase::RoundClear);
-	}
-}
-
-void AGSGameMode::HandlePhaseTimerExpired()
-{
-	const AGSGameState* GS = GetGameState<AGSGameState>();
-	if (GS && GS->GetRoundPhase() == EGSRoundPhase::Combat && WaveDirector->IsWaveActive())
-	{
-		UE_LOG(LogBanditBaller, Warning, TEXT("Round %d: Combat safety timer (%.0f s) expired with %d enemies remaining (%d alive); ending combat anyway."),
-			GS->GetRoundNumber(), GetPhaseDuration(EGSRoundPhase::Combat), WaveDirector->GetRemaining(), WaveDirector->GetAlive());
-	}
-	AdvancePhase();
-}
-
 const UGSRoundSettings& AGSGameMode::GetRoundSettings() const
 {
+	if (RoundSettingsOverride)
+	{
+		return *RoundSettingsOverride;
+	}
 	return RoundSettings ? *RoundSettings : *GetDefault<UGSRoundSettings>();
+}
+
+bool AGSGameMode::IsBreatherRound(int32 Round) const
+{
+	return GetRoundSettings().IsBreatherRound(Round);
 }
 
 float AGSGameMode::GetPhaseDuration(EGSRoundPhase Phase) const
@@ -948,11 +951,21 @@ float AGSGameMode::GetPhaseDuration(EGSRoundPhase Phase) const
 	const UGSRoundSettings& Settings = GetRoundSettings();
 	switch (Phase)
 	{
-	case EGSRoundPhase::PreRound:   return Settings.PreRoundDuration;
-	case EGSRoundPhase::Combat:     return Settings.CombatFallbackDuration;
-	case EGSRoundPhase::RoundClear: return Settings.RoundClearDuration;
-	default:                        return 0.f; // WaitingToStart, GameOver
+	case EGSRoundPhase::PreRound: return Settings.PreRoundDuration;
+	case EGSRoundPhase::Breather: return Settings.BreatherDuration;
+	default:                      return 0.f; // WaitingToStart, Combat (runs until its rounds are cleared), GameOver
 	}
+}
+
+float AGSGameMode::GetSafetyTimeRemaining() const
+{
+	return GetWorldTimerManager().IsTimerActive(SafetyTimer) || GetWorldTimerManager().IsTimerPaused(SafetyTimer)
+		? GetWorldTimerManager().GetTimerRemaining(SafetyTimer) : 0.f;
+}
+
+bool AGSGameMode::IsClearSavePending() const
+{
+	return GetWorldTimerManager().IsTimerActive(ClearSaveTimer);
 }
 
 void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
@@ -965,17 +978,17 @@ void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
 	}
 
 	GetWorldTimerManager().ClearTimer(PhaseTimer);
-
 	const EGSRoundPhase OldPhase = GS->GetRoundPhase();
 
-	// One line per finished round (before the next PreRound starts its stats over), and for the round a death ends.
-	if (OldPhase == EGSRoundPhase::RoundClear && NewPhase != EGSRoundPhase::RoundClear)
+	// A death ends every open round without a clear: one "[round] ... died" line each.
+	UGSRunStats* Stats = GetRunStats();
+	if (NewPhase == EGSRoundPhase::GameOver && OldPhase != EGSRoundPhase::GameOver && Stats)
 	{
-		LogRoundSummary(TEXT("cleared"));
-	}
-	else if (NewPhase == EGSRoundPhase::GameOver && OldPhase != EGSRoundPhase::GameOver)
-	{
-		LogRoundSummary(TEXT("died"));
+		FlushPendingRoundLogs(); // rounds cleared just before the death
+		for (const int32 Open : Stats->GetOpenRounds())
+		{
+			LogRoundSummary(Open, TEXT("died"));
+		}
 	}
 	const float Duration = GetPhaseDuration(NewPhase);
 	const double EndTime = Duration > 0.f ? GS->GetServerWorldTimeSeconds() + Duration : 0.0;
@@ -984,27 +997,12 @@ void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
 		Duration > 0.f ? *FString::Printf(TEXT("%.1f s"), Duration) : TEXT("untimed"), GetWorld()->GetTimeSeconds());
 
 	GS->SetRoundPhase(NewPhase, EndTime);
-
-	// Publish this round's enemy multipliers (the round number may have changed).
 	GS->SetEnemyRoundMultipliers(GetEnemyHealthMultiplier(GS->GetRoundNumber()), GetEnemyDamageMultiplier(GS->GetRoundNumber()));
 
-	// A round's stats run from its PreRound to the next one (RoundClear's vacuum still counts for the round it ends).
-	if (NewPhase == EGSRoundPhase::PreRound)
+	// Round 1's record opens with its countdown (damage taken during it counts for round 1, as before).
+	if (NewPhase == EGSRoundPhase::PreRound && Stats)
 	{
-		if (UGSRunStats* Stats = GetRunStats())
-		{
-			Stats->BeginRound(GS->GetRoundNumber());
-		}
-	}
-
-	// Combat finished (wave cleared, safety timer or skip): the round counts as cleared and pays its bonus.
-	if (OldPhase == EGSRoundPhase::Combat && NewPhase == EGSRoundPhase::RoundClear)
-	{
-		if (UGSRunStats* Stats = GetRunStats())
-		{
-			Stats->RecordRoundCleared();
-		}
-		PayRoundClearBonus();
+		Stats->BeginRound(GS->GetRoundNumber());
 	}
 	if (Duration > 0.f)
 	{
@@ -1014,42 +1012,174 @@ void AGSGameMode::SetPhase(EGSRoundPhase NewPhase)
 			GetWorldTimerManager().PauseTimer(PhaseTimer);
 		}
 	}
+	if (NewPhase != EGSRoundPhase::Combat)
+	{
+		GetWorldTimerManager().ClearTimer(SafetyTimer);
+	}
 
-	// Waves: Combat runs the round's wave; leaving Combat early (skip, safety timer) stops it and removes leftovers.
-	// GameOver (the player died) stops spawning and cancels telegraphs but leaves the living enemies where they are.
+	// GameOver (the player died) stops spawning and cancels telegraphs but leaves the living enemies where they are;
+	// their rounds close without a clear, so killing them afterwards pays nothing.
 	if (NewPhase == EGSRoundPhase::GameOver)
 	{
-		WaveDirector->StopWave(/*bDespawnLeftovers*/ false);
-	}
-	else if (OldPhase == EGSRoundPhase::Combat && NewPhase != EGSRoundPhase::Combat)
-	{
-		WaveDirector->StopWave(/*bDespawnLeftovers*/ true);
-	}
-	if (NewPhase == EGSRoundPhase::Combat)
-	{
-		WaveDirector->StartWave(GS->GetRoundNumber());
-		if (UGSRunStats* Stats = GetRunStats())
+		WaveDirector->StopAll(/*bDespawnLeftovers*/ false);
+		if (Stats)
 		{
-			Stats->RecordCombatStarted(GS->GetServerWorldTimeSeconds(), WaveDirector->GetTotal()); // fast-clear clock
+			Stats->CloseOpenRounds();
 		}
+		GetWorldTimerManager().ClearTimer(ClearSaveTimer); // the death saves the profile itself
 	}
+	else if (NewPhase == EGSRoundPhase::Combat && OldPhase == EGSRoundPhase::PreRound)
+	{
+		StartRound(GS->GetRoundNumber());
+	}
+	else if (NewPhase == EGSRoundPhase::Combat && OldPhase == EGSRoundPhase::Breather)
+	{
+		StartRound(GS->GetRoundNumber() + 1);
+	}
+}
 
-	// Round won: every cash piece still on the ground flies to the party.
-	if (NewPhase == EGSRoundPhase::RoundClear)
+void AGSGameMode::StartRound(int32 Round)
+{
+	AGSGameState* GS = GetGameState<AGSGameState>();
+	if (!GS || Round < 1)
 	{
-		if (UGSCashPickupSubsystem* Cash = GetWorld()->GetSubsystem<UGSCashPickupSubsystem>())
-		{
-			Cash->VacuumAll();
-		}
+		return;
 	}
-
-	// Each RoundClear saves the profile. Done when RoundClear ends, so the cash its vacuum just paid out is included.
-	if (OldPhase == EGSRoundPhase::RoundClear && NewPhase != EGSRoundPhase::RoundClear)
+	if (GS->GetRoundNumber() != Round)
 	{
-		if (UGSProfileSubsystem* Profile = UGSProfileSubsystem::Get(this))
+		GS->SetRoundNumber(Round); // the HUD's "ROUND N" banner
+	}
+	GS->SetEnemyRoundMultipliers(GetEnemyHealthMultiplier(Round), GetEnemyDamageMultiplier(Round));
+	UGSRunStats* Stats = GetRunStats();
+	if (Stats)
+	{
+		Stats->BeginRound(Round); // keeps round 1's record from its countdown
+	}
+	WaveDirector->StartRoundWave(Round);
+	const FGSRoundWave* Wave = WaveDirector->FindRoundWave(Round);
+	if (Stats)
+	{
+		Stats->RecordCombatStarted(Round, GS->GetServerWorldTimeSeconds(), Wave ? Wave->Total : 0); // the fast-clear clock
+	}
+	UE_LOG(LogBanditBaller, Log, TEXT("Round %d starts at t=%.2fs (%d enemies; %d round(s) open)%s"), Round, GetWorld()->GetTimeSeconds(),
+		Wave ? Wave->Total : 0, WaveDirector->GetActiveRounds().Num(), IsBreatherRound(Round) ? TEXT(", a breather follows it") : TEXT(""));
+}
+
+void AGSGameMode::TryRollOver()
+{
+	const AGSGameState* GS = GetGameState<AGSGameState>();
+	if (!GS || GS->GetRoundPhase() != EGSRoundPhase::Combat || bRoundTimerPaused)
+	{
+		return;
+	}
+	const int32 Newest = GS->GetRoundNumber();
+	const bool bNewestOpen = WaveDirector->FindRoundWave(Newest) != nullptr;
+	if (IsBreatherRound(Newest))
+	{
+		// Nothing rolls over into the next round: wait until every open round is cleared, then the breather. The
+		// safety guard starts once the breather round is down to where it would have rolled over.
+		if (!WaveDirector->IsWaveActive())
 		{
-			Profile->Save(TEXT("RoundClear"));
+			SetPhase(EGSRoundPhase::Breather);
 		}
+		else if (bNewestOpen && WaveDirector->IsRollOverReady(Newest) && !GetWorldTimerManager().IsTimerActive(SafetyTimer)
+			&& !GetWorldTimerManager().IsTimerPaused(SafetyTimer))
+		{
+			GetWorldTimerManager().SetTimer(SafetyTimer, this, &AGSGameMode::HandleSafetyTimerExpired, GetRoundSettings().CombatFallbackDuration, false);
+			UE_LOG(LogBanditBaller, Log, TEXT("Round %d: no roll-over (a breather follows); safety guard %.0f s."), Newest, GetRoundSettings().CombatFallbackDuration);
+		}
+		return;
+	}
+	if (!bNewestOpen || WaveDirector->IsRollOverReady(Newest))
+	{
+		StartRound(Newest + 1);
+	}
+}
+
+void AGSGameMode::HandleRollOverReady(int32 Round)
+{
+	const AGSGameState* GS = GetGameState<AGSGameState>();
+	if (GS && Round == GS->GetRoundNumber())
+	{
+		TryRollOver(); // only the newest round rolls over
+	}
+}
+
+void AGSGameMode::HandleRoundCleared(int32 Round)
+{
+	const AGSGameState* GS = GetGameState<AGSGameState>();
+	if (!GS || GS->GetRoundPhase() == EGSRoundPhase::GameOver)
+	{
+		return;
+	}
+	if (UGSRunStats* Stats = GetRunStats())
+	{
+		Stats->RecordRoundCleared(Round);
+	}
+	PayRoundClearBonus(Round);
+	PendingRoundLogs.AddUnique(Round); // logged with the save, once the vacuum below has paid out (as before Prompt 59)
+
+	// Round won: every pickup on the ground flies to the party, and the profile is saved once they have landed.
+	if (UGSCashPickupSubsystem* Cash = GetWorld()->GetSubsystem<UGSCashPickupSubsystem>())
+	{
+		Cash->VacuumAll();
+	}
+	ScheduleClearSave();
+	TryRollOver();
+}
+
+void AGSGameMode::HandleSafetyTimerExpired()
+{
+	const AGSGameState* GS = GetGameState<AGSGameState>();
+	if (!GS || GS->GetRoundPhase() != EGSRoundPhase::Combat)
+	{
+		return;
+	}
+	UE_LOG(LogBanditBaller, Warning, TEXT("Round %d: the safety guard (%.0f s) expired before the breather with %d enemies alive; the leftovers are removed."),
+		GS->GetRoundNumber(), GetRoundSettings().CombatFallbackDuration, WaveDirector->GetAlive());
+	WaveDirector->ForceClearOpenRounds(TEXT("the safety guard"));
+}
+
+void AGSGameMode::HandlePhaseTimerExpired()
+{
+	AdvancePhase();
+}
+
+void AGSGameMode::ScheduleClearSave()
+{
+	ClearSaveStartTime = GetWorld()->GetTimeSeconds();
+	if (!GetWorldTimerManager().IsTimerActive(ClearSaveTimer))
+	{
+		GetWorldTimerManager().SetTimer(ClearSaveTimer, this, &AGSGameMode::CheckClearSave, 0.1f, true);
+	}
+	CheckClearSave();
+}
+
+void AGSGameMode::CheckClearSave()
+{
+	const UGSCashPickupSubsystem* Cash = GetWorld()->GetSubsystem<UGSCashPickupSubsystem>();
+	const bool bLanded = !Cash || Cash->GetNumForcedInFlight() == 0;
+	const bool bWaitedEnough = GetWorld()->GetTimeSeconds() - ClearSaveStartTime >= GetRoundSettings().ClearSaveMaxWait;
+	if (!bLanded && !bWaitedEnough)
+	{
+		return;
+	}
+	FlushPendingRoundLogs();
+	GetWorldTimerManager().ClearTimer(ClearSaveTimer);
+	if (UGSProfileSubsystem* Profile = UGSProfileSubsystem::Get(this))
+	{
+		Profile->Save(TEXT("RoundClear"));
+		++RoundClearSaves;
+	}
+}
+
+void AGSGameMode::FlushPendingRoundLogs()
+{
+	const TArray<int32> Rounds = MoveTemp(PendingRoundLogs);
+	PendingRoundLogs.Reset();
+	for (const int32 Round : Rounds)
+	{
+		LogRoundSummary(Round, TEXT("cleared"));
 	}
 }
 
@@ -1065,8 +1195,14 @@ void AGSGameMode::AdvancePhase()
 	{
 	case EGSRoundPhase::WaitingToStart: StartNextRound(); break;
 	case EGSRoundPhase::PreRound:       SetPhase(EGSRoundPhase::Combat); break;
-	case EGSRoundPhase::Combat:         SetPhase(EGSRoundPhase::RoundClear); break;
-	case EGSRoundPhase::RoundClear:     StartNextRound(); break;
+	case EGSRoundPhase::Combat:
+		// Debug skip: what is left of every open round goes, so each clears now; the clears move the run on.
+		if (WaveDirector->ForceClearOpenRounds(TEXT("gs.Round.Skip")) == 0)
+		{
+			TryRollOver();
+		}
+		break;
+	case EGSRoundPhase::Breather:       SetPhase(EGSRoundPhase::Combat); break;
 	case EGSRoundPhase::GameOver:
 		UE_LOG(LogBanditBaller, Log, TEXT("AdvancePhase: GameOver is final."));
 		break;
@@ -1092,8 +1228,30 @@ void AGSGameMode::SetRound(int32 NewRound)
 		UE_LOG(LogBanditBaller, Warning, TEXT("gs.Round.Set: round must be >= 1."));
 		return;
 	}
+	// Every open round stops without a bonus (its leftovers removed); then the countdown for NewRound.
+	WaveDirector->StopAll(/*bDespawnLeftovers*/ true);
+	if (UGSRunStats* Stats = GetRunStats())
+	{
+		Stats->CloseOpenRounds();
+	}
+	GetWorldTimerManager().ClearTimer(SafetyTimer);
 	GS->SetRoundNumber(NewRound);
 	SetPhase(EGSRoundPhase::PreRound);
+}
+
+FString AGSGameMode::DescribeRoundLoop() const
+{
+	const UGSRoundSettings& Settings = GetRoundSettings();
+	FString Open;
+	for (const FGSRoundWave& Wave : WaveDirector->GetActiveRounds())
+	{
+		Open += FString::Printf(TEXT("%s%d (%d left, %d alive%s)"), Open.IsEmpty() ? TEXT("") : TEXT(", "), Wave.Round, Wave.GetRemaining(), Wave.GetAlive(),
+			WaveDirector->IsRollOverReady(Wave.Round) ? TEXT(", ready") : TEXT(""));
+	}
+	const float Safety = GetSafetyTimeRemaining();
+	return FString::Printf(TEXT("open rounds: %s | roll-over at %d | breather after every %d (%.0f s)%s%s"), Open.IsEmpty() ? TEXT("none") : *Open,
+		Settings.RollOverRemaining, Settings.BreatherEveryRounds, Settings.BreatherDuration,
+		Safety > 0.f ? *FString::Printf(TEXT(" | safety guard %.0f s"), Safety) : TEXT(""), bRoundTimerPaused ? TEXT(" | PAUSED (gs.Round.Pause)") : TEXT(""));
 }
 
 // ---------------------------------------------------------------------------
@@ -1124,7 +1282,9 @@ void AGSGameMode::ApplyEnemyRoundScaling(AGSEnemyCharacter& Enemy) const
 		return;
 	}
 
-	const int32 Round = FMath::Max(GS->GetRoundNumber(), 1);
+	// A wave enemy is scaled for its own round (an older round's late spawns keep their round's numbers); others for the
+	// newest round.
+	const int32 Round = FMath::Max(Enemy.GetWaveRound() > 0 ? Enemy.GetWaveRound() : GS->GetRoundNumber(), 1);
 	const float HealthMultiplier = GetEnemyHealthMultiplier(Round);
 	const float DamageMultiplier = GetEnemyDamageMultiplier(Round);
 
@@ -1147,10 +1307,23 @@ void AGSGameMode::SetRoundTimerPaused(bool bPaused)
 	if (bPaused)
 	{
 		GetWorldTimerManager().PauseTimer(PhaseTimer);
+		GetWorldTimerManager().PauseTimer(SafetyTimer);
 	}
 	else
 	{
 		GetWorldTimerManager().UnPauseTimer(PhaseTimer);
+		GetWorldTimerManager().UnPauseTimer(SafetyTimer);
 	}
-	UE_LOG(LogBanditBaller, Log, TEXT("gs.Round.Pause: phase timer %s"), bPaused ? TEXT("PAUSED") : TEXT("running"));
+	UE_LOG(LogBanditBaller, Log, TEXT("gs.Round.Pause: phase timers and roll-over %s"), bPaused ? TEXT("PAUSED") : TEXT("running"));
+	if (!bPaused)
+	{
+		TryRollOver(); // a roll-over (or the breather) held back while paused happens now
+	}
+}
+
+int32 AGSGameMode::GetEnemyStatsRound(const AActor* Enemy) const
+{
+	const AGSEnemyCharacter* EnemyCharacter = Cast<AGSEnemyCharacter>(Enemy);
+	const UGSRunStats* Stats = GetRunStats();
+	return Stats ? Stats->ResolveRound(EnemyCharacter ? EnemyCharacter->GetWaveRound() : 0) : 0;
 }

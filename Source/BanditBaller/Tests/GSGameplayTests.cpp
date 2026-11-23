@@ -43,7 +43,7 @@
 #include "GSComboComponent.h"
 #include "GSComboSettings.h"
 #include "GSRoundClearSettings.h"
-#include "GSRoundSummaryWidget.h"
+
 #include "GSRunSummaryWidget.h"
 #include "Components/Button.h"
 #include "GSHubGameMode.h"
@@ -379,6 +379,35 @@ namespace GSTests
 			Property->SetPropertyValue_InContainer(Object, Value);
 		}
 		return Property != nullptr;
+	}
+
+	/**
+	 * Prompt 59: a copy of the GameMode's round settings, set as its override (cleared by the next PIE's new GameMode).
+	 * Tests that check one round alone use RollOverRemaining 0, so the next round starts only at the full clear.
+	 */
+	UGSRoundSettings* OverrideRoundSettings(int32 RollOverRemaining)
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		if (!GameMode)
+		{
+			return nullptr;
+		}
+		UGSRoundSettings* Copy = DuplicateObject<UGSRoundSettings>(&GameMode->GetRoundSettings(), GetTransientPackage());
+		Copy->RollOverRemaining = RollOverRemaining;
+		GameMode->SetRoundSettingsOverride(Copy);
+		return Copy;
+	}
+
+	/** Send every pickup on the ground to the player now (what a round's clear does; was "enter RoundClear"). */
+	void VacuumAllPickups()
+	{
+		if (UWorld* World = GetPIEWorld())
+		{
+			if (UGSCashPickupSubsystem* Pickups = World->GetSubsystem<UGSCashPickupSubsystem>())
+			{
+				Pickups->VacuumAll();
+			}
+		}
 	}
 }
 
@@ -1179,46 +1208,55 @@ bool FGSRoundPhaseLoopTest::RunTest(const FString& Parameters)
 	WaitUntil(this, TEXT("PreRound timer to start Combat"), []() { return IsPhase(EGSRoundPhase::Combat); },
 		GetDefault<UGSRoundSettings>()->PreRoundDuration + 10.0);
 
-	// The old in-run market phases are gone from the loop.
+	// The phases: no market phases and no RoundClear pause any more (Prompt 59); a Breather instead.
 	Step([this]()
 	{
 		const UEnum* PhaseEnum = StaticEnum<EGSRoundPhase>();
 		TestEqual(TEXT("No MarketDecision phase"), PhaseEnum->GetIndexByNameString(TEXT("MarketDecision")), static_cast<int32>(INDEX_NONE));
 		TestEqual(TEXT("No MarketVisit phase"), PhaseEnum->GetIndexByNameString(TEXT("MarketVisit")), static_cast<int32>(INDEX_NONE));
+		TestEqual(TEXT("No RoundClear phase"), PhaseEnum->GetIndexByNameString(TEXT("RoundClear")), static_cast<int32>(INDEX_NONE));
+		TestTrue(TEXT("A Breather phase"), PhaseEnum->GetIndexByNameString(TEXT("Breather")) != INDEX_NONE);
 
-		// Skip Combat: RoundClear.
 		AGSGameMode* GameMode = GetGameMode();
 		AGSGameState* GameState = GetGameState();
-		TestTrue(TEXT("Combat uses the fallback timer"),
-			FMath::IsNearlyEqual(GameState->GetPhaseTimeRemaining(), GameMode->GetPhaseDuration(EGSRoundPhase::Combat), 1.f));
+		TestTrue(TEXT("Combat is untimed (it runs until its rounds are cleared)"), GameState->GetPhaseEndTime() <= 0.0);
+		TestTrue(TEXT("Round 1's wave runs"), GameMode->GetWaveDirector()->FindRoundWave(1) != nullptr);
 
+		// A skip clears round 1 at once and round 2 starts with no countdown.
 		GameMode->AdvancePhase();
-		TestTrue(TEXT("Combat -> RoundClear"), IsPhase(EGSRoundPhase::RoundClear));
-		TestEqual(TEXT("Still round 1 in RoundClear"), GameState->GetRoundNumber(), 1);
-		TestTrue(TEXT("RoundClear has an end time"), GameState->GetPhaseEndTime() > 0.0);
+		TestEqual(TEXT("Skip: round 1 cleared"), GameState->GetRunStats()->GetRoundsCleared(), 1);
+		TestEqual(TEXT("Skip: round 2 started"), GameState->GetRoundNumber(), 2);
+		TestTrue(TEXT("Skip: still Combat (no PreRound for round 2)"), IsPhase(EGSRoundPhase::Combat));
+		TestTrue(TEXT("Round 2's wave runs"), GameMode->GetWaveDirector()->FindRoundWave(2) != nullptr);
+		GameMode->AdvancePhase();
+		TestEqual(TEXT("Skip again: round 3"), GameState->GetRoundNumber(), 3);
+		TestTrue(TEXT("Skip again: Combat"), IsPhase(EGSRoundPhase::Combat));
+
+		// Round 10 is a breather round: its clear leads into the Breather, which has its own timer.
+		GameMode->SetRound(10);
+		TestTrue(TEXT("gs.Round.Set restarts at PreRound"), IsPhase(EGSRoundPhase::PreRound));
+		TestEqual(TEXT("gs.Round.Set jumps to round 10"), GameState->GetRoundNumber(), 10);
+		TestFalse(TEXT("gs.Round.Set stops the open rounds"), GameMode->GetWaveDirector()->IsWaveActive());
+		GameMode->AdvancePhase(); // Combat
+		GameMode->AdvancePhase(); // skip: round 10 cleared
+		TestTrue(TEXT("Round 10 cleared -> Breather"), IsPhase(EGSRoundPhase::Breather));
+		TestEqual(TEXT("Still round 10 in the Breather"), GameState->GetRoundNumber(), 10);
+		TestTrue(TEXT("The Breather has an end time"), GameState->GetPhaseEndTime() > 0.0);
+		TestTrue(TEXT("The Breather lasts BreatherDuration"),
+			FMath::IsNearlyEqual(GameState->GetPhaseTimeRemaining(), GameMode->GetPhaseDuration(EGSRoundPhase::Breather), 0.1f));
 	});
 
-	// The RoundClear timer goes straight to the next round's PreRound.
-	WaitUntil(this, TEXT("RoundClear timer to start round 2's PreRound"), []()
+	// The Breather timer starts round 11.
+	WaitUntil(this, TEXT("the Breather timer to start round 11"), []()
 	{
-		const AGSGameState* GameState = GetGameState();
-		return GameState && GameState->GetRoundNumber() == 2;
-	}, GetDefault<UGSRoundSettings>()->RoundClearDuration + 10.0);
+		return GetGameState() && GetGameState()->GetRoundNumber() == 11 && IsPhase(EGSRoundPhase::Combat);
+	}, GetDefault<UGSRoundSettings>()->BreatherDuration + 10.0);
 
 	Step([this]()
 	{
 		AGSGameMode* GameMode = GetGameMode();
 		AGSGameState* GameState = GetGameState();
-		TestTrue(TEXT("RoundClear timer -> PreRound"), IsPhase(EGSRoundPhase::PreRound));
-
-		// Skips walk the same loop: PreRound -> Combat -> RoundClear -> round 3 PreRound.
-		GameMode->AdvancePhase();
-		TestTrue(TEXT("PreRound -> Combat (round 2)"), IsPhase(EGSRoundPhase::Combat));
-		GameMode->AdvancePhase();
-		TestTrue(TEXT("Combat -> RoundClear (round 2)"), IsPhase(EGSRoundPhase::RoundClear));
-		GameMode->AdvancePhase();
-		TestTrue(TEXT("Skipping RoundClear -> PreRound"), IsPhase(EGSRoundPhase::PreRound));
-		TestEqual(TEXT("Next round started"), GameState->GetRoundNumber(), 3);
+		TestTrue(TEXT("Round 11's wave runs"), GameMode->GetWaveDirector()->FindRoundWave(11) != nullptr);
 
 		GameMode->SetRound(5);
 		TestEqual(TEXT("gs.Round.Set jumps to round 5"), GameState->GetRoundNumber(), 5);
@@ -1369,9 +1407,9 @@ bool FGSRunSeedAndStatsTest::RunTest(const FString& Parameters)
 		ApplyDamage(GetPlayerASC(), 10.f);
 		TestEqual(TEXT("Damage taken"), Stats->GetDamageTaken(), 10.f, 0.01f);
 
-		// Ending combat clears the round.
+		// Ending combat clears the round (Prompt 59: a skip in Combat clears the open rounds; there is no RoundClear phase).
 		GameMode->AdvancePhase(); // PreRound -> Combat
-		GameMode->AdvancePhase(); // Combat -> RoundClear
+		GameMode->AdvancePhase(); // skip: round 1 cleared, round 2 starts
 		TestEqual(TEXT("Round cleared counted"), Stats->GetRoundsCleared(), 1);
 		TestTrue(TEXT("Run time is running"), Stats->GetRunTime() >= 0.f);
 	});
@@ -1516,7 +1554,6 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSWaveDirectorTest, "BanditBaller.Round.WaveDi
 bool FGSWaveDirectorTest::RunTest(const FString& Parameters)
 {
 	BeginPIE(this);
-
 	TSharedRef<int32> Expected = MakeShared<int32>(0);
 	Step([this, Expected]()
 	{
@@ -1536,15 +1573,18 @@ bool FGSWaveDirectorTest::RunTest(const FString& Parameters)
 			*Expected += Entry.Count;
 		}
 
+		// Prompt 59: round 1 alone (no roll-over until it is fully cleared), so its wave can be checked by itself.
+		OverrideRoundSettings(/*RollOverRemaining*/ 0);
 		GameMode->RestartRunWithSeed(5);   // round 1, PreRound
 		GameMode->AdvancePhase();          // -> Combat: wave starts
 		TestTrue(TEXT("Combat started a wave"), Director->IsWaveActive());
+		TestTrue(TEXT("Round 1's wave is open"), Director->FindRoundWave(1) != nullptr);
 		TestEqual(TEXT("Wave size matches DT_Waves Round1"), Director->GetTotal(), *Expected);
-		TestTrue(TEXT("First batch chosen immediately (telegraphing)"), Director->GetPending() > 0 || Director->GetSpawned() > 0);
+		TestTrue(TEXT("First enemy chosen immediately (telegraphing)"), Director->GetPending() > 0 || Director->GetSpawned() > 0);
 		TestEqual(TEXT("GameState mirrors the wave total"), GetGameState()->GetWaveEnemiesTotal(), *Expected);
 	});
 
-	// Killing the first arrivals while the rest of the wave is still to come doesn't end Combat.
+	// Killing the first arrivals while the rest of the wave is still to come doesn't clear the round.
 	WaitUntil(this, TEXT("first wave enemies alive"), []() { return GetGameMode()->GetWaveDirector()->GetAlive() > 0; }, 10.0);
 	Step([this, Expected]()
 	{
@@ -1552,34 +1592,48 @@ bool FGSWaveDirectorTest::RunTest(const FString& Parameters)
 		const UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
 		TestTrue(TEXT("Some of the wave killed"), Killed > 0 && Killed < *Expected);
 		TestTrue(TEXT("Enemies still to come"), Director->GetRemaining() > 0);
-		TestTrue(TEXT("Combat goes on while wave enemies remain"), IsPhase(EGSRoundPhase::Combat));
+		TestTrue(TEXT("Round 1 stays open while its enemies remain"), Director->FindRoundWave(1) != nullptr);
+		TestEqual(TEXT("No new round while round 1 has enemies left (RollOverRemaining 0)"), GetGameState()->GetRoundNumber(), 1);
+		TestTrue(TEXT("Still Combat"), IsPhase(EGSRoundPhase::Combat));
 	});
 
-	// Kill enemies as they arrive; Combat must end on its own once the whole wave is dead.
-	WaitUntil(this, TEXT("wave cleared -> RoundClear"), []()
+	// Kill enemies as they arrive; round 1 must clear on its own once its whole wave is dead.
+	WaitUntil(this, TEXT("round 1 cleared"), []()
 	{
 		KillAllEnemiesAsPlayer();
-		return IsPhase(EGSRoundPhase::RoundClear);
+		const FGSRoundStats* Round1 = GetGameState()->GetRunStats()->FindRound(1);
+		return Round1 && Round1->bCleared;
 	}, 60.0);
 	Step([this, Expected]()
 	{
 		UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
-		TestFalse(TEXT("Wave finished"), Director->IsWaveActive());
-		TestEqual(TEXT("Every wave enemy was killed"), Director->GetKilled(), *Expected);
-		TestEqual(TEXT("Nothing remaining"), GetGameState()->GetWaveEnemiesRemaining(), 0);
-		TestEqual(TEXT("Kills recorded in run stats"), GetGameState()->GetRunStats()->GetTotalKills(), *Expected);
+		const UGSRunStats* Stats = GetGameState()->GetRunStats();
+		TestTrue(TEXT("Round 1's wave finished"), Director->FindRoundWave(1) == nullptr);
+		TestEqual(TEXT("Every round 1 enemy was killed (its record)"), Stats->FindRound(1) ? Stats->FindRound(1)->Kills : -1, *Expected);
+		TestEqual(TEXT("Kills recorded in run stats"), Stats->GetTotalKills(), *Expected);
+		TestEqual(TEXT("Round 2 started at round 1's full clear"), GetGameState()->GetRoundNumber(), 2);
+		const FGSRoundWave* Round2 = Director->FindRoundWave(2);
+		TestTrue(TEXT("Round 2's wave is open"), Round2 != nullptr);
+		TestEqual(TEXT("GameState counts are round 2's now"), GetGameState()->GetWaveEnemiesTotal(), Round2 ? Round2->Total : -1);
 
-		// Skipping Combat mid-wave removes the leftovers.
-		GetGameMode()->SetRound(2);
-		GetGameMode()->AdvancePhase(); // Combat
-		TestTrue(TEXT("Round 2 wave started its first batch"), GetGameMode()->GetWaveDirector()->GetPending() > 0 || CountLivingEnemies() > 0);
-		GetGameMode()->AdvancePhase(); // skip -> RoundClear
+		// A skip mid-wave removes the leftovers and clears the round.
+		TestTrue(TEXT("Round 2 started its first enemy"), Director->GetPending() > 0 || CountLivingEnemies() > 0);
+		GetGameMode()->AdvancePhase(); // skip: round 2 cleared, round 3 starts
 	});
-	WaitUntil(this, TEXT("leftovers removed after skipping combat"), []() { return CountLivingEnemies() == 0; }, 5.0);
+	WaitUntil(this, TEXT("leftovers removed after skipping"), []() { return CountLivingEnemies() == 0; }, 5.0);
 	Step([this]()
 	{
-		TestFalse(TEXT("Wave stopped by the skip"), GetGameMode()->GetWaveDirector()->IsWaveActive());
-		TestEqual(TEXT("GameState wave counts reset"), GetGameState()->GetWaveEnemiesTotal(), 0);
+		const UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
+		TestTrue(TEXT("Round 2's wave stopped by the skip"), Director->FindRoundWave(2) == nullptr);
+		const FGSRoundStats* Round2 = GetGameState()->GetRunStats()->FindRound(2);
+		TestTrue(TEXT("Round 2 cleared by the skip"), Round2 && Round2->bCleared);
+		TestEqual(TEXT("Round 3 started"), GetGameState()->GetRoundNumber(), 3);
+		int32 Round2Telegraphs = 0;
+		for (const FGSPendingSpawn& Pending : Director->GetPendingSpawns())
+		{
+			Round2Telegraphs += Pending.Round == 2 ? 1 : 0;
+		}
+		TestEqual(TEXT("No telegraph of round 2 left"), Round2Telegraphs, 0);
 	});
 	EndPIE();
 	return true;
@@ -2159,7 +2213,7 @@ bool FGSCashPickupsTest::RunTest(const FString& Parameters)
 			AddError(TEXT("No UGSHUDWidget on the player controller"));
 		}
 
-		// 3) Pool reuse + RoundClear vacuum.
+		// 3) Pool reuse + the round-clear vacuum.
 		GetPlayer()->TeleportTo(State->PlayerHome, FRotator::ZeroRotator);
 		State->CreatedBefore = Cash->GetNumCreated();
 		State->CashBefore = GetPlayerCash();
@@ -2169,14 +2223,14 @@ bool FGSCashPickupsTest::RunTest(const FString& Parameters)
 	WaitWorldSeconds(this, 1.0);
 	Step([this, State]()
 	{
-		TestEqual(TEXT("Before RoundClear: pieces wait on the ground"), CountMagnetizedCash(), 0);
-		GetGameMode()->SetPhase(EGSRoundPhase::RoundClear);
-		TestEqual(TEXT("RoundClear: every piece flies to the player"), CountMagnetizedCash(), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash));
+		TestEqual(TEXT("Before the vacuum: pieces wait on the ground"), CountMagnetizedCash(), 0);
+		VacuumAllPickups(); // what a round's clear does (Prompt 59: no RoundClear phase)
+		TestEqual(TEXT("Vacuum: every piece flies to the player"), CountMagnetizedCash(), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash));
 	});
 	WaitUntil(this, TEXT("vacuumed pieces to arrive"), []() { return GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Cash) == 0; }, 10.0);
 	Step([this, State]()
 	{
-		TestEqual(TEXT("RoundClear vacuum paid the whole drop"), GetPlayerCash(), State->CashBefore + State->CashValue);
+		TestEqual(TEXT("The vacuum paid the whole drop"), GetPlayerCash(), State->CashBefore + State->CashValue);
 
 		// 4) Expiry: short lifetime, out of reach.
 		IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Cash.Lifetime"))->Set(2.f, ECVF_SetByCode);
@@ -2312,7 +2366,7 @@ bool FGSXPOrbsTest::RunTest(const FString& Parameters)
 	});
 	WaitUntil(this, TEXT("orb in range to be collected"), []() { return GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::XP) == 0; }, 10.0);
 
-	// XP at pickup with XPGain; popup where it was collected; then the RoundClear vacuum.
+	// XP at pickup with XPGain; popup where it was collected; then the round-clear vacuum.
 	Step([this, S]()
 	{
 		TestEqual(TEXT("Collected: XPValue x XPGain"), GetPlayerTotalXP() - S->TotalBefore, S->ExpectedXP);
@@ -2330,15 +2384,15 @@ bool FGSXPOrbsTest::RunTest(const FString& Parameters)
 	Step([this]()
 	{
 		TestTrue(TEXT("Out of reach: orb waits"), FindActiveXPOrb() && !FindActiveXPOrb()->IsMagnetized());
-		GetGameMode()->SetPhase(EGSRoundPhase::RoundClear);
-		TestTrue(TEXT("RoundClear: orb flies to the player"), FindActiveXPOrb() && FindActiveXPOrb()->IsMagnetized());
+		VacuumAllPickups(); // what a round's clear does (Prompt 59: no RoundClear phase)
+		TestTrue(TEXT("Vacuum: orb flies to the player"), FindActiveXPOrb() && FindActiveXPOrb()->IsMagnetized());
 	});
 	WaitUntil(this, TEXT("vacuumed orb to arrive"), []() { return GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::XP) == 0; }, 10.0);
 
 	// gs.XP.Add stays instant; a new run clears orbs on the ground.
 	Step([this, S]()
 	{
-		TestEqual(TEXT("RoundClear vacuum paid the orb"), GetPlayerTotalXP() - S->TotalBefore, S->ExpectedXP);
+		TestEqual(TEXT("The vacuum paid the orb"), GetPlayerTotalXP() - S->TotalBefore, S->ExpectedXP);
 
 		const int32 Before = GetPlayerTotalXP();
 		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("XPAdd"), { TEXT("5") });
@@ -2642,12 +2696,14 @@ bool FGSLevelUpRewardsTest::RunTest(const FString& Parameters)
 		}
 		TestEqual(TEXT("Two level-ups -> two upgrade offers"), PickAllUpgradeOffers(), 2);
 
-		// RoundClear works the same.
+		// Right after a round's clear it works the same (Prompt 59: the clear is a moment in Combat, not a RoundClear phase).
 		C.GameMode->AdvancePhase(); // PreRound -> Combat
-		C.GameMode->AdvancePhase(); // Combat -> RoundClear
-		TestTrue(TEXT("In RoundClear"), GetGameState()->GetRoundPhase() == EGSRoundPhase::RoundClear);
+		C.GameMode->AdvancePhase(); // skip: round 1 cleared (the paused round timer holds the roll-over)
+		const FGSRoundStats* Round1 = GetGameState()->GetRunStats()->FindRound(1);
+		TestTrue(TEXT("Round 1 cleared"), Round1 && Round1->bCleared);
+		TestTrue(TEXT("Still Combat after the clear"), GetGameState()->GetRoundPhase() == EGSRoundPhase::Combat);
 	});
-	Step([LevelUpOnceDamaged]() { LevelUpOnceDamaged(TEXT("RoundClear"), 25.f, 3); });
+	Step([LevelUpOnceDamaged]() { LevelUpOnceDamaged(TEXT("After a round clear"), 25.f, 3); });
 	// (The in-town Market District visit is gone: the hub is its own map with no XP.)
 
 	Step([this, State, GetContext]()
@@ -2837,15 +2893,17 @@ bool FGSProfileCashTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Overspend changes nothing"), Profile->GetCash(), 15);
 		TestEqual(TEXT("Not saved on change"), GetSavedCash(*Profile), -1);
 
-		// RoundClear pays its bonus into the profile and saves (when it ends, after its vacuum paid out).
+		// A round's clear pays its bonus into the profile and saves (Prompt 59: at the clear, once its vacuum has landed;
+		// nothing is on the ground here, so at once).
 		GameMode->AdvancePhase(); // PreRound -> Combat
-		GameMode->AdvancePhase(); // Combat -> RoundClear
+		const int32 SavesBefore = GameMode->GetRoundClearSaves();
+		TestEqual(TEXT("Not saved before the clear"), GetSavedCash(*Profile), -1);
+		GameMode->AdvancePhase(); // skip: round 1 cleared
 		*Bonus = Stats->GetLastRoundClearPayout().GetTotal();
-		TestTrue(TEXT("RoundClear paid a bonus"), *Bonus > 0);
+		TestTrue(TEXT("The clear paid a bonus"), *Bonus > 0);
 		TestEqual(TEXT("Round-clear bonus -> profile"), Profile->GetCash(), 15 + *Bonus);
-		TestEqual(TEXT("Not saved yet during RoundClear"), GetSavedCash(*Profile), -1);
-		GameMode->AdvancePhase(); // RoundClear -> next round
-		TestEqual(TEXT("Saved at the end of RoundClear (bonus included)"), GetSavedCash(*Profile), 15 + *Bonus);
+		TestEqual(TEXT("One round-clear save"), GameMode->GetRoundClearSaves(), SavesBefore + 1);
+		TestEqual(TEXT("Saved at the clear (bonus included)"), GetSavedCash(*Profile), 15 + *Bonus);
 		if (const UGSProfileSaveGame* Saved = Cast<UGSProfileSaveGame>(UGameplayStatics::LoadGameFromSlot(Profile->GetSlotName(), 0)))
 		{
 			TestEqual(TEXT("Save has the current version"), Saved->SaveVersion, UGSProfileSaveGame::CurrentVersion);
@@ -5681,7 +5739,7 @@ bool FGSKillComboTest::RunTest(const FString& Parameters)
 
 		TestEqual(TEXT("Cash on the ground = the combo's multiplied drops"), SumActiveCash(), S->ExpectedGroundCash);
 		S->CashBefore = GetPlayerCash();
-		GetGameMode()->SetPhase(EGSRoundPhase::RoundClear);
+		VacuumAllPickups(); // what a round's clear does (Prompt 59: no RoundClear phase)
 	});
 	WaitUntil(this, TEXT("vacuumed pickups to arrive"), []() { return GetCashSubsystem()->GetNumActive() == 0; }, 15.0);
 
@@ -5769,19 +5827,17 @@ bool FGSKillComboTest::RunTest(const FString& Parameters)
 }
 
 // ---------------------------------------------------------------------------
-// Round-clear bonus + RoundClear summary
+// Round-clear bonus + the round-clear pop-up (Prompt 59: replaces the RoundClear summary panel)
 // ---------------------------------------------------------------------------
 
 namespace GSTests
 {
-	UGSRoundSummaryWidget* GetRoundSummary()
+	/** Round's stats record (an empty one if there is none). */
+	const FGSRoundStats& GetRoundStatsOf(int32 Round)
 	{
-		return GetPC() ? GetPC()->GetRoundSummaryWidget() : nullptr;
-	}
-
-	const FGSRoundStats& GetRoundStats()
-	{
-		return GetGameState()->GetRunStats()->GetCurrentRound();
+		static const FGSRoundStats Empty;
+		const FGSRoundStats* Found = GetGameState()->GetRunStats()->FindRound(Round);
+		return Found ? *Found : Empty;
 	}
 
 	const FGSRoundClearPayout& GetLastPayout()
@@ -5789,14 +5845,24 @@ namespace GSTests
 		return GetGameState()->GetRunStats()->GetLastRoundClearPayout();
 	}
 
-	/** Enqueue: kill the wave as it spawns until Combat ends in RoundClear. */
-	void ClearWaveAsPlayer(FAutomationTestBase* Test)
+	/** Enqueue: kill every enemy as it spawns until Round is cleared. */
+	void ClearRoundAsPlayer(FAutomationTestBase* Test, int32 Round)
 	{
-		WaitUntil(Test, TEXT("wave killed -> RoundClear"), []()
+		WaitUntil(Test, *FString::Printf(TEXT("round %d killed -> cleared"), Round), [Round]()
 		{
 			KillAllEnemiesAsPlayer();
-			return IsPhase(EGSRoundPhase::RoundClear);
+			return GetRoundStatsOf(Round).bCleared;
 		}, 30.0);
+	}
+
+	/** Enqueue: wait for the HUD's round-clear pop-up for Round. */
+	void WaitForClearPopup(FAutomationTestBase* Test, int32 Round)
+	{
+		WaitUntil(Test, *FString::Printf(TEXT("round %d's clear pop-up"), Round), [Round]()
+		{
+			const UGSHUDWidget* HUD = GetPC() ? GetPC()->GetGSHUD() : nullptr;
+			return HUD && HUD->GetRoundClearPopupRound() == Round;
+		}, 15.0);
 	}
 }
 
@@ -5810,6 +5876,7 @@ bool FGSRoundClearBonusTest::RunTest(const FString& Parameters)
 		int32 FirstTotal = 0;
 		int32 CashValue = 0;
 		int32 XPValue = 0;
+		int32 PopupsBefore = 0;
 	};
 	TSharedRef<FBonusState> S = MakeShared<FBonusState>();
 
@@ -5820,9 +5887,8 @@ bool FGSRoundClearBonusTest::RunTest(const FString& Parameters)
 	{
 		AGSGameMode* GameMode = GetGameMode();
 		const UGSRoundClearSettings* Settings = GameMode ? GameMode->GetRoundClearSettings() : nullptr;
-		const UGSRoundSummaryWidget* Summary = GetRoundSummary();
-		if (!TestNotNull(TEXT("BP_GSGameMode has RoundClearSettings (DA_RoundClearSettings)"), Settings)
-			|| !TestNotNull(TEXT("Round summary widget (RoundSummaryWidgetClass on BP_GSPlayerController)"), Summary))
+		UGSHUDWidget* HUD = GetPC() ? GetPC()->GetGSHUD() : nullptr;
+		if (!TestNotNull(TEXT("BP_GSGameMode has RoundClearSettings (DA_RoundClearSettings)"), Settings) || !TestNotNull(TEXT("HUD"), HUD))
 		{
 			return;
 		}
@@ -5831,9 +5897,13 @@ bool FGSRoundClearBonusTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Fast-clear bonus $15"), Settings->FastClearBonus, 15);
 		TestEqual(TEXT("Fast-clear time: 8 s + 1.5 s per enemy (4 enemies -> 14 s)"), Settings->GetFastClearTime(4), 14.f);
 
-		// Wave spawns and the vacuum run in game time (clear times are game time too): 4x faster.
+		// Wave spawns and the vacuum run in game time (clear times are game time too): 4x faster. The HUD's banners
+		// run in real time: short ones on this HUD.
 		SpeedUpWorld(4.f);
-		GameMode->SetRoundTimerPaused(true);
+		SetFloatProperty(HUD, TEXT("RoundBannerDuration"), 0.3f);
+		SetFloatProperty(HUD, TEXT("RoundClearPopupDuration"), 1.0f);
+		// One round at a time here (the next starts at the full clear); overlapping rounds: Round.RollOver.
+		OverrideRoundSettings(/*RollOverRemaining*/ 0);
 		GameMode->RestartRunWithSeed(2301);
 		RemoveAllEnemies(GetPIEWorld());
 		UGSDebugLibrary::SetGodMode(GetPC(), true);
@@ -5842,24 +5912,26 @@ bool FGSRoundClearBonusTest::RunTest(const FString& Parameters)
 		S->CashValue = Data ? Data->CashValue : 0;
 		S->XPValue = Data ? Data->XPValue : 0;
 
-		TestEqual(TEXT("PreRound starts round 1's stats"), GetRoundStats().Round, 1);
-		TestTrue(TEXT("Combat hasn't started"), GetRoundStats().CombatStartTime < 0.0);
+		TestEqual(TEXT("PreRound starts round 1's stats"), GetGameState()->GetRunStats()->GetCurrentRound().Round, 1);
+		TestTrue(TEXT("Combat hasn't started"), GetRoundStatsOf(1).CombatStartTime < 0.0);
 		TestEqual(TEXT("New run: no payout yet"), GetLastPayout().Round, 0);
-		TestFalse(TEXT("No summary in PreRound"), Summary->IsSummaryShowing());
+		TestFalse(TEXT("No clear pop-up in PreRound"), HUD->IsRoundClearPopupShowing());
 
 		S->CashBefore = GetPlayerCash();
 		S->EarnedBefore = GetCashEarnedStat();
+		S->PopupsBefore = HUD->GetRoundClearPopupsShown();
 		GameMode->AdvancePhase(); // -> Combat
-		TestTrue(TEXT("Combat start recorded"), GetRoundStats().CombatStartTime >= 0.0);
-		TestEqual(TEXT("Wave size recorded"), GetRoundStats().WaveEnemies, GameMode->GetWaveDirector()->GetTotal());
+		TestTrue(TEXT("Combat start recorded"), GetRoundStatsOf(1).CombatStartTime >= 0.0);
+		TestEqual(TEXT("Wave size recorded"), GetRoundStatsOf(1).WaveEnemies, GameMode->GetWaveDirector()->GetTotal());
 	});
-	ClearWaveAsPlayer(this);
+	ClearRoundAsPlayer(this, 1);
 	Step([this, S]()
 	{
 		const UGSRoundClearSettings* Settings = GetGameMode()->GetRoundClearSettings();
 		const FGSRoundClearPayout& Payout = GetLastPayout();
-		const FGSRoundStats& Round = GetRoundStats();
+		const FGSRoundStats& Round = GetRoundStatsOf(1);
 		TestEqual(TEXT("Payout for round 1"), Payout.Round, 1);
+		TestEqual(TEXT("The payout is kept in round 1's record"), Round.Payout.GetTotal(), Payout.GetTotal());
 		TestEqual(TEXT("Base bonus"), Payout.BaseBonus, Settings->BaseBonus);
 		TestTrue(TEXT("No damage taken"), Payout.bNoDamage && Payout.NoDamageBonus == Settings->NoDamageBonus);
 		TestEqual(TEXT("Fast-clear limit from the wave size"), Payout.FastClearTime, Settings->GetFastClearTime(Round.WaveEnemies));
@@ -5870,31 +5942,31 @@ bool FGSRoundClearBonusTest::RunTest(const FString& Parameters)
 		// The bonus is in the profile at once; pickups keep arriving from the vacuum.
 		TestEqual(TEXT("Profile += bonus + cash collected so far"), GetPlayerCash() - S->CashBefore, Payout.GetTotal() + Round.CashCollected);
 		S->FirstTotal = Payout.GetTotal();
-
-		const UGSRoundSummaryWidget* Summary = GetRoundSummary();
-		TestTrue(TEXT("Summary shows in RoundClear"), Summary->IsSummaryShowing());
-		TestEqual(TEXT("Summary round"), Summary->GetShownRound(), 1);
-		TestEqual(TEXT("Summary title"), Summary->GetTitleText().ToString(), FString(TEXT("ROUND 1 CLEAR")));
-		TestEqual(TEXT("Summary base line"), Summary->GetBaseBonusText().ToString(), FString::Printf(TEXT("+$%d"), Settings->BaseBonus));
-		TestEqual(TEXT("Summary no-damage line"), Summary->GetNoDamageBonusText().ToString(), FString::Printf(TEXT("+$%d"), Settings->NoDamageBonus));
-		TestEqual(TEXT("Summary fast-clear line"), Summary->GetFastClearBonusText().ToString(), FString::Printf(TEXT("+$%d"), Settings->FastClearBonus));
-		TestEqual(TEXT("Summary total"), Summary->GetTotalText().ToString(), FString::Printf(TEXT("+$%d"), Payout.GetTotal()));
+		TestEqual(TEXT("Round 2 started at the clear, with no countdown"), GetGameState()->GetRoundNumber(), 2);
+		TestTrue(TEXT("Still Combat"), IsPhase(EGSRoundPhase::Combat));
 	});
-	WaitUntil(this, TEXT("RoundClear vacuum to finish"), []() { return GetCashSubsystem()->GetNumActive() == 0; }, 15.0);
+	WaitForClearPopup(this, 1);
 	Step([this, S]()
 	{
-		const FGSRoundClearPayout& Payout = GetLastPayout();
-		const FGSRoundStats& Round = GetRoundStats();
-		TestTrue(TEXT("Cash collected this round: every drop, at least CashValue each"), Round.CashCollected >= Round.Kills * S->CashValue && Round.CashCollected > 0);
-		TestEqual(TEXT("XP earned this round: one orb per kill"), Round.XPEarned, Round.Kills * S->XPValue);
+		const UGSRoundClearSettings* Settings = GetGameMode()->GetRoundClearSettings();
+		const UGSHUDWidget* HUD = GetPC()->GetGSHUD();
+		TestEqual(TEXT("One pop-up per clear"), HUD->GetRoundClearPopupsShown(), S->PopupsBefore + 1);
+		TestFalse(TEXT("The pop-up isn't the big round banner"), HUD->IsRoundBannerShowing());
+		TestEqual(TEXT("Pop-up title"), HUD->GetRoundClearPopupTitle().ToString(), FString::Printf(TEXT("Round 1 clear  +$%d"), S->FirstTotal));
+		const FString Lines = HUD->GetRoundClearPopupLines().ToString();
+		TestTrue(TEXT("Pop-up: base line"), Lines.Contains(FString::Printf(TEXT("Round clear +$%d"), Settings->BaseBonus)));
+		TestTrue(TEXT("Pop-up: no-damage line"), Lines.Contains(FString::Printf(TEXT("No damage +$%d"), Settings->NoDamageBonus)));
+		TestTrue(TEXT("Pop-up: fast-clear line"), Lines.Contains(FString::Printf(TEXT("Fast clear +$%d"), Settings->FastClearBonus)));
+	});
+	WaitUntil(this, TEXT("round 1's vacuum to finish"), []() { return GetCashSubsystem()->GetNumActive() == 0; }, 15.0);
+	Step([this, S]()
+	{
+		const FGSRoundClearPayout& Payout = GetRoundStatsOf(1).Payout;
+		const FGSRoundStats& Round = GetRoundStatsOf(1);
+		TestTrue(TEXT("Cash collected in round 1: every drop, at least CashValue each"), Round.CashCollected >= Round.Kills * S->CashValue && Round.CashCollected > 0);
+		TestEqual(TEXT("XP earned in round 1: one orb per kill"), Round.XPEarned, Round.Kills * S->XPValue);
 		TestEqual(TEXT("Profile += cash collected + bonus"), GetPlayerCash() - S->CashBefore, Round.CashCollected + Payout.GetTotal());
 		TestEqual(TEXT("Run stats CashEarned += cash collected + bonus"), GetCashEarnedStat() - S->EarnedBefore, Round.CashCollected + Payout.GetTotal());
-
-		const UGSRoundSummaryWidget* Summary = GetRoundSummary();
-		TestTrue(TEXT("Summary still up"), Summary->IsSummaryShowing());
-		TestEqual(TEXT("Summary kills"), Summary->GetKillsText().ToString(), FString::FromInt(Round.Kills));
-		TestEqual(TEXT("Summary cash follows the vacuum"), Summary->GetCashCollectedText().ToString(), FString::Printf(TEXT("$%d"), Round.CashCollected));
-		TestEqual(TEXT("Summary XP"), Summary->GetXPEarnedText().ToString(), FString::Printf(TEXT("%d XP"), Round.XPEarned));
 
 		// Round 2: damage taken and an impossible time limit -> base bonus only.
 		AGSGameMode* GameMode = GetGameMode();
@@ -5902,19 +5974,18 @@ bool FGSRoundClearBonusTest::RunTest(const FString& Parameters)
 		Slow->FastClearBaseTime = 0.f;
 		Slow->FastClearTimePerEnemy = 0.f;
 		GameMode->SetRoundClearSettingsOverride(Slow);
-		GameMode->AdvancePhase(); // RoundClear -> round 2 PreRound
-		TestFalse(TEXT("Summary hidden in the next PreRound"), Summary->IsSummaryShowing());
-		TestTrue(TEXT("Round 2 stats start over"), GetRoundStats().Round == 2 && GetRoundStats().Kills == 0 && GetRoundStats().CashCollected == 0
-			&& GetRoundStats().XPEarned == 0 && GetRoundStats().DamageTaken == 0.f);
+		const FGSRoundStats& Round2 = GetRoundStatsOf(2);
+		TestTrue(TEXT("Round 2 stats start from zero"), Round2.Round == 2 && Round2.Kills == 0 && Round2.CashCollected == 0
+			&& Round2.XPEarned == 0 && Round2.DamageTaken == 0.f);
 
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
 		ApplyDamage(GetPlayerASC(), 5.f);
 		UGSDebugLibrary::SetGodMode(GetPC(), true);
-		TestEqual(TEXT("Damage taken this round"), GetRoundStats().DamageTaken, 5.f, 0.01f);
+		TestEqual(TEXT("Damage taken in round 2"), GetRoundStatsOf(2).DamageTaken, 5.f, 0.01f);
+		TestEqual(TEXT("A cleared round takes no more damage"), GetRoundStatsOf(1).DamageTaken, 0.f, 0.01f);
 		S->CashBefore = GetPlayerCash();
-		GameMode->AdvancePhase(); // -> Combat
 	});
-	ClearWaveAsPlayer(this);
+	ClearRoundAsPlayer(this, 2);
 	Step([this, S]()
 	{
 		AGSGameMode* GameMode = GetGameMode();
@@ -5925,40 +5996,45 @@ bool FGSRoundClearBonusTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Damage taken: no no-damage bonus"), !Payout.bNoDamage && Payout.NoDamageBonus == 0);
 		TestTrue(TEXT("Over the time limit: no fast-clear bonus"), !Payout.bFastClear && Payout.FastClearBonus == 0);
 		TestEqual(TEXT("Total = base only"), Payout.GetTotal(), Settings->BaseBonus);
-		TestEqual(TEXT("Profile += base bonus + cash collected so far"), GetPlayerCash() - S->CashBefore, Payout.GetTotal() + GetRoundStats().CashCollected);
-
-		const UGSRoundSummaryWidget* Summary = GetRoundSummary();
-		TestEqual(TEXT("Summary title"), Summary->GetTitleText().ToString(), FString(TEXT("ROUND 2 CLEAR")));
-		TestEqual(TEXT("Missed no-damage line"), Summary->GetNoDamageBonusText().ToString(), FString(TEXT("missed")));
-		TestEqual(TEXT("Missed fast-clear line"), Summary->GetFastClearBonusText().ToString(), FString(TEXT("missed")));
-		TestEqual(TEXT("Summary total"), Summary->GetTotalText().ToString(), FString::Printf(TEXT("+$%d"), Settings->BaseBonus));
+		TestEqual(TEXT("Profile += base bonus + cash collected so far"), GetPlayerCash() - S->CashBefore, Payout.GetTotal() + GetRoundStatsOf(2).CashCollected);
+	});
+	// Round 2's vacuumed XP orbs level the player up: take the offers so the HUD can show the pop-up.
+	WaitUntil(this, TEXT("round 2's vacuum to finish"), []() { return GetCashSubsystem()->GetNumActive() == 0; }, 15.0);
+	Step([]() { PickAllUpgradeOffers(); });
+	WaitForClearPopup(this, 2);
+	Step([this, S]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		const UGSRoundClearSettings* Settings = GameMode->GetRoundClearSettings();
+		const UGSHUDWidget* HUD = GetPC()->GetGSHUD();
+		TestEqual(TEXT("Pop-up title"), HUD->GetRoundClearPopupTitle().ToString(), FString::Printf(TEXT("Round 2 clear  +$%d"), Settings->BaseBonus));
+		const FString Lines = HUD->GetRoundClearPopupLines().ToString();
+		TestTrue(TEXT("Missed no-damage line"), Lines.Contains(TEXT("No damage missed")));
+		TestTrue(TEXT("Missed fast-clear line"), Lines.Contains(TEXT("Fast clear missed")));
 		GameMode->SetRoundClearSettingsOverride(nullptr);
 
-		// RoundClear without Combat (debug jumps) pays nothing and shows nothing.
-		GameMode->SetRound(10);
-		const int32 CashAtRound10 = GetPlayerCash();
-		GameMode->SetPhase(EGSRoundPhase::RoundClear);
-		TestEqual(TEXT("RoundClear from PreRound: no payout"), GetLastPayout().Round, 2);
-		TestEqual(TEXT("RoundClear from PreRound: no cash"), GetPlayerCash(), CashAtRound10);
-		TestFalse(TEXT("RoundClear from PreRound: no summary"), Summary->IsSummaryShowing());
+		// A debug jump (gs.Round.Set) stops the open round 3 without a bonus.
+		TestEqual(TEXT("Round 3 open"), GetGameState()->GetRoundNumber(), 3);
+		const int32 CashBeforeJump = GetPlayerCash();
+		GameMode->SetRound(9);
+		TestEqual(TEXT("gs.Round.Set: no payout for round 3"), GetLastPayout().Round, 2);
+		TestEqual(TEXT("gs.Round.Set: no cash"), GetPlayerCash(), CashBeforeJump);
+		TestFalse(TEXT("gs.Round.Set: round 3 not cleared"), GetRoundStatsOf(3).bCleared);
 
-		// No growth by round: round 10 pays what round 1 paid for the same result (no damage, fast).
-		GameMode->SetRound(10);
+		// No growth by round: round 9 pays what round 1 paid for the same result (no damage, fast).
 		RemoveAllEnemies(GetPIEWorld());
 		GameMode->AdvancePhase(); // -> Combat
-		GameMode->AdvancePhase(); // skip -> RoundClear
-		TestEqual(TEXT("Payout for round 10"), GetLastPayout().Round, 10);
-		TestEqual(TEXT("Round 10 pays the same as round 1"), GetLastPayout().GetTotal(), S->FirstTotal);
-		TestEqual(TEXT("Summary shows round 10"), Summary->GetShownRound(), 10);
+		GameMode->AdvancePhase(); // skip: round 9 cleared
+		TestEqual(TEXT("Payout for round 9"), GetLastPayout().Round, 9);
+		TestEqual(TEXT("Round 9 pays the same as round 1"), GetLastPayout().GetTotal(), S->FirstTotal);
 
 		// A new run starts with no payout and no round stats.
-		TestTrue(TEXT("gs.Run.Stats shows the last clear bonus"), GetGameState()->GetRunStats()->ToDebugString().Contains(TEXT("Last clear bonus: round 10")));
+		TestTrue(TEXT("gs.Run.Stats shows the last clear bonus"), GetGameState()->GetRunStats()->ToDebugString().Contains(TEXT("Last clear bonus: round 9")));
 		GameMode->RestartRunWithSeed(2302);
 		TestEqual(TEXT("New run: payout cleared"), GetLastPayout().Round, 0);
-		TestTrue(TEXT("New run: round 1 stats from zero"), GetRoundStats().Round == 1 && GetRoundStats().Kills == 0 && GetRoundStats().CashCollected == 0);
-		TestFalse(TEXT("New run: no summary"), Summary->IsSummaryShowing());
+		TestTrue(TEXT("New run: round 1 stats from zero"), GetRoundStatsOf(1).Round == 1 && GetRoundStatsOf(1).Kills == 0 && GetRoundStatsOf(1).CashCollected == 0);
+		TestTrue(TEXT("New run: no old round records"), GetGameState()->GetRunStats()->FindRound(9) == nullptr);
 
-		GameMode->SetRoundTimerPaused(false);
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
 		RestoreWorldSpeed();
 	});
@@ -5972,12 +6048,12 @@ bool FGSRoundClearBonusTest::RunTest(const FString& Parameters)
 
 namespace GSTests
 {
-	/** A round banner on screen together with "LEVEL UP!" or an open upgrade offer (the choice cards). */
+	/** A round banner or round-clear pop-up on screen together with "LEVEL UP!" or an open upgrade offer (the choice cards). */
 	bool IsRoundBannerOverlapping()
 	{
 		const UGSHUDWidget* HUD = GetHUD();
 		const UGSUpgradeComponent* Upgrades = GetPlayerUpgrades();
-		return HUD && HUD->IsRoundBannerShowing() && (HUD->IsLevelUpBannerShowing() || (Upgrades && Upgrades->HasOpenOffer()));
+		return HUD && HUD->IsAnyBannerShowing() && (HUD->IsLevelUpBannerShowing() || (Upgrades && Upgrades->HasOpenOffer()));
 	}
 
 	/** Enqueue: wait until Predicate, counting every frame a round banner overlaps the level-up flow. */
@@ -6025,6 +6101,7 @@ bool FGSRoundHUDTest::RunTest(const FString& Parameters)
 		UGSHUDWidget* MutableHUD = GetHUD();
 		TestTrue(TEXT("Shorter LEVEL UP! banner for the test"), SetFloatProperty(MutableHUD, TEXT("LevelUpBannerDuration"), 0.8f));
 		TestTrue(TEXT("Shorter round banners for the test"), SetFloatProperty(MutableHUD, TEXT("RoundBannerDuration"), 0.7f));
+		TestTrue(TEXT("Shorter round-clear pop-ups for the test"), SetFloatProperty(MutableHUD, TEXT("RoundClearPopupDuration"), 0.7f));
 
 		GameMode->SetRoundTimerPaused(true); // the countdown follows the phase end time and keeps counting
 		GameMode->RestartRunWithSeed(2401);
@@ -6102,13 +6179,15 @@ bool FGSRoundHUDTest::RunTest(const FString& Parameters)
 			}
 		}
 
-		// Combat: enemies left.
+		// Combat: enemies left in the newest round and every round's living enemies (Prompt 59). Roll-over runs from here
+		// (the paused round timer would hold it).
+		GetGameMode()->SetRoundTimerPaused(false);
 		GetGameMode()->AdvancePhase();
 		TestEqual(TEXT("Phase text in Combat"), HUD->GetPhaseText().ToString(), FString(TEXT("COMBAT")));
 		TestFalse(TEXT("No countdown in Combat"), HUD->IsCountdownShowing());
 		TestTrue(TEXT("Enemy count in Combat"), HUD->IsEnemiesShowing());
-		TestEqual(TEXT("Enemies left = the wave"), HUD->GetEnemiesText().ToString(),
-			FString::Printf(TEXT("%d enemies left"), GetGameMode()->GetWaveDirector()->GetTotal()));
+		TestEqual(TEXT("Enemies left = the wave, alive = every round's"), HUD->GetEnemiesText().ToString(),
+			FString::Printf(TEXT("%d enemies left · %d alive"), GetGameMode()->GetWaveDirector()->GetTotal(), GetGameState()->GetWaveEnemiesAlive()));
 	});
 	WaitWatchingBanners(this, TEXT("a wave enemy to spawn"), Overlaps, []() { return CountLivingEnemies() > 0; });
 	Step([this]()
@@ -6123,46 +6202,73 @@ bool FGSRoundHUDTest::RunTest(const FString& Parameters)
 		}
 		const int32 Remaining = GetGameState()->GetWaveEnemiesRemaining();
 		TestEqual(TEXT("A kill updates the count"), Remaining, GetGameMode()->GetWaveDirector()->GetTotal() - 1);
-		TestEqual(TEXT("Enemies left text follows"), GetHUD()->GetEnemiesText().ToString(), FString::Printf(TEXT("%d enemies left"), Remaining));
+		TestEqual(TEXT("Enemies left text follows"), GetHUD()->GetEnemiesText().ToString(),
+			FString::Printf(TEXT("%d enemies left · %d alive"), Remaining, GetGameState()->GetWaveEnemiesAlive()));
 	});
-	ClearWaveAsPlayer(this);
+	// Round 2 rolls over into round 3 (no countdown: still Combat, a ROUND 3 banner), then clears: a small pop-up, no
+	// ROUND CLEAR banner.
+	ClearRoundAsPlayer(this, 2);
 	Step([this]()
 	{
 		UGSHUDWidget* HUD = GetHUD();
-		TestEqual(TEXT("Phase text in RoundClear"), HUD->GetPhaseText().ToString(), FString(TEXT("ROUND CLEAR")));
-		TestFalse(TEXT("No enemy count in RoundClear"), HUD->IsEnemiesShowing());
+		TestEqual(TEXT("Round 3 rolled in"), GetGameState()->GetRoundNumber(), 3);
+		TestEqual(TEXT("Phase text stays COMBAT"), HUD->GetPhaseText().ToString(), FString(TEXT("COMBAT")));
+		TestFalse(TEXT("No countdown between rolled-over rounds"), HUD->IsCountdownShowing());
+		TestTrue(TEXT("Enemy count still shows"), HUD->IsEnemiesShowing());
 	});
-	WaitWatchingBanners(this, TEXT("ROUND CLEAR banner"), Overlaps, []()
+	TSharedRef<int32> ClearBanners = MakeShared<int32>(0);
+	WaitUntil(this, TEXT("round 2's clear pop-up"), [Overlaps, ClearBanners]()
 	{
-		return GetHUD()->IsRoundBannerShowing() && GetHUD()->GetRoundBannerTitle().ToString() == TEXT("ROUND CLEAR");
+		const UGSHUDWidget* HUD = GetHUD();
+		*Overlaps += IsRoundBannerOverlapping() ? 1 : 0;
+		if (GetPlayerUpgrades()->HasOpenOffer())
+		{
+			PickAllUpgradeOffers(); // the rounds' XP may level up on the way
+		}
+		*ClearBanners += HUD->IsRoundBannerShowing() && HUD->GetRoundBannerTitle().ToString() == TEXT("ROUND CLEAR") ? 1 : 0;
+		return HUD->GetRoundClearPopupRound() == 2;
 	});
-
-	// A level-up during ROUND CLEAR, then the next round starts while the cards are up: the stale ROUND CLEAR is
-	// dropped and round 3's banner shows instead.
-	Step([this]()
+	Step([this, ClearBanners]()
+	{
+		const UGSHUDWidget* HUD = GetHUD();
+		TestFalse(TEXT("The pop-up isn't a round banner"), HUD->IsRoundBannerShowing());
+		TestTrue(TEXT("Pop-up title"), HUD->GetRoundClearPopupTitle().ToString().StartsWith(TEXT("Round 2 clear  +$")));
+		TestEqual(TEXT("No ROUND CLEAR banner"), *ClearBanners, 0);
+	});
+	// A level-up while round 2's pop-up shows, then rounds 3 and 4 clear and round 5 starts while the cards are up: the
+	// stale ROUND 4 is dropped; the pop-ups and ROUND 5 show after LEVEL UP!, one at a time.
+	Step([this, S]()
 	{
 		UGSHUDWidget* HUD = GetHUD();
 		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("XPAdd"), { TEXT("200") });
-		TestFalse(TEXT("Level-up hides ROUND CLEAR"), HUD->IsRoundBannerShowing());
-		GetGameMode()->AdvancePhase(); // RoundClear -> round 3 PreRound (a direct call works while paused)
-		TestEqual(TEXT("Queued: ROUND CLEAR and ROUND 3"), HUD->GetQueuedRoundBannerCount(), 2);
-		TestFalse(TEXT("Nothing shows while the offer is open"), HUD->IsRoundBannerShowing());
+		TestFalse(TEXT("Level-up hides the pop-up"), HUD->IsAnyBannerShowing());
+		const int32 QueuedBefore = HUD->GetQueuedRoundBannerCount();
+		GetGameMode()->AdvancePhase(); // skip: round 3 cleared, round 4 starts (a direct call works while paused)
+		GetGameMode()->AdvancePhase(); // skip: round 4 cleared, round 5 starts
+		TestEqual(TEXT("Round 5 started"), GetGameState()->GetRoundNumber(), 5);
+		TestTrue(TEXT("Queued: pop-ups 3 and 4, ROUND 4 and ROUND 5 on top"), HUD->GetQueuedRoundBannerCount() >= QueuedBefore + 4);
+		TestTrue(TEXT("Pop-ups queued"), HUD->GetQueuedRoundClearPopupCount() >= 3);
+		TestFalse(TEXT("Nothing shows while the offer is open"), HUD->IsAnyBannerShowing());
+		S->ShownBefore = HUD->GetRoundBannersShown();
+		// The skips' vacuums bring the rounds' XP orbs in: no more level-ups from them (gs.XP.Add above ignores XPGain).
+		GetPlayerASC()->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 0.f);
 		TestTrue(TEXT("Picked"), PickAllUpgradeOffers() > 0);
-		TestFalse(TEXT("Still waiting for LEVEL UP! to end"), HUD->IsLevelUpBannerShowing() && HUD->IsRoundBannerShowing());
+		TestFalse(TEXT("Still waiting for LEVEL UP! to end"), HUD->IsLevelUpBannerShowing() && HUD->IsAnyBannerShowing());
 	});
-	WaitWatchingBanners(this, TEXT("ROUND 3 banner after LEVEL UP!"), Overlaps, []()
+	WaitWatchingBanners(this, TEXT("round 4's pop-up after LEVEL UP!"), Overlaps, []() { return GetHUD()->GetRoundClearPopupRound() == 4; });
+	WaitWatchingBanners(this, TEXT("ROUND 5 banner after the pop-ups"), Overlaps, []()
 	{
-		return GetHUD()->IsRoundBannerShowing() && GetHUD()->GetRoundBannerTitle().ToString() == TEXT("ROUND 3");
+		return GetHUD()->IsRoundBannerShowing() && GetHUD()->GetRoundBannerTitle().ToString() == TEXT("ROUND 5");
 	});
-	Step([this]()
+	Step([this, S]()
 	{
-		TestEqual(TEXT("Stale ROUND CLEAR dropped"), GetHUD()->GetQueuedRoundBannerCount(), 0);
+		TestEqual(TEXT("Stale ROUND 4 dropped: ROUND 5 is the only round banner shown since"), GetHUD()->GetRoundBannersShown(), S->ShownBefore + 1);
+		TestEqual(TEXT("Nothing left queued"), GetHUD()->GetQueuedRoundBannerCount(), 0);
 	});
-	WaitWatchingBanners(this, TEXT("ROUND 3 banner to finish"), Overlaps, []() { return !GetHUD()->IsRoundBannerShowing(); });
+	WaitWatchingBanners(this, TEXT("ROUND 5 banner to finish"), Overlaps, []() { return !GetHUD()->IsAnyBannerShowing(); });
 	Step([this, Overlaps]()
 	{
-		TestEqual(TEXT("A round banner never overlapped LEVEL UP! or the upgrade cards (frames)"), *Overlaps, 0);
-
+		TestEqual(TEXT("A banner or pop-up never overlapped LEVEL UP! or the upgrade cards (frames)"), *Overlaps, 0);
 		// A new run clears the upgrade icons.
 		GetGameMode()->RestartRunWithSeed(2402);
 		TestEqual(TEXT("New run: no upgrade icons"), GetHUD()->GetUpgradeIconCount(), 0);
@@ -6596,6 +6702,7 @@ bool FGSRunGameOverTest::RunTest(const FString& Parameters)
 		int32 Cash = 0;
 		float RunTime = 0.f;
 		int32 LivingEnemies = 0;
+		int32 SpawnedAtDeath = 0;
 		bool bOldThrottle = true;
 		bool bSawFadeOut = false;
 	};
@@ -6663,10 +6770,10 @@ bool FGSRunGameOverTest::RunTest(const FString& Parameters)
 		KillTestEnemyAsPlayer(this);
 		KillTestEnemyAsPlayer(this);
 		GameMode->AwardCash(PC, 25, PC->GetPawn()->GetActorLocation());
-		GameMode->AdvancePhase(); // -> RoundClear: round 1 cleared, bonus paid
+		GameMode->AdvancePhase(); // skip: round 1 cleared, bonus paid (the paused round timer holds the roll-over)
 		TestEqual(TEXT("Round 1 bonus paid"), Stats->GetLastRoundClearPayout().Round, 1);
-		GameMode->AdvancePhase(); // -> round 2 PreRound
-		GameMode->AdvancePhase(); // -> round 2 Combat: its wave starts
+		GameMode->SetRoundTimerPaused(false); // -> round 2 starts at once (Prompt 59: no RoundClear or PreRound between rounds)
+		TestEqual(TEXT("Round 2 started"), GameMode->GetGameState<AGSGameState>()->GetRoundNumber(), 2);
 		TestTrue(TEXT("Round 2 wave running"), GameMode->GetWaveDirector()->IsWaveActive());
 	});
 	// Let some of round 2's wave spawn (the rest is still to come).
@@ -6694,6 +6801,7 @@ bool FGSRunGameOverTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Paused for that offer"), GameMode->IsPausedForUpgradeChoice());
 
 		S->LivingEnemies = CountLivingEnemies();
+		S->SpawnedAtDeath = Director->GetSpawned();
 		*OldWorld = GetPIEWorld();
 		ApplyDamage(GetPlayerASC(), 100000.f);
 		TestTrue(TEXT("Player died"), GetPlayerASC()->HasMatchingGameplayTag(GSGameplayTags::State_Dead));
@@ -6743,7 +6851,7 @@ bool FGSRunGameOverTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("Not returning yet"), GameMode->IsReturningToHub());
 	});
 
-	// Nothing more happens after the death: no spawns, no RoundClear or bonus, frozen run time, same cash.
+	// Nothing more happens after the death: no spawns, no clear or bonus, frozen run time, same cash.
 	WaitWorldSeconds(this, 3.0);
 	Step([this, S]()
 	{
@@ -6758,10 +6866,10 @@ bool FGSRunGameOverTest::RunTest(const FString& Parameters)
 		}
 		UGSWaveDirector* Director = GameMode->GetWaveDirector();
 		TestTrue(TEXT("Still GameOver"), GameState->GetRoundPhase() == EGSRoundPhase::GameOver);
-		TestEqual(TEXT("No spawns after death"), Director->GetSpawned(), 0);
+		TestEqual(TEXT("No spawns after death"), Director->GetSpawned(), S->SpawnedAtDeath);
 		TestEqual(TEXT("No telegraphs after death"), Director->GetPending(), 0);
 		TestEqual(TEXT("No new enemies"), CountLivingEnemies(), S->LivingEnemies);
-		TestEqual(TEXT("No RoundClear after death"), Stats->GetLastRoundClearPayout().Round, 1);
+		TestEqual(TEXT("No round clear after death"), Stats->GetLastRoundClearPayout().Round, 1);
 		TestEqual(TEXT("Rounds cleared unchanged"), Stats->GetRoundsCleared(), 1);
 		TestEqual(TEXT("Run time frozen"), Stats->GetRunTime(), S->RunTime, 0.001f);
 		TestEqual(TEXT("No cash after death"), Profile->GetCash(), S->Cash);
@@ -6986,6 +7094,33 @@ bool FGSRunSameSeedTest::RunTest(const FString& Parameters)
 		TestEqual(FString::Printf(TEXT("Same seed: same waves, spawn points, offers and rerolls (first difference at line %d: '%s' vs '%s')"), FirstDifference,
 			A.IsValidIndex(FirstDifference) ? *A[FirstDifference] : TEXT("-"), B.IsValidIndex(FirstDifference) ? *B[FirstDifference] : TEXT("-")), FirstDifference, static_cast<int32>(INDEX_NONE));
 		TestFalse(TEXT("Another seed: another run"), A == C);
+
+		// Prompt 59: a round's wave comes from its own stream (run seed + round), so the same seed gives the same waves
+		// however much else drew from the run stream before (kill speed, drops, AI): rounds 1-20 built twice, with
+		// 5,000 run-stream draws in between, and again after a restart with the same seed.
+		UGSWaveDirector* Director = GameMode->GetWaveDirector();
+		auto DescribeWaves = [Director]()
+		{
+			FString Out;
+			for (int32 Round = 1; Round <= 20; ++Round)
+			{
+				TArray<TObjectPtr<UGSEnemyData>> Queue;
+				Director->BuildRoundWave(Round, Queue);
+				Out += FString::Printf(TEXT("%d:"), Round) + FString::JoinBy(Queue, TEXT(","), [](const TObjectPtr<UGSEnemyData>& D) { return GetNameSafe(D); }) + TEXT(";");
+			}
+			return Out;
+		};
+		GameMode->RestartRunWithSeed(31337);
+		const FString WavesFirst = DescribeWaves();
+		for (int32 Draw = 0; Draw < 5000; ++Draw)
+		{
+			UGSRunRandom::FRand(GetPC());
+		}
+		TestEqual(TEXT("Same seed: the same waves after other run-stream draws"), DescribeWaves(), WavesFirst);
+		GameMode->RestartRunWithSeed(31337);
+		TestEqual(TEXT("Same seed: the same waves in a new run"), DescribeWaves(), WavesFirst);
+		GameMode->RestartRunWithSeed(31338);
+		TestTrue(TEXT("Another seed: other waves"), DescribeWaves() != WavesFirst);
 	});
 	EndPIE();
 	return true;
@@ -7405,9 +7540,9 @@ bool FGSHealthOrbsTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("Full health: the spawned orb waits"), GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Health), 1);
 		TestEqual(TEXT("Full health: not attracted"), CountMagnetizedHealthOrbs(), 0);
 
-		// The RoundClear vacuum collects it anyway; the heal over MaxHealth is lost.
-		GetGameMode()->SetPhase(EGSRoundPhase::RoundClear);
-		TestEqual(TEXT("RoundClear: the orb flies to the player"), CountMagnetizedHealthOrbs(), 1);
+		// A round clear's vacuum collects it anyway; the heal over MaxHealth is lost.
+		VacuumAllPickups(); // what a round's clear does (Prompt 59: no RoundClear phase)
+		TestEqual(TEXT("Vacuum: the orb flies to the player"), CountMagnetizedHealthOrbs(), 1);
 	});
 	WaitUntil(this, TEXT("the vacuumed health orb to arrive"), []() { return GetCashSubsystem()->GetNumActiveOfKind(EGSPickupKind::Health) == 0; }, 10.0);
 	Step([this, S]()
@@ -14000,7 +14135,569 @@ bool FGSRoundRangedCapTest::RunTest(const FString& Parameters)
 		}
 		TestEqual(TEXT("Round 7's wave is all queued or telegraphing"), Queued.Num(), Director->GetTotal());
 		TestTrue(*FString::Printf(TEXT("Round 7's real wave %s is at most 40%% ranged"), *DescribeWave(Queued)), UGSWaveDirector::GetRangedShare(Queued) <= 0.4f + 0.0001f);
-		Director->StopWave(true);
+		Director->StopAll(true);
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Roll-over rounds and the breather (Prompt 59)
+// ---------------------------------------------------------------------------
+
+namespace GSTests
+{
+	/** XP a wave's enemies are worth (flat per enemy). */
+	int32 SumWaveXP(const TArray<TObjectPtr<UGSEnemyData>>& Wave)
+	{
+		int32 XP = 0;
+		for (const UGSEnemyData* Data : Wave)
+		{
+			XP += Data ? Data->XPValue : 0;
+		}
+		return XP;
+	}
+
+	int32 SumWaveCash(const TArray<TObjectPtr<UGSEnemyData>>& Wave)
+	{
+		int32 Cash = 0;
+		for (const UGSEnemyData* Data : Wave)
+		{
+			Cash += Data ? Data->CashValue : 0;
+		}
+		return Cash;
+	}
+
+	/** Gaps between a round's spawns (telegraph starts). */
+	TArray<double> GetSpawnGaps(const FGSRoundWave& Wave)
+	{
+		TArray<double> Gaps;
+		for (int32 Index = 1; Index < Wave.SpawnTimes.Num(); ++Index)
+		{
+			Gaps.Add(Wave.SpawnTimes[Index] - Wave.SpawnTimes[Index - 1]);
+		}
+		return Gaps;
+	}
+
+	/** Bonus payouts seen per round (UGSRunStats::OnRoundClearPaid). */
+	struct FPayoutCounter
+	{
+		TMap<int32, int32> Count;
+		FDelegateHandle Handle;
+	};
+
+	TSharedRef<FPayoutCounter> CountPayouts()
+	{
+		TSharedRef<FPayoutCounter> Counter = MakeShared<FPayoutCounter>();
+		Counter->Handle = GetGameState()->GetRunStats()->OnRoundClearPaid.AddLambda([Counter](const FGSRoundClearPayout& Payout)
+		{
+			Counter->Count.FindOrAdd(Payout.Round)++;
+		});
+		return Counter;
+	}
+
+	void StopCountingPayouts(const TSharedRef<FPayoutCounter>& Counter)
+	{
+		if (GetGameState())
+		{
+			GetGameState()->GetRunStats()->OnRoundClearPaid.Remove(Counter->Handle);
+		}
+	}
+
+	/** No combo multiplier on cash (so a round's cash = the sum of its enemies' CashValue). */
+	void OverrideFlatCombo()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		UGSComboSettings* Flat = DuplicateObject<UGSComboSettings>(GameMode->GetComboSettings(), GetTransientPackage());
+		Flat->CashMultiplierSteps = { FGSComboStep(1, 1.f) };
+		Flat->bApplyComboToXP = false;
+		GameMode->SetComboSettingsOverride(Flat);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRoundRollOverTest, "BanditBaller.Round.RollOver", GSTests::TestFlags)
+bool FGSRoundRollOverTest::RunTest(const FString& Parameters)
+{
+	struct FRollState
+	{
+		bool bEarly = false;          // the next round started while the newest had more than RollOverRemaining left
+		bool bLate = false;           // the newest round was down to RollOverRemaining (after a kill) with no next round
+		int32 RemainingAtRollOver = -1;
+		TArray<double> Gaps5;
+		float Gap5 = 0.f;
+		int32 Round5XP = 0;
+		int32 Round5Cash = 0;
+		int32 Round6XP = 0;
+		int32 Round6Cash = 0;
+		int32 SavesBefore = 0;
+		bool bOverlapSeen = false;
+		bool bCapBroken = false;
+		int32 MaxOpen = 0;
+		int32 PaidBeforeDeath = 0;
+	};
+	TSharedRef<FRollState> S = MakeShared<FRollState>();
+	TSharedRef<TSharedPtr<FPayoutCounter>> PayoutsRef = MakeShared<TSharedPtr<FPayoutCounter>>();
+
+	BeginPIE(this);
+	Step([this, S, PayoutsRef]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		UGSProfileSubsystem* Profile = GetProfile();
+		if (!TestNotNull(TEXT("AGSGameMode"), GameMode) || !TestNotNull(TEXT("Profile"), Profile))
+		{
+			return;
+		}
+		const UGSRoundSettings& Settings = GameMode->GetRoundSettings();
+		TestEqual(TEXT("DA_RoundSettings: RollOverRemaining 3"), Settings.RollOverRemaining, 3);
+		TestEqual(TEXT("DA_RoundSettings: spawn window 20 s"), Settings.RoundSpawnWindow, 20.f);
+		TestEqual(TEXT("DA_RoundSettings: gap at least 0.25 s"), Settings.MinSpawnGap, 0.25f);
+		TestEqual(TEXT("DA_RoundSettings: gap at most 2 s"), Settings.MaxSpawnGap, 2.f);
+		TestEqual(TEXT("Gap for 4 enemies: 2 s (the most)"), Settings.GetSpawnGap(4), 2.f);
+		TestEqual(TEXT("Gap for 13 enemies: 20/13 s"), Settings.GetSpawnGap(13), 20.f / 13.f, 0.001f);
+		TestEqual(TEXT("Gap for 200 enemies: 0.25 s (the least)"), Settings.GetSpawnGap(200), 0.25f);
+
+		SpeedUpWorld(4.f);
+		Profile->ResetProfile();
+		GameMode->RestartRunWithSeed(5901);
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		GetPlayer()->TeleportTo(FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator);
+		// XP orbs would level up and pause; this test is about rounds.
+		GetPlayerASC()->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 0.f);
+		OverrideFlatCombo();
+		*PayoutsRef = CountPayouts();
+		S->SavesBefore = GameMode->GetRoundClearSaves();
+
+		// Round 5 (13 enemies, DT_Waves), killed as it arrives.
+		GameMode->SetRound(5);
+		GameMode->AdvancePhase(); // Combat
+		const FGSRoundWave* Wave5 = GameMode->GetWaveDirector()->FindRoundWave(5);
+		if (TestNotNull(TEXT("Round 5 open"), Wave5))
+		{
+			S->Gap5 = Wave5->Gap;
+			TestEqual(TEXT("Round 5's gap = clamp(window / size)"), Wave5->Gap, Settings.GetSpawnGap(Wave5->Total), 0.001f);
+			TArray<TObjectPtr<UGSEnemyData>> Queue;
+			GameMode->GetWaveDirector()->BuildRoundWave(5, Queue);
+			S->Round5XP = SumWaveXP(Queue);
+			S->Round5Cash = SumWaveCash(Queue);
+			Queue.Reset();
+			GameMode->GetWaveDirector()->BuildRoundWave(6, Queue);
+			S->Round6XP = SumWaveXP(Queue);
+			S->Round6Cash = SumWaveCash(Queue);
+		}
+	});
+
+	// Kill everything as it arrives until round 6 starts; it must start exactly when round 5 is down to 3.
+	WaitUntil(this, TEXT("round 5 to roll over into round 6"), [S]()
+	{
+		const UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
+		const int32 Limit = GetGameMode()->GetRoundSettings().RollOverRemaining;
+		if (const FGSRoundWave* Wave5 = Director->FindRoundWave(5))
+		{
+			S->Gaps5 = GetSpawnGaps(*Wave5);
+		}
+		KillAllEnemiesAsPlayer();
+		const FGSRoundWave* Wave5 = Director->FindRoundWave(5);
+		const int32 Remaining = Wave5 ? Wave5->GetRemaining() : 0;
+		const bool bNext = GetGameState()->GetRoundNumber() >= 6;
+		if (bNext && S->RemainingAtRollOver < 0)
+		{
+			S->RemainingAtRollOver = Remaining;
+			S->bEarly = Remaining > Limit;
+		}
+		if (!bNext && Wave5 && Wave5->Killed > 0 && Remaining <= Limit)
+		{
+			S->bLate = true;
+		}
+		return bNext;
+	}, 60.0);
+	Step([this, S]()
+	{
+		TestFalse(TEXT("Round 6 didn't start before round 5 was down to RollOverRemaining"), S->bEarly);
+		TestFalse(TEXT("Round 6 started as soon as round 5 was down to RollOverRemaining"), S->bLate);
+		TestEqual(TEXT("Round 5 had RollOverRemaining left at the roll-over"), S->RemainingAtRollOver, 3);
+		TestTrue(TEXT("Still Combat: no countdown"), IsPhase(EGSRoundPhase::Combat));
+		TestTrue(TEXT("Round 5 still open"), GetGameMode()->GetWaveDirector()->FindRoundWave(5) != nullptr);
+		TestTrue(TEXT("Round 6 open"), GetGameMode()->GetWaveDirector()->FindRoundWave(6) != nullptr);
+		const FGSRoundStats* Round5 = GetGameState()->GetRunStats()->FindRound(5);
+		TestTrue(TEXT("Round 5 not cleared yet"), Round5 && Round5->bOpen && !Round5->bCleared);
+
+		// Steady spawns: one at a time, one gap apart (a frame of slack at 4x).
+		TestTrue(FString::Printf(TEXT("Round 5 spaced its spawns (%d gaps)"), S->Gaps5.Num()), S->Gaps5.Num() >= 8);
+		for (const double Gap : S->Gaps5)
+		{
+			TestTrue(FString::Printf(TEXT("Spawn gap %.3f s = %.3f s"), Gap, S->Gap5), FMath::Abs(Gap - S->Gap5) <= 0.15);
+		}
+
+		// A hit while rounds 5 and 6 are both open costs both their no-damage bonus.
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		ApplyDamage(GetPlayerASC(), 5.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		TestEqual(TEXT("Round 5 took the hit"), Round5 ? Round5->DamageTaken : -1.f, 5.f, 0.01f);
+		const FGSRoundStats* Round6 = GetGameState()->GetRunStats()->FindRound(6);
+		TestEqual(TEXT("Round 6 took the same hit"), Round6 ? Round6->DamageTaken : -1.f, 5.f, 0.01f);
+	});
+
+	// Round 5 clears first (its last enemies), then round 6.
+	WaitUntil(this, TEXT("rounds 5 and 6 cleared"), []()
+	{
+		KillAllEnemiesAsPlayer();
+		const UGSRunStats* Stats = GetGameState()->GetRunStats();
+		return Stats->FindRound(5) && Stats->FindRound(5)->bCleared && Stats->FindRound(6) && Stats->FindRound(6)->bCleared;
+	}, 60.0);
+	WaitUntil(this, TEXT("their vacuums and saves"), []()
+	{
+		return GetCashSubsystem()->GetNumActive() == 0 && !GetGameMode()->IsClearSavePending();
+	}, 15.0);
+	Step([this, S, PayoutsRef]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		const UGSRunStats* Stats = GetGameState()->GetRunStats();
+		const UGSRoundClearSettings* Bonus = GameMode->GetRoundClearSettings();
+		const FGSRoundStats& Round5 = *Stats->FindRound(5);
+		const FGSRoundStats& Round6 = *Stats->FindRound(6);
+		const TSharedPtr<FPayoutCounter> Payouts = *PayoutsRef;
+
+		// One bonus per round, at its clear.
+		TestEqual(TEXT("Round 5's bonus paid once"), Payouts->Count.FindRef(5), 1);
+		TestEqual(TEXT("Round 6's bonus paid once"), Payouts->Count.FindRef(6), 1);
+		TestTrue(TEXT("Round 5 cleared before round 6"), Round5.ClearedAt <= Round6.ClearedAt);
+		for (const FGSRoundStats* Round : { &Round5, &Round6 })
+		{
+			const FGSRoundClearPayout& Payout = Round->Payout;
+			TestEqual(FString::Printf(TEXT("Round %d: base bonus"), Round->Round), Payout.BaseBonus, Bonus->BaseBonus);
+			TestTrue(FString::Printf(TEXT("Round %d: the overlap hit costs the no-damage bonus"), Round->Round), !Payout.bNoDamage && Payout.NoDamageBonus == 0);
+			TestEqual(FString::Printf(TEXT("Round %d: clear time from its own start"), Round->Round), Payout.ClearTime,
+				static_cast<float>(Round->ClearedAt - Round->CombatStartTime), 0.05f);
+			TestEqual(FString::Printf(TEXT("Round %d: fast-clear limit from its own wave"), Round->Round), Payout.FastClearTime, Bonus->GetFastClearTime(Round->WaveEnemies));
+			TestEqual(FString::Printf(TEXT("Round %d: fast clear iff within the limit (%.1f s of %.1f s)"), Round->Round, Payout.ClearTime, Payout.FastClearTime),
+				Payout.bFastClear, Payout.ClearTime <= Payout.FastClearTime);
+		}
+
+		// Cash and XP per enemy are flat: each round got exactly its own enemies' values (combo off, XPGain 0).
+		TestEqual(TEXT("Round 5 kills = its wave"), Round5.Kills, Round5.WaveEnemies);
+		TestEqual(TEXT("Round 6 kills = its wave"), Round6.Kills, Round6.WaveEnemies);
+		TestEqual(TEXT("Round 5 cash = sum of its enemies' CashValue"), Round5.CashCollected, S->Round5Cash);
+		TestEqual(TEXT("Round 6 cash = sum of its enemies' CashValue"), Round6.CashCollected, S->Round6Cash);
+		TestEqual(TEXT("No XP at XPGain 0 (orbs still flat: see Economy.FlatDropsPerRound)"), Round5.XPEarned + Round6.XPEarned, 0);
+		AddInfo(FString::Printf(TEXT("Round 5 wave worth %d XP / $%d, round 6 %d XP / $%d"), S->Round5XP, S->Round5Cash, S->Round6XP, S->Round6Cash));
+
+		// The profile is saved at each clear (after its vacuum landed).
+		TestTrue(TEXT("Saved at each clear (at least rounds 5 and 6)"), GameMode->GetRoundClearSaves() >= S->SavesBefore + 2);
+		TestEqual(TEXT("The save holds the balance after the clears"), GetSavedCash(*GetProfile()), GetProfile()->GetCash());
+
+		// RollOverRemaining 0: the next round starts only at the full clear.
+		OverrideRoundSettings(0);
+		GameMode->SetRound(3);
+		GameMode->AdvancePhase();
+	});
+	TSharedRef<bool> bZeroEarly = MakeShared<bool>(false);
+	WaitUntil(this, TEXT("RollOverRemaining 0: round 3 cleared"), [bZeroEarly]()
+	{
+		KillAllEnemiesAsPlayer();
+		const UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
+		if (Director->FindRoundWave(3) && Director->FindRoundWave(4))
+		{
+			*bZeroEarly = true;
+		}
+		const FGSRoundStats* Round3 = GetGameState()->GetRunStats()->FindRound(3);
+		return Round3 && Round3->bCleared;
+	}, 60.0);
+	Step([this, S, bZeroEarly]()
+	{
+		TestFalse(TEXT("RollOverRemaining 0: rounds 3 and 4 never open together"), *bZeroEarly);
+		TestEqual(TEXT("RollOverRemaining 0: round 4 starts at round 3's full clear"), GetGameState()->GetRoundNumber(), 4);
+
+		// The alive cap counts every open round together. RollOverRemaining 100: one kill rolls a round over.
+		OverrideRoundSettings(100);
+		IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Wave.MaxAlive"))->Set(6);
+		GetGameMode()->SetRound(15);
+		GetGameMode()->AdvancePhase();
+	});
+	WaitUntil(this, TEXT("a round 15 enemy to kill"), []() { return GetGameMode()->GetWaveDirector()->GetAlive() > 0; }, 15.0);
+	Step([]() { KillAllEnemiesAsPlayer(); });
+	WaitUntil(this, TEXT("two rounds at the shared cap"), [S]()
+	{
+		const UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
+		S->bCapBroken |= Director->GetAlive() + Director->GetPending() > Director->GetMaxAlive();
+		S->MaxOpen = FMath::Max(S->MaxOpen, Director->GetActiveRounds().Num());
+		return Director->GetActiveRounds().Num() >= 2 && Director->GetAlive() == Director->GetMaxAlive();
+	}, 30.0);
+	WaitWorldSeconds(this, 3.0);
+	Step([this, S, PayoutsRef]()
+	{
+		UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
+		S->bCapBroken |= Director->GetAlive() + Director->GetPending() > Director->GetMaxAlive();
+		TestTrue(TEXT("Two rounds open at once"), S->MaxOpen >= 2);
+		TestFalse(TEXT("Alive + telegraphing never above the cap, every round together"), S->bCapBroken);
+		TestEqual(TEXT("At the cap"), Director->GetAlive(), 6);
+		IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Wave.MaxAlive"))->Set(0);
+
+		// No bonus after death: the open rounds close without a clear.
+		S->PaidBeforeDeath = 0;
+		for (const TPair<int32, int32>& Pair : (*PayoutsRef)->Count)
+		{
+			S->PaidBeforeDeath += Pair.Value;
+		}
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		ApplyDamage(GetPlayerASC(), 100000.f);
+		TestTrue(TEXT("Death -> GameOver"), IsPhase(EGSRoundPhase::GameOver));
+		KillAllEnemiesAsPlayer();
+		int32 PaidAfter = 0;
+		for (const TPair<int32, int32>& Pair : (*PayoutsRef)->Count)
+		{
+			PaidAfter += Pair.Value;
+		}
+		TestEqual(TEXT("No bonus after death (killing the leftovers pays nothing)"), PaidAfter, S->PaidBeforeDeath);
+		const FGSRoundStats* Round15 = GetGameState()->GetRunStats()->FindRound(15);
+		TestTrue(TEXT("The open round 15 is closed, not cleared"), Round15 && !Round15->bOpen && !Round15->bCleared);
+		TestFalse(TEXT("No round open after death"), Director->IsWaveActive());
+
+		StopCountingPayouts(PayoutsRef->ToSharedRef());
+		GetGameMode()->SetComboSettingsOverride(nullptr);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRoundBreatherTest, "BanditBaller.Round.Breather", GSTests::TestFlags)
+bool FGSRoundBreatherTest::RunTest(const FString& Parameters)
+{
+	struct FBreatherState
+	{
+		bool bRolledInto11 = false;
+		int32 RecordsAtBreather = 0;
+		int32 ClearedAtBreather = 0;
+		int32 PayoutRoundAtBreather = 0;
+		int32 CashAtBreather = -1;
+		double BreatherStart = 0.0;
+		double BreatherEnd = 0.0;
+		bool bSpawnedInBreather = false;
+		bool bChangedInBreather = false;
+	};
+	TSharedRef<FBreatherState> S = MakeShared<FBreatherState>();
+
+	BeginPIE(this);
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		if (!TestNotNull(TEXT("AGSGameMode"), GameMode))
+		{
+			return;
+		}
+		const UGSRoundSettings& Settings = GameMode->GetRoundSettings();
+		TestEqual(TEXT("A breather after every 10 rounds"), Settings.BreatherEveryRounds, 10);
+		TestEqual(TEXT("Breather 10 s"), Settings.BreatherDuration, 10.f);
+		TestTrue(TEXT("Round 10 is a breather round"), GameMode->IsBreatherRound(10) && GameMode->IsBreatherRound(20));
+		TestFalse(TEXT("Rounds 9 and 11 aren't"), GameMode->IsBreatherRound(9) || GameMode->IsBreatherRound(11));
+
+		SpeedUpWorld(4.f);
+		GameMode->RestartRunWithSeed(5902);
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		GetPlayerASC()->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 0.f);
+		GameMode->SetRound(9);
+		GameMode->AdvancePhase(); // Combat: round 9
+	});
+	// Round 9 rolls over into round 10; round 10 doesn't roll over into 11: the full clear, then the breather.
+	WaitUntil(this, TEXT("rounds 9 and 10 cleared -> Breather"), [S]()
+	{
+		KillAllEnemiesAsPlayer();
+		S->bRolledInto11 |= GetGameState()->GetRoundNumber() >= 11 || GetGameMode()->GetWaveDirector()->FindRoundWave(11) != nullptr;
+		return IsPhase(EGSRoundPhase::Breather);
+	}, 90.0);
+	Step([this, S]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		const UGSRunStats* Stats = GetGameState()->GetRunStats();
+		const UGSHUDWidget* HUD = GetHUD();
+		TestFalse(TEXT("No roll-over into round 11"), S->bRolledInto11);
+		TestEqual(TEXT("The Breather has no round number of its own (still 10)"), GetGameState()->GetRoundNumber(), 10);
+		TestTrue(TEXT("Rounds 9 and 10 cleared"), Stats->FindRound(9) && Stats->FindRound(9)->bCleared && Stats->FindRound(10) && Stats->FindRound(10)->bCleared);
+		TestFalse(TEXT("Nothing open"), GameMode->GetWaveDirector()->IsWaveActive());
+		TestEqual(TEXT("Breather lasts BreatherDuration"), GetGameState()->GetPhaseTimeRemaining(), GameMode->GetRoundSettings().BreatherDuration, 0.2f);
+		TestEqual(TEXT("HUD phase text"), HUD->GetPhaseText().ToString(), FString(TEXT("BREATHER")));
+		TestTrue(TEXT("HUD countdown to round 11"), HUD->GetCountdownText().ToString().StartsWith(TEXT("Round 11 in ")));
+		TestFalse(TEXT("No enemy count in the Breather"), HUD->IsEnemiesShowing());
+		S->RecordsAtBreather = Stats->GetRounds().Num();
+		S->ClearedAtBreather = Stats->GetRoundsCleared();
+		S->PayoutRoundAtBreather = Stats->GetLastRoundClearPayout().Round;
+		S->BreatherStart = GetPIEWorld()->GetTimeSeconds();
+	});
+	// Through the breather: nothing spawns, nothing is recorded or paid.
+	WaitUntil(this, TEXT("the breather to end: round 11"), [S]()
+	{
+		const UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
+		if (IsPhase(EGSRoundPhase::Breather))
+		{
+			S->bSpawnedInBreather |= Director->GetPending() > 0 || CountLivingEnemies() > 0 || CountTelegraphs() > 0;
+			// Round 10's vacuum (at its clear) may still be landing as the breather starts; from then on no cash comes in.
+			if (S->CashAtBreather < 0 && GetCashSubsystem()->GetNumActive() == 0)
+			{
+				S->CashAtBreather = GetPlayerCash();
+			}
+			const UGSRunStats* Stats = GetGameState()->GetRunStats();
+			S->bChangedInBreather |= Stats->GetRounds().Num() != S->RecordsAtBreather || Stats->GetRoundsCleared() != S->ClearedAtBreather
+				|| Stats->GetLastRoundClearPayout().Round != S->PayoutRoundAtBreather;
+			return false;
+		}
+		S->BreatherEnd = GetPIEWorld()->GetTimeSeconds();
+		return true;
+	}, 30.0);
+	Step([this, S]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		const UGSRunStats* Stats = GetGameState()->GetRunStats();
+		TestFalse(TEXT("Nothing spawned or telegraphed in the breather"), S->bSpawnedInBreather);
+		TestFalse(TEXT("No stats row, clear or bonus in the breather"), S->bChangedInBreather);
+		TestEqual(TEXT("No cash in the breather"), GetPlayerCash(), S->CashAtBreather);
+		TestEqual(TEXT("The breather took BreatherDuration (game time)"), S->BreatherEnd - S->BreatherStart,
+			static_cast<double>(GameMode->GetRoundSettings().BreatherDuration), 0.2);
+		TestTrue(TEXT("Combat again"), IsPhase(EGSRoundPhase::Combat));
+		TestEqual(TEXT("Round 11 follows round 10"), GetGameState()->GetRoundNumber(), 11);
+		TestTrue(TEXT("Round 11's wave runs"), GameMode->GetWaveDirector()->FindRoundWave(11) != nullptr);
+		TestEqual(TEXT("Exactly one new stats row (round 11)"), Stats->GetRounds().Num(), S->RecordsAtBreather + 1);
+		TestTrue(TEXT("It is round 11's"), Stats->FindRound(11) != nullptr);
+		TestEqual(TEXT("Rounds cleared counts rounds only"), Stats->GetRoundsCleared(), S->ClearedAtBreather);
+
+		// The safety guard before a breather: a stuck breather round is cleared after CombatFallbackDuration.
+		UGSRoundSettings* Short = OverrideRoundSettings(100); // one kill makes round 20 ready
+		Short->CombatFallbackDuration = 2.f;
+		GameMode->SetRound(20);
+		GameMode->AdvancePhase();
+	});
+	WaitUntil(this, TEXT("a round 20 enemy"), []() { return CountLivingEnemies() > 0; }, 15.0);
+	Step([this]()
+	{
+		KillAllEnemiesAsPlayer();
+		TestTrue(TEXT("The safety guard runs once round 20 is ready"), GetGameMode()->GetSafetyTimeRemaining() > 0.f);
+		TestEqual(TEXT("No roll-over into round 21"), GetGameState()->GetRoundNumber(), 20);
+	});
+	WaitUntil(this, TEXT("the safety guard to clear round 20 -> Breather"), []() { return IsPhase(EGSRoundPhase::Breather); }, 15.0);
+	Step([this]()
+	{
+		const FGSRoundStats* Round20 = GetGameState()->GetRunStats()->FindRound(20);
+		TestTrue(TEXT("Round 20 cleared by the guard"), Round20 && Round20->bCleared);
+		TestEqual(TEXT("Leftovers removed"), CountLivingEnemies(), 0);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRoundRollOverPaceTest, "BanditBaller.Round.RollOverPace", GSTests::TestFlags)
+bool FGSRoundRollOverPaceTest::RunTest(const FString& Parameters)
+{
+	struct FPaceState
+	{
+		double CombatStart = 0.0;
+		double LastKill = -1.0;
+		TMap<int32, double> Start;       // round -> start (world time)
+		TMap<int32, double> FirstArrival; // round -> its first enemy on the field
+		TMap<int32, double> LastArrival;
+		double ReachedRound10 = 0.0;
+		float Telegraph = 0.75f;
+	};
+	TSharedRef<FPaceState> S = MakeShared<FPaceState>();
+
+	BeginPIE(this);
+	Step([this, S]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		if (!TestNotNull(TEXT("AGSGameMode"), GameMode))
+		{
+			return;
+		}
+		SpeedUpWorld(4.f);
+		GameMode->RestartRunWithSeed(5903);
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		GetPlayerASC()->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 0.f);
+		S->Telegraph = GameMode->GetWaveDirector()->GetSettings().SpawnTelegraphTime;
+		GameMode->AdvancePhase(); // round 1 Combat (its countdown skipped)
+		S->CombatStart = GetPIEWorld()->GetTimeSeconds();
+	});
+	// gs.KillAll once a game second, until round 10 starts.
+	WaitUntil(this, TEXT("round 10 with gs.KillAll once a second"), [S]()
+	{
+		const double Now = GetPIEWorld()->GetTimeSeconds();
+		for (const FGSRoundWave& Wave : GetGameMode()->GetWaveDirector()->GetActiveRounds())
+		{
+			if (!S->Start.Contains(Wave.Round))
+			{
+				S->Start.Add(Wave.Round, Wave.StartTime);
+			}
+			if (Wave.SpawnTimes.Num() > 0 && !S->FirstArrival.Contains(Wave.Round))
+			{
+				S->FirstArrival.Add(Wave.Round, Wave.SpawnTimes[0] + S->Telegraph);
+			}
+			if (Wave.SpawnTimes.Num() == Wave.Total && Wave.Total > 0)
+			{
+				S->LastArrival.Add(Wave.Round, Wave.SpawnTimes.Last() + S->Telegraph);
+			}
+		}
+		if (Now - S->LastKill >= 1.0)
+		{
+			S->LastKill = Now;
+			UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("KillAll"), {});
+		}
+		if (GetGameState()->GetRoundNumber() >= 10)
+		{
+			S->ReachedRound10 = Now - S->CombatStart;
+			return true;
+		}
+		return false;
+	}, 120.0);
+	Step([this, S]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		const UGSRunStats* Stats = GetGameState()->GetRunStats();
+		const UGSRoundSettings& Round = GameMode->GetRoundSettings();
+		const UGSRoundClearSettings* Bonus = GameMode->GetRoundClearSettings();
+		UGSWaveDirector* Director = GameMode->GetWaveDirector();
+		TestTrue(TEXT("Round 10 reached"), S->ReachedRound10 > 0.0);
+		AddInfo(FString::Printf(TEXT("[pace] gs.KillAll once a second: round 10 starts %.1f s (game time) after round 1's Combat"), S->ReachedRound10));
+
+		// Empty time between rounds 1-6: from a round's clear to the next round's first enemy on the field (0 when they
+		// overlap). Before Prompt 59: RoundClear 4 s + PreRound 3 s + the 0.75 s telegraph = 7.75 s each.
+		const float Before = 4.f + 3.f + S->Telegraph;
+		FString EmptyLines;
+		for (int32 N = 1; N <= 5; ++N)
+		{
+			const FGSRoundStats* Cleared = Stats->FindRound(N);
+			const double* Next = S->FirstArrival.Find(N + 1);
+			if (!Cleared || !Cleared->bCleared || !Next)
+			{
+				AddError(FString::Printf(TEXT("No clear / arrival for rounds %d-%d"), N, N + 1));
+				continue;
+			}
+			const double Empty = FMath::Max(0.0, *Next - Cleared->ClearedAt);
+			const double Overlap = FMath::Max(0.0, Cleared->ClearedAt - *Next);
+			EmptyLines += FString::Printf(TEXT("\n  rounds %d-%d: %.2f s empty (was %.2f s); round %d's first enemy arrived %.2f s before round %d's clear"),
+				N, N + 1, Empty, Before, N + 1, Overlap, N);
+			TestTrue(FString::Printf(TEXT("Rounds %d-%d: less empty time than before"), N, N + 1), Empty < Before);
+		}
+		AddInfo(TEXT("[pace] empty time between rounds:") + EmptyLines);
+
+		// Rounds 1-20: how long a round's enemies take to arrive next to its fast-clear limit.
+		FString ArrivalLines;
+		for (int32 N = 1; N <= 20; ++N)
+		{
+			TArray<TObjectPtr<UGSEnemyData>> Queue;
+			Director->BuildRoundWave(N, Queue);
+			const int32 Size = Queue.Num();
+			const float Gap = Round.GetSpawnGap(Size);
+			const float Arrival = (Size > 0 ? (Size - 1) * Gap : 0.f) + S->Telegraph;
+			const float Limit = Bonus->GetFastClearTime(Size);
+			const double* Measured = S->LastArrival.Find(N);
+			const double* Started = S->Start.Find(N);
+			ArrivalLines += FString::Printf(TEXT("\n  round %2d: %2d enemies, gap %.2f s, last arrives %5.1f s%s, fast-clear limit %5.1f s%s"), N, Size, Gap, Arrival,
+				Measured && Started ? *FString::Printf(TEXT(" (measured %.1f s)"), *Measured - *Started) : TEXT(""), Limit,
+				Limit < Arrival ? TEXT("  <-- LIMIT SHORTER THAN THE ARRIVAL") : TEXT(""));
+		}
+		AddInfo(TEXT("[pace] arrival vs fast-clear limit:") + ArrivalLines);
+		RestoreWorldSpeed();
 	});
 	EndPIE();
 	return true;

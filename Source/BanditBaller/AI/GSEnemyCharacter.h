@@ -43,7 +43,7 @@ public:
 	 * Server: spawn an enemy of EnemyData standing on NavLocation (a NavMesh point, e.g. from
 	 * UGSSpawnLocationFinder), facing FaceTowards. Used by the wave director and gs.Spawn.
 	 */
-	static AGSEnemyCharacter* SpawnEnemy(UWorld* World, UGSEnemyData* EnemyData, const FVector& NavLocation, const FVector& FaceTowards);
+	static AGSEnemyCharacter* SpawnEnemy(UWorld* World, UGSEnemyData* EnemyData, const FVector& NavLocation, const FVector& FaceTowards, int32 WaveRound = 0);
 
 	UFUNCTION(BlueprintPure, Category = "Enemy")
 	UGSHealthComponent* GetHealthComponent() const { return HealthComponent; }
@@ -76,6 +76,10 @@ public:
 	const TArray<TObjectPtr<UMaterialInstanceDynamic>>& GetBodyMaterials() const { return BodyMaterials; }
 
 	bool IsTelegraphing() const { return bTelegraphing; }
+
+	/** The round whose wave this enemy belongs to (0 = not from a wave, e.g. gs.Spawn). Set by UGSWaveDirector. */
+	int32 GetWaveRound() const { return WaveRound; }
+	void SetWaveRound(int32 Round) { WaveRound = Round; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -131,4 +135,6 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UStaticMeshComponent>> MeshAttachmentComponents;
+
+	int32 WaveRound = 0;
 };

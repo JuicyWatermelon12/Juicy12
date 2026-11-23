@@ -10,7 +10,6 @@
 class UGameplayEffect;
 class UGSHUDWidget;
 class UGSUpgradeChoiceWidget;
-class UGSRoundSummaryWidget;
 class UGSRunSummaryWidget;
 class UUserWidget;
 
@@ -54,9 +53,6 @@ public:
 
 	/** The level-up choice screen (local player; created at BeginPlay, shows itself when an offer opens). */
 	UGSUpgradeChoiceWidget* GetUpgradeChoiceWidget() const { return UpgradeChoiceWidget; }
-
-	/** The RoundClear summary (local player; created at BeginPlay, shows itself during RoundClear). */
-	UGSRoundSummaryWidget* GetRoundSummaryWidget() const { return RoundSummaryWidget; }
 
 	/** The run summary after death (local player; null until ClientShowRunSummary). */
 	UGSRunSummaryWidget* GetRunSummaryWidget() const { return RunSummaryWidget; }
@@ -119,13 +115,6 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UGSUpgradeChoiceWidget> UpgradeChoiceWidget;
-
-	/** RoundClear summary: round stats, bonus lines and the bonus paid (WBP_RoundSummary), above the HUD. */
-	UPROPERTY(EditDefaultsOnly, Category = "UI")
-	TSubclassOf<UGSRoundSummaryWidget> RoundSummaryWidgetClass;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UGSRoundSummaryWidget> RoundSummaryWidget;
 
 	/** Damage GE used by gs.Damage.Self and gs.KillAll (GE_Damage, SetByCaller Data.Damage). */
 	UPROPERTY(EditDefaultsOnly, Category = "Debug")

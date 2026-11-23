@@ -253,6 +253,7 @@ int32 UGSCashPickupSubsystem::SpawnCashDrop(const UGSCashSettings* Settings, con
 		}
 		const bool bBill = Pieces[Index] >= Settings->BillThreshold;
 		Pickup->ActivatePickup(EGSPickupKind::Cash, Pieces[Index], bBill, Settings, Origin, Landing, ExpireAt);
+		Pickup->SetSourceRound(DropRound);
 		Active.Add(Pickup);
 	}
 
@@ -279,6 +280,7 @@ AGSCashPickup* UGSCashPickupSubsystem::SpawnXPDrop(const UGSCashSettings* Settin
 		return nullptr;
 	}
 	Orb->ActivatePickup(EGSPickupKind::XP, XPValue, false, Settings, Origin, Landing, GetExpireAt(EGSPickupKind::XP));
+	Orb->SetSourceRound(DropRound);
 	Active.Add(Orb);
 	++NumXPOrbsDropped;
 	UE_LOG(LogBanditBaller, Verbose, TEXT("[xp] orb %d XP dropped at %s"), XPValue, *Origin.ToCompactString());
@@ -312,6 +314,7 @@ AGSCashPickup* UGSCashPickupSubsystem::SpawnHealthDrop(const UGSCashSettings* Se
 		return nullptr;
 	}
 	Orb->ActivatePickup(EGSPickupKind::Health, Settings->HealthOrbHealAmount, false, Settings, Origin, Landing, GetExpireAt(EGSPickupKind::Health));
+	Orb->SetSourceRound(DropRound);
 	Active.Add(Orb);
 	++NumHealthOrbsDropped;
 	UE_LOG(LogBanditBaller, Verbose, TEXT("[heal] health orb +%d dropped at %s"), Settings->HealthOrbHealAmount, *Origin.ToCompactString());
@@ -332,6 +335,7 @@ void UGSCashPickupSubsystem::CollectPickup(AGSCashPickup* Pickup, APlayerControl
 	const FVector Location = Pickup->GetActorLocation();
 	const bool bXPOrb = Pickup->IsXPOrb();
 	const bool bHealthOrb = Pickup->IsHealthOrb();
+	const int32 SourceRound = Pickup->GetSourceRound();
 	ReleasePickup(Pickup, /*bExpired*/ false);
 
 	AGSGameMode* GameMode = GetWorld()->GetAuthGameMode<AGSGameMode>();
@@ -341,7 +345,7 @@ void UGSCashPickupSubsystem::CollectPickup(AGSCashPickup* Pickup, APlayerControl
 		LastHealthCollectLocation = Location;
 		if (GameMode)
 		{
-			GameMode->AwardHealthPickup(Player, Value, Location);
+			GameMode->AwardHealthPickup(Player, Value, Location, SourceRound);
 		}
 		return;
 	}
@@ -351,7 +355,7 @@ void UGSCashPickupSubsystem::CollectPickup(AGSCashPickup* Pickup, APlayerControl
 		LastXPCollectLocation = Location;
 		if (GameMode)
 		{
-			GameMode->AwardXPPickup(Player, Value, Location);
+			GameMode->AwardXPPickup(Player, Value, Location, SourceRound);
 		}
 		return;
 	}
@@ -360,7 +364,7 @@ void UGSCashPickupSubsystem::CollectPickup(AGSCashPickup* Pickup, APlayerControl
 	ValueCollected += Value;
 	if (GameMode)
 	{
-		GameMode->AwardCash(Player, Value, Location);
+		GameMode->AwardCash(Player, Value, Location, SourceRound);
 	}
 }
 
@@ -411,4 +415,14 @@ int32 UGSCashPickupSubsystem::VacuumAll()
 		UE_LOG(LogBanditBaller, Log, TEXT("[cash] round clear: %d pickups fly to the party"), Sent);
 	}
 	return Sent;
+}
+
+int32 UGSCashPickupSubsystem::GetNumForcedInFlight() const
+{
+	int32 Count = 0;
+	for (const AGSCashPickup* Pickup : Active)
+	{
+		Count += (Pickup && Pickup->IsForcedMagnet()) ? 1 : 0;
+	}
+	return Count;
 }

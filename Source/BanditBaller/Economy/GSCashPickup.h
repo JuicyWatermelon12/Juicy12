@@ -70,6 +70,10 @@ public:
 	bool IsHealthOrb() const { return Kind == EGSPickupKind::Health; }
 	bool IsOrb() const { return Kind != EGSPickupKind::Cash; }
 
+	/** The round of the enemy that dropped it (0 = none / the newest round); its stats count there when collected. */
+	int32 GetSourceRound() const { return SourceRound; }
+	void SetSourceRound(int32 Round) { SourceRound = Round; }
+
 	/** Flying in because the RoundClear vacuum sent it (collected even at full health). */
 	bool IsForcedMagnet() const { return IsMagnetized() && bForcedMagnet; }
 
@@ -134,6 +138,7 @@ private:
 	// --- Server state ---
 
 	EState State = EState::Idle;
+	int32 SourceRound = 0;
 	FVector TossFrom = FVector::ZeroVector;
 	FVector TossTo = FVector::ZeroVector;
 	float TossElapsed = 0.f;

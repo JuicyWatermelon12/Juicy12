@@ -48,6 +48,16 @@ public:
 	/** Server: send every active piece to the nearest living player. Returns how many were sent. */
 	int32 VacuumAll();
 
+	/** Vacuumed pickups (IsForcedMagnet) still flying to a player: the round-clear save waits for them. */
+	int32 GetNumForcedInFlight() const;
+
+	/**
+	 * The round the next drops belong to (AGSGameMode sets it around an enemy's drops; 0 = the newest round). Each
+	 * pickup keeps it, so its cash / XP / healing count for that round when collected (Prompt 59).
+	 */
+	void SetDropRound(int32 Round) { DropRound = Round; }
+	int32 GetDropRound() const { return DropRound; }
+
 	/** Server: return every active piece to the pool without paying anyone (run restart). */
 	void ReleaseAll();
 
@@ -92,6 +102,8 @@ protected:
 	virtual bool DoesSupportWorldType(const EWorldType::Type WorldType) const override;
 
 private:
+	int32 DropRound = 0;
+
 	AGSCashPickup* AcquirePickup();
 	AGSCashPickup* CreatePickup();
 	void Prewarm(int32 Count);

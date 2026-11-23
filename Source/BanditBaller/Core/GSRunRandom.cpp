@@ -54,3 +54,11 @@ FVector UGSRunRandom::VRandCone(const UObject* WorldContextObject, const FVector
 {
 	return GetStream(WorldContextObject).VRandCone(Direction, HalfAngleRadians);
 }
+
+FRandomStream UGSRunRandom::MakeRoundStream(const UObject* WorldContextObject, int32 Round)
+{
+	const UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::ReturnNull) : nullptr;
+	const AGSGameMode* GameMode = World ? World->GetAuthGameMode<AGSGameMode>() : nullptr;
+	const int32 RunSeed = GameMode ? GameMode->GetRunSeed() : 0;
+	return FRandomStream(static_cast<int32>(HashCombine(GetTypeHash(RunSeed), GetTypeHash(Round * 7919 + 13))));
+}

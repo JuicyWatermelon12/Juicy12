@@ -15,7 +15,6 @@
 #include "GSGameplayTags.h"
 #include "GSHUDWidget.h"
 #include "GSUpgradeChoiceWidget.h"
-#include "GSRoundSummaryWidget.h"
 #include "GSRunSummaryWidget.h"
 #include "GSPlayerState.h"
 #include "HAL/IConsoleManager.h"
@@ -89,15 +88,6 @@ void AGSPlayerController::BeginPlay()
 		if (UpgradeChoiceWidget)
 		{
 			UpgradeChoiceWidget->AddToPlayerScreen(10); // above the HUD, below the run summary
-		}
-	}
-
-	if (IsLocalPlayerController() && RoundSummaryWidgetClass)
-	{
-		RoundSummaryWidget = CreateWidget<UGSRoundSummaryWidget>(this, RoundSummaryWidgetClass);
-		if (RoundSummaryWidget)
-		{
-			RoundSummaryWidget->AddToPlayerScreen(5); // above the HUD, below the upgrade choice screen
 		}
 	}
 }

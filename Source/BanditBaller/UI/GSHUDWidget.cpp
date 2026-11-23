@@ -207,6 +207,12 @@ bool UGSHUDWidget::TryBindGameState()
 	GS->OnRoundChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandleRoundChanged);
 	GS->OnWaveCountsChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandleWaveCountsChanged);
 	GS->OnAreaChanged.AddUniqueDynamic(this, &UGSHUDWidget::HandleAreaChanged);
+	// The round-clear pop-up. TODO(co-op): OnRoundClearPaid fires on the server only (the payout isn't replicated).
+	if (UGSRunStats* Stats = GS->GetRunStats())
+	{
+		BoundRunStats = Stats;
+		RoundClearPaidHandle = Stats->OnRoundClearPaid.AddUObject(this, &UGSHUDWidget::HandleRoundClearPaid);
+	}
 	RefreshAreaVisibility();
 	RefreshRoundInfo();
 	RefreshComboDisplay();
@@ -214,7 +220,7 @@ bool UGSHUDWidget::TryBindGameState()
 	// The first PreRound starts before the HUD has bound.
 	if (GS->GetRoundPhase() == EGSRoundPhase::PreRound)
 	{
-		QueueRoundBanner(false, GS->GetRoundNumber());
+		QueueRoundBanner(GS->GetRoundNumber());
 	}
 	return true;
 }
@@ -228,6 +234,11 @@ void UGSHUDWidget::UnbindGameState()
 		GS->OnWaveCountsChanged.RemoveDynamic(this, &UGSHUDWidget::HandleWaveCountsChanged);
 		GS->OnAreaChanged.RemoveDynamic(this, &UGSHUDWidget::HandleAreaChanged);
 	}
+	if (UGSRunStats* Stats = BoundRunStats.Get())
+	{
+		Stats->OnRoundClearPaid.Remove(RoundClearPaidHandle);
+	}
+	BoundRunStats.Reset();
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(CountdownTimer);
@@ -246,17 +257,75 @@ void UGSHUDWidget::HandlePhaseChanged(EGSRoundPhase OldPhase, EGSRoundPhase NewP
 	}
 	if (NewPhase == EGSRoundPhase::PreRound)
 	{
-		QueueRoundBanner(false, GS->GetRoundNumber());
-	}
-	else if (NewPhase == EGSRoundPhase::RoundClear && OldPhase == EGSRoundPhase::Combat)
-	{
-		QueueRoundBanner(true, GS->GetRoundNumber());
+		QueueRoundBanner(GS->GetRoundNumber());
 	}
 }
 
 void UGSHUDWidget::HandleRoundChanged(int32 NewRound)
 {
 	RefreshRoundInfo();
+	// A round that starts in Combat (rolled over, or after the breather) gets its banner here; round 1's comes with its
+	// countdown (the same request, so it isn't queued twice).
+	const AGSGameState* GS = BoundGameState.Get();
+	if (GS && GS->GetRoundPhase() == EGSRoundPhase::Combat)
+	{
+		QueueRoundBanner(NewRound);
+	}
+}
+
+void UGSHUDWidget::HandleRoundClearPaid(const FGSRoundClearPayout& Payout)
+{
+	if (Payout.Round <= 0)
+	{
+		return;
+	}
+	FRoundBannerRequest Request;
+	Request.bClearPopup = true;
+	Request.Round = Payout.Round;
+	Request.Payout = Payout;
+	if (!RoundBannerQueue.Contains(Request) && !(IsAnyBannerShowing() && ActiveRoundBanner == Request))
+	{
+		RoundBannerQueue.Add(Request);
+	}
+	TryShowNextRoundBanner();
+}
+
+int32 UGSHUDWidget::GetQueuedRoundClearPopupCount() const
+{
+	return RoundBannerQueue.FilterByPredicate([](const FRoundBannerRequest& Request) { return Request.bClearPopup; }).Num();
+}
+
+FText UGSHUDWidget::GetRoundClearPopupTitle() const
+{
+	if (!IsRoundClearPopupShowing())
+	{
+		return FText::GetEmpty();
+	}
+	const FGSRoundClearPayout& Payout = ActiveRoundBanner.Payout;
+	return FText::Format(NSLOCTEXT("GSHUD", "RoundClearPopupTitle", "Round {0} clear  +${1}"), FText::AsNumber(Payout.Round), FText::AsNumber(Payout.GetTotal()));
+}
+
+FText UGSHUDWidget::GetRoundClearPopupLines() const
+{
+	if (!IsRoundClearPopupShowing())
+	{
+		return FText::GetEmpty();
+	}
+	const FGSRoundClearPayout& Payout = ActiveRoundBanner.Payout;
+	const FText NoDamage = Payout.bNoDamage
+		? FText::Format(NSLOCTEXT("GSHUD", "PopupNoDamage", "No damage +${0}"), FText::AsNumber(Payout.NoDamageBonus))
+		: NSLOCTEXT("GSHUD", "PopupNoDamageMissed", "No damage missed");
+	const FText Fast = Payout.bFastClear
+		? FText::Format(NSLOCTEXT("GSHUD", "PopupFast", "Fast clear +${0} ({1} s / {2} s)"), FText::AsNumber(Payout.FastClearBonus),
+			FText::AsNumber(FMath::RoundToInt(Payout.ClearTime)), FText::AsNumber(FMath::RoundToInt(Payout.FastClearTime)))
+		: FText::Format(NSLOCTEXT("GSHUD", "PopupFastMissed", "Fast clear missed ({0} s / {1} s)"),
+			FText::AsNumber(FMath::RoundToInt(Payout.ClearTime)), FText::AsNumber(FMath::RoundToInt(Payout.FastClearTime)));
+	return FText::Format(NSLOCTEXT("GSHUD", "PopupLines", "Round clear +${0}  ·  {1}  ·  {2}"), FText::AsNumber(Payout.BaseBonus), NoDamage, Fast);
+}
+
+UWidget* UGSHUDWidget::GetActiveBannerWidget() const
+{
+	return ActiveRoundBanner.bClearPopup ? RoundClearPopup.Get() : RoundBanner.Get();
 }
 
 void UGSHUDWidget::HandleWaveCountsChanged(int32 Total, int32 Remaining, int32 Alive)
@@ -277,7 +346,7 @@ FText UGSHUDWidget::GetPhaseText() const
 	{
 	case EGSRoundPhase::PreRound:   return NSLOCTEXT("GSHUD", "PhasePreRound", "PRE-ROUND");
 	case EGSRoundPhase::Combat:     return NSLOCTEXT("GSHUD", "PhaseCombat", "COMBAT");
-	case EGSRoundPhase::RoundClear: return NSLOCTEXT("GSHUD", "PhaseRoundClear", "ROUND CLEAR");
+	case EGSRoundPhase::Breather:   return NSLOCTEXT("GSHUD", "PhaseBreather", "BREATHER");
 	case EGSRoundPhase::GameOver:   return NSLOCTEXT("GSHUD", "PhaseGameOver", "GAME OVER");
 	default:                        return FText::GetEmpty();
 	}
@@ -291,8 +360,10 @@ bool UGSHUDWidget::IsCountdownShowing() const
 FText UGSHUDWidget::GetCountdownText() const
 {
 	const AGSGameState* GS = BoundGameState.Get();
+	// Before round 1 the countdown is for round 1; in the breather it is for the round after it.
+	const int32 NextRound = GS ? GS->GetRoundNumber() + (GS->GetRoundPhase() == EGSRoundPhase::Breather ? 1 : 0) : 0;
 	return (GS && IsCountdownShowing())
-		? FText::Format(NSLOCTEXT("GSHUD", "Countdown", "Round {0} in {1}…"), FText::AsNumber(GS->GetRoundNumber()), FText::AsNumber(DisplayedCountdown))
+		? FText::Format(NSLOCTEXT("GSHUD", "Countdown", "Round {0} in {1}…"), FText::AsNumber(NextRound), FText::AsNumber(DisplayedCountdown))
 		: FText::GetEmpty();
 }
 
@@ -304,9 +375,11 @@ bool UGSHUDWidget::IsEnemiesShowing() const
 
 FText UGSHUDWidget::GetEnemiesText() const
 {
+	// The newest round's enemies not yet killed, and every round's living enemies (leftovers of older rounds included).
 	const AGSGameState* GS = BoundGameState.Get();
 	return IsEnemiesShowing()
-		? FText::Format(NSLOCTEXT("GSHUD", "EnemiesLeft", "{0} {0}|plural(one=enemy,other=enemies) left"), GS->GetWaveEnemiesRemaining())
+		? FText::Format(NSLOCTEXT("GSHUD", "EnemiesLeft", "{0} {0}|plural(one=enemy,other=enemies) left · {1} alive"), GS->GetWaveEnemiesRemaining(),
+			GS->GetWaveEnemiesAlive())
 		: FText::GetEmpty();
 }
 
@@ -345,7 +418,8 @@ void UGSHUDWidget::UpdateCountdown()
 	}
 	const AGSGameState* GS = BoundGameState.Get();
 	DisplayedCountdown = -1;
-	if (GS && GS->GetRoundPhase() == EGSRoundPhase::PreRound && GS->GetPhaseEndTime() > 0.0)
+	const bool bCountdownPhase = GS && (GS->GetRoundPhase() == EGSRoundPhase::PreRound || GS->GetRoundPhase() == EGSRoundPhase::Breather);
+	if (bCountdownPhase && GS->GetPhaseEndTime() > 0.0)
 	{
 		const float Remaining = GS->GetPhaseTimeRemaining();
 		DisplayedCountdown = FMath::Max(FMath::CeilToInt(Remaining - KINDA_SMALL_NUMBER), 0);
@@ -532,17 +606,18 @@ void UGSHUDWidget::HandleUpgradeOfferChanged(EGSUpgradeOfferChange Change)
 }
 
 // ---------------------------------------------------------------------------
-// Round banners ("ROUND N", "ROUND CLEAR")
+// Round banners ("ROUND N") and the round-clear pop-up: one queue, one at a time
 // ---------------------------------------------------------------------------
 
-void UGSHUDWidget::QueueRoundBanner(bool bRoundClear, int32 Round)
+void UGSHUDWidget::QueueRoundBanner(int32 Round)
 {
 	if (Round <= 0)
 	{
 		return;
 	}
-	const FRoundBannerRequest Request{ bRoundClear, Round };
-	if ((IsRoundBannerShowing() && ActiveRoundBanner == Request) || RoundBannerQueue.Contains(Request))
+	FRoundBannerRequest Request;
+	Request.Round = Round;
+	if ((IsAnyBannerShowing() && ActiveRoundBanner == Request) || RoundBannerQueue.Contains(Request))
 	{
 		return;
 	}
@@ -558,22 +633,23 @@ bool UGSHUDWidget::CanShowRoundBanner() const
 
 bool UGSHUDWidget::IsRoundBannerValid(const FRoundBannerRequest& Request) const
 {
-	if (Request.bSecondWind)
+	if (Request.bSecondWind || Request.bClearPopup)
 	{
-		return true; // interrupted by another banner: still worth showing
+		return true; // interrupted or waiting: still worth showing
 	}
+	// "ROUND N" only while N is the newest round (dropped once a newer round has started) and play is on.
 	const AGSGameState* GS = BoundGameState.Get();
 	if (!GS || GS->GetRoundNumber() != Request.Round)
 	{
 		return false;
 	}
 	const EGSRoundPhase Phase = GS->GetRoundPhase();
-	return Request.bRoundClear ? Phase == EGSRoundPhase::RoundClear : (Phase == EGSRoundPhase::PreRound || Phase == EGSRoundPhase::Combat);
+	return Phase == EGSRoundPhase::PreRound || Phase == EGSRoundPhase::Combat;
 }
 
 void UGSHUDWidget::TryShowNextRoundBanner()
 {
-	if (IsRoundBannerShowing())
+	if (IsAnyBannerShowing())
 	{
 		return;
 	}
@@ -583,7 +659,7 @@ void UGSHUDWidget::TryShowNextRoundBanner()
 		RoundBannerQueue.RemoveAt(0);
 		if (!IsRoundBannerValid(Next))
 		{
-			continue; // its round or phase is over
+			continue; // its round is over
 		}
 		ShowBanner(Next);
 		return;
@@ -593,22 +669,38 @@ void UGSHUDWidget::TryShowNextRoundBanner()
 void UGSHUDWidget::ShowBanner(const FRoundBannerRequest& Request)
 {
 	ActiveRoundBanner = Request;
-	RoundBannerRemaining = RoundBannerDuration;
-	++RoundBannersShown;
-	if (RoundBannerTitle)
+	ActiveBannerDuration = Request.bClearPopup ? RoundClearPopupDuration : RoundBannerDuration;
+	RoundBannerRemaining = ActiveBannerDuration;
+	if (Request.bClearPopup)
 	{
-		RoundBannerTitle->SetText(GetRoundBannerTitle());
-		RoundBannerTitle->SetColorAndOpacity(FSlateColor(Request.bSecondWind ? SecondWindBannerColor
-			: (Request.bRoundClear ? RoundClearBannerColor : RoundBannerColor)));
+		++RoundClearPopupsShown;
+		if (RoundClearPopupTitle)
+		{
+			RoundClearPopupTitle->SetText(GetRoundClearPopupTitle());
+			RoundClearPopupTitle->SetColorAndOpacity(FSlateColor(RoundClearBannerColor));
+		}
+		if (RoundClearPopupLines)
+		{
+			RoundClearPopupLines->SetText(GetRoundClearPopupLines());
+		}
 	}
-	if (RoundBannerSubtitle)
+	else
 	{
-		RoundBannerSubtitle->SetText(GetRoundBannerSubtitle());
+		++RoundBannersShown;
+		if (RoundBannerTitle)
+		{
+			RoundBannerTitle->SetText(GetRoundBannerTitle());
+			RoundBannerTitle->SetColorAndOpacity(FSlateColor(Request.bSecondWind ? SecondWindBannerColor : RoundBannerColor));
+		}
+		if (RoundBannerSubtitle)
+		{
+			RoundBannerSubtitle->SetText(GetRoundBannerSubtitle());
+		}
 	}
-	if (RoundBanner)
+	if (UWidget* Widget = GetActiveBannerWidget())
 	{
-		RoundBanner->SetRenderOpacity(RoundBannerFadeIn > 0.f ? 0.f : 1.f);
-		RoundBanner->SetVisibility(ESlateVisibility::HitTestInvisible);
+		Widget->SetRenderOpacity(RoundBannerFadeIn > 0.f ? 0.f : 1.f);
+		Widget->SetVisibility(ESlateVisibility::HitTestInvisible);
 	}
 }
 
@@ -622,8 +714,7 @@ FText UGSHUDWidget::GetRoundBannerTitle() const
 	{
 		return NSLOCTEXT("GSHUD", "SecondWindBanner", "SECOND WIND");
 	}
-	return ActiveRoundBanner.bRoundClear ? NSLOCTEXT("GSHUD", "RoundBannerClear", "ROUND CLEAR")
-		: FText::Format(NSLOCTEXT("GSHUD", "RoundBanner", "ROUND {0}"), FText::AsNumber(ActiveRoundBanner.Round));
+	return FText::Format(NSLOCTEXT("GSHUD", "RoundBanner", "ROUND {0}"), FText::AsNumber(ActiveRoundBanner.Round));
 }
 
 FText UGSHUDWidget::GetRoundBannerSubtitle() const
@@ -638,9 +729,7 @@ FText UGSHUDWidget::GetRoundBannerSubtitle() const
 			? FText::Format(NSLOCTEXT("GSHUD", "SecondWindBannerLeft", "{0} left"), FText::AsNumber(ActiveRoundBanner.SecondWindsLeft))
 			: NSLOCTEXT("GSHUD", "SecondWindBannerLast", "THAT WAS YOUR LAST");
 	}
-	return ActiveRoundBanner.bRoundClear
-		? FText::Format(NSLOCTEXT("GSHUD", "RoundBannerClearSub", "Round {0}"), FText::AsNumber(ActiveRoundBanner.Round))
-		: NSLOCTEXT("GSHUD", "RoundBannerSub", "GET READY");
+	return NSLOCTEXT("GSHUD", "RoundBannerSub", "GET READY");
 }
 
 // ---------------------------------------------------------------------------
@@ -707,48 +796,50 @@ void UGSHUDWidget::PaintSecondWindFlash(const FGeometry& Geometry, FSlateWindowE
 
 void UGSHUDWidget::InterruptRoundBanner()
 {
-	if (!IsRoundBannerShowing())
+	if (!IsAnyBannerShowing())
 	{
 		return;
 	}
 	RoundBannerQueue.Insert(ActiveRoundBanner, 0);
 	RoundBannerRemaining = 0.f;
-	if (RoundBanner)
+	if (UWidget* Widget = GetActiveBannerWidget())
 	{
-		RoundBanner->SetVisibility(ESlateVisibility::Collapsed);
+		Widget->SetVisibility(ESlateVisibility::Collapsed);
 	}
 }
 
 void UGSHUDWidget::TickRoundBanner(float DeltaTime)
 {
-	if (!IsRoundBannerShowing())
+	if (!IsAnyBannerShowing())
 	{
 		return;
 	}
 	RoundBannerRemaining = FMath::Max(RoundBannerRemaining - DeltaTime, 0.f);
-	if (RoundBanner)
+	UWidget* Widget = GetActiveBannerWidget();
+	if (Widget)
 	{
-		const float Elapsed = RoundBannerDuration - RoundBannerRemaining;
+		const float Elapsed = ActiveBannerDuration - RoundBannerRemaining;
 		float Alpha = 1.f;
 		float Scale = 1.f;
 		if (RoundBannerFadeIn > 0.f && Elapsed < RoundBannerFadeIn)
 		{
 			const float T = Elapsed / RoundBannerFadeIn;
 			Alpha = T;
-			Scale = FMath::Lerp(RoundBannerPopScale, 1.f, T);
+			// The big banner pops in; the small pop-up only fades.
+			Scale = ActiveRoundBanner.bClearPopup ? 1.f : FMath::Lerp(RoundBannerPopScale, 1.f, T);
 		}
 		else if (RoundBannerFadeOut > 0.f && RoundBannerRemaining < RoundBannerFadeOut)
 		{
 			Alpha = RoundBannerRemaining / RoundBannerFadeOut;
 		}
-		RoundBanner->SetRenderOpacity(Alpha);
-		RoundBanner->SetRenderScale(FVector2D(Scale, Scale));
+		Widget->SetRenderOpacity(Alpha);
+		Widget->SetRenderScale(FVector2D(Scale, Scale));
 	}
 	if (RoundBannerRemaining <= 0.f)
 	{
-		if (RoundBanner)
+		if (Widget)
 		{
-			RoundBanner->SetVisibility(ESlateVisibility::Collapsed);
+			Widget->SetVisibility(ESlateVisibility::Collapsed);
 		}
 		TryShowNextRoundBanner();
 	}

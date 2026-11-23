@@ -10,20 +10,21 @@ class UGSRunStats;
 class UGSLevelRewards;
 
 /**
- * Phase of the round loop run by AGSGameMode:
- * PreRound -> Combat -> RoundClear -> PreRound (next round) ... until the run ends.
+ * Phase of the round loop run by AGSGameMode (Prompt 59: rounds roll over into each other inside Combat):
+ * PreRound (round 1 only) -> Combat (rounds 1, 2, ... roll over) -> Breather (after every 10th round) -> Combat ...
+ * until the run ends (GameOver).
  */
 UENUM(BlueprintType)
 enum class EGSRoundPhase : uint8
 {
 	/** Before the first round starts. */
 	WaitingToStart,
-	/** Short countdown before combat. */
+	/** The countdown before round 1 (the only countdown). */
 	PreRound,
-	/** Enemies fight the party in the town. */
+	/** Rounds run, the next starting while the newest has a few enemies left. */
 	Combat,
-	/** Combat is over: results / breather. */
-	RoundClear,
+	/** After every BreatherEveryRounds rounds, once all are cleared: nothing spawns, then the next round starts. */
+	Breather,
 	GameOver
 };
 
@@ -99,13 +100,15 @@ public:
 
 	// --- Wave (written by UGSWaveDirector on the server) ---
 
+	/** Size of the newest round's wave (rounds overlap since Prompt 59). */
 	UFUNCTION(BlueprintPure, Category = "Wave")
 	int32 GetWaveEnemiesTotal() const { return WaveEnemiesTotal; }
 
-	/** Enemies of this round not yet killed (alive + still to spawn). */
+	/** Enemies of the newest round not yet killed (alive + still to spawn). */
 	UFUNCTION(BlueprintPure, Category = "Wave")
 	int32 GetWaveEnemiesRemaining() const { return WaveEnemiesRemaining; }
 
+	/** Wave enemies alive, every open round together. */
 	UFUNCTION(BlueprintPure, Category = "Wave")
 	int32 GetWaveEnemiesAlive() const { return WaveEnemiesAlive; }
 

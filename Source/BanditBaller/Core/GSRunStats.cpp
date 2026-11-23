@@ -106,30 +106,88 @@ void UGSRunStats::ResetStats(double InRunStartTime)
 	HealthHealedByOrbs = 0.f;
 	HealthOrbsDropped = 0;
 	FMemory::Memzero(DamageDealtBySource);
-	CurrentRound = FGSRoundStats();
+	Rounds.Reset();
 	LastRoundClearPayout = FGSRoundClearPayout();
 	RunStartTime = InRunStartTime;
 	RunEndTime = 0.0;
 	Changed();
 }
 
-void UGSRunStats::RecordRoundCleared()
+const FGSRoundStats* UGSRunStats::FindRound(int32 Round) const
 {
-	if (CanWrite())
+	// The newest record of that number (gs.Round.Set can replay a round).
+	for (int32 Index = Rounds.Num() - 1; Index >= 0; --Index)
 	{
-		++RoundsCleared;
-		Changed();
+		if (Rounds[Index].Round == Round)
+		{
+			return &Rounds[Index];
+		}
 	}
+	return nullptr;
 }
 
-void UGSRunStats::RecordKill(FName EnemyType)
+const FGSRoundStats& UGSRunStats::GetCurrentRound() const
+{
+	static const FGSRoundStats Empty;
+	return Rounds.IsEmpty() ? Empty : Rounds.Last();
+}
+
+int32 UGSRunStats::ResolveRound(int32 Round) const
+{
+	if (Round > 0 && FindRound(Round))
+	{
+		return Round;
+	}
+	return Rounds.IsEmpty() ? 0 : Rounds.Last().Round;
+}
+
+FGSRoundStats* UGSRunStats::FindRoundForStats(int32 Round)
+{
+	const int32 Resolved = ResolveRound(Round);
+	return Resolved > 0 ? const_cast<FGSRoundStats*>(FindRound(Resolved)) : nullptr;
+}
+
+TArray<int32> UGSRunStats::GetOpenRounds() const
+{
+	TArray<int32> Open;
+	for (const FGSRoundStats& Record : Rounds)
+	{
+		if (Record.bOpen)
+		{
+			Open.Add(Record.Round);
+		}
+	}
+	return Open;
+}
+
+void UGSRunStats::RecordRoundCleared(int32 Round)
+{
+	if (!CanWrite())
+	{
+		return;
+	}
+	++RoundsCleared;
+	if (FGSRoundStats* Record = const_cast<FGSRoundStats*>(FindRound(Round)))
+	{
+		Record->bCleared = true;
+		Record->bOpen = false;
+		const AGameStateBase* GameState = Cast<AGameStateBase>(GetOwner());
+		Record->ClearedAt = GameState ? GameState->GetServerWorldTimeSeconds() : 0.0;
+	}
+	Changed();
+}
+
+void UGSRunStats::RecordKill(FName EnemyType, int32 Round)
 {
 	if (!CanWrite())
 	{
 		return;
 	}
 	++TotalKills;
-	++CurrentRound.Kills;
+	if (FGSRoundStats* Record = FindRoundForStats(Round))
+	{
+		++Record->Kills;
+	}
 	FGSEnemyKillCount* Entry = KillsByType.FindByPredicate([EnemyType](const FGSEnemyKillCount& Kill) { return Kill.EnemyType == EnemyType; });
 	if (!Entry)
 	{
@@ -140,12 +198,15 @@ void UGSRunStats::RecordKill(FName EnemyType)
 	Changed();
 }
 
-void UGSRunStats::AddCashEarned(int32 Amount)
+void UGSRunStats::AddCashEarned(int32 Amount, int32 Round)
 {
 	if (CanWrite() && Amount > 0)
 	{
 		CashEarned += Amount;
-		CurrentRound.CashCollected += Amount;
+		if (FGSRoundStats* Record = FindRoundForStats(Round))
+		{
+			Record->CashCollected += Amount;
+		}
 		Changed();
 	}
 }
@@ -159,24 +220,30 @@ void UGSRunStats::AddCashSpent(int32 Amount)
 	}
 }
 
-void UGSRunStats::AddDamageDealt(float Amount, EGSDamageSource Source)
+void UGSRunStats::AddDamageDealt(float Amount, EGSDamageSource Source, int32 Round)
 {
 	if (CanWrite() && Amount > 0.f)
 	{
 		const int32 Index = FMath::Clamp(static_cast<int32>(Source), 0, GSDamageSource::Num - 1);
 		DamageDealt += Amount;
 		DamageDealtBySource[Index] += Amount;
-		CurrentRound.DamageBySource[Index] += Amount;
+		if (FGSRoundStats* Record = FindRoundForStats(Round))
+		{
+			Record->DamageBySource[Index] += Amount;
+		}
 		Changed();
 	}
 }
 
-void UGSRunStats::RecordHealthOrbDropped()
+void UGSRunStats::RecordHealthOrbDropped(int32 Round)
 {
 	if (CanWrite())
 	{
 		++HealthOrbsDropped;
-		++CurrentRound.HealthOrbsDropped;
+		if (FGSRoundStats* Record = FindRoundForStats(Round))
+		{
+			++Record->HealthOrbsDropped;
+		}
 		Changed();
 	}
 }
@@ -186,39 +253,80 @@ void UGSRunStats::AddDamageTaken(float Amount)
 	if (CanWrite() && Amount > 0.f)
 	{
 		DamageTaken += Amount;
-		CurrentRound.DamageTaken += Amount;
+		// Every open round: a hit while two rounds overlap costs both their no-damage bonus.
+		for (FGSRoundStats& Record : Rounds)
+		{
+			if (Record.bOpen)
+			{
+				Record.DamageTaken += Amount;
+			}
+		}
 		Changed();
 	}
 }
 
-void UGSRunStats::AddXPEarned(int32 Amount)
+void UGSRunStats::AddXPEarned(int32 Amount, int32 Round)
 {
 	if (CanWrite() && Amount > 0)
 	{
 		XPEarned = static_cast<int32>(FMath::Min<int64>(static_cast<int64>(XPEarned) + Amount, MAX_int32));
-		CurrentRound.XPEarned = static_cast<int32>(FMath::Min<int64>(static_cast<int64>(CurrentRound.XPEarned) + Amount, MAX_int32));
+		if (FGSRoundStats* Record = FindRoundForStats(Round))
+		{
+			Record->XPEarned = static_cast<int32>(FMath::Min<int64>(static_cast<int64>(Record->XPEarned) + Amount, MAX_int32));
+		}
 		Changed();
 	}
 }
 
 void UGSRunStats::BeginRound(int32 Round)
 {
-	if (CanWrite())
+	if (!CanWrite() || Round <= 0)
 	{
-		CurrentRound = FGSRoundStats();
-		CurrentRound.Round = Round;
-		Changed();
+		return;
 	}
+	if (FGSRoundStats* Existing = const_cast<FGSRoundStats*>(FindRound(Round)); Existing && Existing->bOpen && !Existing->bCleared
+		&& Existing->CombatStartTime < 0.0)
+	{
+		Changed(); // already opened (round 1's PreRound) and not started yet: keep it
+		return;
+	}
+	FGSRoundStats& Record = Rounds.AddDefaulted_GetRef();
+	Record.Round = Round;
+	Record.bOpen = true;
+	Changed();
 }
 
-void UGSRunStats::RecordCombatStarted(double Time, int32 WaveEnemies)
+void UGSRunStats::RecordCombatStarted(int32 Round, double Time, int32 WaveEnemies)
 {
-	if (CanWrite())
+	if (!CanWrite())
 	{
-		CurrentRound.CombatStartTime = Time;
-		CurrentRound.WaveEnemies = WaveEnemies;
-		Changed();
+		return;
 	}
+	FGSRoundStats* Record = const_cast<FGSRoundStats*>(FindRound(Round));
+	if (!Record || !Record->bOpen)
+	{
+		BeginRound(Round);
+		Record = const_cast<FGSRoundStats*>(FindRound(Round));
+	}
+	if (Record)
+	{
+		Record->CombatStartTime = Time;
+		Record->WaveEnemies = WaveEnemies;
+	}
+	Changed();
+}
+
+void UGSRunStats::CloseOpenRounds()
+{
+	if (!CanWrite())
+	{
+		return;
+	}
+	for (FGSRoundStats& Record : Rounds)
+	{
+		Record.bOpen = false;
+	}
+	Changed();
 }
 
 void UGSRunStats::RecordRoundClearPayout(const FGSRoundClearPayout& Payout)
@@ -226,8 +334,13 @@ void UGSRunStats::RecordRoundClearPayout(const FGSRoundClearPayout& Payout)
 	if (CanWrite())
 	{
 		LastRoundClearPayout = Payout;
+		if (FGSRoundStats* Record = const_cast<FGSRoundStats*>(FindRound(Payout.Round)))
+		{
+			Record->Payout = Payout;
+		}
 		CashEarned += Payout.GetTotal();
 		Changed();
+		OnRoundClearPaid.Broadcast(Payout);
 	}
 }
 
@@ -249,14 +362,17 @@ void UGSRunStats::RecordCombo(int32 Count)
 	}
 }
 
-void UGSRunStats::RecordHealthOrbCollected(float Healed)
+void UGSRunStats::RecordHealthOrbCollected(float Healed, int32 Round)
 {
 	if (CanWrite())
 	{
 		++HealthOrbsCollected;
 		HealthHealedByOrbs += FMath::Max(Healed, 0.f);
-		++CurrentRound.HealthOrbsCollected;
-		CurrentRound.HealthHealedByOrbs += FMath::Max(Healed, 0.f);
+		if (FGSRoundStats* Record = FindRoundForStats(Round))
+		{
+			++Record->HealthOrbsCollected;
+			Record->HealthHealedByOrbs += FMath::Max(Healed, 0.f);
+		}
 		Changed();
 	}
 }
@@ -299,7 +415,7 @@ FString UGSRunStats::ToDebugString() const
 	const FString RoundLines = FString::Printf(
 		TEXT("\nThis round:     round %d, %d kills, $%d collected, %d XP, %.0f damage taken\n")
 		TEXT("Last clear bonus: %s"),
-		CurrentRound.Round, CurrentRound.Kills, CurrentRound.CashCollected, CurrentRound.XPEarned, CurrentRound.DamageTaken,
+		GetCurrentRound().Round, GetCurrentRound().Kills, GetCurrentRound().CashCollected, GetCurrentRound().XPEarned, GetCurrentRound().DamageTaken,
 		Payout.Round > 0
 			? *FString::Printf(TEXT("round %d, $%d (base %d, no damage %d, fast clear %d; %.1f s of %.1f s)"), Payout.Round, Payout.GetTotal(),
 				Payout.BaseBonus, Payout.NoDamageBonus, Payout.FastClearBonus, Payout.ClearTime, Payout.FastClearTime)

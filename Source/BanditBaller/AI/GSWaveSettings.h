@@ -59,15 +59,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Budget", meta = (ClampMin = "1"))
 	int32 MaxGeneratedEnemies = 150;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Budget", meta = (ClampMin = "0.1", Units = "s"))
-	float GeneratedSpawnInterval = 1.5f;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Budget", meta = (ClampMin = "1"))
-	int32 GeneratedBatchSize = 3;
+	// The spawn interval and batch size were removed in Prompt 59: every round's enemies arrive one at a time over
+	// DA_RoundSettings RoundSpawnWindow.
 
 	// --- All waves ---
 
-	/** Max enemies alive at once (spawns showing their telegraph count too); extra spawns wait for room. */
+	/** Max enemies alive at once, every open round together (spawns showing their telegraph count too); extra spawns wait. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Limits", meta = (ClampMin = "1"))
 	int32 MaxAliveEnemies = 30;
 

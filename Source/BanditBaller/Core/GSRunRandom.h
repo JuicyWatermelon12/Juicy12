@@ -44,4 +44,12 @@ public:
 
 	/** Random unit vector within a cone of HalfAngleRadians around Direction (spread). */
 	static FVector VRandCone(const UObject* WorldContextObject, const FVector& Direction, float HalfAngleRadians);
+
+	/**
+	 * A stream for one round's wave contents (Prompt 59), seeded from the run seed and the round number. With rounds
+	 * rolling over, a round starts when the player has killed enough, so the run stream is at a different point each
+	 * play; this keeps the same seed giving the same waves however fast the player is. Only for what a round is made of
+	 * (the purchase and its order); spawn points, drops and the AI stay on the run stream.
+	 */
+	static FRandomStream MakeRoundStream(const UObject* WorldContextObject, int32 Round);
 };

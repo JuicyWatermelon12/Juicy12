@@ -6,6 +6,7 @@
 #include "Blueprint/UserWidget.h"
 #include "Engine/TimerHandle.h"
 #include "GSGameState.h"
+#include "GSRunStats.h"
 #include "GSHUDWidget.generated.h"
 
 class AGSPlayerState;
@@ -21,6 +22,8 @@ class UGSSecondWindComponent;
 class UGSUpgradeComponent;
 class UGSUpgradeData;
 class UGSUpgradeIconWidget;
+class UGSRunStats;
+class UWidget;
 class USoundBase;
 struct FOnAttributeChangeData;
 enum class EGSUpgradeOfferChange : uint8;
@@ -40,12 +43,14 @@ enum class EGSUpgradeOfferChange : uint8;
  * - Kill combo (ComboPanel): count + cash multiplier from UGSComboComponent::OnComboChanged, shown from
  *   ComboMinCountToShow kills; the timer bar drains from the combo's remaining window each tick (frozen while paused).
  * - Round info (RoundInfoPanel, AGSGameState::OnPhaseChanged / OnRoundChanged / OnWaveCountsChanged): "ROUND 4", the
- *   phase, the PreRound countdown "Round 4 in 3..." (re-armed once per second by a world timer, so it stops while the
- *   game is paused) and "12 enemies left" in Combat.
+ *   phase, the countdown before round 1 and in the breather ("Round 11 in 10...", re-armed once per second by a world
+ *   timer, so it stops while the game is paused) and "7 enemies left · 12 alive" in Combat (the newest round's enemies
+ *   not yet killed, and every round's living enemies).
  * - Owned upgrades (UpgradeIconsBox): one UpgradeIconWidgetClass per upgrade with its stack count, from
  *   UGSUpgradeComponent::OnUpgradeStacksChanged.
- * - Round banners (RoundBanner): big "ROUND N" (PreRound) and "ROUND CLEAR" (Combat -> RoundClear), queued and shown one
- *   at a time. They wait while the "LEVEL UP!" banner shows or an upgrade offer is open (the choice cards), and a
+ * - Round banners (RoundBanner): big "ROUND N" when a round starts, and the small round-clear pop-up
+ *   (RoundClearPopup: "Round 4 clear  +$50" with its bonus lines, UGSRunStats::OnRoundClearPaid), queued and shown one
+ *   at a time (play goes on). They wait while the "LEVEL UP!" banner shows or an upgrade offer is open (the choice cards), and a
  *   level-up (or an offer opening) puts a showing round banner back at the front of the queue. A queued banner that no
  *   longer fits the round / phase is dropped.
  * - Safe area (AGSGameState::CurrentArea == MarketDistrict: the hub, OnAreaChanged): the combat elements are collapsed
@@ -145,7 +150,19 @@ public:
 	FText GetEnemiesText() const;
 	bool IsCountdownShowing() const;
 	bool IsEnemiesShowing() const;
-	bool IsRoundBannerShowing() const { return RoundBannerRemaining > 0.f; }
+	/** A round or Second Wind banner shows (not the round-clear pop-up). */
+	bool IsRoundBannerShowing() const { return IsAnyBannerShowing() && !ActiveRoundBanner.bClearPopup; }
+	/** Anything in the banner queue shows: a round banner, the Second Wind banner or the round-clear pop-up. */
+	bool IsAnyBannerShowing() const { return RoundBannerRemaining > 0.f; }
+	/** The small round-clear pop-up ("Round 4 clear  +$50" and its bonus lines) shows. */
+	bool IsRoundClearPopupShowing() const { return IsAnyBannerShowing() && ActiveRoundBanner.bClearPopup; }
+	/** Its round (0 when none shows), title and bonus lines. */
+	int32 GetRoundClearPopupRound() const { return IsRoundClearPopupShowing() ? ActiveRoundBanner.Payout.Round : 0; }
+	FText GetRoundClearPopupTitle() const;
+	FText GetRoundClearPopupLines() const;
+	int32 GetRoundClearPopupsShown() const { return RoundClearPopupsShown; }
+	/** Pop-ups waiting in the queue (tests). */
+	int32 GetQueuedRoundClearPopupCount() const;
 	/** "ROUND 4" / "ROUND CLEAR" for the showing round banner (empty when none shows). */
 	FText GetRoundBannerTitle() const;
 	int32 GetQueuedRoundBannerCount() const { return RoundBannerQueue.Num(); }
@@ -157,7 +174,7 @@ public:
 	float GetSecondWindFlashAlpha() const;
 	int32 GetSecondWindSoundsPlayed() const { return SecondWindSoundsPlayed; }
 	int32 GetSecondWindBannersShown() const { return SecondWindBannersShown; }
-	bool IsSecondWindBannerShowing() const { return IsRoundBannerShowing() && ActiveRoundBanner.bSecondWind; }
+	bool IsSecondWindBannerShowing() const { return IsAnyBannerShowing() && ActiveRoundBanner.bSecondWind; }
 	FText GetRoundBannerSubtitle() const;
 	int32 GetUpgradeIconCount() const { return UpgradeIcons.Num(); }
 	/** Weapon slots shown (MaxWeapons) and the weapon in each (nullptr = empty), in pick order. */
@@ -269,9 +286,21 @@ protected:
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> RoundBannerTitle;
 
-	/** "GET READY" / "Round 4" */
+	/** "GET READY" */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> RoundBannerSubtitle;
+
+	/** The small round-clear pop-up (under the round info); collapsed until one shows. Play goes on meanwhile. */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UWidget> RoundClearPopup;
+
+	/** "Round 4 clear  +$50" */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> RoundClearPopupTitle;
+
+	/** "Round clear +$20 · No damage +$15 · Fast clear missed" */
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> RoundClearPopupLines;
 
 	/** Owned upgrade icons are created into this panel (a HorizontalBox). */
 	UPROPERTY(meta = (BindWidgetOptional))
@@ -479,12 +508,17 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|Round", meta = (ClampMin = "1"))
 	float RoundBannerPopScale = 1.3f;
 
-	/** Title color of "ROUND N" and of "ROUND CLEAR". */
+	/** Title color of "ROUND N". */
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|Round")
 	FLinearColor RoundBannerColor = FLinearColor(1.f, 1.f, 1.f);
 
+	/** Title color of the round-clear pop-up. */
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|Round")
 	FLinearColor RoundClearBannerColor = FLinearColor(0.45f, 1.f, 0.35f);
+
+	/** How long the round-clear pop-up stays (including fades); it waits in the banner queue like a banner. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Round", meta = (Units = "s"))
+	float RoundClearPopupDuration = 3.f;
 
 	/** "SECOND WIND" banner color (shown in the round banner's spot, at once, ahead of any round banner). */
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|Second Wind")
@@ -599,14 +633,17 @@ private:
 	// Round banners.
 	struct FRoundBannerRequest
 	{
-		bool bRoundClear = false;
 		int32 Round = 0;
 		/** "SECOND WIND / N left" instead of a round banner (never queued: shown at once). */
 		bool bSecondWind = false;
 		int32 SecondWindsLeft = 0;
+		/** The small round-clear pop-up for Payout.Round (in its own panel, RoundClearPopup), not the big banner. */
+		bool bClearPopup = false;
+		FGSRoundClearPayout Payout;
 		bool operator==(const FRoundBannerRequest& Other) const
 		{
-			return bRoundClear == Other.bRoundClear && Round == Other.Round && bSecondWind == Other.bSecondWind;
+			return Round == Other.Round && bSecondWind == Other.bSecondWind && bClearPopup == Other.bClearPopup
+				&& Payout.Round == Other.Payout.Round;
 		}
 	};
 	/** Show Request in the banner spot now (title, subtitle, color, fade-in). */
@@ -622,7 +659,17 @@ private:
 	float SecondWindFlashRemaining = 0.f;
 	int32 SecondWindSoundsPlayed = 0;
 	int32 SecondWindBannersShown = 0;
-	void QueueRoundBanner(bool bRoundClear, int32 Round);
+	/** "ROUND N" when round N starts (dropped from the queue once a newer round has started). */
+	void QueueRoundBanner(int32 Round);
+	/** The round-clear pop-up (UGSRunStats::OnRoundClearPaid). */
+	void HandleRoundClearPaid(const FGSRoundClearPayout& Payout);
+	TWeakObjectPtr<UGSRunStats> BoundRunStats;
+	FDelegateHandle RoundClearPaidHandle;
+	int32 RoundClearPopupsShown = 0;
+	/** Length of what the banner spot shows now (a banner or the pop-up). */
+	float ActiveBannerDuration = 0.f;
+	/** The widget showing it (RoundBanner or RoundClearPopup). */
+	UWidget* GetActiveBannerWidget() const;
 	bool CanShowRoundBanner() const;
 	bool IsRoundBannerValid(const FRoundBannerRequest& Request) const;
 	void TryShowNextRoundBanner();

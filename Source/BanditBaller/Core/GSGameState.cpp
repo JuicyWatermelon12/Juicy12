@@ -2,6 +2,7 @@
 
 #include "GSGameState.h"
 #include "Engine/Engine.h"
+#include "GSGameMode.h"
 #include "GSRunStats.h"
 #include "HAL/IConsoleManager.h"
 #include "Net/UnrealNetwork.h"
@@ -108,8 +109,10 @@ FString AGSGameState::GetRoundDebugString() const
 {
 	const FString Phase = StaticEnum<EGSRoundPhase>()->GetNameStringByValue(static_cast<int64>(RoundPhase));
 	const FString Time = PhaseEndTime > 0.0 ? FString::Printf(TEXT("%.1f s"), GetPhaseTimeRemaining()) : TEXT("--");
-	return FString::Printf(TEXT("Round %d | %s | %s | Enemies alive %d, remaining %d/%d | Enemy HP x%.2f DMG x%.2f"), RoundNumber, *Phase, *Time,
-		WaveEnemiesAlive, WaveEnemiesRemaining, WaveEnemiesTotal, EnemyHealthMultiplier, EnemyDamageMultiplier);
+	const AGSGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AGSGameMode>() : nullptr;
+	const FString Loop = GameMode ? FString(TEXT(" | ")) + GameMode->DescribeRoundLoop() : FString();
+	return FString::Printf(TEXT("Round %d | %s | %s | Enemies alive %d, newest round remaining %d/%d | Enemy HP x%.2f DMG x%.2f%s"), RoundNumber, *Phase, *Time,
+		WaveEnemiesAlive, WaveEnemiesRemaining, WaveEnemiesTotal, EnemyHealthMultiplier, EnemyDamageMultiplier, *Loop);
 }
 
 void AGSGameState::Tick(float DeltaSeconds)
