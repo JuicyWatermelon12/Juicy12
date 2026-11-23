@@ -33,9 +33,8 @@ namespace
 	const FName TelegraphParamName(TEXT("TelegraphAmount"));
 	const FName MuzzleSocketName(TEXT("Muzzle"));
 
-	/** Laser beam thickness (cm) and how long a shot tracer flashes. */
+	/** Aim laser beam thickness (cm). */
 	constexpr float LaserThickness = 4.f;
-	constexpr float TracerFlashTime = 0.06f;
 }
 
 AGSEnemyCharacter::AGSEnemyCharacter()
@@ -254,16 +253,7 @@ void AGSEnemyCharacter::MulticastShotFired_Implementation(FVector_NetQuantize St
 	{
 		DrawDebugLine(World, Start, End, bHit ? FColor::Red : FColor::Orange, false, GSWeaponDebug::DrawDuration, 0, 1.f);
 	}
-
-	// Placeholder tracer: flash the laser beam along the shot.
-	if (EnemyData && EnemyData->AimLaserMaterial)
-	{
-		TracerStart = Start;
-		TracerEnd = End;
-		TracerHideTime = World->GetTimeSeconds() + TracerFlashTime;
-		SetActorTickEnabled(true);
-		UpdateAimLaser();
-	}
+	// No instant tracer: the shot is a projectile (Prompt 58), which is what the player sees and dodges.
 }
 
 void AGSEnemyCharacter::Tick(float DeltaSeconds)
@@ -276,36 +266,24 @@ void AGSEnemyCharacter::UpdateAimLaser()
 {
 	UWorld* World = GetWorld();
 	const bool bHasLaser = EnemyData && EnemyData->AimLaserMaterial && World;
-	const bool bTracer = bHasLaser && World->GetTimeSeconds() < TracerHideTime;
 	const bool bAiming = bHasLaser && bTelegraphing;
 
-	if (!bAiming && !bTracer)
+	if (!bAiming)
 	{
 		AimLaserComponent->SetHiddenInGame(true);
 		SetActorTickEnabled(false);
 		return;
 	}
 
-	FVector Start;
-	FVector End;
-	if (bTracer)
+	// Aim laser: straight out of the muzzle along the facing (the server keeps the enemy facing its target).
+	const FVector Start = GetMuzzleLocation();
+	const float Range = (EnemyData->Weapon ? EnemyData->Weapon->Range : 5000.f);
+	FVector End = Start + GetActorForwardVector() * Range;
+	FHitResult Hit;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(GSEnemyAimLaser), false, this);
+	if (World->LineTraceSingleByObjectType(Hit, Start, End, GetShotObjectQueryParams(), Params))
 	{
-		Start = TracerStart;
-		End = TracerEnd;
-	}
-	else
-	{
-		// Aim laser: straight out of the muzzle along the facing (the server keeps the enemy facing its target).
-		Start = GetMuzzleLocation();
-		const float Range = (EnemyData->Weapon ? EnemyData->Weapon->Range : 5000.f);
-		End = Start + GetActorForwardVector() * Range;
-
-		FHitResult Hit;
-		FCollisionQueryParams Params(SCENE_QUERY_STAT(GSEnemyAimLaser), false, this);
-		if (World->LineTraceSingleByObjectType(Hit, Start, End, GetShotObjectQueryParams(), Params))
-		{
-			End = Hit.ImpactPoint;
-		}
+		End = Hit.ImpactPoint;
 	}
 
 	const FVector Segment = End - Start;

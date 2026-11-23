@@ -48,6 +48,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Budget")
 	FRuntimeFloatCurve BudgetCurve;
 
+	/**
+	 * At most this share of a generated wave is ranged (UGSEnemyData::bRanged, all ranged types together), by count.
+	 * Budget the wave can't spend on ranged enemies goes to the other types. DT_Waves rows are not capped.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Budget", meta = (ClampMin = "0", ClampMax = "1"))
+	float MaxRangedShare = 0.4f;
+
 	/** Safety cap on how many enemies one generated wave may contain. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Budget", meta = (ClampMin = "1"))
 	int32 MaxGeneratedEnemies = 150;

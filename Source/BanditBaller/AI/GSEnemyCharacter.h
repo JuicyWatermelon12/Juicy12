@@ -57,7 +57,7 @@ public:
 	/** World-space muzzle of the ranged weapon (falls back to chest height in front of the enemy). */
 	FVector GetMuzzleLocation() const;
 
-	/** Server -> all: cosmetic shot (muzzle/impact effects, sound, debug line). */
+	/** Server -> all: cosmetic shot (muzzle effect, sound, debug line; the impact belongs to the projectile). */
 	UFUNCTION(NetMulticast, Unreliable)
 	void MulticastShotFired(FVector_NetQuantize Start, FVector_NetQuantize End, bool bHit);
 
@@ -131,9 +131,4 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UStaticMeshComponent>> MeshAttachmentComponents;
-
-	/** Last shot's tracer segment, shown on the laser mesh until TracerHideTime. */
-	FVector TracerStart = FVector::ZeroVector;
-	FVector TracerEnd = FVector::ZeroVector;
-	double TracerHideTime = 0.0;
 };

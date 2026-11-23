@@ -109,9 +109,20 @@ int32 UGSWaveDirector::GetLastTableRound() const
 	return Last;
 }
 
-void UGSWaveDirector::PurchaseWave(const UObject* WorldContextObject, const TArray<TObjectPtr<UGSEnemyData>>& Pool, float Budget, int32 Round,
-	int32 MaxCount, TArray<UGSEnemyData*>& OutEnemies, float* OutBudgetLeft)
+float UGSWaveDirector::GetRangedShare(const TArray<UGSEnemyData*>& Enemies)
 {
+	int32 Ranged = 0;
+	for (const UGSEnemyData* Data : Enemies)
+	{
+		Ranged += (Data && Data->bRanged) ? 1 : 0;
+	}
+	return Enemies.IsEmpty() ? 0.f : static_cast<float>(Ranged) / Enemies.Num();
+}
+
+void UGSWaveDirector::PurchaseWave(const UObject* WorldContextObject, const TArray<TObjectPtr<UGSEnemyData>>& Pool, float Budget, int32 Round,
+	int32 MaxCount, TArray<UGSEnemyData*>& OutEnemies, float* OutBudgetLeft, float MaxRangedShare)
+{
+	int32 RangedBought = 0;
 	OutEnemies.Reset();
 	TArray<UGSEnemyData*> Unlocked;
 	for (UGSEnemyData* Data : Pool)
@@ -126,10 +137,14 @@ void UGSWaveDirector::PurchaseWave(const UObject* WorldContextObject, const TArr
 	TArray<UGSEnemyData*> Affordable;
 	while (OutEnemies.Num() < MaxCount)
 	{
+		// Ranged cap: one more ranged enemy must keep the wave at or under the share (the small margin keeps float noise
+		// such as 0.4 x 5 = 2.0000001 from refusing an exact fit).
+		const bool bRangedAllowed = MaxRangedShare >= 1.f
+			|| static_cast<float>(RangedBought + 1) <= MaxRangedShare * static_cast<float>(OutEnemies.Num() + 1) + KINDA_SMALL_NUMBER;
 		Affordable.Reset();
 		for (UGSEnemyData* Data : Unlocked)
 		{
-			if (Data->SpawnCost <= Left + KINDA_SMALL_NUMBER)
+			if (Data->SpawnCost <= Left + KINDA_SMALL_NUMBER && (bRangedAllowed || !Data->bRanged))
 			{
 				Affordable.Add(Data);
 			}
@@ -140,6 +155,7 @@ void UGSWaveDirector::PurchaseWave(const UObject* WorldContextObject, const TArr
 		}
 		UGSEnemyData* Pick = Affordable[UGSRunRandom::RandRange(WorldContextObject, 0, Affordable.Num() - 1)];
 		OutEnemies.Add(Pick);
+		RangedBought += Pick->bRanged ? 1 : 0;
 		Left -= Pick->SpawnCost;
 	}
 
@@ -186,10 +202,11 @@ void UGSWaveDirector::StartWave(int32 Round)
 		const float Budget = Settings.GetBudget(Round);
 		float Left = 0.f;
 		TArray<UGSEnemyData*> Bought;
-		PurchaseWave(this, Settings.EnemyPool, Budget, Round, Settings.MaxGeneratedEnemies, Bought, &Left);
+		PurchaseWave(this, Settings.EnemyPool, Budget, Round, Settings.MaxGeneratedEnemies, Bought, &Left, Settings.MaxRangedShare);
 		SpawnQueue.Append(Bought);
 		BatchSize = FMath::Max(1, Settings.GeneratedBatchSize);
-		Source = FString::Printf(TEXT("generated, budget %.1f, %.1f left"), Budget, Left);
+		Source = FString::Printf(TEXT("generated, budget %.1f, %.1f left, %.0f%% ranged (cap %.0f%%)"), Budget, Left,
+			GetRangedShare(Bought) * 100.f, Settings.MaxRangedShare * 100.f);
 	}
 
 	// Shuffle with the run stream (Fisher-Yates) so the order is seeded too.

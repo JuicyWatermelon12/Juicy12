@@ -128,9 +128,14 @@ public:
 	/**
 	 * Buy enemies for a generated wave: repeatedly pick (run stream) a random pool enemy that is unlocked
 	 * (MinRound <= Round) and affordable, until nothing fits the budget or MaxCount is reached.
+	 * Ranged cap: a ranged enemy (bRanged) can only be picked while (ranged + 1) <= MaxRangedShare x (count + 1), so the
+	 * wave never ends above that share; otherwise the pick is among the other affordable types. 1 = no cap.
 	 */
 	static void PurchaseWave(const UObject* WorldContextObject, const TArray<TObjectPtr<UGSEnemyData>>& Pool, float Budget, int32 Round,
-		int32 MaxCount, TArray<UGSEnemyData*>& OutEnemies, float* OutBudgetLeft = nullptr);
+		int32 MaxCount, TArray<UGSEnemyData*>& OutEnemies, float* OutBudgetLeft = nullptr, float MaxRangedShare = 1.f);
+
+	/** Share of Enemies that is ranged (0..1; 0 for an empty list). */
+	static float GetRangedShare(const TArray<UGSEnemyData*>& Enemies);
 
 	/** Fires when every enemy of the active wave has spawned and died. */
 	FGSOnWaveCleared OnWaveCleared;

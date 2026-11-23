@@ -121,9 +121,23 @@ public:
 
 	// --- Ranged attack (GA_EnemyFire) + ranged AI ---
 
-	/** Gun (same data type as player weapons): Damage, FireRateRPM (within a burst), HipSpread, Range, mesh, effects. */
+	/**
+	 * A ranged type: counts toward a generated wave's ranged share (DA_WaveSettings MaxRangedShare). Set it on every
+	 * type that attacks from range (the Patrol Officer; later the Grenadier, Sniper and Drone).
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged")
+	bool bRanged = false;
+
+	/**
+	 * Gun (same data type as player weapons): Damage, FireRateRPM (within a burst), HipSpread, Range, mesh, effects, and
+	 * the projectile each shot fires (ProjectileSpeed, look).
+	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged")
 	TObjectPtr<UGSWeaponData> Weapon;
+
+	/** Shots aim this far above the target's capsule centre (its chest), where it is when the shot is fired. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged", meta = (Units = "cm"))
+	float AimHeightOffset = 35.f;
 
 	/** Closest distance the enemy likes to fight from. Reposition points are picked between Min and Max. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ranged", meta = (ClampMin = "0", Units = "cm"))

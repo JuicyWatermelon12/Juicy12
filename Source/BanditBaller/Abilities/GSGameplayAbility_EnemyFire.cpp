@@ -10,6 +10,8 @@
 #include "GSEnemyCharacter.h"
 #include "GSEnemyData.h"
 #include "GSGameplayTags.h"
+#include "GSProjectile.h"
+#include "GSProjectileSubsystem.h"
 #include "GSRunRandom.h"
 #include "GSWeaponData.h"
 #include "GSWeaponDebug.h"
@@ -112,43 +114,53 @@ void UGSGameplayAbility_EnemyFire::FireShot(AGSEnemyCharacter& Enemy)
 		return;
 	}
 
-	// Track the target between shots, then fire into a cone around it.
+	// Track the target between shots, then fire into a cone around where its chest is now (no lead: a player who keeps
+	// moving is where the shot was aimed no longer).
 	const AActor* Target = FaceTarget(Enemy);
 	const FVector Muzzle = Enemy.GetMuzzleLocation();
-	const FVector AimPoint = Target ? Target->GetActorLocation() : Muzzle + Enemy.GetActorForwardVector() * Weapon->Range;
+	const FVector AimPoint = Target ? Target->GetActorLocation() + FVector(0.f, 0.f, Data->AimHeightOffset)
+		: Muzzle + Enemy.GetActorForwardVector() * Weapon->Range;
 	const FVector AimDirection = (AimPoint - Muzzle).GetSafeNormal();
 	const FVector ShotDirection = UGSRunRandom::VRandCone(&Enemy, AimDirection, FMath::DegreesToRadians(Weapon->HipSpread));
-	const FVector TraceEnd = Muzzle + ShotDirection * Weapon->Range;
 
-	// Object query, not the Visibility channel: player capsules/meshes ignore Visibility.
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(GSEnemyFire), false, &Enemy);
-	FHitResult Hit;
-	const bool bHit = World->LineTraceSingleByObjectType(Hit, Muzzle, TraceEnd, AGSEnemyCharacter::GetShotObjectQueryParams(), Params);
+	// A visible, dodgeable projectile per shot (never a hit-scan). It hits the player or world geometry and nothing
+	// else; the damage path (dash, shield, Health, Second Wind) decides what the hit does.
+	// TODO(co-op): enemy shots are local (AGSProjectile isn't replicated); clients need to see them in M6.
+	const float Speed = FMath::Max(Weapon->ProjectileSpeed, 100.f);
+	FGSProjectileLaunch Launch;
+	Launch.Start = Muzzle;
+	Launch.Direction = ShotDirection;
+	Launch.Speed = Speed;
+	Launch.Lifetime = Weapon->Range / Speed;
+	Launch.Radius = Weapon->ProjectileRadius;
+	Launch.Damage = Weapon->Damage * SourceASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute());
+	Launch.SourceASC = SourceASC;
+	Launch.DamageEffect = DamageEffectClass;
+	Launch.bEnemyShot = true;
+	Launch.Mesh = Weapon->ProjectileMesh;
+	Launch.Material = Weapon->ProjectileMaterial;
+	Launch.Scale = Weapon->ProjectileScale;
+	Launch.ImpactEffect = Weapon->ProjectileImpactEffect;
+	Launch.ImpactEffectScale = Weapon->ProjectileImpactEffectScale;
+	Launch.ImpactSound = Weapon->ProjectileImpactSound;
+
+	UGSProjectileSubsystem* Projectiles = World->GetSubsystem<UGSProjectileSubsystem>();
+	const AGSProjectile* Shot = Projectiles ? Projectiles->FireProjectile(Launch) : nullptr;
+	++ShotsFired;
 
 	if (GSWeaponDebug::IsEnabled())
 	{
-		UE_LOG(LogBanditBaller, Log, TEXT("[shot] %s -> %s at t=%.2fs"), *Enemy.GetActorNameOrLabel(),
-			bHit ? *GetNameSafe(Hit.GetActor()) : TEXT("miss"), World->GetTimeSeconds());
+		UE_LOG(LogBanditBaller, Log, TEXT("[shot] %s fired at %s (%.0f m away, %.2f s to get there at %.0f cm/s) at t=%.2fs"), *Enemy.GetActorNameOrLabel(),
+			*GetNameSafe(Target), Target ? FVector::Dist(Muzzle, AimPoint) / 100.f : 0.f, Target ? FVector::Dist(Muzzle, AimPoint) / Speed : 0.f, Speed,
+			World->GetTimeSeconds());
 	}
-
-	// Players only (enemies in the way soak the shot without friendly fire).
-	APawn* HitPawn = bHit ? Cast<APawn>(Hit.GetActor()) : nullptr;
-	if (HitPawn && HitPawn->IsPlayerControlled() && DamageEffectClass)
+	if (!Shot)
 	{
-		if (UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(HitPawn))
-		{
-			const float Damage = Weapon->Damage * SourceASC->GetNumericAttribute(UGSAttributeSet::GetDamageAttribute());
-			FGameplayEffectSpecHandle Spec = MakeOutgoingGameplayEffectSpec(DamageEffectClass, GetAbilityLevel());
-			if (Spec.IsValid())
-			{
-				Spec.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Damage, Damage);
-				Spec.Data->GetContext().AddHitResult(Hit);
-				SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data, TargetASC);
-			}
-		}
+		UE_LOG(LogBanditBaller, Warning, TEXT("[shot] %s: no projectile could be fired."), *Enemy.GetActorNameOrLabel());
 	}
 
-	Enemy.MulticastShotFired(Muzzle, bHit ? FVector(Hit.ImpactPoint) : TraceEnd, bHit);
+	// Muzzle flash and sound only; the projectile shows the shot and plays the impact.
+	Enemy.MulticastShotFired(Muzzle, Muzzle + ShotDirection * Weapon->Range, false);
 }
 
 void UGSGameplayAbility_EnemyFire::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,

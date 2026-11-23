@@ -11,6 +11,7 @@ class UAbilitySystemComponent;
 class UGameplayEffect;
 class UMaterialInterface;
 class UNiagaraSystem;
+class USoundBase;
 class UStaticMesh;
 class UStaticMeshComponent;
 
@@ -56,6 +57,15 @@ struct FGSProjectileLaunch
 	/** Cosmetic spin around the projectile's own up axis (degrees a second; a thrown card). */
 	float SpinRate = 0.f;
 
+	/**
+	 * An enemy's shot (GA_EnemyFire): it hits only living players (and world geometry, which stops it), passes through
+	 * every other pawn and target (enemies, target dummies), and never rolls a critical hit. SourceASC is the enemy's.
+	 */
+	bool bEnemyShot = false;
+
+	/** Played where it hits the player or the world (optional). */
+	TObjectPtr<USoundBase> ImpactSound;
+
 	/** Living targets it passes through without hitting (the Lucky Coin: enemies a flip already hit). Optional. */
 	TArray<TWeakObjectPtr<AActor>> IgnoredTargets;
 
@@ -96,6 +106,8 @@ public:
 	void Deactivate();
 
 	bool IsActiveProjectile() const { return bActive; }
+	/** An enemy's shot in flight (FGSProjectileLaunch::bEnemyShot). */
+	bool IsEnemyShot() const { return bActive && Params.bEnemyShot; }
 	FVector GetVelocity() const { return Velocity; }
 	UStaticMeshComponent* GetMesh() const { return Mesh; }
 
@@ -114,6 +126,8 @@ protected:
 private:
 	/** A hit worth stopping on: a living, non-player target with an ability system, or world geometry. */
 	bool HandleHit(const FHitResult& Hit);
+	/** bEnemyShot: a living player takes the damage, world geometry stops it, every other pawn / target is passed. */
+	bool HandleEnemyShotHit(const FHitResult& Hit, AActor* Actor, const FVector& Where);
 	void Finish(EGSProjectileEnd Reason, const FVector& Where);
 	/** Turn the velocity toward the homing target (or drop the target if it is dead / gone). */
 	void UpdateHoming(float DeltaSeconds);

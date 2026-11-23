@@ -66,10 +66,11 @@ Dynamite and the Molotov lead a moving target since 52b. **The weapons checkpoin
 under Prompt 53. **The weapons block is complete.**
 **M2d** (cops, city and round flow) is planned (Prompt 54, docs only), Blender is connected through MCP (55), and the
 Blender placeholder pipeline, the low-poly body and the robber are built (56), and the enemies are the Beat Cop and the
-Patrol Officer with cop models (57); **next is Prompt 58** (dodgeable enemy shots and the ranged cap). After M2d's
+Patrol Officer with cop models (57); enemy shots are dodgeable bolts and generated waves are at most 40% ranged (58);
+**next is Prompt 59** (roll-over rounds and the breather). After M2d's
 checkpoint (69): **M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Rename enemies: Beat Cop and Patrol Officer" (Prompt 57), not pushed. The build is clean and all 65 automation tests pass in about 162 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Dodgeable enemy shots and ranged cap" (Prompt 58), not pushed. The build is clean and all 67 automation tests pass in about 180 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -143,7 +144,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2d 54 | Design update: cops and robbers, the city map, the low-poly look, Blender placeholders, enemy names, dodgeable shots, the 40% ranged cap, eight enemy types by round, 100 alive, roll-over rounds and the breather; Prompts 55–69 planned (docs only) | 23a6880 |
 | M2d 55 | Blender MCP setup: uv 0.13.9, mcp-for-blender 2.3.1 and its Blender 5.3 add-on, the `blender` server in `.mcp.json` (safe mode, no telemetry), CLAUDE.md **Blender** section (tooling only) | fd5d46d, e0c39e6 |
 | M2d 56 | Blender placeholder pipeline (FBX; `M_LowPoly`; CLAUDE.md **Placeholder models**), baton / cap / carbine, `SK_LowPolyBody` (1,524 triangles) on `SK_Mannequin`, the robber on the player (ski mask and loot bag as worn props, `FGSMeshAttachment`), `Art.PlayerMesh`, MCP tools `export_asset_fbx` / `import_mesh_file` / `describe_ref_pose` / `console_command` | 927ee52 |
-| M2d 57 | Rename the enemies: MeleeBandit → Beat Cop (`BeatCop`), RangedBandit → Patrol Officer (`PatrolOfficer`), BanditCarbine → `PatrolCarbine` (assets, code, commands, tests); cop models on `SK_LowPolyBody` (`SlotMaterials`, `MeshAttachments` on `UGSEnemyData`; police cap placed on the head, baton, carbine); `TelegraphAmount` in `M_LowPoly`; `Enemies.CopLooks` | see git log |
+| M2d 57 | Rename the enemies: MeleeBandit → Beat Cop (`BeatCop`), RangedBandit → Patrol Officer (`PatrolOfficer`), BanditCarbine → `PatrolCarbine` (assets, code, commands, tests); cop models on `SK_LowPolyBody` (`SlotMaterials`, `MeshAttachments` on `UGSEnemyData`; police cap placed on the head, baton, carbine); `TelegraphAmount` in `M_LowPoly`; `Enemies.CopLooks` | 8ece272 |
+| M2d 58 | Dodgeable enemy shots: `GA_EnemyFire` fires a pooled `AGSProjectile` bolt per shot (`bEnemyShot`: hits the player or world only, passes other enemies), 2,800 cm/s at the chest with no lead, `SM_EnemyBolt` (Blender) with `MI_EnemyBolt_*`, no tracer; ranged cap `MaxRangedShare` 0.4 (`UGSEnemyData::bRanged`); `Enemies.DodgeableShots`, `Round.RangedCap` | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -3787,6 +3789,102 @@ health, speed, damage, attacks, AI, cash, XP and wave contents are as before.
   - `M_Enemy_BeatCop` stays as the cash materials' parent; `M_Enemy_PatrolOfficer` stays, unused.
 - **Full suite:** 65 tests, all passing, in 161.6 s.
 
+### Prompt 58 — Dodgeable enemy shots and the ranged cap
+The Patrol Officer's shots are visible bolts the player can step out of, and a generated wave is at most 40% ranged.
+- **Enemy shots are projectiles** (`GA_EnemyFire::FireShot`): no instant trace any more, for any enemy.
+  - Each shot aims at the target's chest (`UGSEnemyData::AimHeightOffset` 35 cm above its capsule centre) where it is
+    when *that* shot is fired, with no lead, plus the weapon's spread (`UGSRunRandom::VRandCone`, run stream, as before).
+  - It launches a pooled `AGSProjectile` (the Floating Gun's and Razor Cards' pool) from the muzzle, flying straight at
+    `UGSWeaponData::ProjectileSpeed` (2,800 cm/s on `DA_PatrolCarbine`) for up to the weapon's `Range` (60 m, so
+    2.14 s).
+  - Unchanged: 7 damage per shot × the enemy's Damage, the 0.4 s aim warning with the laser and the body glow, the
+    4-shot burst at 360 RPM, the burst recovery and the AI's ranges.
+  - `MulticastShotFired` (existing replication) now plays only the muzzle effect and the fire sound; the 0.06 s
+    laser "tracer" flash along the shot is removed (it showed an instant hit).
+  - `TODO(co-op)`: enemy shots are local (the projectile isn't replicated).
+- **`FGSProjectileLaunch::bEnemyShot`** (new, `AGSProjectile::HandleEnemyShotHit`):
+  - It hits a living player (an ASC) or world geometry (cover, walls, floors), which stops it.
+  - It passes through every other pawn and anything else with an ASC (other enemies, target dummies), pickups (no
+    collision), the map boundary (its own object type isn't swept) and dead players.
+  - The damage is `GE_Damage` from the enemy's ASC with `Data.Damage` and the hit result, and **no critical roll**. So
+    the existing damage path decides the hit in its usual order: dash invulnerability (GE_Damage blocked), a Floating
+    Shield (each shot is its own hit and uses its own shield), Health, then Second Wind.
+  - `ImpactSound` (new, optional) plays with the impact effect; `IsEnemyShot()` for tests.
+  - A new run already releases every projectile (`UGSProjectileSubsystem::ReleaseAll` in `StartRun`), and projectiles
+    tick with the world, so they stop while the game is paused.
+- **`UGSWeaponData` "Projectile" section** (enemy weapons): `ProjectileSpeed`, `ProjectileRadius` (10 cm),
+  `ProjectileMesh`, `ProjectileMaterial` (slot 0), `ProjectileScale`, `ProjectileImpactEffect` and its scale,
+  `ProjectileImpactSound`.
+- **The bolt** (Blender, `Art/Blender/Props.blend` → `Art/Export/Props/SM_EnemyBolt.fbx` →
+  `/Game/Art/Placeholders/Weapons/SM_EnemyBolt`): a faceted six-sided head (16 cm in front of the origin) with a
+  tapered tail 62 cm behind it as its short trail, 78 cm long and 11 cm wide, 24 triangles, two slots:
+  - `BoltCore`: `MI_EnemyBolt_Core`, hot magenta (1, 0.06, 0.4) with emissive strength 30;
+  - `BoltTrail`: `MI_EnemyBolt_Trail`, (0.9, 0.03, 0.28) with emissive strength 10.
+
+  None of the player's weapons uses magenta: the gun bullets and Lucky Coin are gold, the cards white, the tomahawk
+  grey, the dynamite red, the fire orange, the orbs blue and green. In PIE the bolts read clearly against the floor and
+  sky. Impact: the Niagara `DirectionalBurstLightweight` template at ×0.15 (a small flash; `RadialBurst` was tried at
+  ×0.2 and ×0.06 and stayed a big spark fountain on the player). Sounds (reused, editor content): `VR_click2_Cue` on
+  firing (the carbine had none) and `VR_click1_Cue` on impact.
+- **The ranged cap:**
+  - `UGSEnemyData::bRanged` (true on `DA_Enemy_PatrolOfficer`; every later ranged type sets it) and
+    `UGSWaveSettings::MaxRangedShare` 0.4 (class default; `DA_WaveSettings` uses it).
+  - `UGSWaveDirector::PurchaseWave(…, MaxRangedShare)`: a ranged pick is allowed only while (ranged + 1) ≤ share ×
+    (count + 1); otherwise the pick is among the other affordable types, so the budget the wave can't spend on ranged
+    enemies goes to them and the wave never ends above the share. `MaxRangedShare` 1 = the old purchase exactly.
+    `GetRangedShare` (new). The `[wave]` start line of a generated wave adds "N% ranged (cap 40%)".
+  - DT_Waves rows are not capped. Their ranged share: Round 1 0% (4 Beat Cops), Round 2 17% (5 + 1), Round 3 25%
+    (6 + 2), Round 4 30% (7 + 3), Round 5 31% (9 + 4).
+- **Generated waves, rounds 6–15, before and after the cap** (the same purchase with seed 5801, no cap vs 40%):
+
+  | Round (budget) | Before | After |
+  |---|---|---|
+  | 6 (20) | 8 Beat Cops, 6 Patrol Officers (43%) | 10, 5 (33%) |
+  | 7 (22.5) | 8, 7 (47%) | 10, 6 (38%) |
+  | 8 (25) | 9, 8 (47%) | 11, 7 (39%) |
+  | 9 (27.5) | 9, 9 (50%) | 13, 7 (35%) |
+  | 10 (30) | 10, 10 (50%) | 14, 8 (36%) |
+  | 11 (32.5) | 10, 11 (52%) | 14, 9 (39%) |
+  | 12 (35) | 11, 12 (52%) | 15, 10 (40%) |
+  | 13 (37.5) | 13, 12 (48%) | 17, 10 (37%) |
+  | 14 (40) | 12, 14 (54%) | 20, 10 (33%) |
+  | 15 (42.5) | 14, 14 (50%) | 20, 11 (35%) |
+
+  A Beat Cop costs 1 and a Patrol Officer 2, so the same budget now buys **more enemies** (round 10: 22 instead of 20;
+  round 14: 30 instead of 26). Over rounds 6–30 and 10 seeds the highest share was 40%.
+- **Flight time** (measured in `Enemies.DodgeableShots`, game time, muzzle to the player's capsule):
+
+  | Distance | Shot arrives after | A walking player (900 cm/s) moves |
+  |---|---|---|
+  | 15 m | 0.51 s | 4.6 m |
+  | 20 m | 0.69 s | 6.2 m |
+  | 25 m | 0.87 s | 7.8 m |
+
+- **Frame time with 12 Patrol Officers firing** (PIE, town, god mode, round paused, `gs.Spawn PatrolOfficer 12`, all
+  15–21 m out and bursting, `gs.Perf 5` twice, 120 fps cap): frame 8.34 ms (120 fps) both times, p95 8.33, max 9.30 /
+  11.08; game 4.48 / 4.18, render 3.49 / 3.35, GPU 2.95 / 3.00. The bolts cost nothing visible at this count.
+- **Tests:**
+  - New `Enemies.DodgeableShots` and `Round.RangedCap` (see the test table).
+  - **No test that assumed instant shots needed a change.** `Upgrades.FloatingShield` (a Patrol Officer's burst blocked)
+    already waits for the block and then 2 s for the rest of the burst; `Map.Boundary`'s "enemy shots pass through"
+    trace still checks `GetShotObjectQueryParams`, which the aim laser uses, and the bolt sweeps the same object types.
+  - **Changed: `Run.GameOver`.** Not because of the shots: the run's seed is random, and in one full-suite run the
+    level-up card the test always picked (choice 0) was a Floating Shield, which blocked the test's killing blow (the
+    same flake `Run.NewRunResets` had in Prompt 42). It now picks a card that can't stop a killing blow (not Floating
+    Shield or Second Wind), as `Run.NewRunResets` does. Everything it checks is unchanged.
+  - `Upgrades.LoadedDice` missed its first rifle shot once right after an editor start (the known flake from Prompt
+    44); it passed alone and in the next full run.
+- **PIE check** (town, god mode, round paused): 12 Patrol Officers bursting at the player from 15–21 m: magenta bolts
+  with their tails flying in, each burst's aim laser first, the `[shot]` log showing "fired at … 18 m away, 0.66 s to
+  get there" and "hit … after 0.64 s".
+- **Decided here, to confirm:**
+  - The aim point is 35 cm above the capsule centre (the chest), in data (`AimHeightOffset`).
+  - Enemy shots never crit (like before) and pass through target dummies as well as other enemies.
+  - The shot's damage is set when it is fired (the enemy's Damage at that moment), like the player's projectiles.
+  - The bolt and its trail are one mesh (opaque, emissive), not a particle trail.
+  - Sounds: the carbine gets a fire sound (`VR_click2_Cue`) and the bolt an impact click; both are editor sounds.
+- **Full suite:** 67 tests, all passing, in 179.7 s.
+
 ---
 
 ## Console commands and CVars
@@ -3937,7 +4035,7 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (65, all passing, about 162 s)
+## Automation tests (67, all passing, about 180 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
@@ -4012,6 +4110,8 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Upgrades.PowderKegChainEnds` | 34 stacks (102%), 8 frozen 10 HP cops in a line 2.5 m apart. One kill starts a chain that runs down the line and ends: all 8 die, exactly 8 blasts, nothing pending. The player (no god mode, 6 m from the first) is never hurt. Run stats record the Powder Keg damage. Game time ×4. |
 | `Art.PlayerMesh` | Prompt 56, in the town and then the hub: the player's mesh is `SK_LowPolyBody` on the same skeleton as before (`SK_Mannequin`), with `PA_Mannequin` and `ABP_Unarmed` running; six colour slots; bones `hand_r`, `head`, `spine_04`, `foot_l`; in the animated pose the head is 140–175 cm above the foot and `root` has scale 1 in the reference pose (the FBX unit-scale trap); two worn props (`SM_SkiMask` on `head`, `SM_LootBag` on `spine_04`), attached to the body, no collision, visible, the mask at the head and the bag more than 10 cm behind the chest. |
 | `Enemies.CopLooks` | Prompt 57: a still Beat Cop and Patrol Officer 6 m in front of the player. Each has its display name ("Beat Cop", "Patrol Officer"), wears `SK_LowPolyBody` with `ABP_Unarmed`, and has a dynamic material on each of the 6 slots made from that slot's `SlotMaterials` entry, with `TelegraphAmount` 0 at rest. Props: the cap on `head` (above the head) for both, the baton on `hand_r` for the Beat Cop; each attached to the body, no collision, visible, near its bone. Gun: none for the Beat Cop, `SM_PatrolCarbine` in the weapon's socket for the Patrol Officer, with the muzzle near it. Neither wears the robber's top or trousers, and the two tops differ. The Beat Cop's melee wind-up and the Patrol Officer's aim set `TelegraphAmount` 1 on every slot, the Patrol Officer's laser shows, and the glow goes back to 0 when they end. |
+| `Enemies.DodgeableShots` | Prompt 58, 45 m up over the town centre (no cover in the way unless placed), the player held still (flying) and Patrol Officers with their brains stopped: `DA_PatrolCarbine` 2,800 cm/s with a bolt mesh, material and impact effect; damage 7, burst 4 and the 0.4 s aim unchanged; the Patrol Officer `bRanged`, the Beat Cop not. With a spreadless copy of the Patrol Officer at 15, 20 and 25 m: no damage on the frame the shot is fired, the shot is one visible bolt at 2,800 cm/s, the first hit lands (distance − 80 cm) / 2,800 s later (±0.08 s; logs each flight time and how far a walking player moves meanwhile), and all 4 shots hit for 28. With the real carbine (spread) at 20 m and the player moved sideways at 900 cm/s every frame: 4 shots fired, none hit, no Health lost. A wall at 10 m stops all 4 (hit world), none reach the player. A Beat Cop at 10 m on the line: all 4 fly through it and hit the player, the cop untouched. `State.Invulnerable` (the dash's i-frames) with 2 shields: no Health lost and no shield used. 2 shields: two shots blocked, one shield each, the other two take 14. Second Wind at 5 Health: the player survives at 30% with it used up (the later shots hit the invulnerability). Paused with a shot in flight: it doesn't move or hit for 0.3 s real time, then lands after the unpause. A new run with a shot in flight: no enemy shot left. Game time ×1. |
+| `Round.RangedCap` | Prompt 58: `DA_WaveSettings` MaxRangedShare 0.4, generated waves from round 6; rounds 6–30 for 10 seeds (250 purchases): none above 40% ranged, and none leaves budget a non-ranged enemy could use (or hit the size cap); ranged enemies still bought in over 200 of them; logs the highest share, rounds 6–15 before (no cap) and after for one seed, and each DT_Waves row's share (all at most 40%, not capped); round 7's real wave from the director (queued + telegraphing = its total) is at most 40% ranged. |
 | `Economy.HealthOrbsAllSources` | For each kind of player kill (own kill, Floating Gun, Razor Cards, Barbed Wire, a Powder Keg blast kill) in a fresh run: at drop chance 1 every kill drops an orb, at 0 none, and the damage is recorded under that source in run stats. Chance 0.3 in bulk: 60 own kills and a crowd killed by one Barbed Wire tick (5 Legendary picks) drop at about the same rate (23 of 60 and 16 of 50 in the run). Game time ×4. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
@@ -4055,7 +4155,8 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   | 4 | 7 + 3 | 1.8 / 3 |
   | 5 | 9 + 4 | 1.6 / 3 |
 - **Generated waves** (DA_WaveSettings): Budget = 5 + 2.5 × round (BudgetCurve empty), e.g. round 8 = 25,
-  round 15 = 42.5. MaxGeneratedEnemies 150, batch 3 every 1.5 s, MaxAliveEnemies 30, telegraph 0.75 s
+  round 15 = 42.5. MaxRangedShare 0.4 (Prompt 58: at most 40% of a generated wave ranged, by count), MaxGeneratedEnemies 150,
+  batch 3 every 1.5 s, MaxAliveEnemies 30, telegraph 0.75 s
   (M_EnemyLaser). Pool: BeatCop, PatrolOfficer.
 - **Difficulty curve** (DA_DifficultyCurve, linear, extrapolates past 30):
 
@@ -4197,9 +4298,21 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
 - The M2c upgrade rework is complete (Prompts 41–48), and so are the last four weapons (49–52) and the weapons checkpoint
   (53). M2d (Prompts 55–69) is next, then M3.
 - M2d (designed in Prompt 54) is only started: the player is the robber (Prompt 56) and the enemies are cops in
-  Blender models (Prompt 57), but the code still has engine-shape placeholders for weapons, pickups and cover, hit-scan
-  enemy shots, no ranged cap, an alive cap of 30, separate rounds with a PreRound countdown and a RoundClear pause, and
+  Blender models (Prompt 57) whose shots are dodgeable bolts with a 40% ranged cap (Prompt 58), but the code still has
+  engine-shape placeholders for weapons, pickups and cover, an alive cap of 30, separate rounds with a PreRound countdown
+  and a RoundClear pause, and
   the 300 × 300 m town.
+- Enemy shots (Prompt 58):
+  - The bolt is an opaque emissive mesh with its tail modelled in; there is no particle trail, and the impact flash and
+    the two click sounds are engine / editor placeholders (the sounds may not cook).
+  - Shots aim at where the player is with no lead, so a player who keeps moving is rarely hit at range, and one who
+    stands still takes every shot inside the spread (3.5° cone, ±1.2 m at 20 m). Balance with real play.
+  - The aim laser still points straight along the officer's facing during the 0.4 s warning; the shot then aims at the
+    chest, so at close range the laser and the bolt's path can differ by a few degrees.
+  - Bolts pass through target dummies (they aren't players).
+  - With the cap, generated waves have more enemies for the same budget (melee costs 1, ranged 2): round 10 has 22
+    instead of 20, round 14 30 instead of 26. Wave sizes are revisited with the new types and the 100 cap (Prompt 60).
+  - Not replicated (`TODO(co-op)`).
 - Cop models (Prompt 57):
   - The baton and the carbine follow `hand_r` of the `ABP_Unarmed` pose (yaw 90 on the bone, like the player's rifle),
     so both stick out sideways from the hanging hand. There are no holding, aiming or swinging animations yet.
@@ -4444,6 +4557,8 @@ player in 9.4 s; the 3 Patrol Officers alone took 19.3 s.
   see CLAUDE.md **Placeholder models**. Props ready for the cops: `SM_PoliceBaton`, `SM_PoliceCap`, `SM_PatrolCarbine`.
 - Enemies (Prompt 57): `SK_LowPolyBody` with `MI_BeatCop_*` / `MI_PatrolOfficer_*` colours, `SM_PoliceCap` (both),
   `SM_PoliceBaton` (Beat Cop) and `SM_PatrolCarbine` (`DA_PatrolCarbine.Mesh`).
+- Enemy shots (Prompt 58): `SM_EnemyBolt` (Blender) with `MI_EnemyBolt_Core` / `_Trail`, the Niagara
+  `DirectionalBurstLightweight` template on impact, `VR_click2_Cue` / `VR_click1_Cue` (editor sounds).
 - `MI_CashCoin` / `MI_CashBill` are instances of `M_Enemy_BeatCop` (changing that material changes the cash).
 - The telegraph uses `M_EnemyLaser`.
 - Level-up: `M_LevelUpGlow` overlay and the `CompileSuccess` editor sound.
@@ -4624,8 +4739,7 @@ and round flow (M2d)** for the decisions and open questions). Each prompt update
 56. ~~**Placeholder pipeline and the robber:** Blender → Unreal for low-poly placeholders (export, import, materials in
     the low-poly look), and the player's robber model on today's skeleton and animations.~~ Done (see Prompt 56).
 57. ~~**Rename the enemies and give them cop models.**~~ Done (see Prompt 57).
-58. **Dodgeable ranged shots and the ranged cap:** enemy shots become visible projectiles (~28 m/s, aimed at where
-    the player was, no lead; aim warning and burst kept); at most 40% of a generated wave ranged.
+58. ~~**Dodgeable ranged shots and the ranged cap.**~~ Done (see Prompt 58).
 59. **Roll-over rounds and the breather:** the next round starts arriving when a few enemies are left, no countdown,
     a steady stream, the round-clear bonus as a pop-up; a 10 s breather every 10 rounds.
 60. **One hundred enemies:** the alive cap to 100 at 60 fps on the user's PC (profile and optimize).

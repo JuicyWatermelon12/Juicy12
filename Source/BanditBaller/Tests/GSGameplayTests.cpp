@@ -6639,7 +6639,21 @@ bool FGSRunGameOverTest::RunTest(const FString& Parameters)
 		UGSProgressionComponent* Progression = PS->GetProgressionComponent();
 		GameMode->AwardXP(PS, static_cast<float>(Progression->GetXPForNextLevel()), false);
 		TestEqual(TEXT("Level 2"), Progression->GetLevel(), 2);
-		TestEqual(TEXT("Its offer picked"), PickAllUpgradeOffers(), 1);
+		// Pick a card that can't stop the killing blow below (a Floating Shield or Second Wind would, as designed; the run
+		// seed is random, so choice 0 sometimes was one).
+		int32 Picked = 0;
+		while (PS->GetUpgradeComponent()->HasOpenOffer() && Picked < 10)
+		{
+			const TArray<FGSUpgradeChoice>& Offer = PS->GetUpgradeComponent()->GetCurrentOffer();
+			const int32 Safe = Offer.IndexOfByPredicate([](const FGSUpgradeChoice& C)
+			{
+				return !C.Upgrade->Effect->IsChildOf(UGSUpgradeEffect_FloatingShield::StaticClass())
+					&& !C.Upgrade->Effect->IsChildOf(UGSUpgradeEffect_SecondWind::StaticClass());
+			});
+			GameMode->ChooseUpgrade(PS, FMath::Max(Safe, 0));
+			++Picked;
+		}
+		TestEqual(TEXT("Its offer picked"), Picked, 1);
 		UGSDebugLibrary::ExecuteDebugCommand(PC, TEXT("UpgradeGrant"), { TEXT("Damage"), TEXT("2") });
 		UGSDebugLibrary::ExecuteDebugCommand(PC, TEXT("UpgradeGrant"), { TEXT("ExtraJump") });
 		TestEqual(TEXT("4 upgrade picks"), PS->GetUpgradeComponent()->GetTotalPicks(), 4);
@@ -13482,6 +13496,511 @@ bool FGSEnemiesCopLooksTest::RunTest(const FString& Parameters)
 	{
 		GetPlayerASC()->RemoveLooseGameplayTag(GSGameplayTags::State_Invulnerable);
 		RemoveAllEnemies(GetPIEWorld());
+	});
+	EndPIE();
+	return true;
+}
+
+
+// ---------------------------------------------------------------------------
+// Prompt 58: enemy shots are dodgeable projectiles (AGSProjectile, bEnemyShot) aimed at where the player is when each
+// shot is fired, and a generated wave is at most MaxRangedShare (40%) ranged.
+
+namespace GSEnemyShotTests
+{
+	/** Up in the air over the town centre, clear of every building (the ceiling is at 75 m). */
+	const FVector ShotTestBase(0.f, 0.f, 4500.f);
+
+	UGSEnemyData* GSpreadless = nullptr;
+
+	/** A copy of the Patrol Officer whose carbine has no spread (every shot flies straight at the aim point). */
+	UGSEnemyData* MakeSpreadlessOfficer()
+	{
+		const UGSEnemyData* Real = UGSDebugLibrary::FindEnemyData(TEXT("PatrolOfficer"));
+		if (!Real || !Real->Weapon)
+		{
+			return nullptr;
+		}
+		UGSEnemyData* Copy = DuplicateObject<UGSEnemyData>(Real, GetTransientPackage());
+		UGSWeaponData* Gun = DuplicateObject<UGSWeaponData>(Real->Weapon.Get(), GetTransientPackage());
+		Gun->HipSpread = 0.f;
+		Copy->Weapon = Gun;
+		Copy->AddToRoot();
+		Gun->AddToRoot();
+		return Copy;
+	}
+
+	void ReleaseSpreadless()
+	{
+		if (GSpreadless)
+		{
+			if (GSpreadless->Weapon)
+			{
+				GSpreadless->Weapon->RemoveFromRoot();
+			}
+			GSpreadless->RemoveFromRoot();
+			GSpreadless = nullptr;
+		}
+	}
+
+	/** The player floats (flying, no gravity) at Location with zero velocity. */
+	void HoldPlayerAt(const FVector& Location)
+	{
+		AGSCharacter* Player = GetPlayer();
+		Player->GetCharacterMovement()->SetMovementMode(MOVE_Flying);
+		Player->GetCharacterMovement()->StopMovementImmediately();
+		Player->SetActorLocation(Location, false, nullptr, ETeleportType::TeleportPhysics);
+	}
+
+	/** An enemy of Data floating at Location (capsule centre), brain stopped, facing the player. */
+	AGSEnemyCharacter* SpawnStillEnemy(UGSEnemyData* Data, const FVector& Location)
+	{
+		const float HalfHeight = GetDefault<AGSEnemyCharacter>()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		AGSEnemyCharacter* Enemy = AGSEnemyCharacter::SpawnEnemy(GetPIEWorld(), Data, Location - FVector(0.f, 0.f, HalfHeight + 2.f),
+			GetPlayer()->GetActorLocation());
+		if (!Enemy)
+		{
+			return nullptr;
+		}
+		if (AAIController* AIC = Cast<AAIController>(Enemy->GetController()))
+		{
+			if (UBrainComponent* Brain = AIC->GetBrainComponent())
+			{
+				Brain->StopLogic(TEXT("Enemy shot test"));
+			}
+			AIC->StopMovement();
+		}
+		Enemy->GetCharacterMovement()->DisableMovement();
+		Enemy->SetActorRotation((GetPlayer()->GetActorLocation() - Enemy->GetActorLocation()).GetSafeNormal2D().Rotation());
+		return Enemy;
+	}
+
+	bool FireBurst(AGSEnemyCharacter* Shooter)
+	{
+		return Shooter && Shooter->GetAbilitySystemComponent()->TryActivateAbilitiesByTag(FGameplayTagContainer(GSGameplayTags::Ability_Attack_Ranged));
+	}
+
+	bool IsFiring(const AGSEnemyCharacter* Shooter)
+	{
+		return Shooter && Shooter->GetAbilitySystemComponent()->HasMatchingGameplayTag(GSGameplayTags::State_Attacking);
+	}
+
+	TArray<AGSProjectile*> GetEnemyShots()
+	{
+		TArray<AGSProjectile*> Shots;
+		if (UGSProjectileSubsystem* Projectiles = GetProjectiles())
+		{
+			for (AGSProjectile* Projectile : Projectiles->GetActiveProjectiles())
+			{
+				if (Projectile && Projectile->IsEnemyShot())
+				{
+					Shots.Add(Projectile);
+				}
+			}
+		}
+		return Shots;
+	}
+
+	void SetPlayerHealth(float Health)
+	{
+		GetPlayerASC()->SetNumericAttributeBase(UGSAttributeSet::GetHealthAttribute(), Health);
+	}
+
+	struct FState
+	{
+		TWeakObjectPtr<AGSEnemyCharacter> Shooter;
+		TWeakObjectPtr<AGSEnemyCharacter> Blocker;
+		TWeakObjectPtr<AStaticMeshActor> Wall;
+		TWeakObjectPtr<AGSProjectile> Shot;
+		FVector ShotLocation = FVector::ZeroVector;
+		float Health = 0.f;
+		float BlockerHealth = 0.f;
+		int32 Fired = 0;
+		int32 HitTargets = 0;
+		int32 HitWorld = 0;
+		int32 Blocked = 0;
+		double FiredAt = 0.0;
+		double HitAt = 0.0;
+		double MoveStart = 0.0;
+		FVector MoveFrom = FVector::ZeroVector;
+		TArray<FString> Report;
+	};
+
+	/** Counters before a burst. */
+	void Mark(const TSharedRef<FState>& S)
+	{
+		UGSProjectileSubsystem* Projectiles = GetProjectiles();
+		S->Health = GetHealth(GetPlayerASC());
+		S->Fired = Projectiles->GetNumFired();
+		S->HitTargets = Projectiles->GetNumHitTargets();
+		S->HitWorld = Projectiles->GetNumHitWorld();
+		S->Blocked = GetPlayerShields() ? GetPlayerShields()->GetHitsBlocked() : 0;
+	}
+
+	/** Enqueue: wait until the shooter's burst is over and no enemy shot is in flight. */
+	void WaitBurstDone(FAutomationTestBase* Test, const TSharedRef<FState>& S)
+	{
+		WaitUntil(Test, TEXT("the burst to end and its shots to land"), [S]()
+		{
+			return !IsFiring(S->Shooter.Get()) && GetEnemyShots().IsEmpty();
+		}, 10.0);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSEnemiesDodgeableShotsTest, "BanditBaller.Enemies.DodgeableShots", GSTests::TestFlags)
+bool FGSEnemiesDodgeableShotsTest::RunTest(const FString& Parameters)
+{
+	using namespace GSEnemyShotTests;
+	TSharedRef<FState> S = MakeShared<FState>();
+	BeginPIE(this);
+	Step([this, S]()
+	{
+		SpeedUpWorld(1.f); // flight times are measured in game time; editor throttling off
+		GetGameMode()->SetRoundTimerPaused(true);
+		GetGameMode()->SetHealthOrbDropChanceOverride(0.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), false);
+		RemoveAllEnemies(GetPIEWorld());
+		GSpreadless = MakeSpreadlessOfficer();
+		const UGSEnemyData* Real = UGSDebugLibrary::FindEnemyData(TEXT("PatrolOfficer"));
+		if (TestNotNull(TEXT("Spreadless Patrol Officer copy"), GSpreadless) && TestNotNull(TEXT("Patrol Officer data"), Real))
+		{
+			TestTrue(TEXT("The Patrol Officer is a ranged type"), Real->bRanged);
+			TestFalse(TEXT("The Beat Cop is not"), UGSDebugLibrary::FindEnemyData(TEXT("BeatCop"))->bRanged);
+			TestEqual(TEXT("DA_PatrolCarbine: shots fly at 2,800 cm/s"), Real->Weapon->ProjectileSpeed, 2800.f, 0.01f);
+			TestNotNull(TEXT("DA_PatrolCarbine: a bolt mesh"), Real->Weapon->ProjectileMesh.Get());
+			TestNotNull(TEXT("DA_PatrolCarbine: a bolt material"), Real->Weapon->ProjectileMaterial.Get());
+			TestNotNull(TEXT("DA_PatrolCarbine: an impact effect"), Real->Weapon->ProjectileImpactEffect.Get());
+			TestEqual(TEXT("Damage per shot unchanged (7)"), Real->Weapon->Damage, 7.f, 0.01f);
+			TestEqual(TEXT("Burst unchanged (4)"), Real->BurstCount, 4);
+			TestEqual(TEXT("Aim warning unchanged (0.4 s)"), Real->AimTelegraphTime, 0.4f, 0.001f);
+		}
+	});
+
+	// Flight time at 15, 20 and 25 m, standing still: no damage on the frame a shot is fired; it lands distance / speed
+	// later; all four shots of a spreadless burst hit.
+	for (const float Distance : { 1500.f, 2000.f, 2500.f })
+	{
+		Step([this, S, Distance]()
+		{
+			HoldPlayerAt(ShotTestBase + FVector(Distance, 0.f, 0.f));
+			SetPlayerHealth(GetMaxHealth(GetPlayerASC()));
+			S->Shooter = SpawnStillEnemy(GSpreadless, ShotTestBase);
+			Mark(S);
+			TestTrue(*FString::Printf(TEXT("%.0f m: the Patrol Officer starts a burst"), Distance / 100.f), FireBurst(S->Shooter.Get()));
+		});
+		WaitUntil(this, TEXT("the first shot"), [S]() { return !GetEnemyShots().IsEmpty(); }, 5.0);
+		Step([this, S, Distance]()
+		{
+			S->FiredAt = GetPIEWorld()->GetTimeSeconds();
+			TestEqual(*FString::Printf(TEXT("%.0f m: no damage on the frame the shot is fired"), Distance / 100.f), GetHealth(GetPlayerASC()), S->Health, 0.01f);
+			const TArray<AGSProjectile*> Shots = GetEnemyShots();
+			TestTrue(*FString::Printf(TEXT("%.0f m: the shot is a visible bolt"), Distance / 100.f),
+				Shots.Num() == 1 && !Shots[0]->IsHidden() && Shots[0]->GetMesh()->GetStaticMesh() != nullptr);
+			if (Shots.Num() == 1)
+			{
+				TestEqual(*FString::Printf(TEXT("%.0f m: it flies at 2,800 cm/s"), Distance / 100.f), Shots[0]->GetVelocity().Size(), 2800.0, 1.0);
+			}
+		});
+		WaitUntil(this, TEXT("the first hit"), [S]() { return GetHealth(GetPlayerASC()) < S->Health - 0.01f; }, 5.0);
+		Step([this, S, Distance]()
+		{
+			S->HitAt = GetPIEWorld()->GetTimeSeconds();
+			const double Flight = S->HitAt - S->FiredAt;
+			// Muzzle to the front of the capsule: a little under the distance.
+			const double Expected = (Distance - 80.0) / 2800.0;
+			TestTrue(*FString::Printf(TEXT("%.0f m: the shot took %.3f s (about %.3f s)"), Distance / 100.f, Flight, Expected),
+				Flight > Expected - 0.08 && Flight < Expected + 0.08);
+			S->Report.Add(FString::Printf(TEXT("[shot] %.0f m: %.3f s to arrive; a walking player (900 cm/s) moves %.1f m meanwhile"),
+				Distance / 100.f, Flight, Flight * 900.0 / 100.0));
+		});
+		WaitBurstDone(this, S);
+		Step([this, S, Distance]()
+		{
+			UGSProjectileSubsystem* Projectiles = GetProjectiles();
+			TestEqual(*FString::Printf(TEXT("%.0f m: 4 shots fired"), Distance / 100.f), Projectiles->GetNumFired() - S->Fired, 4);
+			TestEqual(*FString::Printf(TEXT("%.0f m: standing still, all 4 hit (no spread)"), Distance / 100.f), Projectiles->GetNumHitTargets() - S->HitTargets, 4);
+			TestEqual(*FString::Printf(TEXT("%.0f m: 7 damage each"), Distance / 100.f), S->Health - GetHealth(GetPlayerASC()), 28.f, 0.01f);
+			RemoveAllEnemies(GetPIEWorld());
+		});
+	}
+
+	// Moving sideways at walking speed (900 cm/s) at 20 m with the real carbine (spread included): every shot lands
+	// where the player was, so the whole burst misses.
+	Step([this, S]()
+	{
+		HoldPlayerAt(ShotTestBase + FVector(2000.f, -800.f, 0.f));
+		SetPlayerHealth(GetMaxHealth(GetPlayerASC()));
+		S->Shooter = SpawnStillEnemy(UGSDebugLibrary::FindEnemyData(TEXT("PatrolOfficer")), ShotTestBase);
+		Mark(S);
+		S->MoveStart = GetPIEWorld()->GetTimeSeconds();
+		S->MoveFrom = GetPlayer()->GetActorLocation();
+		TestTrue(TEXT("Sidestep: the burst starts"), FireBurst(S->Shooter.Get()));
+	});
+	WaitUntil(this, TEXT("the burst to end while the player walks sideways"), [S]()
+	{
+		// Every frame: the player is where steady walking at 900 cm/s puts them.
+		const double Elapsed = GetPIEWorld()->GetTimeSeconds() - S->MoveStart;
+		GetPlayer()->SetActorLocation(S->MoveFrom + FVector(0.f, 900.0 * Elapsed, 0.f), false, nullptr, ETeleportType::TeleportPhysics);
+		return Elapsed > 0.5 && !IsFiring(S->Shooter.Get()) && GetEnemyShots().IsEmpty();
+	}, 10.0);
+	Step([this, S]()
+	{
+		UGSProjectileSubsystem* Projectiles = GetProjectiles();
+		TestEqual(TEXT("Sidestep: 4 shots fired"), Projectiles->GetNumFired() - S->Fired, 4);
+		TestEqual(TEXT("Sidestep: none hit"), Projectiles->GetNumHitTargets() - S->HitTargets, 0);
+		TestEqual(TEXT("Sidestep: no Health lost"), GetHealth(GetPlayerASC()), S->Health, 0.01f);
+		RemoveAllEnemies(GetPIEWorld());
+
+		// Cover: a wall between them stops every shot.
+		HoldPlayerAt(ShotTestBase + FVector(2000.f, 0.f, 0.f));
+		S->Wall = SpawnTestWall(ShotTestBase + FVector(1000.f, 0.f, 0.f), FVector(0.5f, 6.f, 6.f));
+		S->Shooter = SpawnStillEnemy(GSpreadless, ShotTestBase);
+		Mark(S);
+		TestTrue(TEXT("Cover: the burst starts"), FireBurst(S->Shooter.Get()));
+	});
+	WaitBurstDone(this, S);
+	Step([this, S]()
+	{
+		UGSProjectileSubsystem* Projectiles = GetProjectiles();
+		TestEqual(TEXT("Cover: all 4 shots stopped by the wall"), Projectiles->GetNumHitWorld() - S->HitWorld, 4);
+		TestEqual(TEXT("Cover: none reached the player"), Projectiles->GetNumHitTargets() - S->HitTargets, 0);
+		TestEqual(TEXT("Cover: no Health lost"), GetHealth(GetPlayerASC()), S->Health, 0.01f);
+		if (S->Wall.IsValid())
+		{
+			S->Wall->Destroy();
+		}
+		RemoveAllEnemies(GetPIEWorld());
+
+		// Another enemy in the line of fire: the shots fly through it and hit the player.
+		S->Blocker = SpawnStillEnemy(UGSDebugLibrary::FindEnemyData(TEXT("BeatCop")), ShotTestBase + FVector(1000.f, 0.f, 0.f));
+		S->Shooter = SpawnStillEnemy(GSpreadless, ShotTestBase);
+		S->BlockerHealth = S->Blocker.IsValid() ? GetHealth(S->Blocker->GetAbilitySystemComponent()) : 0.f;
+		Mark(S);
+		TestTrue(TEXT("Through a cop: the burst starts"), FireBurst(S->Shooter.Get()));
+	});
+	WaitBurstDone(this, S);
+	Step([this, S]()
+	{
+		UGSProjectileSubsystem* Projectiles = GetProjectiles();
+		TestEqual(TEXT("Through a cop: all 4 reach the player"), Projectiles->GetNumHitTargets() - S->HitTargets, 4);
+		TestTrue(TEXT("Through a cop: the cop in between is untouched"), S->Blocker.IsValid()
+			&& FMath::IsNearlyEqual(GetHealth(S->Blocker->GetAbilitySystemComponent()), S->BlockerHealth));
+		TestEqual(TEXT("Through a cop: the player took 28"), S->Health - GetHealth(GetPlayerASC()), 28.f, 0.01f);
+		RemoveAllEnemies(GetPIEWorld());
+
+		// Dash invulnerability (State.Invulnerable, what the dash's i-frames grant) comes first: no shield is used.
+		SetPlayerHealth(GetMaxHealth(GetPlayerASC()));
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("FloatingShield"), TEXT("2") });
+		GetPlayerShields()->ResetShields();
+		GetPlayerASC()->AddLooseGameplayTag(GSGameplayTags::State_Invulnerable);
+		S->Shooter = SpawnStillEnemy(GSpreadless, ShotTestBase);
+		Mark(S);
+		TestTrue(TEXT("I-frames: the burst starts"), FireBurst(S->Shooter.Get()));
+	});
+	WaitBurstDone(this, S);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("I-frames: no Health lost"), GetHealth(GetPlayerASC()), S->Health, 0.01f);
+		TestEqual(TEXT("I-frames: no shield used"), GetPlayerShields()->GetHitsBlocked() - S->Blocked, 0);
+		TestEqual(TEXT("I-frames: both shields still ready"), GetPlayerShields()->GetNumReady(), 2);
+		GetPlayerASC()->RemoveLooseGameplayTag(GSGameplayTags::State_Invulnerable);
+		RemoveAllEnemies(GetPIEWorld());
+
+		// Floating Shields: each shot is its own hit and uses its own shield; the rest come off Health.
+		S->Shooter = SpawnStillEnemy(GSpreadless, ShotTestBase);
+		Mark(S);
+		TestTrue(TEXT("Shields: the burst starts"), FireBurst(S->Shooter.Get()));
+	});
+	WaitBurstDone(this, S);
+	Step([this, S]()
+	{
+		TestEqual(TEXT("Shields: two shots blocked, one shield each"), GetPlayerShields()->GetHitsBlocked() - S->Blocked, 2);
+		TestEqual(TEXT("Shields: none left ready"), GetPlayerShields()->GetNumReady(), 0);
+		TestEqual(TEXT("Shields: the other two took 14 Health"), S->Health - GetHealth(GetPlayerASC()), 14.f, 0.01f);
+		RemoveAllEnemies(GetPIEWorld());
+
+		// Second Wind: a shot that would kill uses it (30% Health, invulnerable), so the rest of the burst does nothing.
+		UGSDebugLibrary::ExecuteDebugCommand(GetPC(), TEXT("UpgradeGrant"), { TEXT("SecondWind") });
+		SetPlayerHealth(5.f);
+		S->Shooter = SpawnStillEnemy(GSpreadless, ShotTestBase);
+		Mark(S);
+		TestTrue(TEXT("Second Wind: the burst starts"), FireBurst(S->Shooter.Get()));
+	});
+	WaitBurstDone(this, S);
+	Step([this, S]()
+	{
+		const float Max = GetMaxHealth(GetPlayerASC());
+		TestFalse(TEXT("Second Wind: the player survived"), GetPlayer()->GetHealthComponent()->IsDead());
+		TestEqual(TEXT("Second Wind: used up"), GetAttr(UGSAttributeSet::GetSecondWindsAttribute()), 0.f, 0.001f);
+		TestEqual(TEXT("Second Wind: back at 30% (the later shots hit invulnerability)"), GetHealth(GetPlayerASC()), FMath::RoundToFloat(Max * 0.3f), 0.01f);
+		RemoveAllEnemies(GetPIEWorld());
+
+		// The game pause stops shots in flight.
+		SetPlayerHealth(Max);
+		S->Shooter = SpawnStillEnemy(GSpreadless, ShotTestBase);
+		Mark(S);
+		FireBurst(S->Shooter.Get());
+	});
+	WaitUntil(this, TEXT("a shot in flight"), [S]() { return !GetEnemyShots().IsEmpty(); }, 5.0);
+	Step([this, S]()
+	{
+		const TArray<AGSProjectile*> Shots = GetEnemyShots();
+		S->Shot = Shots.IsEmpty() ? nullptr : Shots[0];
+		S->ShotLocation = S->Shot.IsValid() ? S->Shot->GetActorLocation() : FVector::ZeroVector;
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), true);
+	});
+	WaitRealSeconds(this, 0.3);
+	Step([this, S]()
+	{
+		TestTrue(TEXT("Paused: the shot is still in the air"), S->Shot.IsValid() && S->Shot->IsEnemyShot());
+		TestTrue(TEXT("Paused: it hasn't moved"), S->Shot.IsValid() && S->Shot->GetActorLocation().Equals(S->ShotLocation, 0.1));
+		TestEqual(TEXT("Paused: no Health lost"), GetHealth(GetPlayerASC()), S->Health, 0.01f);
+		UGameplayStatics::SetGamePaused(GetPIEWorld(), false);
+	});
+	WaitBurstDone(this, S);
+	Step([this, S]()
+	{
+		TestTrue(TEXT("Unpaused: the shots landed"), GetHealth(GetPlayerASC()) < S->Health);
+		RemoveAllEnemies(GetPIEWorld());
+
+		// A new run removes the shots in flight.
+		S->Shooter = SpawnStillEnemy(GSpreadless, ShotTestBase);
+		FireBurst(S->Shooter.Get());
+	});
+	WaitUntil(this, TEXT("a shot in flight"), [S]() { return !GetEnemyShots().IsEmpty(); }, 5.0);
+	Step([this, S]()
+	{
+		RemoveAllEnemies(GetPIEWorld()); // the shooter too, so nothing fires after the restart
+		GetGameMode()->RestartRunWithSeed(58);
+		TestEqual(TEXT("New run: no enemy shot in flight"), GetEnemyShots().Num(), 0);
+		for (const FString& Line : S->Report)
+		{
+			AddInfo(Line);
+		}
+		GetPlayer()->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
+		ReleaseSpreadless();
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+namespace GSRangedCapTests
+{
+	/** "8 BeatCop, 4 PatrolOfficer (33% ranged)" */
+	FString DescribeWave(const TArray<UGSEnemyData*>& Wave)
+	{
+		int32 Ranged = 0;
+		for (const UGSEnemyData* Data : Wave)
+		{
+			Ranged += Data && Data->bRanged ? 1 : 0;
+		}
+		return FString::Printf(TEXT("%d BeatCop, %d PatrolOfficer (%.0f%% ranged)"), Wave.Num() - Ranged, Ranged, UGSWaveDirector::GetRangedShare(Wave) * 100.f);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRoundRangedCapTest, "BanditBaller.Round.RangedCap", GSTests::TestFlags)
+bool FGSRoundRangedCapTest::RunTest(const FString& Parameters)
+{
+	using namespace GSRangedCapTests;
+	BeginPIE(this);
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		GameMode->SetRoundTimerPaused(true);
+		UGSWaveDirector* Director = GameMode->GetWaveDirector();
+		const UGSWaveSettings& Settings = Director->GetSettings();
+		TestEqual(TEXT("DA_WaveSettings: MaxRangedShare 0.4"), Settings.MaxRangedShare, 0.4f, 0.0001f);
+		const int32 FirstGenerated = Director->GetLastTableRound() + 1;
+		TestEqual(TEXT("Generated waves start at round 6"), FirstGenerated, 6);
+
+		// Rounds 6-30 over 10 seeds: never above 40% ranged, and the budget is still spent (what is left can't buy a
+		// non-ranged type).
+		int32 Waves = 0;
+		int32 WithRanged = 0;
+		float HighestShare = 0.f;
+		for (int32 Seed = 1; Seed <= 10; ++Seed)
+		{
+			for (int32 Round = 6; Round <= 30; ++Round)
+			{
+				GameMode->RestartRunWithSeed(5800 + Seed);
+				TArray<UGSEnemyData*> Wave;
+				float Left = 0.f;
+				const float Budget = Settings.GetBudget(Round);
+				UGSWaveDirector::PurchaseWave(GetPC(), Settings.EnemyPool, Budget, Round, Settings.MaxGeneratedEnemies, Wave, &Left, Settings.MaxRangedShare);
+				const float Share = UGSWaveDirector::GetRangedShare(Wave);
+				HighestShare = FMath::Max(HighestShare, Share);
+				WithRanged += Share > 0.f ? 1 : 0;
+				++Waves;
+				if (Share > 0.4f + 0.0001f)
+				{
+					AddError(FString::Printf(TEXT("Seed %d round %d: %s is above 40%% ranged"), 5800 + Seed, Round, *DescribeWave(Wave)));
+				}
+				float Cheapest = TNumericLimits<float>::Max();
+				for (const UGSEnemyData* Data : Settings.EnemyPool)
+				{
+					if (Data && Data->MinRound <= Round && !Data->bRanged)
+					{
+						Cheapest = FMath::Min(Cheapest, Data->SpawnCost);
+					}
+				}
+				if (Wave.Num() < Settings.MaxGeneratedEnemies && Left >= Cheapest)
+				{
+					AddError(FString::Printf(TEXT("Seed %d round %d: %.1f of budget left that a non-ranged enemy could use"), 5800 + Seed, Round, Left));
+				}
+			}
+		}
+		TestEqual(TEXT("250 generated waves checked"), Waves, 250);
+		TestTrue(TEXT("Ranged enemies are still bought"), WithRanged > 200);
+		AddInfo(FString::Printf(TEXT("[wave] rounds 6-30, 10 seeds: highest ranged share %.0f%%"), HighestShare * 100.f));
+
+		// Before / after for rounds 6-15 (seed 5801): the same purchase with no cap (the old rule) and with the cap.
+		for (int32 Round = 6; Round <= 15; ++Round)
+		{
+			TArray<UGSEnemyData*> Before, After;
+			GameMode->RestartRunWithSeed(5801);
+			UGSWaveDirector::PurchaseWave(GetPC(), Settings.EnemyPool, Settings.GetBudget(Round), Round, Settings.MaxGeneratedEnemies, Before, nullptr, 1.f);
+			GameMode->RestartRunWithSeed(5801);
+			UGSWaveDirector::PurchaseWave(GetPC(), Settings.EnemyPool, Settings.GetBudget(Round), Round, Settings.MaxGeneratedEnemies, After, nullptr, Settings.MaxRangedShare);
+			AddInfo(FString::Printf(TEXT("[wave] round %d (budget %.1f): before %s | after %s"), Round, Settings.GetBudget(Round), *DescribeWave(Before), *DescribeWave(After)));
+		}
+
+		// DT_Waves rows are not capped: report their share.
+		for (int32 Round = 1; Round <= Director->GetLastTableRound(); ++Round)
+		{
+			if (const FGSWaveRow* Row = Director->FindWaveRow(Round))
+			{
+				TArray<UGSEnemyData*> Wave;
+				for (const FGSWaveEntry& Entry : Row->Enemies)
+				{
+					for (int32 Index = 0; Index < Entry.Count; ++Index)
+					{
+						Wave.Add(Entry.EnemyData);
+					}
+				}
+				AddInfo(FString::Printf(TEXT("[wave] DT_Waves Round%d: %s"), Round, *DescribeWave(Wave)));
+				TestTrue(*FString::Printf(TEXT("DT_Waves Round%d is at most 40%% ranged as it is"), Round), UGSWaveDirector::GetRangedShare(Wave) <= 0.4f);
+			}
+		}
+
+		// The director's own generated wave follows the cap too.
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		GameMode->RestartRunWithSeed(5899);
+		GameMode->SetRound(7);
+		GameMode->AdvancePhase(); // Combat
+		TArray<UGSEnemyData*> Queued;
+		for (UGSEnemyData* Data : Director->GetSpawnQueue())
+		{
+			Queued.Add(Data);
+		}
+		for (const FGSPendingSpawn& Pending : Director->GetPendingSpawns())
+		{
+			Queued.Add(Pending.EnemyData);
+		}
+		TestEqual(TEXT("Round 7's wave is all queued or telegraphing"), Queued.Num(), Director->GetTotal());
+		TestTrue(*FString::Printf(TEXT("Round 7's real wave %s is at most 40%% ranged"), *DescribeWave(Queued)), UGSWaveDirector::GetRangedShare(Queued) <= 0.4f + 0.0001f);
+		Director->StopWave(true);
 	});
 	EndPIE();
 	return true;

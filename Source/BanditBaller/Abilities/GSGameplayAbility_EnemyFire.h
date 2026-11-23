@@ -11,10 +11,11 @@ class UGameplayEffect;
 
 /**
  * Enemy ranged attack: face the target, aim telegraph (laser + body glow) for AimTelegraphTime,
- * then a burst of BurstCount hitscan shots spaced by the weapon's fire rate, each with the weapon's
- * HipSpread cone, then BurstRecovery. Players hit get DamageEffect (GE_Damage, SetByCaller Data.Damage
- * = Weapon->Damage x Damage attribute). Numbers come from the avatar's UGSEnemyData / UGSWeaponData.
- * Server-only.
+ * then a burst of BurstCount shots spaced by the weapon's fire rate, then BurstRecovery. Each shot is a pooled,
+ * visible projectile (AGSProjectile, bEnemyShot) aimed at the target's chest where it is when that shot is fired (no
+ * lead) inside the weapon's HipSpread cone, flying at Weapon->ProjectileSpeed for up to Weapon->Range. A player it hits
+ * gets DamageEffect (GE_Damage, SetByCaller Data.Damage = Weapon->Damage x Damage attribute). Numbers come from the
+ * avatar's UGSEnemyData / UGSWeaponData. Server-only.
  */
 UCLASS()
 class BANDITBALLER_API UGSGameplayAbility_EnemyFire : public UGSGameplayAbility
@@ -50,4 +51,11 @@ private:
 	void FireShot(AGSEnemyCharacter& Enemy);
 
 	int32 ShotsRemaining = 0;
+
+public:
+	/** Shots this ability instance has fired (tests). */
+	int32 GetShotsFired() const { return ShotsFired; }
+
+private:
+	int32 ShotsFired = 0;
 };

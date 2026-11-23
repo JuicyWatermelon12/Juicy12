@@ -6,6 +6,7 @@
 #include "Engine/DataAsset.h"
 #include "GSWeaponData.generated.h"
 
+class UMaterialInterface;
 class UNiagaraSystem;
 class USoundBase;
 class UStaticMesh;
@@ -106,4 +107,35 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Effects")
 	TObjectPtr<USoundBase> FireSound;
+
+	// --- Projectile (enemy weapons: GA_EnemyFire fires a dodgeable projectile per shot, never a hit-scan) ---
+
+	/** Flight speed (cm/s). The shot flies straight for up to Range (lifetime = Range / speed). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Projectile", meta = (ClampMin = "100", Units = "cm/s"))
+	float ProjectileSpeed = 2800.f;
+
+	/** Radius of the sphere the shot sweeps (cm). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Projectile", meta = (ClampMin = "1", Units = "cm"))
+	float ProjectileRadius = 10.f;
+
+	/** The bolt's look: mesh (pointing along +X), material and scale. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Projectile")
+	TObjectPtr<UStaticMesh> ProjectileMesh;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Projectile")
+	TObjectPtr<UMaterialInterface> ProjectileMaterial;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Projectile")
+	FVector ProjectileScale = FVector(1.f);
+
+	/** Played where the shot hits the player or the world (not when it runs out of range). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Projectile")
+	TObjectPtr<UNiagaraSystem> ProjectileImpactEffect;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Projectile")
+	FVector ProjectileImpactEffectScale = FVector(0.2f);
+
+	/** Played where the shot hits (optional). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Projectile")
+	TObjectPtr<USoundBase> ProjectileImpactSound;
 };

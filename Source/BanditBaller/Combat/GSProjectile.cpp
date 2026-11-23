@@ -13,6 +13,7 @@
 #include "GSProjectileSubsystem.h"
 #include "GSWeaponDebug.h"
 #include "DrawDebugHelpers.h"
+#include "Kismet/GameplayStatics.h"
 #include "NiagaraFunctionLibrary.h"
 
 AGSProjectile::AGSProjectile()
@@ -154,6 +155,10 @@ bool AGSProjectile::HandleHit(const FHitResult& Hit)
 {
 	AActor* Actor = Hit.GetActor();
 	const FVector Where = Hit.bStartPenetrating ? FVector(Hit.TraceStart) : FVector(Hit.Location);
+	if (Params.bEnemyShot)
+	{
+		return HandleEnemyShotHit(Hit, Actor, Where);
+	}
 	if (const APawn* Pawn = Cast<APawn>(Actor))
 	{
 		if (Pawn->IsPlayerControlled())
@@ -214,12 +219,60 @@ bool AGSProjectile::HandleHit(const FHitResult& Hit)
 	return true;
 }
 
+bool AGSProjectile::HandleEnemyShotHit(const FHitResult& Hit, AActor* Actor, const FVector& Where)
+{
+	const APawn* Pawn = Cast<APawn>(Actor);
+	UAbilitySystemComponent* TargetASC = Actor ? UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Actor) : nullptr;
+	if (!Pawn || !Pawn->IsPlayerControlled())
+	{
+		if (Pawn || TargetASC)
+		{
+			return false; // other enemies, target dummies: an enemy's shot flies through them
+		}
+		Finish(EGSProjectileEnd::HitWorld, Where); // walls, floors, cover
+		return true;
+	}
+	const UGSHealthComponent* Health = UGSHealthComponent::FindHealthComponent(Actor);
+	if (!TargetASC || (Health && Health->IsDead()))
+	{
+		return false; // a dead player doesn't stop it
+	}
+
+	// The player: GE_Damage from the enemy's ASC, no critical roll. The damage path decides the rest, in its usual
+	// order: dash invulnerability (GE_Damage is blocked), a Floating Shield (one per shot), Health, Second Wind.
+	LastHitActor = Actor;
+	UAbilitySystemComponent* SourceASC = Params.SourceASC.Get();
+	if (SourceASC && Params.DamageEffect && Params.Damage > 0.f)
+	{
+		FGameplayEffectSpecHandle Spec = SourceASC->MakeOutgoingSpec(Params.DamageEffect, 1.f, SourceASC->MakeEffectContext());
+		if (Spec.IsValid())
+		{
+			Spec.Data->SetSetByCallerMagnitude(GSGameplayTags::Data_Damage, Params.Damage);
+			FHitResult ContextHit = Hit;
+			ContextHit.ImpactPoint = Where;
+			Spec.Data->GetContext().AddHitResult(ContextHit);
+			SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data, TargetASC);
+		}
+	}
+	if (GSWeaponDebug::IsEnabled())
+	{
+		UE_LOG(LogBanditBaller, Log, TEXT("[shot] %s's shot hit %s after %.2f s (%.0f damage)"), *GetNameSafe(SourceASC ? SourceASC->GetAvatarActor() : nullptr),
+			*Actor->GetActorNameOrLabel(), Age, Params.Damage);
+	}
+	Finish(EGSProjectileEnd::HitTarget, Where);
+	return true;
+}
+
 void AGSProjectile::Finish(EGSProjectileEnd Reason, const FVector& Where)
 {
 	EndLocation = Where;
 	if (Reason != EGSProjectileEnd::Expired && Params.ImpactEffect)
 	{
 		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), Params.ImpactEffect, Where, FRotator::ZeroRotator, Params.ImpactEffectScale);
+	}
+	if (Reason != EGSProjectileEnd::Expired && Reason != EGSProjectileEnd::Released && Params.ImpactSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(GetWorld(), Params.ImpactSound, Where);
 	}
 	// Back to the pool first, then the owner's callback (it may launch another projectile from the pool: a bounce).
 	TFunction<void(EGSProjectileEnd, AActor*, const FVector&)> OnFinished = MoveTemp(Params.OnFinished);
