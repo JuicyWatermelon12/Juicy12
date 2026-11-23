@@ -194,7 +194,7 @@ docs/PROGRESS.md  progress log and reference
   - There is no travel to the hub during a run. `gs.Market.Teleport` (open the hub) / `gs.Market.Return` (start a
     run) are debug shortcuts.
 - **Tooling split**: Unreal MCP (`unreal-mcp`, http://127.0.0.1:8000/mcp, see `.mcp.json`) for editor and asset
-  work; file edits for C++.
+  work; Blender MCP (`blender`, see **Blender** below) for placeholder models; file edits for C++.
 - **Make one MCP call at a time**; wait for each result before the next (batch with `ProgrammaticToolset` instead).
 - **Build after every C++ change**; fix errors before moving on.
 - **Tests: area tests while working, the full suite once per prompt.** Add a test for new core rules.
@@ -264,6 +264,25 @@ docs/PROGRESS.md  progress log and reference
   `WaveEnemiesTotal/Remaining/Alive`). Clear waves with `gs.God 1` + `gs.KillAll`, and read results from the `[round]`
   / `[upgrade]` log lines (the log file flushes a few seconds late). Click run-summary buttons with
   `SlateInspectorToolset.Click` on the "Return to Market" button ref.
+
+## Blender
+- Blender **5.3** at `C:\Program Files\Blender Foundation\Blender 5.3`, driven through the **MCP for Blender** server
+  (`mcp-for-blender`, started with `uvx`; entry `blender` in `.mcp.json`, with `BLENDER_MCP_SAFE_MODE=1` and
+  `DISABLE_TELEMETRY=true`). Setup and versions: `docs/PROGRESS.md`, **Blender MCP setup**.
+- **Before a prompt that makes models, Blender must be open with its MCP server started:** 3D viewport → `N` →
+  **MCP for Blender** tab → **Start MCP Server** (localhost, port 9876). The add-on ("MCP for Blender") must be enabled
+  under Edit → Preferences → Add-ons. If it isn't running, ask the user to start it; don't work around it.
+- **Session start check:** confirm both `unreal-mcp` and `blender` are connected (the `blender` server's tools load
+  only when Claude Code starts; Blender itself is needed only when a prompt uses it).
+- **Save the open .blend file before running code in Blender** (`execute_blender_code` runs Python in the open
+  scene, and nothing undoes it). Safe mode blocks file access, network, subprocesses and code that keeps running.
+- **Only this project's Claude Code session uses Blender's MCP server.** Don't connect a second client (Claude
+  Desktop, Cursor, another session) to it, and keep it on localhost: the socket has no authentication.
+- **The Claude desktop app runs as a Windows (MSIX) package**: anything it starts that *creates* files under
+  `%APPDATA%` / `%LOCALAPPDATA%` gets a private copy in `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache`.
+  So run uv installs and updates (`uvx mcp-for-blender install-addon`, `uvx mcp-for-blender@latest update`, new Python
+  versions) in a normal PowerShell from the Start menu, not from this session or the app's terminal panel. Otherwise
+  uv's Python links break and the add-on lands where Blender can't see it.
 
 Enabled plugins of note: ModelContextProtocol + AllToolsets, GameplayAbilities, StateTree, GameplayStateTree,
 EnhancedInput, CommonUI, ModelingToolsEditorMode, PCG. No online subsystems yet.

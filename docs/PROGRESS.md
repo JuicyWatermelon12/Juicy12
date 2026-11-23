@@ -62,10 +62,11 @@ M2b + M2c checkpoint (48), which replaced the old M2b checkpoint). See **M2b + M
 **Weapons** after M2c: Dynamite (49), Lucky Coin (50), Molotov (51) and Tomahawk (52) are built: all seven weapons exist.
 Dynamite and the Molotov lead a moving target since 52b. **The weapons checkpoint (53) is done:** see **Weapons checkpoint**
 under Prompt 53. **The weapons block is complete.**
-**M2d** (cops, city and round flow) is planned (Prompt 54, docs only); **next is Prompt 55** (connect Blender). After
-M2d's checkpoint (69): **M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
+**M2d** (cops, city and round flow) is planned (Prompt 54, docs only) and Blender is connected through MCP (55); **next
+is Prompt 56** (placeholder pipeline and the robber). After M2d's checkpoint (69): **M3** (shop, owned items, gear
+loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Docs: cops, city and round flow (M2d)" (Prompt 54), not pushed. The build is clean and all 63 automation tests pass in about 160 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Blender MCP setup" (Prompt 55), not pushed. The build is clean and all 63 automation tests pass in about 160 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -136,7 +137,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | W 52 | Tomahawk (weapon): every 3 s a tomahawk at the nearest enemy flies 18 m out and back, hitting every enemy on its line once each way (12 per hit); a wall turns it back; +1 tomahawk per 3 power; `AGSTomahawk`; pool of 21 | bae9432 |
 | W 52b | Fix: Dynamite and Molotov lead a moving target (LeadFactor 1, in data); PROGRESS.md repair; the four new weapon tests run on faster settings copies (suite 182 → 160 s); unity-build naming rule | 4878371 |
 | W 53 | Weapons checkpoint: `Checkpoint.SevenWeapons` (pool contents, the slot limit for all 35 sets of three, real runs with rerolls, first offers), the simulator with owned upgrades, a DPS table for all seven weapons, two PIE loops with auto-pick, frame time with three weapons and 30+ enemies | 412063a |
-| M2d 54 | Design update: cops and robbers, the city map, the low-poly look, Blender placeholders, enemy names, dodgeable shots, the 40% ranged cap, eight enemy types by round, 100 alive, roll-over rounds and the breather; Prompts 55–69 planned (docs only) | see git log |
+| M2d 54 | Design update: cops and robbers, the city map, the low-poly look, Blender placeholders, enemy names, dodgeable shots, the 40% ranged cap, eight enemy types by round, 100 alive, roll-over rounds and the breather; Prompts 55–69 planned (docs only) | 23a6880 |
+| M2d 55 | Blender MCP setup: uv 0.13.9, mcp-for-blender 2.3.1 and its Blender 5.3 add-on, the `blender` server in `.mcp.json` (safe mode, no telemetry), CLAUDE.md **Blender** section (tooling only) | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -3557,6 +3559,59 @@ of 30 and separate rounds with a countdown.
 
 Prompt 54 is the design update above.
 
+### Prompt 55 — Blender MCP setup
+Tooling only: no game code, assets or tests changed.
+- **Installed:**
+  - **uv / uvx 0.13.9** (`winget install --id=astral-sh.uv -e`, approved by the user). uvx.exe is at
+    `%LOCALAPPDATA%\Microsoft\WinGet\Packages\astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe\uvx.exe`; winget added
+    the `uv` / `uvx` aliases and the PATH entry (new terminals only).
+  - **mcp-for-blender 2.3.1** (PyPI; the project was formerly `blender-mcp`, which is now a wrapper that installs it),
+    run with uv's managed **Python 3.15.2** and **mcp 1.30.0**.
+  - **The Blender add-on "MCP for Blender" 2.0** (`bl_info` version), copied by `uvx mcp-for-blender install-addon` to
+    `%APPDATA%\Blender Foundation\Blender\5.3\scripts\addons\blender_mcp.py`, for **Blender 5.3** (`C:\Program
+    Files\Blender Foundation\Blender 5.3`).
+- **`.mcp.json`** has a second server next to `unreal-mcp`:
+
+  ```json
+  "blender": {
+    "type": "stdio",
+    "command": "C:\\Users\\bbehm\\AppData\\Local\\Microsoft\\WinGet\\Packages\\astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe\\uvx.exe",
+    "args": ["mcp-for-blender"],
+    "env": { "BLENDER_HOST": "localhost", "BLENDER_PORT": "9876", "BLENDER_MCP_SAFE_MODE": "1", "DISABLE_TELEMETRY": "true" }
+  }
+  ```
+
+  - The full path to uvx.exe is used because Claude Code was started before uv was on PATH.
+  - `BLENDER_HOST` / `BLENDER_PORT` are the defaults, written out so the server stays on localhost:9876.
+  - `BLENDER_MCP_SAFE_MODE=1` makes the server check scripts before they run in Blender: it blocks file access,
+    running other programs, network access and code that keeps running after the script. `DISABLE_TELEMETRY=true`
+    turns off the server's telemetry. The safe-mode variable is in the README's table. `DISABLE_TELEMETRY` was only
+    in the summarized part of the README that was read.
+- **Followed from the README** (https://github.com/ahujasid/blender-mcp, now `ahujasid/mcp-for-blender`): the uvx
+  command, `install-addon`, the add-on and tab names, port 9876, and "only one MCP client". Not used: the one-line
+  `irm … | iex` installer and `uvx mcp-for-blender setup`, which also configure other MCP clients.
+- **Snag: the Claude desktop app runs as an MSIX package.** Files its child processes *create* under `%APPDATA%` /
+  `%LOCALAPPDATA%` go to a private copy in `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache`.
+  - The first `uvx mcp-for-blender install-addon`, run from the session, downloaded Python into that private copy. uv's
+    `cpython-3.15` junction then pointed at the real, empty path ("Missing expected target directory for Python minor
+    version link").
+  - The add-on file would also have gone into the private copy, where Blender can't see it.
+  - The private `uv` folders were deleted, and the user ran `install-addon` in a normal PowerShell. From the session
+    `uvx --offline mcp-for-blender --help` then ran fine (31 packages into the cache).
+  - Rule (CLAUDE.md, **Blender**): uv installs and updates run outside the Claude app.
+- **The user's steps in Blender** (once, before the first model prompt):
+  1. Start Blender 5.3.
+  2. Edit → Preferences → Add-ons, search "MCP for Blender", tick **Interface: MCP for Blender**. Preferences save
+     automatically (or use the ☰ menu → Save Preferences).
+  3. In the 3D viewport press `N`, open the **MCP for Blender** tab and click **Start MCP Server**. Leave the host on
+     localhost and the port on 9876.
+  4. Don't press "Connect to Claude" or connect any other client: only this project's Claude Code session uses it.
+- **Not checked yet:** the `blender` server only loads when Claude Code starts, so its tools and the connection to
+  Blender are checked at the start of the next session (Prompt 56).
+- **CLAUDE.md:** a new **Blender** section (Blender open with its server started before a model prompt; the session
+  start check confirms `blender` too; save .blend files before running code; one client only; the MSIX rule) and
+  Blender MCP in the tooling split.
+
 ---
 
 ## Console commands and CVars
@@ -4199,7 +4254,12 @@ player in 9.4 s; the 3 ranged bandits alone took 19.3 s.
 - Windows Smart App Control blocks freshly built unsigned DLLs: the editor shows "Bad Image … 0xc0e90002" and "The game
   module 'BanditBaller' could not be loaded". Check `Microsoft-Windows-CodeIntegrity/Operational` (events 3077 / 3118). It
   switched to On on 2026-11-22 and the user turned it off. A shipped build needs code signing (release milestone).
-- There is no Python on this machine (`python` isn't found). Use PowerShell, the Edit tool, or MCP's
+- The Claude desktop app is an MSIX package: files its child processes create under `%APPDATA%` / `%LOCALAPPDATA%`
+  land in `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache` instead. Run uv installs and updates (and anything
+  else that must write real AppData files, like the Blender add-on) in a normal PowerShell from the Start menu
+  (Prompt 55).
+- There is no Python on this machine (`python` isn't found). uv has its own managed Python 3.15.2 since Prompt 55 (used
+  by uvx only; still no `python` on PATH). Use PowerShell, the Edit tool, or MCP's
   `ProgrammaticToolset`.
 - Bash heredocs with quotes fail. Write to the scratchpad and append instead.
 - After `ObjectTools.set_properties` on a Blueprint CDO, run `BlueprintTools.compile_blueprint` before
@@ -4341,7 +4401,8 @@ questions). Each prompt updates the tests that assume the old design.
 and round flow (M2d)** for the decisions and open questions). Each prompt updates the tests that assume the old design.
 
 54. ~~**M2d docs.**~~ Done (see **Design update — cops, city and round flow (M2d)**; docs only).
-55. **Connect Blender:** a Blender MCP server for this project, checked from a session.
+55. ~~**Connect Blender:** a Blender MCP server for this project, checked from a session.~~ Done (see Prompt 55); the
+    `blender` server's tools are checked at the start of the next session.
 56. **Placeholder pipeline and the robber:** Blender → Unreal for low-poly placeholders (export, import, materials in
     the low-poly look), and the player's robber model on today's skeleton and animations.
 57. **Rename the enemies and give them cop models:** MeleeBandit → Beat Cop (baton), RangedBandit → Patrol Officer
