@@ -1,6 +1,7 @@
 // BanditBaller
 
 #include "GSDynamiteComponent.h"
+#include "GSEffects.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "BanditBaller.h"
@@ -377,7 +378,7 @@ int32 UGSDynamiteComponent::Explode(const FVector& Center, float Radius, float D
 	// Placeholder explosion and sound (local: single-player). TODO(co-op): multicast them.
 	if (Settings->BlastEffect)
 	{
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), Settings->BlastEffect, Center, FRotator::ZeroRotator,
+		GSEffects::SpawnOneShot(GetWorld(), Settings->BlastEffect, Center, FRotator::ZeroRotator,
 			FVector(Radius / FMath::Max(Settings->BlastEffectRadius, 1.f)));
 	}
 	if (Settings->BlastSound)

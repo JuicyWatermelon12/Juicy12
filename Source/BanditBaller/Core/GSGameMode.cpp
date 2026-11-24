@@ -1,6 +1,7 @@
 // BanditBaller
 
 #include "GSGameMode.h"
+#include "GSEffects.h"
 #include "BanditBaller.h"
 #include "GSCharacter.h"
 #include "GSGameState.h"
@@ -312,7 +313,7 @@ int32 AGSGameMode::ExplodePowderKeg(const FVector& Location, const AGSPlayerStat
 	// Placeholder explosion (local: single-player). TODO(co-op): multicast the effect and sound.
 	if (Settings->BlastEffect)
 	{
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), Settings->BlastEffect, Location, FRotator::ZeroRotator, FVector(SizeMultiplier)); // its size at scale 1 matches BlastRadius
+		GSEffects::SpawnOneShot(GetWorld(), Settings->BlastEffect, Location, FRotator::ZeroRotator, FVector(SizeMultiplier)); // its size at scale 1 matches BlastRadius
 	}
 	if (Settings->BlastSound)
 	{

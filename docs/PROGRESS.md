@@ -68,10 +68,11 @@ under Prompt 53. **The weapons block is complete.**
 **M2d** (cops, city and round flow) is planned (Prompt 54, docs only), Blender is connected through MCP (55), and the
 Blender placeholder pipeline, the low-poly body and the robber are built (56), and the enemies are the Beat Cop and the
 Patrol Officer with cop models (57); enemy shots are dodgeable bolts and generated waves are at most 40% ranged (58);
-rounds roll over with a breather every 10 rounds (59); **next is Prompt 60** (one hundred enemies). After M2d's
+rounds roll over with a breather every 10 rounds (59); up to 100 cops alive at 60 fps, bigger waves, at most 20 corpses
+(60); **next is Prompt 61** (the Rusher). After M2d's
 checkpoint (69): **M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "Roll-over rounds and breather" (Prompt 59), not pushed. The build is clean and all 70 automation tests pass in about 250 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "One hundred enemies" (Prompt 60), not pushed. The build is clean and all 73 automation tests pass in about 214 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -147,7 +148,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2d 56 | Blender placeholder pipeline (FBX; `M_LowPoly`; CLAUDE.md **Placeholder models**), baton / cap / carbine, `SK_LowPolyBody` (1,524 triangles) on `SK_Mannequin`, the robber on the player (ski mask and loot bag as worn props, `FGSMeshAttachment`), `Art.PlayerMesh`, MCP tools `export_asset_fbx` / `import_mesh_file` / `describe_ref_pose` / `console_command` | 927ee52 |
 | M2d 57 | Rename the enemies: MeleeBandit → Beat Cop (`BeatCop`), RangedBandit → Patrol Officer (`PatrolOfficer`), BanditCarbine → `PatrolCarbine` (assets, code, commands, tests); cop models on `SK_LowPolyBody` (`SlotMaterials`, `MeshAttachments` on `UGSEnemyData`; police cap placed on the head, baton, carbine); `TelegraphAmount` in `M_LowPoly`; `Enemies.CopLooks` | 8ece272 |
 | M2d 58 | Dodgeable enemy shots: `GA_EnemyFire` fires a pooled `AGSProjectile` bolt per shot (`bEnemyShot`: hits the player or world only, passes other enemies), 2,800 cm/s at the chest with no lead, `SM_EnemyBolt` (Blender) with `MI_EnemyBolt_*`, no tracer; ranged cap `MaxRangedShare` 0.4 (`UGSEnemyData::bRanged`); `Enemies.DodgeableShots`, `Round.RangedCap` | 995328a |
-| M2d 59 | Roll-over rounds: phases PreRound (round 1 only) / Combat / Breather / GameOver, no RoundClear; the next round starts at `RollOverRemaining` 3 left; several open rounds in `UGSWaveDirector`, one enemy at a time (20 s window, 0.25–2 s gap), waves from a per-round stream; per-round stats, bonus, vacuum and save at each round's clear; HUD "N enemies left · N alive", ROUND N banner, round-clear pop-up (`WBP_RoundSummary` removed); a 10 s breather after every 10th round; `Round.RollOver`, `Round.Breather`, `Round.RollOverPace` | see git log |
+| M2d 59 | Roll-over rounds: phases PreRound (round 1 only) / Combat / Breather / GameOver, no RoundClear; the next round starts at `RollOverRemaining` 3 left; several open rounds in `UGSWaveDirector`, one enemy at a time (20 s window, 0.25–2 s gap), waves from a per-round stream; per-round stats, bonus, vacuum and save at each round's clear; HUD "N enemies left · N alive", ROUND N banner, round-clear pop-up (`WBP_RoundSummary` removed); a 10 s breather after every 10th round; `Round.RollOver`, `Round.Breather`, `Round.RollOverPace` | abce280 |
+| M2d 60 | One hundred enemies: `MaxAliveEnemies` 100, generated budget 5 + 5 × round, `MaxCorpses` 20 (oldest corpse removed first); performance switches on `UGSEnemyData` (no body-mesh collision while alive, no off-screen pose, animation rate optimization, no capsule overlap events), pooled one-shot effects (`GSEffects`, `gs.Debug.NoFXPool`); 100 cops with three area weapons 15.5 → 12.0 ms; the four slowest tests sped up (suite 251 → 214 s); `Round.AliveCap100`, `Round.BiggerWaves`, `Enemies.CorpseLimit` | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -4064,6 +4066,120 @@ still has a few left, every round pays its own bonus at its own clear, and every
 - **CLAUDE.md:** the run line (no RoundClear phase), "saves at each round's clear", the suite time (about 4 minutes).
 - **Full suite:** 70 tests, all passing, in 249.8 s.
 
+### Prompt 60 — One hundred enemies
+Up to 100 cops alive at once at 60 fps on this PC, bigger generated waves so the cap matters, and at most 20 corpses.
+Nothing about how the cops behave or look up close changed.
+- **How it was measured:** PIE in the town, god mode, the round paused in PreRound, editor throttling off, `t.MaxFPS 0`
+  (PIE still caps at 120 fps, so frames under 8.33 ms read 8.33). Cops were added with `spawn_enemies` (60% Beat Cops,
+  40% Patrol Officers), left 12–25 s to close in and attack, then `gs.Perf 5`. "With weapons" = Barbed Wire, Dynamite ×2
+  and Molotov hitting the crowd, the player's Damage at 0.01 so nobody dies and every hit still runs, XPGain 0. Each change
+  is a switch in data or a cvar (below), so before and after were measured in one editor session: switched off for
+  "before", on for "after", new cops spawned after each switch.
+- **Before and after** (ms; frame avg / p95 / game thread avg / render avg / GPU avg):
+
+  | Alive | Weapons | Before | After |
+  |---|---|---|---|
+  | 30 | none | 8.34 / 8.33 / 5.05 / 3.34 / 2.97 | 8.33 / 8.33 / 3.75 / 3.13 / 3.01 |
+  | 60 | none | 8.47 / 9.17 / 7.66 / 3.65 / 3.29 | 8.34 / 8.33 / 4.83 / 3.33 / 3.32 |
+  | 100 | none | 10.70 / 12.86 / 10.69 / 3.80 / 3.62 | 8.37 / 8.39 / 6.71 / 3.75 / 3.64 |
+  | 30 | three area weapons | 8.45 / 8.92 / 7.50 / 4.21 / 3.04 | 8.36 / 8.36 / 6.55 / 4.20 / 3.08 |
+  | 60 | three area weapons | 11.29 / 13.41 / 11.28 / 5.63 / 3.42 | 9.45 / 11.04 / 9.44 / 5.74 / 3.45 |
+  | 100 | three area weapons | 15.50 / 17.71 / 15.49 / 6.56 / 3.83 | 11.97 / 14.18 / 11.97 / 6.85 / 3.91 |
+
+  - The worst case (100 with weapons) went from failing 60 fps at p95 (17.7 ms) to 12.0 ms average and 14.2 ms p95: 4.7
+    ms of room on average. Every case is game-thread bound; the GPU stays under 4 ms.
+  - A first session in a freshly started editor read higher for the same setup (100 none 13.85 ms, 100 with weapons
+    21.66 ms, GPU 6.4 ms), probably shader warm-up; only one session's numbers are compared.
+- **What cost the most** (`stat dumpave`, 100 cops with weapons, before): character movement 3.4 ms; the physics bodies
+  of each cop's body mesh following its animation (`UpdateKinematicBonesToAnim`) 2.1 ms; animation update and evaluation
+  ~2.5 ms; ~285 live RadialBurst hit effects (Barbed Wire's, 40 cops in the ring hit every 0.5 s) ~4 ms; StateTree 0.4 ms,
+  sight perception 0.3 ms.
+- **The steps**, each measured at 100 cops with the three weapons (frame avg):
+
+  | Step | Frame avg | Gain |
+  |---|---|---|
+  | Before | 15.50 ms | |
+  | 1. Body mesh without collision while alive (its physics bodies don't follow the animation; the capsule takes every hit already) | 12.43 ms | −3.1 ms (character movement 3.4 → 1.8 ms: no more sweeps against 100 meshes; kinematic bones 2.1 → 0) |
+  | 2. No pose update off screen | 12.39 ms | ~0 (the crowd is on screen, and cops behind the camera still cast shadows into view) |
+  | 3. Animation update rate optimization (far bodies animate less often) | 12.31 ms | −0.1 ms (the crowd is close) |
+  | 4. No overlap events on the cops' capsules | 12.20 ms | −0.1 ms |
+  | 5. Pooled one-shot effects (Niagara's component pool) | 11.97 ms | −0.2 ms |
+
+  Stopped there: 100 holds 60 fps with room. Not touched, since nothing more was needed: StateTree tick rate,
+  health-bar widgets, damage numbers and pickups.
+- **The switches** (`UGSEnemyData`, "Performance", all on by default; `DA_Enemy_BeatCop` / `_PatrolOfficer` use the class
+  defaults): `bMeshCollisionOnlyWhenDead`, `bSkipPoseWhenOffScreen`, `bAnimUpdateRateOptimizations`,
+  `bNoCapsuleOverlapEvents`. Applied in `AGSEnemyCharacter::ApplyEnemyDataVisuals`.
+  - Why nothing changes: the CharacterMesh profile already ignores Visibility, so the player's shots always hit the
+    capsule; projectiles and enemy bolts now stop on the capsule instead of the mesh (the capsule surrounds the body).
+    Gameplay reads no bone of a cop (melee is an overlap query in front, the muzzle is the gun mesh's socket). Nothing
+    listens to a cop's overlap events.
+  - At death (`OnDeathStarted`) the mesh gets its pose refreshed, the Ragdoll profile, its physics state rebuilt at the
+    current pose and full pose updates again, then simulates as before (`Enemies.CorpseLimit` checks the ragdoll starts
+    at the cop).
+- **Pooled effects:** `Core/GSEffects.*` (`GSEffects::SpawnOneShot`) spawns one-shot effects from Niagara's pool
+  (`ENCPoolMethod::AutoRelease`): Barbed Wire hits, projectile impacts (Floating Gun, Razor Cards, Lucky Coin, enemy
+  bolts), Tomahawk hits, Dynamite and Powder Keg blasts. Same effect, no new component each time. Cvar
+  `gs.Debug.NoFXPool 1` turns the pool off (for measuring).
+- **The cap and the waves** (`DA_WaveSettings`; the asset uses the class defaults, which changed): `MaxAliveEnemies` 30 →
+  **100**; `BudgetPerRound` 2.5 → **5** (budget 5 + 5 × round, placeholder); DT_Waves rounds 1–5 unchanged. Enemies per
+  generated round (seed 6101; "up to N alive" = if nothing dies while the round arrives, plus the 3 left from the round
+  before, capped; roll-over needs the newest round down to 3, so this is the most one round brings):
+
+  | Round | Before: enemies (budget) | up to alive | After: enemies (budget) | ranged | up to alive |
+  |---|---|---|---|---|---|
+  | 6 | 15 (20) | 18 | 25 (35) | 40% | 28 |
+  | 7 | 16 (22.5) | 19 | 31 (40) | 29% | 34 |
+  | 8 | 19 (25) | 22 | 33 (45) | 36% | 36 |
+  | 9 | 20 (27.5) | 23 | 36 (50) | 39% | 39 |
+  | 10 | 23 (30) | 26 | 40 (55) | 38% | 43 |
+  | 11 | 23 (32.5) | 26 | 44 (60) | 36% | 47 |
+  | 12 | 26 (35) | 29 | 47 (65) | 38% | 50 |
+  | 13 | 27 (37.5) | 30 (cap) | 50 (70) | 40% | 53 |
+  | 14 | 29 (40) | 30 (cap) | 54 (75) | 39% | 57 |
+  | 15 | 31 (42.5) | 30 (cap) | 58 (80) | 38% | 61 |
+  | 16 | 33 (45) | 30 (cap) | 61 (85) | 39% | 64 |
+  | 17 | 34 (47.5) | 30 (cap) | 65 (90) | 38% | 68 |
+  | 18 | 36 (50) | 30 (cap) | 68 (95) | 40% | 71 |
+  | 19 | 38 (52.5) | 30 (cap) | 73 (100) | 37% | 76 |
+  | 20 | 40 (55) | 30 (cap) | 76 (105) | 38% | 79 |
+
+  The old cap held every round from 13 back. Now one round alone reaches 100 from round 26 (97 cops; round 27 has 100,
+  round 30 111). With overlapping rounds and slow kills the cap is reached earlier: `Round.AliveCap100` had 250 cops in
+  three open rounds with 100 alive and 148 waiting.
+- **Corpses:** `DA_WaveSettings.MaxCorpses` 20 (0 = no limit). `UGSWaveDirector::RegisterCorpse` (called from
+  `AGSEnemyCharacter::OnDeathStarted` on the server, every enemy, wave or not) keeps them oldest first and destroys the
+  oldest when there are more. `CorpseLifetime` (5 s) still removes them as before. `GetCorpseCount`,
+  `GetCorpsesRemovedByLimit` (tests).
+- **Cash, XP and health orbs:** unchanged rules (flat per cop); bigger waves simply drop more.
+- **Test speed** (every check kept; durations from the full suite, before → after):
+
+  | Test | Before | After | How |
+  |---|---|---|---|
+  | `Round.RollOverPace` | 29.4 s | 11.9 s | game time ×10 instead of ×4. A report on the real pacing, so the real timers stay; it still plays rounds 1–10 and logs everything it did |
+  | `Enemies.DodgeableShots` | 18.0 s | 9.2 s | game time ×2 instead of ×1: flight times are game time, a frame (~0.02 s) is well inside the 0.08 s tolerance |
+  | `Round.RollOver` | 14.1 s | 5.5 s | after checking the asset's values, a settings copy with a 5 s spawn window (max gap 0.5 s); its checks read the copy |
+  | `Round.Breather` | 13.0 s | 6.4 s | the same copy plus a 2.5 s breather; the asset's 10 s is checked first, the breather's length against the copy |
+
+  The other tests' durations didn't change (the next slowest: `Upgrades.FloatingGun` 9.9 s, `UI.RoundHUD` 9.7 s,
+  `Upgrades.Molotov` 8.7 s, `Round.ClearBonus` 7.3 s, `Upgrades.Dynamite` 7.2 s, `Round.WaveDirector` 6.9 s).
+  **Full suite: 251.3 s (70 tests, this build, before the speed-ups) → 213.9 s (73 tests).** It was 249.8 s in Prompt 59.
+- **New tests:** `Round.AliveCap100`, `Round.BiggerWaves`, `Enemies.CorpseLimit` (see the test table). Every existing
+  test passed unchanged with the new cap, budget and switches (the full suite ran once before the test changes: 70 of 70).
+- **Pace report with the bigger waves** (`Round.RollOverPace`): round 10 starts 117.3 s after round 1's Combat with
+  `gs.KillAll` once a second (was 109.1 s); no empty time between rounds 1–6 (the next round's first cop arrives 4.3–5.3 s
+  before the clear); every round's enemies arrive in about 20 s, and every fast-clear limit is longer than that (round
+  20: 76 cops, limit 122 s).
+- **PIE check** (town, god mode, `gs.Round.Set 27`, no weapons): round 27's 101 cops arrived over 20 s; the log said
+  "alive cap 100 reached; its spawns wait for room", the HUD read "101 enemies left · 100 alive", and `gs.Perf 5` with 100
+  alive: frame 8.35 ms (the 120 fps cap), p95 8.34, game 6.59, render 3.73, GPU 4.76. The crowd around the robber looked
+  as before (low-poly cops, caps, batons, wind-up glow, magenta bolts).
+- **Decided here, to confirm:**
+  - The corpse limit destroys the oldest corpse (it doesn't fade or freeze it).
+  - The corpse limit lives in `DA_WaveSettings` and counts every enemy's corpse (`gs.Spawn` ones too).
+  - Projectiles and enemy bolts stop on the cop's capsule instead of its body mesh while it is alive.
+- **Full suite:** 73 tests, all passing, in 213.9 s.
+
 ---
 
 ## Console commands and CVars
@@ -4105,6 +4221,7 @@ Non-Shipping cheats. They run on the server; clients forward them through `Serve
 | `gs.Debug.Boundary 1` (cvar) | Draw the map boundary's play area (walls + ceiling) every frame. |
 | `gs.Debug.Weapons 1` (cvar) | Debug-draw shots and log enemy shots (`[shot]`). |
 | `gs.Debug.DamageLog 1` (cvar) | Log every health loss (`[dmg] victim took N from X (health) at t=`). |
+| `gs.Debug.NoFXPool 1` (cvar) | Prompt 60: spawn one-shot hit, impact and blast effects without Niagara's component pool (for measuring the pool's gain). |
 | `gs.Debug.AutoPickUpgrades 1` (cvar) | Playtests from the console: every open upgrade offer is taken a frame later. It picks an unowned weapon while a slot is free, else an owned weapon, else the rarest card. An offer that is all Common with no weapon is rerolled first while rerolls last. Logs `[upgrade] auto-pick (debug): …`. |
 | `gs.Wave.MaxAlive <N>` (cvar) | Override the alive cap (0 = DA_WaveSettings). |
 | `gs.Cash.Lifetime <s>` (cvar) | Lifetime of uncollected cash pieces (0 = DA_CashSettings). |
@@ -4214,14 +4331,14 @@ MCP toolset `banditballer_toolset.toolsets.BanditBallerTools`:
 - Player (`DA_PlayerAbilitySet`): `GA_Fire`, `GA_Reload`, `GA_SwapWeapon`, `GA_Slide`, `GA_Dash`.
 - Enemies (`DA_EnemyAbilities_*`): `GA_MeleeAttack`, `GA_EnemyFire`.
 
-## Automation tests (70, all passing, about 250 s)
+## Automation tests (73, all passing, about 214 s)
 
 `Tests/GSGameplayTests.cpp`. Each test opens L_Town_Graybox in the editor if needed (`Map.Hub`: L_Hub_Graybox),
 starts PIE, waits for the player, removes enemies, runs and ends PIE. Stop PIE before running. While working, run
 the area's tests; run the full suite once per prompt before the commit (see **Workflow update — faster test runs**).
 `UI.RoundHUD`, `Round.PhaseLoop`, `Round.ClearBonus`, `Map.TownLayout` and `Upgrades.DashCharge` run game time ×4 and
 `Upgrades.ExtraJump` ×3 (`SpeedUpWorld`). `Economy.HealthOrbs` also runs ×4. `Upgrades.FireRateAndMagnet` measures its shots at ×1 (throttling off) and
-runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLevels` run at ×4. `Weapons.HeldFire` runs at ×4, and ×16 for its slow-frame burst. `Upgrades.MoveSpeedSlideDash` measures at ×1 (throttling off) and `Upgrades.MoveSpeedCover` runs at ×3. `UI.RoundHUD` also shortens its HUD's banners. `Round.RollOver`, `Round.Breather`, `Round.RollOverPace` and `Round.ClearBonus` run at ×4 (Prompt 59).
+runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLevels` run at ×4. `Weapons.HeldFire` runs at ×4, and ×16 for its slow-frame burst. `Upgrades.MoveSpeedSlideDash` measures at ×1 (throttling off) and `Upgrades.MoveSpeedCover` runs at ×3. `UI.RoundHUD` also shortens its HUD's banners. `Round.RollOver`, `Round.Breather` and `Round.ClearBonus` run at ×4 (Prompt 59); since Prompt 60 `Round.RollOver` and `Round.Breather` also use shorter round timers on a settings copy, `Round.RollOverPace` runs at ×10 and `Enemies.DodgeableShots` at ×2. `Round.AliveCap100` and `Enemies.CorpseLimit` run at ×4.
 
 | Test | Checks |
 |---|---|
@@ -4289,12 +4406,15 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Upgrades.PowderKegChainEnds` | 34 stacks (102%), 8 frozen 10 HP cops in a line 2.5 m apart. One kill starts a chain that runs down the line and ends: all 8 die, exactly 8 blasts, nothing pending. The player (no god mode, 6 m from the first) is never hurt. Run stats record the Powder Keg damage. Game time ×4. |
 | `Art.PlayerMesh` | Prompt 56, in the town and then the hub: the player's mesh is `SK_LowPolyBody` on the same skeleton as before (`SK_Mannequin`), with `PA_Mannequin` and `ABP_Unarmed` running; six colour slots; bones `hand_r`, `head`, `spine_04`, `foot_l`; in the animated pose the head is 140–175 cm above the foot and `root` has scale 1 in the reference pose (the FBX unit-scale trap); two worn props (`SM_SkiMask` on `head`, `SM_LootBag` on `spine_04`), attached to the body, no collision, visible, the mask at the head and the bag more than 10 cm behind the chest. |
 | `Enemies.CopLooks` | Prompt 57: a still Beat Cop and Patrol Officer 6 m in front of the player. Each has its display name ("Beat Cop", "Patrol Officer"), wears `SK_LowPolyBody` with `ABP_Unarmed`, and has a dynamic material on each of the 6 slots made from that slot's `SlotMaterials` entry, with `TelegraphAmount` 0 at rest. Props: the cap on `head` (above the head) for both, the baton on `hand_r` for the Beat Cop; each attached to the body, no collision, visible, near its bone. Gun: none for the Beat Cop, `SM_PatrolCarbine` in the weapon's socket for the Patrol Officer, with the muzzle near it. Neither wears the robber's top or trousers, and the two tops differ. The Beat Cop's melee wind-up and the Patrol Officer's aim set `TelegraphAmount` 1 on every slot, the Patrol Officer's laser shows, and the glow goes back to 0 when they end. |
-| `Enemies.DodgeableShots` | Prompt 58, 45 m up over the town centre (no cover in the way unless placed), the player held still (flying) and Patrol Officers with their brains stopped: `DA_PatrolCarbine` 2,800 cm/s with a bolt mesh, material and impact effect; damage 7, burst 4 and the 0.4 s aim unchanged; the Patrol Officer `bRanged`, the Beat Cop not. With a spreadless copy of the Patrol Officer at 15, 20 and 25 m: no damage on the frame the shot is fired, the shot is one visible bolt at 2,800 cm/s, the first hit lands (distance − 80 cm) / 2,800 s later (±0.08 s; logs each flight time and how far a walking player moves meanwhile), and all 4 shots hit for 28. With the real carbine (spread) at 20 m and the player moved sideways at 900 cm/s every frame: 4 shots fired, none hit, no Health lost. A wall at 10 m stops all 4 (hit world), none reach the player. A Beat Cop at 10 m on the line: all 4 fly through it and hit the player, the cop untouched. `State.Invulnerable` (the dash's i-frames) with 2 shields: no Health lost and no shield used. 2 shields: two shots blocked, one shield each, the other two take 14. Second Wind at 5 Health: the player survives at 30% with it used up (the later shots hit the invulnerability). Paused with a shot in flight: it doesn't move or hit for 0.3 s real time, then lands after the unpause. A new run with a shot in flight: no enemy shot left. Game time ×1. |
+| `Enemies.DodgeableShots` | Prompt 58, 45 m up over the town centre (no cover in the way unless placed), the player held still (flying) and Patrol Officers with their brains stopped: `DA_PatrolCarbine` 2,800 cm/s with a bolt mesh, material and impact effect; damage 7, burst 4 and the 0.4 s aim unchanged; the Patrol Officer `bRanged`, the Beat Cop not. With a spreadless copy of the Patrol Officer at 15, 20 and 25 m: no damage on the frame the shot is fired, the shot is one visible bolt at 2,800 cm/s, the first hit lands (distance − 80 cm) / 2,800 s later (±0.08 s; logs each flight time and how far a walking player moves meanwhile), and all 4 shots hit for 28. With the real carbine (spread) at 20 m and the player moved sideways at 900 cm/s every frame: 4 shots fired, none hit, no Health lost. A wall at 10 m stops all 4 (hit world), none reach the player. A Beat Cop at 10 m on the line: all 4 fly through it and hit the player, the cop untouched. `State.Invulnerable` (the dash's i-frames) with 2 shields: no Health lost and no shield used. 2 shields: two shots blocked, one shield each, the other two take 14. Second Wind at 5 Health: the player survives at 30% with it used up (the later shots hit the invulnerability). Paused with a shot in flight: it doesn't move or hit for 0.3 s real time, then lands after the unpause. A new run with a shot in flight: no enemy shot left. Game time ×2 (×1 before Prompt 60). |
 | `Round.RangedCap` | Prompt 58: `DA_WaveSettings` MaxRangedShare 0.4, generated waves from round 6; rounds 6–30 for 10 seeds (250 purchases): none above 40% ranged, and none leaves budget a non-ranged enemy could use (or hit the size cap); ranged enemies still bought in over 200 of them; logs the highest share, rounds 6–15 before (no cap) and after for one seed, and each DT_Waves row's share (all at most 40%, not capped); round 7's real wave from the director (queued + telegraphing = its total) is at most 40% ranged. |
-| `Round.RollOver` | Prompt 59: DA_RoundSettings RollOverRemaining 3, window 20 s, gap 0.25–2 s (4 enemies 2 s, 13 enemies 20/13 s, 200 enemies 0.25 s). Round 5 killed as it arrives: round 6 starts exactly when round 5 is down to 3 (not before, not later), still Combat, round 5 still open; round 5's spawns one gap apart (±0.15 s). A hit while 5 and 6 are open counts to both; both pay their bonus once, at their own clear, without the no-damage part, with clear time from their own start and fast clear iff within their own limit; each round's kills = its wave and its cash = the sum of its enemies' CashValue (combo off); a save at each clear holding the balance. RollOverRemaining 0: rounds 3 and 4 never open together, round 4 starts at round 3's full clear. The alive cap (6) holds for two open rounds together and is reached. Death: GameOver, the open round closed without a clear, killing the leftovers pays nothing. Game time ×4. |
-| `Round.Breather` | Prompt 59: a breather after every 10 rounds, 10 s; rounds 10 and 20 are breather rounds, 9 and 11 aren't. Round 9 rolls into 10, 10 never into 11; once rounds 9 and 10 are cleared → Breather, still round 10, BreatherDuration left, HUD "BREATHER" and "Round 11 in …", no enemy count. During it: nothing spawns or telegraphs, no stats row, clear or bonus, no cash once the vacuum has landed; it lasts BreatherDuration (game time); then round 11 in Combat with exactly one new record and rounds cleared unchanged. The safety guard (2 s on a settings copy): round 20 ready after a kill → guard running, no roll-over; it clears the leftovers → Breather. Game time ×4. |
-| `Round.RollOverPace` | Prompt 59, a report: `gs.KillAll` once a game second from round 1's Combat until round 10 starts (logs the time); the empty time between rounds 1–6 (a round's clear to the next round's first enemy on the field), each less than the old 7.75 s; rounds 1–20: arrival time of the last enemy next to the fast-clear limit, flagging any shorter limit (logged). Game time ×4. |
+| `Round.RollOver` | Prompt 59: DA_RoundSettings RollOverRemaining 3, window 20 s, gap 0.25–2 s (4 enemies 2 s, 13 enemies 20/13 s, 200 enemies 0.25 s). Round 5 killed as it arrives: round 6 starts exactly when round 5 is down to 3 (not before, not later), still Combat, round 5 still open; round 5's spawns one gap apart (±0.15 s). A hit while 5 and 6 are open counts to both; both pay their bonus once, at their own clear, without the no-damage part, with clear time from their own start and fast clear iff within their own limit; each round's kills = its wave and its cash = the sum of its enemies' CashValue (combo off); a save at each clear holding the balance. RollOverRemaining 0: rounds 3 and 4 never open together, round 4 starts at round 3's full clear. The alive cap (6) holds for two open rounds together and is reached. Death: GameOver, the open round closed without a clear, killing the leftovers pays nothing. Game time ×4; since Prompt 60 the rounds run on a settings copy with a 5 s spawn window (max gap 0.5 s) after the asset's values are checked. |
+| `Round.Breather` | Prompt 59: a breather after every 10 rounds, 10 s; rounds 10 and 20 are breather rounds, 9 and 11 aren't. Round 9 rolls into 10, 10 never into 11; once rounds 9 and 10 are cleared → Breather, still round 10, BreatherDuration left, HUD "BREATHER" and "Round 11 in …", no enemy count. During it: nothing spawns or telegraphs, no stats row, clear or bonus, no cash once the vacuum has landed; it lasts BreatherDuration (game time); then round 11 in Combat with exactly one new record and rounds cleared unchanged. The safety guard (2 s on a settings copy): round 20 ready after a kill → guard running, no roll-over; it clears the leftovers → Breather. Game time ×4; since Prompt 60 a settings copy (5 s spawn window, 2.5 s breather) after the asset's 10 s is checked. |
+| `Round.RollOverPace` | Prompt 59, a report: `gs.KillAll` once a game second from round 1's Combat until round 10 starts (logs the time); the empty time between rounds 1–6 (a round's clear to the next round's first enemy on the field), each less than the old 7.75 s; rounds 1–20: arrival time of the last enemy next to the fast-clear limit, flagging any shorter limit (logged). Game time ×10 (×4 before Prompt 60). |
 | `Economy.HealthOrbsAllSources` | For each kind of player kill (own kill, Floating Gun, Razor Cards, Barbed Wire, a Powder Keg blast kill) in a fresh run: at drop chance 1 every kill drops an orb, at 0 none, and the damage is recorded under that source in run stats. Chance 0.3 in bulk: 60 own kills and a crowd killed by one Barbed Wire tick (5 Legendary picks) drop at about the same rate (23 of 60 and 16 of 50 in the run). Game time ×4. |
+| `Round.AliveCap100` | Prompt 60: `DA_WaveSettings` MaxAliveEnemies 100 and the cap in effect is 100. From round 21 on a settings copy (any kill rolls over; enemies arrive fast), one kill in each new round opens the next until three rounds are open, then nothing dies: alive + telegraphing never above 100 in any frame, three rounds open at once, exactly 100 alive (GameState too) for 2 s of game time, and the open rounds still have enemies waiting (logged: 250 in three rounds, 148 waiting). Game time ×4. |
+| `Round.BiggerWaves` | Prompt 60: `DA_WaveSettings` BudgetBase 5, BudgetPerRound 5, no curve, MaxAliveEnemies 100; DT_Waves rounds 1–5 still 4 / 6 / 8 / 10 / 13. Rounds 6–30 for 5 seeds: budget 5 + 5 × round, spent (nothing a Beat Cop could still buy left, or the size cap), at most 40% ranged, and bigger than the old budget's wave from the same round stream. Logs rounds 6–30 before / after: enemies, budget, ranged share and the most one round brings alive (capped). |
+| `Enemies.CorpseLimit` | Prompt 60: `DA_WaveSettings` MaxCorpses 20. 30 still cops; while alive: no body-mesh collision, its bones skip the physics update, no pose off screen, animation rate optimization on, no capsule overlap events, the capsule blocks Visibility. Killed one a frame: the first corpse simulates with collision again and its pelvis body starts within 1 m of where the cop stood; never more than 20 corpses, 20 at the end, the limit removed 10, and those are exactly the 10 oldest; the rest go after CorpseLifetime. Game time ×4. |
 
 All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWith:BanditBaller")`.
 
@@ -4340,10 +4460,10 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   | 3 | 6 + 2 | 2.0 s |
   | 4 | 7 + 3 | 2.0 s |
   | 5 | 9 + 4 | 1.54 s |
-- **Generated waves** (DA_WaveSettings): Budget = 5 + 2.5 × round (BudgetCurve empty), e.g. round 8 = 25,
-  round 15 = 42.5. MaxRangedShare 0.4 (Prompt 58: at most 40% of a generated wave ranged, by count), MaxGeneratedEnemies 150,
-  one at a time like every round (the batch fields were removed in Prompt 59), MaxAliveEnemies 30 (every open round together), telegraph 0.75 s
-  (M_EnemyLaser). Pool: BeatCop, PatrolOfficer.
+- **Generated waves** (DA_WaveSettings): Budget = 5 + 5 × round since Prompt 60 (was 5 + 2.5 × round; BudgetCurve empty),
+  e.g. round 8 = 45, round 15 = 80, round 27 = 140 (about 100 cops). MaxRangedShare 0.4 (Prompt 58: at most 40% of a generated wave ranged, by count), MaxGeneratedEnemies 150,
+  one at a time like every round (the batch fields were removed in Prompt 59), MaxAliveEnemies 100 since Prompt 60 (was 30; every open round together),
+  MaxCorpses 20 (Prompt 60), telegraph 0.75 s (M_EnemyLaser). Pool: BeatCop, PatrolOfficer.
 - **Difficulty curve** (DA_DifficultyCurve, linear, extrapolates past 30):
 
   | Round | 1 | 5 | 10 | 20 | 30 |
@@ -4485,8 +4605,22 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   (53). M2d (Prompts 55–69) is next, then M3.
 - M2d (designed in Prompt 54) is only started: the player is the robber (Prompt 56) and the enemies are cops in
   Blender models (Prompt 57) whose shots are dodgeable bolts with a 40% ranged cap (Prompt 58), and rounds roll over
-  (Prompt 59), but the code still has engine-shape placeholders for weapons, pickups and cover, an alive cap of 30, only
-  the two enemy types, and the 300 × 300 m town.
+  (Prompt 59), and up to 100 are alive at once (Prompt 60), but the code still has engine-shape placeholders for weapons,
+  pickups and cover, only the two enemy types, and the 300 × 300 m town.
+- One hundred enemies (Prompt 60):
+  - The biggest single cost left with a crowd is the Barbed Wire hit effect: the RadialBurst placeholder has a ribbon
+    trail built on the CPU, about 1.9 ms for the ~270 bursts alive with 40 cops in the ring. A cheaper hit effect (the
+    art pass, M5) would remove it; it wasn't changed here because it changes the look.
+  - The frame numbers are from PIE in the editor with a 120 fps cap (frames under 8.33 ms read 8.33). A packaged build
+    has no editor overhead (Slate alone is ~2 ms of game thread in PIE).
+  - The first measuring session (a freshly started editor) read much higher (100 cops with weapons 21.7 ms, GPU 6.4 ms);
+    a restarted session read 15.5 ms with the same setup and GPU 3.8 ms. Only numbers from one session are compared.
+  - From round 26 one round alone has about 100 cops; with overlapping rounds and slow kills the cap is reached earlier
+    (`Round.AliveCap100`: 250 cops in three open rounds, 100 alive).
+  - Waves are now about twice as big for the same flat cash and XP per cop, so income per round roughly doubles from
+    round 6. Balance (and the M3 prices) comes from the M2d checkpoint (69).
+  - Skipping the pose off screen gained nothing measurable (cops behind the camera still cast shadows into view, and most
+    of a crowd is on screen); it is kept because it costs nothing and helps when the crowd is spread out.
 - Roll-over rounds (Prompt 59):
   - The full suite went from 180 s to 250 s: the three new round tests take 54 s together (`Round.RollOverPace` 27 s,
     it plays rounds 1–9 at ×4).
@@ -4938,7 +5072,8 @@ and round flow (M2d)** for the decisions and open questions). Each prompt update
 57. ~~**Rename the enemies and give them cop models.**~~ Done (see Prompt 57).
 58. ~~**Dodgeable ranged shots and the ranged cap.**~~ Done (see Prompt 58).
 59. ~~**Roll-over rounds and the breather.**~~ Done (see Prompt 59).
-60. **One hundred enemies:** the alive cap to 100 at 60 fps on the user's PC (profile and optimize).
+60. ~~**One hundred enemies:** the alive cap to 100 at 60 fps on the user's PC (profile and optimize).~~ Done (see
+    Prompt 60).
 61. **Rusher** (unlocks in round 4).
 62. **Shield** (round 6).
 63. **Heavy** (round 10).
@@ -5073,6 +5208,14 @@ Decided (user):
   - M2d ends with a checkpoint whose income numbers set the M3 prices.
 
 Still open from M2: more DA_LevelRewards entries.
+
+## Later — thousands of enemies
+
+Not designed yet; noted in Prompt 60. The long-term goal is thousands of enemies at once (like Megabonk). Today every
+enemy is a full character (CharacterMovement, a StateTree AI controller with sight, an ability system, a skeletal mesh
+with animation), and 100 of them cost about 6.7 ms of game thread in PIE. Thousands need a lighter kind of enemy for the
+common types (for example Mass entities with instanced or vertex-animated meshes and simple steering), with full
+characters kept for the few special ones. Nothing about it is decided.
 
 ## Later — co-op (M6)
 

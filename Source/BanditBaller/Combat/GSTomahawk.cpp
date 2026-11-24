@@ -1,6 +1,7 @@
 // BanditBaller
 
 #include "GSTomahawk.h"
+#include "GSEffects.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Components/StaticMeshComponent.h"
@@ -239,7 +240,7 @@ bool AGSTomahawk::TryHit(AActor* Actor, const FVector& Where, TArray<TWeakObject
 	// Placeholder hit effect (local: single-player). TODO(co-op): play it on every machine.
 	if (Params.HitEffect)
 	{
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), Params.HitEffect, Where, FRotator::ZeroRotator, Params.HitEffectScale);
+		GSEffects::SpawnOneShot(GetWorld(), Params.HitEffect, Where, FRotator::ZeroRotator, Params.HitEffectScale);
 	}
 	return true;
 }

@@ -41,8 +41,9 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Budget", meta = (ClampMin = "0"))
 	float BudgetBase = 5.f;
 
+	/** Prompt 60: 5 (was 2.5), so the waves are big enough for the alive cap of 100 to matter. Placeholder. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Budget", meta = (ClampMin = "0"))
-	float BudgetPerRound = 2.5f;
+	float BudgetPerRound = 5.f;
 
 	/** Optional: budget by round (X = round, Y = budget). Overrides Base + PerRound when it has keys. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Budget")
@@ -66,7 +67,11 @@ public:
 
 	/** Max enemies alive at once, every open round together (spawns showing their telegraph count too); extra spawns wait. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Limits", meta = (ClampMin = "1"))
-	int32 MaxAliveEnemies = 30;
+	int32 MaxAliveEnemies = 100;
+
+	/** At most this many ragdoll corpses at a time; when another enemy dies the oldest corpse is removed (0 = no limit). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Limits", meta = (ClampMin = "0"))
+	int32 MaxCorpses = 20;
 
 	/** Ground marker shown at a spawn point this long before the enemy appears (0 = spawn instantly). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Telegraph", meta = (ClampMin = "0", Units = "s"))

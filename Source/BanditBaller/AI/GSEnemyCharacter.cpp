@@ -22,6 +22,7 @@
 #include "Engine/StaticMesh.h"
 #include "GSWeaponData.h"
 #include "GSWeaponDebug.h"
+#include "GSWaveDirector.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Net/UnrealNetwork.h"
@@ -155,6 +156,22 @@ void AGSEnemyCharacter::ApplyEnemyDataVisuals()
 
 	// Worn / held props (cap, baton): no collision, built like the player's (FGSMeshAttachment).
 	GSMeshAttachments::Apply(this, MeshComp, EnemyData->MeshAttachments, MeshAttachmentComponents);
+
+	// Performance (Prompt 60). The ragdoll restores the mesh's collision at death (OnDeathStarted).
+	if (EnemyData->bMeshCollisionOnlyWhenDead)
+	{
+		MeshComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		MeshComp->KinematicBonesUpdateType = EKinematicBonesUpdateToPhysics::SkipAllBones;
+	}
+	if (EnemyData->bSkipPoseWhenOffScreen)
+	{
+		MeshComp->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::OnlyTickPoseWhenRendered;
+	}
+	MeshComp->bEnableUpdateRateOptimizations = EnemyData->bAnimUpdateRateOptimizations;
+	if (EnemyData->bNoCapsuleOverlapEvents)
+	{
+		GetCapsuleComponent()->SetGenerateOverlapEvents(false);
+	}
 
 	if (EnemyData->HealthBarWidgetClass)
 	{
@@ -382,7 +399,16 @@ void AGSEnemyCharacter::OnDeathStarted(AActor* DeadActor, AActor* Killer)
 	// Ragdoll; the capsule stops blocking so players can walk through the body.
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	USkeletalMeshComponent* MeshComp = GetMesh();
+	// A body that was off screen may have skipped its pose; the ragdoll starts from the current one.
+	MeshComp->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+	MeshComp->KinematicBonesUpdateType = EKinematicBonesUpdateToPhysics::SkipSimulatingBones;
 	MeshComp->SetCollisionProfileName(TEXT("Ragdoll"));
+	if (EnemyData && EnemyData->bMeshCollisionOnlyWhenDead)
+	{
+		// The bodies didn't follow the animation while alive: rebuild them at the current pose before simulating.
+		MeshComp->RefreshBoneTransforms();
+		MeshComp->RecreatePhysicsState();
+	}
 	MeshComp->SetAllBodiesSimulatePhysics(true);
 	MeshComp->SetSimulatePhysics(true);
 	MeshComp->WakeAllRigidBodies();
@@ -390,6 +416,15 @@ void AGSEnemyCharacter::OnDeathStarted(AActor* DeadActor, AActor* Killer)
 	if (HasAuthority())
 	{
 		SetLifeSpan(EnemyData ? FMath::Max(EnemyData->CorpseLifetime, 0.1f) : 5.f);
+
+		// At most DA_WaveSettings MaxCorpses ragdolls at a time; the oldest go first.
+		if (const AGSGameMode* GameMode = GetWorld()->GetAuthGameMode<AGSGameMode>())
+		{
+			if (UGSWaveDirector* Director = GameMode->GetWaveDirector())
+			{
+				Director->RegisterCorpse(this);
+			}
+		}
 	}
 }
 

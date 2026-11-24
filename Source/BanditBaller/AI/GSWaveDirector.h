@@ -221,6 +221,16 @@ public:
 	/** Share of Enemies that is ranged (0..1; 0 for an empty list). */
 	static float GetRangedShare(const TArray<UGSEnemyData*>& Enemies);
 
+	/**
+	 * Server: Enemy just became a ragdoll corpse (any enemy, wave or not). Keeps at most DA_WaveSettings MaxCorpses: the
+	 * oldest corpses are destroyed first.
+	 */
+	void RegisterCorpse(AGSEnemyCharacter* Enemy);
+
+	/** Ragdoll corpses in the world now (tests), and how many the limit removed early this session. */
+	int32 GetCorpseCount() const;
+	int32 GetCorpsesRemovedByLimit() const { return CorpsesRemovedByLimit; }
+
 	/** A round is down to its roll-over point (see IsRollOverReady). */
 	FGSOnRoundWaveEvent OnRollOverReady;
 
@@ -272,6 +282,10 @@ private:
 	/** The last round that finished (the "current wave" getters with no round open). */
 	UPROPERTY(Transient)
 	FGSRoundWave LastFinished;
+
+	/** Corpses oldest first. */
+	TArray<TWeakObjectPtr<AGSEnemyCharacter>> Corpses;
+	int32 CorpsesRemovedByLimit = 0;
 
 	TArray<int32> QueuedRollOvers;
 	TArray<int32> QueuedClears;

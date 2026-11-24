@@ -82,6 +82,37 @@ const UGSRoundSettings& UGSWaveDirector::GetRoundSettings() const
 	return GameMode ? GameMode->GetRoundSettings() : *GetDefault<UGSRoundSettings>();
 }
 
+void UGSWaveDirector::RegisterCorpse(AGSEnemyCharacter* Enemy)
+{
+	if (!Enemy)
+	{
+		return;
+	}
+	Corpses.RemoveAll([](const TWeakObjectPtr<AGSEnemyCharacter>& Corpse) { return !Corpse.IsValid() || Corpse->IsActorBeingDestroyed(); });
+	Corpses.AddUnique(Enemy);
+
+	const int32 MaxCorpses = GetSettings().MaxCorpses;
+	while (MaxCorpses > 0 && Corpses.Num() > MaxCorpses)
+	{
+		if (AGSEnemyCharacter* Oldest = Corpses[0].Get())
+		{
+			Oldest->Destroy();
+			++CorpsesRemovedByLimit;
+		}
+		Corpses.RemoveAt(0);
+	}
+}
+
+int32 UGSWaveDirector::GetCorpseCount() const
+{
+	int32 Count = 0;
+	for (const TWeakObjectPtr<AGSEnemyCharacter>& Corpse : Corpses)
+	{
+		Count += (Corpse.IsValid() && !Corpse->IsActorBeingDestroyed()) ? 1 : 0;
+	}
+	return Count;
+}
+
 int32 UGSWaveDirector::GetMaxAlive() const
 {
 	const int32 Override = CVarWaveMaxAlive.GetValueOnGameThread();

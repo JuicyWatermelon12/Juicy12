@@ -202,7 +202,29 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Reward", meta = (ClampMin = "0"))
 	int32 XPValue = 10;
 
-	/** Seconds the ragdoll stays before the actor is destroyed. */
+	/** Seconds the ragdoll stays before the actor is destroyed (DA_WaveSettings MaxCorpses can remove it sooner). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Reward", meta = (ClampMin = "0", Units = "s"))
 	float CorpseLifetime = 5.f;
+
+	// --- Performance (Prompt 60: 100 alive). None of these changes how the enemy behaves or looks up close. ---
+
+	/**
+	 * While alive, the body mesh has no collision and its physics bodies don't follow the animation. The capsule takes
+	 * every hit already (player shots trace Visibility, which the CharacterMesh profile ignores); the ragdoll gets its
+	 * bodies from the current pose at death.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Performance")
+	bool bMeshCollisionOnlyWhenDead = true;
+
+	/** Off screen, skip the pose update (nothing is drawn; gameplay doesn't read the body's bones). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Performance")
+	bool bSkipPoseWhenOffScreen = true;
+
+	/** Unreal's animation update rate optimization: bodies that are small on screen (far away) update less often. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Performance")
+	bool bAnimUpdateRateOptimizations = true;
+
+	/** The capsule sends no overlap events (nothing listens to an enemy's overlaps; melee hits use a query). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Performance")
+	bool bNoCapsuleOverlapEvents = true;
 };

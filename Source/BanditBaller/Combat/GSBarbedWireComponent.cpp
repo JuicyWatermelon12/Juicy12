@@ -1,6 +1,7 @@
 // BanditBaller
 
 #include "GSBarbedWireComponent.h"
+#include "GSEffects.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "BanditBaller.h"
@@ -307,7 +308,7 @@ void UGSBarbedWireComponent::DamageTick()
 		// Placeholder hit effect (local: single-player). TODO(co-op): play it on every machine.
 		if (Settings->HitEffect)
 		{
-			UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), Settings->HitEffect, Where, FRotator::ZeroRotator, Settings->HitEffectScale);
+			GSEffects::SpawnOneShot(GetWorld(), Settings->HitEffect, Where, FRotator::ZeroRotator, Settings->HitEffectScale);
 		}
 	}
 	UE_LOG(LogBanditBaller, Verbose, TEXT("[wire] tick %d: %d enemies inside, %.1f damage each"), Ticks, LastTickHits, Damage);

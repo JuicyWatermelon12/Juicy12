@@ -13790,7 +13790,9 @@ bool FGSEnemiesDodgeableShotsTest::RunTest(const FString& Parameters)
 	BeginPIE(this);
 	Step([this, S]()
 	{
-		SpeedUpWorld(1.f); // flight times are measured in game time; editor throttling off
+		// Flight times are measured in game time, so x2 (Prompt 60; was x1) checks the same: a frame is about 0.02 s of game
+		// time, well inside the 0.08 s tolerance.
+		SpeedUpWorld(2.f);
 		GetGameMode()->SetRoundTimerPaused(true);
 		GetGameMode()->SetHealthOrbDropChanceOverride(0.f);
 		UGSDebugLibrary::SetGodMode(GetPC(), false);
@@ -14268,6 +14270,12 @@ bool FGSRoundRollOverTest::RunTest(const FString& Parameters)
 		*PayoutsRef = CountPayouts();
 		S->SavesBefore = GameMode->GetRoundClearSaves();
 
+		// Test speed (Prompt 60): the same rules on shorter timers, set on this test's own settings copy. Every check below
+		// reads the copy (GetRoundSettings), so it checks the same thing: a round's enemies arrive over a 5 s window here.
+		UGSRoundSettings* Fast = OverrideRoundSettings(Settings.RollOverRemaining);
+		Fast->RoundSpawnWindow = 5.f;
+		Fast->MaxSpawnGap = 0.5f;
+
 		// Round 5 (13 enemies, DT_Waves), killed as it arrives.
 		GameMode->SetRound(5);
 		GameMode->AdvancePhase(); // Combat
@@ -14275,7 +14283,7 @@ bool FGSRoundRollOverTest::RunTest(const FString& Parameters)
 		if (TestNotNull(TEXT("Round 5 open"), Wave5))
 		{
 			S->Gap5 = Wave5->Gap;
-			TestEqual(TEXT("Round 5's gap = clamp(window / size)"), Wave5->Gap, Settings.GetSpawnGap(Wave5->Total), 0.001f);
+			TestEqual(TEXT("Round 5's gap = clamp(window / size)"), Wave5->Gap, GameMode->GetRoundSettings().GetSpawnGap(Wave5->Total), 0.001f);
 			TArray<TObjectPtr<UGSEnemyData>> Queue;
 			GameMode->GetWaveDirector()->BuildRoundWave(5, Queue);
 			S->Round5XP = SumWaveXP(Queue);
@@ -14497,6 +14505,12 @@ bool FGSRoundBreatherTest::RunTest(const FString& Parameters)
 		RemoveAllEnemies(GetPIEWorld());
 		UGSDebugLibrary::SetGodMode(GetPC(), true);
 		GetPlayerASC()->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 0.f);
+		// Test speed (Prompt 60): the asset's values are checked above; from here the same rules run on shorter timers set on
+		// this test's settings copy (a 5 s spawn window, a 2.5 s breather), and every check reads the copy.
+		UGSRoundSettings* Fast = OverrideRoundSettings(Settings.RollOverRemaining);
+		Fast->RoundSpawnWindow = 5.f;
+		Fast->MaxSpawnGap = 0.5f;
+		Fast->BreatherDuration = 2.5f;
 		GameMode->SetRound(9);
 		GameMode->AdvancePhase(); // Combat: round 9
 	});
@@ -14609,7 +14623,9 @@ bool FGSRoundRollOverPaceTest::RunTest(const FString& Parameters)
 		{
 			return;
 		}
-		SpeedUpWorld(4.f);
+		// A report on the real pacing, so the real timers stay; it runs at x10 instead of x4 (Prompt 60). What it measures
+		// is game time, and its one check (less empty time than the old 7.75 s) has seconds to spare.
+		SpeedUpWorld(10.f);
 		GameMode->RestartRunWithSeed(5903);
 		RemoveAllEnemies(GetPIEWorld());
 		UGSDebugLibrary::SetGodMode(GetPC(), true);
@@ -14697,6 +14713,343 @@ bool FGSRoundRollOverPaceTest::RunTest(const FString& Parameters)
 				Limit < Arrival ? TEXT("  <-- LIMIT SHORTER THAN THE ARRIVAL") : TEXT(""));
 		}
 		AddInfo(TEXT("[pace] arrival vs fast-clear limit:") + ArrivalLines);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// One hundred enemies (Prompt 60)
+// ---------------------------------------------------------------------------
+
+namespace GSHundredTests
+{
+	/** Kill one living enemy of Round as the player; false if it has none alive. */
+	bool KillOneOfRound(int32 Round)
+	{
+		for (TActorIterator<AGSEnemyCharacter> It(GetPIEWorld()); It; ++It)
+		{
+			const UGSHealthComponent* Health = It->GetHealthComponent();
+			if (It->GetWaveRound() == Round && Health && !Health->IsDead())
+			{
+				ApplyDamage(It->GetAbilitySystemComponent(), 1000000.f, GetPlayerASC());
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Budget points a wave spends (SpawnCost of each enemy). */
+	float SpentBudget(const TArray<TObjectPtr<UGSEnemyData>>& Wave)
+	{
+		float Spent = 0.f;
+		for (const UGSEnemyData* Data : Wave)
+		{
+			Spent += Data ? Data->SpawnCost : 0.f;
+		}
+		return Spent;
+	}
+
+	float RangedShareOf(const TArray<TObjectPtr<UGSEnemyData>>& Wave)
+	{
+		TArray<UGSEnemyData*> Plain;
+		for (UGSEnemyData* Data : Wave)
+		{
+			Plain.Add(Data);
+		}
+		return UGSWaveDirector::GetRangedShare(Plain);
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRoundAliveCap100Test, "BanditBaller.Round.AliveCap100", GSTests::TestFlags)
+bool FGSRoundAliveCap100Test::RunTest(const FString& Parameters)
+{
+	using namespace GSHundredTests;
+	struct FCapState
+	{
+		bool bCapBroken = false;
+		int32 MaxOpen = 0;
+		int32 MaxAliveSeen = 0;
+		TSet<int32> KilledFrom;
+	};
+	TSharedRef<FCapState> S = MakeShared<FCapState>();
+
+	BeginPIE(this);
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		if (!TestNotNull(TEXT("AGSGameMode"), GameMode))
+		{
+			return;
+		}
+		UGSWaveDirector* Director = GameMode->GetWaveDirector();
+		IConsoleManager::Get().FindConsoleVariable(TEXT("gs.Wave.MaxAlive"))->Set(0);
+		TestEqual(TEXT("DA_WaveSettings: MaxAliveEnemies 100"), Director->GetSettings().MaxAliveEnemies, 100);
+		TestEqual(TEXT("The cap in effect is 100"), Director->GetMaxAlive(), 100);
+
+		SpeedUpWorld(4.f);
+		GameMode->RestartRunWithSeed(6001);
+		RemoveAllEnemies(GetPIEWorld());
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		GetPlayerASC()->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 0.f);
+		// Any kill rolls the newest round over (so rounds overlap at once), and the enemies arrive fast (test timers).
+		UGSRoundSettings* Fast = OverrideRoundSettings(100000);
+		Fast->RoundSpawnWindow = 2.f;
+		Fast->MinSpawnGap = 0.05f;
+		Fast->MaxSpawnGap = 0.1f;
+		GameMode->SetRound(21); // not a breather round (20 is): 21 rolls into 22, 22 into 23
+		GameMode->AdvancePhase(); // Combat: round 21
+	});
+	// One kill in each new round opens the next, up to three open rounds; then nothing dies and the cap holds them back.
+	WaitUntil(this, TEXT("three open rounds at the cap of 100"), [S]()
+	{
+		const UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
+		const int32 Newest = Director->GetNewestRound();
+		if (Director->GetActiveRounds().Num() < 3 && !S->KilledFrom.Contains(Newest) && KillOneOfRound(Newest))
+		{
+			S->KilledFrom.Add(Newest);
+		}
+		S->bCapBroken |= Director->GetAlive() + Director->GetPending() > Director->GetMaxAlive();
+		S->MaxOpen = FMath::Max(S->MaxOpen, Director->GetActiveRounds().Num());
+		S->MaxAliveSeen = FMath::Max(S->MaxAliveSeen, Director->GetAlive());
+		return Director->GetActiveRounds().Num() >= 3 && Director->GetAlive() == Director->GetMaxAlive();
+	}, 60.0);
+	// Two more seconds of game time at the cap, checked every frame.
+	TSharedRef<double> End = MakeShared<double>(-1.0);
+	WaitUntil(this, TEXT("2 s at the cap"), [S, End]()
+	{
+		const UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
+		S->bCapBroken |= Director->GetAlive() + Director->GetPending() > Director->GetMaxAlive();
+		S->MaxAliveSeen = FMath::Max(S->MaxAliveSeen, Director->GetAlive());
+		const double Now = GetPIEWorld()->GetTimeSeconds();
+		if (*End < 0.0)
+		{
+			*End = Now + 2.0;
+		}
+		return Now >= *End;
+	}, 30.0);
+	Step([this, S]()
+	{
+		UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
+		int32 Waiting = 0;
+		int32 Total = 0;
+		for (const FGSRoundWave& Wave : Director->GetActiveRounds())
+		{
+			Waiting += Wave.Queue.Num();
+			Total += Wave.Total;
+		}
+		TestTrue(*FString::Printf(TEXT("Three rounds open at once (%d)"), S->MaxOpen), S->MaxOpen >= 3);
+		TestFalse(TEXT("Alive + telegraphing never above 100, every round together"), S->bCapBroken);
+		TestEqual(TEXT("100 alive"), Director->GetAlive(), 100);
+		TestEqual(TEXT("Never more than 100 alive"), S->MaxAliveSeen, 100);
+		TestTrue(*FString::Printf(TEXT("The cap holds enemies back (%d of the open rounds' %d still waiting)"), Waiting, Total), Waiting > 0);
+		TestEqual(TEXT("The GameState shows 100 alive"), GetGameState()->GetWaveEnemiesAlive(), 100);
+		AddInfo(FString::Printf(TEXT("[wave] %d rounds open, %d enemies in them, 100 alive, %d waiting"), Director->GetActiveRounds().Num(), Total, Waiting));
+		Director->StopAll(true);
+		RestoreWorldSpeed();
+	});
+	EndPIE();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSRoundBiggerWavesTest, "BanditBaller.Round.BiggerWaves", GSTests::TestFlags)
+bool FGSRoundBiggerWavesTest::RunTest(const FString& Parameters)
+{
+	using namespace GSHundredTests;
+	BeginPIE(this);
+	Step([this]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		if (!TestNotNull(TEXT("AGSGameMode"), GameMode))
+		{
+			return;
+		}
+		GameMode->SetRoundTimerPaused(true);
+		UGSWaveDirector* Director = GameMode->GetWaveDirector();
+		const UGSWaveSettings& Settings = Director->GetSettings();
+		TestEqual(TEXT("DA_WaveSettings: BudgetBase 5"), Settings.BudgetBase, 5.f);
+		TestEqual(TEXT("DA_WaveSettings: BudgetPerRound 5 (was 2.5)"), Settings.BudgetPerRound, 5.f);
+		TestEqual(TEXT("DA_WaveSettings: no budget curve"), Settings.BudgetCurve.GetRichCurveConst()->GetNumKeys(), 0);
+		TestEqual(TEXT("DA_WaveSettings: MaxAliveEnemies 100 (was 30)"), Settings.MaxAliveEnemies, 100);
+		const int32 RollOver = GameMode->GetRoundSettings().RollOverRemaining;
+
+		// DT_Waves rounds 1-5 are unchanged.
+		const int32 TableSizes[] = { 4, 6, 8, 10, 13 };
+		for (int32 Round = 1; Round <= 5; ++Round)
+		{
+			TArray<TObjectPtr<UGSEnemyData>> Wave;
+			Director->BuildRoundWave(Round, Wave);
+			TestEqual(*FString::Printf(TEXT("DT_Waves round %d: %d enemies, as before"), Round, TableSizes[Round - 1]), Wave.Num(), TableSizes[Round - 1]);
+		}
+
+		float CheapestMelee = TNumericLimits<float>::Max();
+		for (const UGSEnemyData* Data : Settings.EnemyPool)
+		{
+			if (Data && !Data->bRanged)
+			{
+				CheapestMelee = FMath::Min(CheapestMelee, Data->SpawnCost);
+			}
+		}
+
+		// Rounds 6-30, five seeds: the budget is 5 + 5 x round and is spent, at most 40% ranged, bigger than the old waves.
+		FString Table;
+		for (int32 Seed = 1; Seed <= 5; ++Seed)
+		{
+			GameMode->RestartRunWithSeed(6100 + Seed);
+			for (int32 Round = 6; Round <= 30; ++Round)
+			{
+				const float Budget = Settings.GetBudget(Round);
+				TestEqual(*FString::Printf(TEXT("Round %d: budget 5 + 5 x round"), Round), Budget, 5.f + 5.f * Round, 0.001f);
+				TArray<TObjectPtr<UGSEnemyData>> Wave;
+				Director->BuildRoundWave(Round, Wave);
+				const float Spent = SpentBudget(Wave);
+				if (Spent > Budget + 0.001f || (Wave.Num() < Settings.MaxGeneratedEnemies && Budget - Spent >= CheapestMelee))
+				{
+					AddError(FString::Printf(TEXT("Seed %d round %d: spent %.1f of %.1f"), 6100 + Seed, Round, Spent, Budget));
+				}
+				const float Share = RangedShareOf(Wave);
+				if (Share > Settings.MaxRangedShare + 0.0001f)
+				{
+					AddError(FString::Printf(TEXT("Seed %d round %d: %.0f%% ranged, above the 40%% cap"), 6100 + Seed, Round, Share * 100.f));
+				}
+
+				// The old budget (5 + 2.5 x round), bought the same way from the same round stream.
+				FRandomStream Stream = UGSRunRandom::MakeRoundStream(GetPC(), Round);
+				TArray<UGSEnemyData*> Old;
+				UGSWaveDirector::PurchaseWaveFromStream(Stream, Settings.EnemyPool, 5.f + 2.5f * Round, Round, Settings.MaxGeneratedEnemies, Old, nullptr, Settings.MaxRangedShare);
+				TestTrue(*FString::Printf(TEXT("Seed %d round %d: bigger than before (%d vs %d)"), 6100 + Seed, Round, Wave.Num(), Old.Num()), Wave.Num() > Old.Num());
+
+				// Highest alive at once if nothing dies while the round arrives: its wave plus the RollOverRemaining left from
+				// the round before, capped by the alive cap (30 before, 100 now).
+				if (Seed == 1)
+				{
+					const int32 PeakBefore = FMath::Min(30, Old.Num() + RollOver);
+					const int32 PeakAfter = FMath::Min(Settings.MaxAliveEnemies, Wave.Num() + RollOver);
+					Table += FString::Printf(TEXT("\n  round %2d: before %2d enemies (budget %5.1f), up to %2d alive%s | after %3d enemies (budget %5.1f, %2.0f%% ranged), up to %3d alive%s"),
+						Round, Old.Num(), 5.f + 2.5f * Round, PeakBefore, PeakBefore == 30 ? TEXT(" (cap)") : TEXT("      "),
+						Wave.Num(), Budget, Share * 100.f, PeakAfter, PeakAfter == Settings.MaxAliveEnemies ? TEXT(" (cap)") : TEXT(""));
+				}
+			}
+		}
+		AddInfo(TEXT("[wave] generated waves, seed 6101 (\"up to N alive\": nothing dies while the round arrives, plus the 3 left before it):") + Table);
+	});
+	EndPIE();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSEnemiesCorpseLimitTest, "BanditBaller.Enemies.CorpseLimit", GSTests::TestFlags)
+bool FGSEnemiesCorpseLimitTest::RunTest(const FString& Parameters)
+{
+	struct FCorpseState
+	{
+		TArray<TWeakObjectPtr<AGSEnemyCharacter>> Cops;
+		TArray<FVector> Where;
+		int32 Next = 0;
+		int32 RemovedBefore = 0;
+		int32 MostCorpses = 0;
+		bool bRagdollChecked = false;
+	};
+	TSharedRef<FCorpseState> S = MakeShared<FCorpseState>();
+
+	BeginPIE(this);
+	Step([this, S]()
+	{
+		AGSGameMode* GameMode = GetGameMode();
+		if (!TestNotNull(TEXT("AGSGameMode"), GameMode))
+		{
+			return;
+		}
+		SpeedUpWorld(4.f);
+		GameMode->SetRoundTimerPaused(true);
+		GameMode->SetHealthOrbDropChanceOverride(0.f);
+		UGSDebugLibrary::SetGodMode(GetPC(), true);
+		GetPlayerASC()->SetNumericAttributeBase(UGSAttributeSet::GetXPGainAttribute(), 0.f);
+		RemoveAllEnemies(GetPIEWorld());
+		UGSWaveDirector* Director = GameMode->GetWaveDirector();
+		TestEqual(TEXT("DA_WaveSettings: MaxCorpses 20"), Director->GetSettings().MaxCorpses, 20);
+		S->RemovedBefore = Director->GetCorpsesRemovedByLimit();
+
+		// 30 still cops in a 6 x 5 grid in front of the player.
+		const FVector Feet = GetPlayer()->GetActorLocation() - FVector(0.f, 0.f, GetPlayer()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+		for (int32 Index = 0; Index < 30; ++Index)
+		{
+			const FVector Location = Feet + FVector(500.f + (Index % 6) * 160.f, (Index / 6 - 2) * 160.f, 0.f);
+			AGSEnemyCharacter* Cop = SpawnFrozenCop(Location);
+			S->Cops.Add(Cop);
+			S->Where.Add(Cop ? Cop->GetActorLocation() : Location);
+		}
+		TestEqual(TEXT("30 cops"), CountLivingEnemies(), 30);
+
+		// While alive (Prompt 60): the capsule takes the hits; the body mesh has no collision and no physics updates.
+		if (AGSEnemyCharacter* Cop = S->Cops[0].Get())
+		{
+			const USkeletalMeshComponent* Mesh = Cop->GetMesh();
+			TestTrue(TEXT("Alive: the body mesh has no collision"), Mesh->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
+			TestTrue(TEXT("Alive: its physics bodies don't follow the animation"), Mesh->KinematicBonesUpdateType == EKinematicBonesUpdateToPhysics::SkipAllBones);
+			TestTrue(TEXT("Alive: off screen, no pose update"), Mesh->VisibilityBasedAnimTickOption == EVisibilityBasedAnimTickOption::OnlyTickPoseWhenRendered);
+			TestTrue(TEXT("Alive: animation rate optimization on"), Mesh->bEnableUpdateRateOptimizations);
+			TestFalse(TEXT("Alive: no capsule overlap events"), Cop->GetCapsuleComponent()->GetGenerateOverlapEvents());
+			TestTrue(TEXT("Alive: the capsule blocks the player's shots (Visibility)"), Cop->GetCapsuleComponent()->GetCollisionResponseToChannel(ECC_Visibility) == ECR_Block);
+		}
+	});
+	// Kill them one a frame, oldest first; after every kill there are at most 20 corpses.
+	WaitUntil(this, TEXT("30 cops killed one at a time"), [this, S]()
+	{
+		UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
+		if (S->Next < S->Cops.Num())
+		{
+			if (AGSEnemyCharacter* Cop = S->Cops[S->Next].Get())
+			{
+				ApplyDamage(Cop->GetAbilitySystemComponent(), 1000000.f, GetPlayerASC());
+			}
+			++S->Next;
+			S->MostCorpses = FMath::Max(S->MostCorpses, Director->GetCorpseCount());
+		}
+		// The first corpse, a frame after its death: a ragdoll that starts from where the cop stood.
+		if (!S->bRagdollChecked && S->Next >= 2)
+		{
+			S->bRagdollChecked = true;
+			if (AGSEnemyCharacter* First = S->Cops[0].Get())
+			{
+				USkeletalMeshComponent* Mesh = First->GetMesh();
+				TestTrue(TEXT("Dead: the body simulates (ragdoll)"), Mesh->IsSimulatingPhysics());
+				TestTrue(TEXT("Dead: the body has collision again"), Mesh->GetCollisionEnabled() == ECollisionEnabled::QueryAndPhysics);
+				const FBodyInstance* Pelvis = Mesh->GetBodyInstance(TEXT("pelvis"));
+				const double Off = Pelvis ? FVector::Dist2D(Pelvis->GetUnrealWorldTransform().GetLocation(), S->Where[0]) : 1.0e9;
+				TestTrue(*FString::Printf(TEXT("Dead: the ragdoll starts at the cop (pelvis %.0f cm away)"), Off), Off < 100.0);
+			}
+		}
+		return S->Next >= S->Cops.Num();
+	}, 30.0);
+	Step([this, S]()
+	{
+		UGSWaveDirector* Director = GetGameMode()->GetWaveDirector();
+		S->MostCorpses = FMath::Max(S->MostCorpses, Director->GetCorpseCount());
+		TestEqual(TEXT("Never more than 20 corpses"), S->MostCorpses, 20);
+		TestEqual(TEXT("20 corpses now"), Director->GetCorpseCount(), 20);
+		TestEqual(TEXT("The limit removed 10"), Director->GetCorpsesRemovedByLimit() - S->RemovedBefore, 10);
+		for (int32 Index = 0; Index < S->Cops.Num(); ++Index)
+		{
+			const AGSEnemyCharacter* Cop = S->Cops[Index].Get();
+			const bool bThere = Cop && !Cop->IsActorBeingDestroyed();
+			if (Index < 10 && bThere)
+			{
+				AddError(FString::Printf(TEXT("Corpse %d (one of the 10 oldest) is still there"), Index + 1));
+			}
+			if (Index >= 10 && !bThere)
+			{
+				AddError(FString::Printf(TEXT("Corpse %d (one of the 20 newest) was removed"), Index + 1));
+			}
+		}
+		TestTrue(TEXT("Every kill counted"), GetGameState()->GetRunStats()->GetTotalKills() >= 30);
+	});
+	// The rest still go after CorpseLifetime.
+	WaitUntil(this, TEXT("the corpses to time out"), []() { return GetGameMode()->GetWaveDirector()->GetCorpseCount() == 0; }, 30.0);
+	Step([this]()
+	{
+		TestEqual(TEXT("No corpses after CorpseLifetime"), GetGameMode()->GetWaveDirector()->GetCorpseCount(), 0);
+		GetGameMode()->SetHealthOrbDropChanceOverride(-1.f);
 		RestoreWorldSpeed();
 	});
 	EndPIE();

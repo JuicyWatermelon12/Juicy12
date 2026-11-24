@@ -1,6 +1,7 @@
 // BanditBaller
 
 #include "GSProjectile.h"
+#include "GSEffects.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "BanditBaller.h"
@@ -268,7 +269,7 @@ void AGSProjectile::Finish(EGSProjectileEnd Reason, const FVector& Where)
 	EndLocation = Where;
 	if (Reason != EGSProjectileEnd::Expired && Params.ImpactEffect)
 	{
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), Params.ImpactEffect, Where, FRotator::ZeroRotator, Params.ImpactEffectScale);
+		GSEffects::SpawnOneShot(GetWorld(), Params.ImpactEffect, Where, FRotator::ZeroRotator, Params.ImpactEffectScale);
 	}
 	if (Reason != EGSProjectileEnd::Expired && Reason != EGSProjectileEnd::Released && Params.ImpactSound)
 	{

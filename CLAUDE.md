@@ -22,7 +22,7 @@ single-player is finished or nearly finished.
 - **Enemies** (law enforcement): eight types that unlock as the rounds go on (no wanted level, no agency tiers).
   Beat Cop (baton, melee) and Patrol Officer (carbine) are built; Rusher, Shield, Grenadier, Heavy, Sniper and Drone
   come in M2d. Ranged enemies fire visible, dodgeable projectiles (no hit-scan), and at most 40% of a generated wave
-  is ranged. The alive cap goes to 100 in M2d, at 60 fps. Code names: `BeatCop` / `PatrolOfficer`
+  is ranged. Up to 100 are alive at once, at 60 fps (Prompt 60). Code names: `BeatCop` / `PatrolOfficer`
   (`DA_Enemy_BeatCop`, `gs.Spawn BeatCop`, …; renamed from MeleeBandit / RangedBandit in Prompt 57).
 - **After death:** a run summary, then back to the hub to spend or gamble cash.
 - **Playthrough progression:** cash, owned items and the gear loadout, saved to a player profile and kept across
@@ -270,7 +270,7 @@ docs/PROGRESS.md  progress log and reference
 - `CaptureViewport` shows the editor world, not PIE; use `CaptureEditorImage` (base64 PNG; decode with PowerShell).
 - Tests: stop PIE, then `AutomationTestToolset` → `DiscoverTests`. Area tests: `RunTests(["BanditBaller.Round.PhaseLoop",
   ...])` or `RunTestsByFilter("StartsWith:BanditBaller.Round")`. Full suite (once per prompt, before the commit):
-  `RunTestsByFilter("StartsWith:BanditBaller")`, about 4 minutes (250 s for 70 tests in Prompt 59). The editor console also works:
+  `RunTestsByFilter("StartsWith:BanditBaller")`, about 3.5 minutes (214 s for 73 tests in Prompt 60). The editor console also works:
   `Automation RunTests BanditBaller`. Each result has a `duration` for speed checks.
 - Playing in PIE through MCP: still too slow to fight (each call is a round trip). Read live round state with
   `ObjectTools.get_properties` on `...UEDPIE_0_L_Town_Graybox...:PersistentLevel.BP_GSGameState_C_0` (`RoundPhase`,
