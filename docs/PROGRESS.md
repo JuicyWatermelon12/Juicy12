@@ -69,10 +69,10 @@ under Prompt 53. **The weapons block is complete.**
 Blender placeholder pipeline, the low-poly body and the robber are built (56), and the enemies are the Beat Cop and the
 Patrol Officer with cop models (57); enemy shots are dodgeable bolts and generated waves are at most 40% ranged (58);
 rounds roll over with a breather every 10 rounds (59); up to 100 cops alive at 60 fps, bigger waves, at most 20 corpses
-(60); **next is Prompt 61** (the Rusher). After M2d's
+(60); the Patrol Officer lost its aim laser (59b, run after 60); **next is Prompt 61** (the Rusher). After M2d's
 checkpoint (69): **M3** (shop, owned items, gear loadout, two-layer save); not planned in detail yet.
 
-State at the time of writing: `main` after "One hundred enemies" (Prompt 60), not pushed. The build is clean and all 73 automation tests pass in about 214 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
+State at the time of writing: `main` after "Fix: no aim laser on the Patrol Officer" (Prompt 59b, run after 60), not pushed. The build is clean and all 73 automation tests pass in about 214 s. The game and the editor start in the hub (`L_Hub_Graybox`). Walk into the Start Run portal to
 play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the run (GameOver) and shows the run summary;
 "Return to Market" (button, R, gamepad Start / Y) fades out and goes back to the hub.
 
@@ -149,7 +149,8 @@ play a run in `L_Town_Graybox` (300 × 300 m since Prompt 26b). Death ends the r
 | M2d 57 | Rename the enemies: MeleeBandit → Beat Cop (`BeatCop`), RangedBandit → Patrol Officer (`PatrolOfficer`), BanditCarbine → `PatrolCarbine` (assets, code, commands, tests); cop models on `SK_LowPolyBody` (`SlotMaterials`, `MeshAttachments` on `UGSEnemyData`; police cap placed on the head, baton, carbine); `TelegraphAmount` in `M_LowPoly`; `Enemies.CopLooks` | 8ece272 |
 | M2d 58 | Dodgeable enemy shots: `GA_EnemyFire` fires a pooled `AGSProjectile` bolt per shot (`bEnemyShot`: hits the player or world only, passes other enemies), 2,800 cm/s at the chest with no lead, `SM_EnemyBolt` (Blender) with `MI_EnemyBolt_*`, no tracer; ranged cap `MaxRangedShare` 0.4 (`UGSEnemyData::bRanged`); `Enemies.DodgeableShots`, `Round.RangedCap` | 995328a |
 | M2d 59 | Roll-over rounds: phases PreRound (round 1 only) / Combat / Breather / GameOver, no RoundClear; the next round starts at `RollOverRemaining` 3 left; several open rounds in `UGSWaveDirector`, one enemy at a time (20 s window, 0.25–2 s gap), waves from a per-round stream; per-round stats, bonus, vacuum and save at each round's clear; HUD "N enemies left · N alive", ROUND N banner, round-clear pop-up (`WBP_RoundSummary` removed); a 10 s breather after every 10th round; `Round.RollOver`, `Round.Breather`, `Round.RollOverPace` | abce280 |
-| M2d 60 | One hundred enemies: `MaxAliveEnemies` 100, generated budget 5 + 5 × round, `MaxCorpses` 20 (oldest corpse removed first); performance switches on `UGSEnemyData` (no body-mesh collision while alive, no off-screen pose, animation rate optimization, no capsule overlap events), pooled one-shot effects (`GSEffects`, `gs.Debug.NoFXPool`); 100 cops with three area weapons 15.5 → 12.0 ms; the four slowest tests sped up (suite 251 → 214 s); `Round.AliveCap100`, `Round.BiggerWaves`, `Enemies.CorpseLimit` | see git log |
+| M2d 60 | One hundred enemies: `MaxAliveEnemies` 100, generated budget 5 + 5 × round, `MaxCorpses` 20 (oldest corpse removed first); performance switches on `UGSEnemyData` (no body-mesh collision while alive, no off-screen pose, animation rate optimization, no capsule overlap events), pooled one-shot effects (`GSEffects`, `gs.Debug.NoFXPool`); 100 cops with three area weapons 15.5 → 12.0 ms; the four slowest tests sped up (suite 251 → 214 s); `Round.AliveCap100`, `Round.BiggerWaves`, `Enemies.CorpseLimit` | f9831a1 |
+| M2d 59b | Fix (run after 60): no aim laser on the Patrol Officer (`DA_Enemy_PatrolOfficer.AimLaserMaterial` cleared; the 0.4 s body glow is its warning); the laser code and `M_EnemyLaser` kept for the Sniper and the spawn markers; `Enemies.CopLooks` checks no laser through the aim and burst | see git log |
 
 Paths below: C++ under `Source/BanditBaller/`, assets under `Content/BanditBaller/` (`/Game/BanditBaller/`).
 
@@ -4180,6 +4181,31 @@ Nothing about how the cops behave or look up close changed.
   - Projectiles and enemy bolts stop on the cop's capsule instead of its body mesh while it is alive.
 - **Full suite:** 73 tests, all passing, in 213.9 s.
 
+### Prompt 59b — Fix: no aim laser on the Patrol Officer
+Written to run between Prompts 59 and 60; it ran after Prompt 60, so it keeps its number and comes after 60 here.
+- **The problem:** during its 0.4 s aim the Patrol Officer showed an orange beam from its gun along its facing: the aim
+  laser left over from the instant-shot days, which read as the old instant shot.
+- **The fix (data only, no source change in the game):** `DA_Enemy_PatrolOfficer.AimLaserMaterial` cleared (was
+  `M_EnemyLaser`). `AGSEnemyCharacter` only shows the laser for enemy data that has the material, so no beam shows at any
+  point of its aim or burst. The warning before a burst is now the 0.4 s body glow alone (`TelegraphAmount`, as before).
+  Aim time (0.4 s), burst (4 shots), bolts and damage are unchanged.
+- **Kept:** the aim-laser code (`AimLaserComponent`, `UpdateAimLaser`, `UGSEnemyData::AimLaserMaterial`) for the Sniper
+  (Prompt 65), and `M_EnemyLaser`, which the spawn telegraph markers use (`DA_WaveSettings.TelegraphMaterial`).
+- **Nothing else draws a line from a Patrol Officer:**
+  - `GA_EnemyFire` calls `MulticastShotFired` with no hit, so no impact effect plays there.
+  - `DA_PatrolCarbine` has no `MuzzleEffect` and no `ImpactEffect` set, so only the fire sound plays at the gun.
+  - The 0.06 s tracer flash was removed in Prompt 58.
+  - The only other line is the `gs.Debug.Weapons` debug draw (off unless that cvar is on).
+  - What the player sees is the glow, the magenta bolts and their impact bursts where they land. There is no muzzle
+    flash today (a known issue).
+- **Tests changed:** only `Enemies.CopLooks`. Its "the aim laser shows" check became: no AimLaserMaterial on the data,
+  no laser at rest, no laser in any frame of the aim and the burst (it waits until the ranged attack has ended and checks
+  the burst fired its 4 bolts), and every body slot glows during the aim. No other test expected the Patrol Officer's
+  laser: `Map.Boundary` checks the shot object query (`GetShotObjectQueryParams`), not the laser. Still 73 tests.
+- **PIE check** (town, god mode, round paused, `gs.Spawn PatrolOfficer 3`, `slomo 0.1`): the officers kept 14–21 m away
+  and fired; screenshots during an aim and a burst showed the glowing body and a magenta bolt in the air, and no beam.
+- **Full suite:** 73 tests, all passing, in 214.3 s.
+
 ---
 
 ## Console commands and CVars
@@ -4405,7 +4431,7 @@ runs its magnet part at ×4. `Upgrades.FloatingGun` and `Upgrades.FloatingGunLev
 | `Checkpoint.SevenWeapons` | Real DA_UpgradePool (Prompt 53): 21 upgrades, each once and in its category (7 Stat Boosts, 7 Abilities with Second Wind the only Legendary ability, 7 Weapons), every DA_Upgrade_* asset in the pool, MaxWeapons 3, three HUD slots; the roll for each of the 35 sets of three owned weapons (200 offers each, half of them first offers with the weapon card): the other four never rolled, each owned one still rolled; 8 real runs of 40 offers, taking weapon cards and keeping the rerolls for when the slots are full: never more than three weapons, every run fills its slots, no unowned weapon in the 293 offers and 24 rerolls after that; 48 new runs: every first offer and its 3 rerolls has a weapon card, and all seven weapons come up as first-offer weapons. |
 | `Upgrades.PowderKegChainEnds` | 34 stacks (102%), 8 frozen 10 HP cops in a line 2.5 m apart. One kill starts a chain that runs down the line and ends: all 8 die, exactly 8 blasts, nothing pending. The player (no god mode, 6 m from the first) is never hurt. Run stats record the Powder Keg damage. Game time ×4. |
 | `Art.PlayerMesh` | Prompt 56, in the town and then the hub: the player's mesh is `SK_LowPolyBody` on the same skeleton as before (`SK_Mannequin`), with `PA_Mannequin` and `ABP_Unarmed` running; six colour slots; bones `hand_r`, `head`, `spine_04`, `foot_l`; in the animated pose the head is 140–175 cm above the foot and `root` has scale 1 in the reference pose (the FBX unit-scale trap); two worn props (`SM_SkiMask` on `head`, `SM_LootBag` on `spine_04`), attached to the body, no collision, visible, the mask at the head and the bag more than 10 cm behind the chest. |
-| `Enemies.CopLooks` | Prompt 57: a still Beat Cop and Patrol Officer 6 m in front of the player. Each has its display name ("Beat Cop", "Patrol Officer"), wears `SK_LowPolyBody` with `ABP_Unarmed`, and has a dynamic material on each of the 6 slots made from that slot's `SlotMaterials` entry, with `TelegraphAmount` 0 at rest. Props: the cap on `head` (above the head) for both, the baton on `hand_r` for the Beat Cop; each attached to the body, no collision, visible, near its bone. Gun: none for the Beat Cop, `SM_PatrolCarbine` in the weapon's socket for the Patrol Officer, with the muzzle near it. Neither wears the robber's top or trousers, and the two tops differ. The Beat Cop's melee wind-up and the Patrol Officer's aim set `TelegraphAmount` 1 on every slot, the Patrol Officer's laser shows, and the glow goes back to 0 when they end. |
+| `Enemies.CopLooks` | Prompt 57: a still Beat Cop and Patrol Officer 6 m in front of the player. Each has its display name ("Beat Cop", "Patrol Officer"), wears `SK_LowPolyBody` with `ABP_Unarmed`, and has a dynamic material on each of the 6 slots made from that slot's `SlotMaterials` entry, with `TelegraphAmount` 0 at rest. Props: the cap on `head` (above the head) for both, the baton on `hand_r` for the Beat Cop; each attached to the body, no collision, visible, near its bone. Gun: none for the Beat Cop, `SM_PatrolCarbine` in the weapon's socket for the Patrol Officer, with the muzzle near it. Neither wears the robber's top or trousers, and the two tops differ. The Beat Cop's melee wind-up and the Patrol Officer's aim set `TelegraphAmount` 1 on every slot, and the glow goes back to 0 when they end. Since Prompt 59b: `DA_Enemy_PatrolOfficer` has no AimLaserMaterial; no laser shows at rest or in any frame of its aim and its burst (which fires its 4 bolts), and its body glows during the aim. |
 | `Enemies.DodgeableShots` | Prompt 58, 45 m up over the town centre (no cover in the way unless placed), the player held still (flying) and Patrol Officers with their brains stopped: `DA_PatrolCarbine` 2,800 cm/s with a bolt mesh, material and impact effect; damage 7, burst 4 and the 0.4 s aim unchanged; the Patrol Officer `bRanged`, the Beat Cop not. With a spreadless copy of the Patrol Officer at 15, 20 and 25 m: no damage on the frame the shot is fired, the shot is one visible bolt at 2,800 cm/s, the first hit lands (distance − 80 cm) / 2,800 s later (±0.08 s; logs each flight time and how far a walking player moves meanwhile), and all 4 shots hit for 28. With the real carbine (spread) at 20 m and the player moved sideways at 900 cm/s every frame: 4 shots fired, none hit, no Health lost. A wall at 10 m stops all 4 (hit world), none reach the player. A Beat Cop at 10 m on the line: all 4 fly through it and hit the player, the cop untouched. `State.Invulnerable` (the dash's i-frames) with 2 shields: no Health lost and no shield used. 2 shields: two shots blocked, one shield each, the other two take 14. Second Wind at 5 Health: the player survives at 30% with it used up (the later shots hit the invulnerability). Paused with a shot in flight: it doesn't move or hit for 0.3 s real time, then lands after the unpause. A new run with a shot in flight: no enemy shot left. Game time ×2 (×1 before Prompt 60). |
 | `Round.RangedCap` | Prompt 58: `DA_WaveSettings` MaxRangedShare 0.4, generated waves from round 6; rounds 6–30 for 10 seeds (250 purchases): none above 40% ranged, and none leaves budget a non-ranged enemy could use (or hit the size cap); ranged enemies still bought in over 200 of them; logs the highest share, rounds 6–15 before (no cap) and after for one seed, and each DT_Waves row's share (all at most 40%, not capped); round 7's real wave from the director (queued + telegraphing = its total) is at most 40% ranged. |
 | `Round.RollOver` | Prompt 59: DA_RoundSettings RollOverRemaining 3, window 20 s, gap 0.25–2 s (4 enemies 2 s, 13 enemies 20/13 s, 200 enemies 0.25 s). Round 5 killed as it arrives: round 6 starts exactly when round 5 is down to 3 (not before, not later), still Combat, round 5 still open; round 5's spawns one gap apart (±0.15 s). A hit while 5 and 6 are open counts to both; both pay their bonus once, at their own clear, without the no-damage part, with clear time from their own start and fast clear iff within their own limit; each round's kills = its wave and its cash = the sum of its enemies' CashValue (combo off); a save at each clear holding the balance. RollOverRemaining 0: rounds 3 and 4 never open together, round 4 starts at round 3's full clear. The alive cap (6) holds for two open rounds together and is reached. Death: GameOver, the open round closed without a clear, killing the leftovers pays nothing. Game time ×4; since Prompt 60 the rounds run on a settings copy with a 5 s spawn window (max gap 0.5 s) after the asset's values are checked. |
@@ -4436,7 +4462,7 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
   | Enemy | HP | Speed | Combat | SpawnCost | MinRound | Cash |
   |---|---|---|---|---|---|---|
   | BeatCop | 60 | 520 (±15%) | 12 dmg melee, 0.55 s wind-up, range 170 | 1 | 1 | $10 |
-  | PatrolOfficer | 45 | 430 (±12%) | range 15–25 m, backs off < 8 m, 0.4 s aim, 4-shot bursts | 2 | 2 | $15 |
+  | PatrolOfficer | 45 | 430 (±12%) | range 15–25 m, backs off < 8 m, 0.4 s aim (body glow only, no laser since Prompt 59b), 4-shot bursts | 2 | 2 | $15 |
 
   Corpses stay 5 s.
 - **Rounds** (DA_RoundSettings, since Prompt 59): a 3 s PreRound before round 1 only; the next round starts when the
@@ -4638,8 +4664,10 @@ All names start with `BanditBaller.`. Run them with `RunTestsByFilter("StartsWit
     the two click sounds are engine / editor placeholders (the sounds may not cook).
   - Shots aim at where the player is with no lead, so a player who keeps moving is rarely hit at range, and one who
     stands still takes every shot inside the spread (3.5° cone, ±1.2 m at 20 m). Balance with real play.
-  - The aim laser still points straight along the officer's facing during the 0.4 s warning; the shot then aims at the
-    chest, so at close range the laser and the bolt's path can differ by a few degrees.
+  - The Patrol Officer has no aim laser since Prompt 59b; its warning is the 0.4 s body glow. (The laser pointing along
+    the facing instead of at the player moved to the Sniper's line in Next up.)
+  - The carbine has no muzzle effect set (`DA_PatrolCarbine.MuzzleEffect` is empty), so a shot shows only the bolt and
+    the fire sound; a placeholder muzzle flash could help the player see who fired.
   - Bolts pass through target dummies (they aren't players).
   - With the cap, generated waves have more enemies for the same budget (melee costs 1, ranged 2): round 10 has 22
     instead of 20, round 14 30 instead of 26. Wave sizes are revisited with the new types and the 100 cap (Prompt 60).
@@ -5072,13 +5100,16 @@ and round flow (M2d)** for the decisions and open questions). Each prompt update
 57. ~~**Rename the enemies and give them cop models.**~~ Done (see Prompt 57).
 58. ~~**Dodgeable ranged shots and the ranged cap.**~~ Done (see Prompt 58).
 59. ~~**Roll-over rounds and the breather.**~~ Done (see Prompt 59).
+59b. ~~**Fix: no aim laser on the Patrol Officer.**~~ Done after Prompt 60 (see Prompt 59b).
 60. ~~**One hundred enemies:** the alive cap to 100 at 60 fps on the user's PC (profile and optimize).~~ Done (see
     Prompt 60).
 61. **Rusher** (unlocks in round 4).
 62. **Shield** (round 6).
 63. **Heavy** (round 10).
 64. **Grenadier** (round 8).
-65. **Sniper** (round 12).
+65. **Sniper** (round 12). Note (from Prompt 59b): the aim-laser code (`AGSEnemyCharacter::UpdateAimLaser`) points the
+    beam straight along the enemy's facing, from the muzzle; the Sniper's laser has to point at the player (and follow
+    them, then lock), not along the facing.
 66. **Drone** (round 14).
 67. **The city map:** a 500 × 500 m city graybox with a 100 m ceiling replaces the town (NavMesh, boundary, spawns,
     tests).

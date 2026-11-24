@@ -13556,7 +13556,34 @@ namespace GSCopLooksTests
 	{
 		TWeakObjectPtr<AGSEnemyCharacter> BeatCop;
 		TWeakObjectPtr<AGSEnemyCharacter> PatrolOfficer;
+		// Prompt 59b: the Patrol Officer has no aim laser; watched through its aim and its burst.
+		bool bLaserSeen = false;
+		int32 ShotsBefore = 0;
 	};
+
+	/** The Patrol Officer's ranged attack (aim + burst) is still running. */
+	bool IsRangedAttackActive(const AGSEnemyCharacter* Cop)
+	{
+		const UAbilitySystemComponent* ASC = Cop ? Cop->GetAbilitySystemComponent() : nullptr;
+		if (!ASC)
+		{
+			return false;
+		}
+		for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+		{
+			if (Spec.IsActive() && Spec.Ability && Spec.Ability->GetAssetTags().HasTag(GSGameplayTags::Ability_Attack_Ranged))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	int32 CountEnemyShotsFired()
+	{
+		const UGSProjectileSubsystem* Projectiles = GetPIEWorld() ? GetPIEWorld()->GetSubsystem<UGSProjectileSubsystem>() : nullptr;
+		return Projectiles ? Projectiles->GetNumFired() : 0;
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGSEnemiesCopLooksTest, "BanditBaller.Enemies.CopLooks", GSTests::TestFlags)
@@ -13609,26 +13636,35 @@ bool FGSEnemiesCopLooksTest::RunTest(const FString& Parameters)
 			TestTrue(TEXT("The two cops wear different tops"), BeatTop && PatrolTop && BeatTop != PatrolTop);
 		}
 
-		// The wind-ups still glow on the new body; the Patrol Officer's aim laser still shows.
+		// The wind-ups still glow on the new body. The Patrol Officer has no aim laser (Prompt 59b): its warning is the glow.
 		TestTrue(TEXT("Beat Cop: no glow at rest"), S->BeatCop.IsValid() && AllTelegraph(S->BeatCop.Get(), 0.f));
 		TestTrue(TEXT("Beat Cop: the melee wind-up starts"), S->BeatCop.IsValid()
 			&& S->BeatCop->GetAbilitySystemComponent()->TryActivateAbilitiesByTag(FGameplayTagContainer(GSGameplayTags::Ability_Attack_Melee)));
 		TestTrue(TEXT("Beat Cop: telegraphing"), S->BeatCop.IsValid() && S->BeatCop->IsTelegraphing());
 		TestTrue(TEXT("Beat Cop: every body slot glows (TelegraphAmount 1)"), S->BeatCop.IsValid() && AllTelegraph(S->BeatCop.Get(), 1.f));
 
-		TestTrue(TEXT("Patrol Officer: laser hidden at rest"), S->PatrolOfficer.IsValid() && S->PatrolOfficer->GetAimLaserComponent()->bHiddenInGame);
+		TestNull(TEXT("DA_Enemy_PatrolOfficer: no AimLaserMaterial"), S->PatrolOfficer.IsValid() ? S->PatrolOfficer->GetEnemyData()->AimLaserMaterial.Get() : nullptr);
+		TestTrue(TEXT("Patrol Officer: no laser at rest"), S->PatrolOfficer.IsValid() && S->PatrolOfficer->GetAimLaserComponent()->bHiddenInGame);
+		S->ShotsBefore = CountEnemyShotsFired();
 		TestTrue(TEXT("Patrol Officer: the aim starts"), S->PatrolOfficer.IsValid()
 			&& S->PatrolOfficer->GetAbilitySystemComponent()->TryActivateAbilitiesByTag(FGameplayTagContainer(GSGameplayTags::Ability_Attack_Ranged)));
 		TestTrue(TEXT("Patrol Officer: every body slot glows while aiming"), S->PatrolOfficer.IsValid() && AllTelegraph(S->PatrolOfficer.Get(), 1.f));
-		TestTrue(TEXT("Patrol Officer: the aim laser shows"), S->PatrolOfficer.IsValid() && !S->PatrolOfficer->GetAimLaserComponent()->bHiddenInGame);
+		S->bLaserSeen |= S->PatrolOfficer.IsValid() && !S->PatrolOfficer->GetAimLaserComponent()->bHiddenInGame;
 	});
-	// The wind-ups end: the glow goes back to 0.
-	WaitUntil(this, TEXT("the glow to end"), [S]()
+	// The wind-ups end: the glow goes back to 0. Every frame of the Patrol Officer's aim and burst: no laser.
+	WaitUntil(this, TEXT("the glow and the burst to end"), [S]()
 	{
-		return S->BeatCop.IsValid() && S->PatrolOfficer.IsValid() && AllTelegraph(S->BeatCop.Get(), 0.f) && AllTelegraph(S->PatrolOfficer.Get(), 0.f);
+		if (S->PatrolOfficer.IsValid() && !S->PatrolOfficer->GetAimLaserComponent()->bHiddenInGame)
+		{
+			S->bLaserSeen = true;
+		}
+		return S->BeatCop.IsValid() && S->PatrolOfficer.IsValid() && AllTelegraph(S->BeatCop.Get(), 0.f) && AllTelegraph(S->PatrolOfficer.Get(), 0.f)
+			&& !IsRangedAttackActive(S->PatrolOfficer.Get());
 	}, 5.0);
-	Step([this]()
+	Step([this, S]()
 	{
+		TestEqual(TEXT("Patrol Officer: the burst fired its 4 bolts"), CountEnemyShotsFired() - S->ShotsBefore, 4);
+		TestFalse(TEXT("Patrol Officer: no laser during its aim or its burst"), S->bLaserSeen);
 		GetPlayerASC()->RemoveLooseGameplayTag(GSGameplayTags::State_Invulnerable);
 		RemoveAllEnemies(GetPIEWorld());
 	});
