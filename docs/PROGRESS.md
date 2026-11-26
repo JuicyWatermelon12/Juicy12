@@ -5327,3 +5327,28 @@ MCP). It doesn't change **Next up**.
   checked, so the cloud save itself is untested.
 - **Known issues:** balance of pay, prices and specials is first-pass; a blackjack hand left mid-way stays open only
   until the page closes (the bet is already taken).
+
+### Grave Shift update — bigger depot and eight perk machines
+- **Map:** 37 × 29 cells (was 23 × 18; about 2.3 times the floor). Eight areas instead of four: the Loading dock (start),
+  an open Rail yard in the middle, and the Scrapyard, Canteen, Cold store, Power house, Warehouse and Workshop in a ring
+  around it. Twelve shutters ($750–$1,500): the ring connects each area to its neighbours and the yard connects to five
+  of them, so there are several ways round. The yard and the scrapyard are open to the sky.
+  - The map is now fully described by the `MAP` rows: walls, coloured containers (`R U N Y`), crates, spawns (32),
+    lamps (`L`), shutters (`0-9 a b`) and a letter per area (`A-H`, looked up in `AREAS`). Wall guns, perk machines, the
+    bench and the crate are placed with `wallSpot(column, row, wall)`.
+  - Outdoor lamps stand on masts (with collision). The HUD shows the name of the area the player is in.
+- **Where things are:** carbine and double in the dock; SMG in the yard; burst rifle in the canteen; shotgun in the
+  workshop; sniper in the warehouse; AR in the cold store; the freight crate in the scrapyard; the overclock bench in
+  the power house.
+- **Perk machines (8, one per area, kept until the shift ends, no limit on how many):** Iron Gut Tonic $2,500 (+100
+  health, canteen), Snap Load Soda $2,000 (reload and swap twice as fast, workshop), Hair Trigger Fizz $2,500 (+33% fire
+  rate, warehouse), Long Haul Brew $2,000 (+15% speed, grabs slow less, scrapyard), Second Shift Shot $1,500 (get back
+  up once at full health; used up; 3 per shift; used before the Ace charm; dock), Dead Eye Drops $1,500 (headshots ×1.4,
+  45% less spread, yard), Pack Mule Malt $4,000 (third weapon slot, cold store) and Static Sour $2,000 (a reload shocks
+  zombies within 4.2 m for half a zombie's health, 4 s cooldown, power house). Owned perks show as chips on the HUD.
+- **Checked** (headless phone-sized Chromium): all eight machines bought through the buy button and their effects read
+  back; all twelve shutters bought; every spawn reachable with the shutters open; zombies placed in the far corners
+  walked through the shutters to the player; a restart clears perks, the third slot and the shutters; the earlier menu,
+  casino and weapon tests still pass.
+- **Known issues:** round 1 is slower to start (the dock is bigger, first contact after about 15 s standing still);
+  perk prices and strengths are first-pass; still not played on a real phone.
