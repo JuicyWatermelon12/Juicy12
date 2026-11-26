@@ -5300,3 +5300,30 @@ MCP). It doesn't change **Next up**.
   buy, a shutter, the crate, the touch stick and fire button, pause and death. Not yet played on a real phone.
 - **Known issues:** frame rate on a real phone is unmeasured; balance is first-pass; opening it needs a connection
   for three.js and the fonts.
+
+### Grave Shift update — more guns, the bank, the locker and the break room
+- **Guns (19 in all):** three more wall guns (Stubby Double $750, Tally M3 burst rifle $1,300, Longshot .308 $1,700),
+  three more crate-only standards (Hornet PDW, Riot Auto-12, Carver BR) and four more crate-only specials whose damage
+  keeps pace with the round: Nova Pistol (energy bolts with a small blast), Frost Jet (freezes a cone; frozen zombies
+  take double damage), Rail Spike (pierces everything on its line) and Sinkhole (a vortex that pulls zombies in, then
+  bursts). The crate now rolls from 18 weapons.
+- **Bank:** every shift pays into a permanent bank when it ends (death, or "End shift" from pause):
+  (30 x rounds survived + 2 x kills + 2 x headshots + 2% of cash earned) x Overtime x Double Time. New saves start
+  with $250.
+- **Main menu:** Start shift, Locker and Break room. The time card has "Main menu" next to "Play again".
+- **Locker (permanent upgrades, bought with the bank):** Thick Skin, Head Start, Hollow Points, Quick Hands, Deep
+  Pockets, Steel Toes, Overtime (each 4-5 levels) and Packed Heat (start with a second gun).
+- **Break room:** blackjack (3:2, dealer stands on 17, double down), single-zero roulette (numbers, dozens, even-money
+  bets, rebet) and a three-reel slot (about 94% returned). Bets use the bank only.
+  - **Charms** (only won by gambling, three levels each): Lucky Star, Card Shark, Ace Up the Sleeve, Inside Man,
+    House Edge, Hot Hand. Won by a natural blackjack, a straight-up roulette hit or three stars on the slots.
+  - **One-shift buffs:** Contraband (start with a special weapon; three 7s, three BARs or a zero hit) and Double Time
+    (double pay; three blackjack wins in a row).
+- **Save:** in the browser (`localStorage`), and in the viewer's private store when opened as a claude.ai artifact
+  (`db` + `user` capabilities); the newer save wins.
+- **Checked:** the headless run covers the three games (payout maths enumerated: slots 93.8%, red 97.3%), every
+  upgrade bought, all charms and both buffs applied to a shift, every weapon fired, the special weapons against a
+  placed group, pay at death and at End shift, and the bank surviving a reload. The claude.ai store was empty when
+  checked, so the cloud save itself is untested.
+- **Known issues:** balance of pay, prices and specials is first-pass; a blackjack hand left mid-way stays open only
+  until the page closes (the bet is already taken).
