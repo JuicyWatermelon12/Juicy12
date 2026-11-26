@@ -5352,3 +5352,40 @@ MCP). It doesn't change **Next up**.
   casino and weapon tests still pass.
 - **Known issues:** round 1 is slower to start (the dock is bigger, first contact after about 15 s standing still);
   perk prices and strengths are first-pass; still not played on a real phone.
+
+### Grave Shift update — three jobs, thirty rounds each, a boss at the end
+- **Jobs (levels):** a shift is now one job: 30 rounds on that job's map, then its boss in a separate arena. The menu has
+  a **Job board** next to the Locker and the Break room.
+  - Job 1 is free. Beating a job's boss opens the next job on the board, which is then bought from the bank
+    ($6,000 for job 2, $15,000 for job 3). The player picks which owned job to work.
+  - Each later job is harder and pays more:
+
+    | Job | Place | Zombie health | Hit on the player | Speed | Shift pay | Boss | Boss bonus |
+    |---|---|---|---|---|---|---|---|
+    | 1 Freight handler | Depot 9 (the existing map) | ×1 | 45 | ×1 | ×1 | The Foreman | $3,000 |
+    | 2 Night porter | Mercy General (hospital) | ×1.6 | 60 | ×1.06, runners earlier | ×1.6 | The Surgeon | $6,000 |
+    | 3 Furnace hand | Crucible Steelworks | ×2.4 | 75 | ×1.12, runners earlier still | ×2.4 | The Smelter | $12,000 |
+
+  - **Mercy General:** one long main corridor with seven rooms off it (reception, ambulance bay, pharmacy, laundry,
+    operating wing, morgue, intensive care), tiled walls, beds for cover, patients in gowns and scrubs.
+  - **Crucible Steelworks:** a casting floor that runs round a furnace block, with seven rooms in a ring outside it,
+    brick walls, plate floors, orange light, workers in overalls and heat suits.
+  - Every job has the same shop: 12 shutters, 7 wall guns, 8 perk machines, the freight crate and the overclock bench.
+- **Boss fight:** after round 30 the player is moved to the arena with full health and full ammo. The boss has a health
+  bar, a second phase at half health (faster, shorter cooldowns, more projectiles) and calls in zombies. Every attack
+  shows a red mark on the floor first. The arena has a free ammo locker (40 s between refills).
+  - The Foreman: hammer swipe, ground slam (6 m), thrown crates.
+  - The Surgeon: fast; a dash down a marked lane, fans of scalpels.
+  - The Smelter: slam and lobbed slag that both leave burning pools.
+  - A boss takes at most 0.6% of its health per hit, so the round-scaled special weapons can't end it in seconds; it
+    can't be frozen, pulled by the Sinkhole or killed by the Blast drop, and Instakill only doubles damage on it.
+  - Winning pays the boss bonus on top of the shift pay and ends the shift with a "Boss down" time card.
+- **Code:** `LEVELS` holds every job (map rows, area names and colours, shop spots, zombie outfits, difficulty, boss).
+  `loadDef` swaps the loaded map (a job or its arena); everything map-specific hangs off one group that is disposed on a
+  swap. The save has a `lv` block (owned, boss beaten, best round, selected job).
+- **Checked** (headless phone-sized Chromium): job 1 from round 30 through the arena, every Foreman attack, a kill
+  through the real fire path, the time card, the unlock and buying job 2; on jobs 2 and 3 every perk machine, wall gun,
+  shutter, the bench and the crate, every spawn reachable, each boss's attacks, death in the arena and "Play again".
+- **Known issues:** nobody has played 30 real rounds: round 30 is 243 zombies, so a full job is a long sitting, and the
+  difficulty, prices, boss health and boss damage are first guesses. A shift can't be saved part-way. The three bosses
+  share one body shape (colours, hat and tool differ).
