@@ -796,6 +796,11 @@
     const MECH_COLORS = [0xff8a1f, 0x19b3f5, 0x7ed957, 0xffd23f, 0xb56bff];
     function mechHome(i) { return { x: PIT_X - 4.4, z: tentZ(0) + 4.4 + i * 2.6 }; }
     function syncMechs() {
+      while (mechs.length > state.mech.count) {   // only after a reset
+        const mm = mechs.pop();
+        if (mm.car) { mm.car.mech = null; if (mm.car.state === 'repair') mm.car.state = 'wait'; }
+        scene.remove(mm.g);
+      }
       while (mechs.length < state.mech.count) {
         const i = mechs.length, h = mechHome(i);
         const mm = { g: makeMechanic(MECH_COLORS[i % MECH_COLORS.length]), x: h.x, z: h.z, state: 'idle', car: null, hop: rand(0, 6), i };

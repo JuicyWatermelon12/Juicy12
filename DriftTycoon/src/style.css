@@ -39,7 +39,12 @@ small { display: block; color: var(--ink-2); font-size: 12px; line-height: 1.35;
 /* ---- Money bar ---- */
 #hud { position: absolute; top: 0; left: 0; right: 0; display: flex; flex-direction: column; gap: 6px; padding-block: 10px 0;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); pointer-events: none; }
-.money { display: flex; align-items: center; gap: 10px; align-self: flex-start; background: var(--glass); color: #fff;
+.hud-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#menu-btn { pointer-events: auto; flex: none; width: 44px; height: 44px; border-radius: 50%; background: var(--glass); display: grid; place-items: center;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.25); }
+#menu-btn svg { width: 22px; height: 22px; fill: #fff; }
+#menu-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25); }
+.money { display: flex; align-items: center; gap: 10px; background: var(--glass); color: #fff;
   border-radius: 999px; padding: 6px 16px 6px 6px; box-shadow: 0 3px 0 rgba(0, 0, 0, 0.25); }
 .coin { width: 34px; height: 34px; border-radius: 50%; background: var(--cash); box-shadow: inset 0 -3px 0 #d9a600; display: grid;
   place-items: center; font-family: var(--display); font-weight: 700; color: #8a6200; font-size: 20px; }
@@ -116,7 +121,7 @@ h3.section { margin-top: 6px; }
 @keyframes shake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
 .ghost { flex: none; padding: 8px 12px; border-radius: 12px; background: var(--panel); box-shadow: 0 3px 0 var(--line); font-weight: 800; font-size: 13px; }
 .ghost.danger { color: var(--bad); }
-.reset { display: flex; justify-content: center; padding: 6px 0; }
+.ghost.danger.armed { background: var(--bad); color: #fff; box-shadow: 0 3px 0 #a52a2e; }
 
 .car-head { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; }
 .swatch { display: inline-block; flex: none; width: 34px; height: 22px; border-radius: 7px; box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.22); }

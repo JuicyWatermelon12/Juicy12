@@ -11,7 +11,7 @@ cash, and cash buys parts, drivers, mechanics and venue upgrades, all of which s
 - Open `index.html` in a browser (it needs internet once, for Three.js and the fonts), or
 - `node tools/build.js` writes `dist/drift-tycoon.html`, one file with the game's own code inlined.
 
-Progress saves in the browser (`localStorage`). "Start over" is at the bottom of the Venue tab.
+Progress saves in the browser (`localStorage`). The menu button (top right) has "Reset all progress".
 
 ## What is built (first slice)
 

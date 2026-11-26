@@ -32,9 +32,13 @@
     }
     ui = DT.UI(state, world, {
       changed: () => { world.sync(); writeSave(state); },
+      // Wipe in place (no page reload, which a sandboxed page may not allow): empty the state object that
+      // the world and the UI already hold, refill it as a new team, and save over the old progress.
       reset: () => {
-        try { root.localStorage.removeItem(SAVE_KEY); } catch (e) { /* nothing saved */ }
-        root.location.reload();
+        Object.keys(state).forEach((k) => delete state[k]);
+        Object.assign(state, G.newState(Date.now()));
+        world.sync();
+        writeSave(state);
       },
     });
 

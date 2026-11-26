@@ -144,7 +144,6 @@
       });
       h += '<article class="card"><div class="row"><div><strong>Pits: ' + state.slots + ' of ' + G.MAX_SLOTS + '</strong><small>Each pit is one more car on track.</small></div>' +
         buy('', G.slotCost(state), 'slot') + '</div></article>';
-      h += '<div class="reset"><button class="ghost danger" data-act="reset">' + (armed === 'reset' ? 'Tap again to wipe this team' : 'Start over') + '</button></div>';
       return h;
     }
 
@@ -249,6 +248,20 @@
       });
       showModal(h + '</div><button class="ghost wide" data-act="close">Cancel</button>');
     }
+    function showMenu() {
+      const on = armed === 'reset';
+      showModal('<h2>Menu</h2><p class="note">Wipes this team for good: cash, cars, parts, drivers, mechanics and venue upgrades. You start again with one Kumo and the rookie.</p>' +
+        '<button class="ghost wide danger' + (on ? ' armed' : '') + '" data-act="reset">' + (on ? 'Tap again to wipe everything' : 'Reset all progress') + '</button>' +
+        '<button class="ghost wide" data-act="close">Close</button>');
+    }
+    /* Called after the state has been wiped in place. */
+    function afterReset() {
+      closeModal();
+      openCar = state.cars[0] ? state.cars[0].id : null;
+      shownCash = -1;
+      if (tab) { el.body.scrollTop = 0; render(); }
+      toast('Progress wiped. Fresh team, fresh tires.');
+    }
     function showAway(info) {
       showModal('<div class="reveal away"><small>While you were away</small><h2>' + G.money(info.cash) + '</h2><p class="note">The team kept drifting for ' +
         G.duration(info.paidSeconds) + (info.seconds > info.paidSeconds ? ' (the crowd goes home after ' + G.duration(D.OFFLINE_CAP) + ')' : '') +
@@ -271,9 +284,10 @@
       if (a === 'pick-driver') { pickDriver(carId); return; }
       if (a === 'pick-car') { if (state.cars.length) pickCar(driverId); return; }
       if (a === 'view-tryout') { armed = ''; viewTryout(); return; }
+      if (a === 'menu') { armed = ''; showMenu(); return; }
       if (a === 'reset') {
-        if (armed !== 'reset') { armed = 'reset'; render(); return; }
-        actions.reset(); return;
+        if (armed !== 'reset') { armed = 'reset'; showMenu(); return; }
+        actions.reset(); afterReset(); return;
       }
       if (a === 'part') changed = G.buyPart(state, carId, b.dataset.part);
       else if (a === 'trade') changed = G.tradeCar(state, carId, b.dataset.model);

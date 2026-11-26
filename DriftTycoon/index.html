@@ -13,7 +13,10 @@
   <canvas id="view" aria-label="Your drift venue"></canvas>
   <div id="popups"></div>
   <header id="hud">
-    <div class="money"><span class="coin">$</span><span id="cash">$0</span><span id="rate">$0/s</span></div>
+    <div class="hud-row">
+      <div class="money"><span class="coin">$</span><span id="cash">$0</span><span id="rate">$0/s</span></div>
+      <button id="menu-btn" data-act="menu" aria-label="Menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v3H3zm0 5.500h18v3H3zM3 16h18v3H3z"/></svg></button>
+    </div>
     <div id="meter"><div id="meter-fill"></div><div id="meter-text"></div></div>
   </header>
   <div id="toast" role="status"></div>
