@@ -820,7 +820,7 @@
         else if (mm.state === 'back' || mm.state === 'go') { const h = mechHome(mm.i); tx = h.x; tz = h.z; if (mm.state === 'go') mm.state = 'back'; }
         if (mm.state === 'go' || mm.state === 'back') {
           const dx = tx - mm.x, dz = tz - mm.z, d = Math.hypot(dx, dz), stop = mm.state === 'go' ? 3.4 : 0.2;
-          if (d > stop) {
+          if (d > stop + 0.05) {   // the margin matters: stepping to exactly `stop` can leave d a hair above it for ever
             const step = Math.min(d - stop, 13 * dt);
             mm.x += dx / d * step; mm.z += dz / d * step;
             mm.g.rotation.y = Math.atan2(-dz, dx);
