@@ -200,7 +200,7 @@
   }
 
   function carSignature(c) {
-    return [c.model, c.color, c.parts.engine >= 5 ? 1 : 0, c.parts.engine >= 12 ? 1 : 0, c.parts.turbo >= 3 ? 1 : 0].join('|');
+    return [c.model, c.color, c.parts.engine >= 2 ? 1 : 0, c.parts.engine >= 4 ? 1 : 0, c.parts.turbo >= 2 ? 1 : 0].join('|');
   }
 
   /* Local axes: +X is forward, +Y up. */
@@ -220,13 +220,13 @@
       mesh(new THREE.BoxGeometry(0.08, 0.16, 0.42), lamp, b.len / 2 + 0.01, 0.7, s * (b.wid / 2 - 0.32), body);
       mesh(new THREE.BoxGeometry(0.08, 0.14, 0.5), tail, -b.len / 2 - 0.01, 0.74, s * (b.wid / 2 - 0.34), body);
     });
-    const wing = Math.max(b.wing, c.parts.engine >= 12 ? 2 : c.parts.engine >= 5 ? 1 : 0);
+    const wing = Math.max(b.wing, c.parts.engine >= 4 ? 2 : c.parts.engine >= 2 ? 1 : 0);
     if (wing === 1) box(0.36, 0.07, b.wid * 0.92, paint, -b.len / 2 + 0.24, 0.98, 0, body);
     if (wing === 2) {
       box(0.6, 0.08, b.wid + 0.1, 0x1b2130, -b.len / 2 + 0.3, 1.5, 0, body, true);
       [-1, 1].forEach((s) => box(0.12, 0.56, 0.08, 0x1b2130, -b.len / 2 + 0.34, 1.2, s * b.wid * 0.3, body));
     }
-    if (c.parts.turbo >= 3) box(0.1, 0.2, b.wid * 0.6, 0xcfd6e2, b.len / 2 + 0.08, 0.36, 0, body);
+    if (c.parts.turbo >= 2) box(0.1, 0.2, b.wid * 0.6, 0xcfd6e2, b.len / 2 + 0.08, 0.36, 0, body);
     const flame = mesh(new THREE.ConeGeometry(0.2, 0.9, 6), new THREE.MeshBasicMaterial({ color: 0xffa21f }),
       -b.len / 2 - 0.5, 0.36, -b.wid * 0.25, body);
     flame.rotation.z = Math.PI / 2;
@@ -680,7 +680,7 @@
 
     function updateCar(c, dt) {
       const sc = c.sc, parts = sc.parts, m = c.m;
-      const maxSlip = (26 + Math.min(parts.angle, 20) * 1.6) * Math.PI / 180;
+      const maxSlip = (26 + parts.angle * 6) * Math.PI / 180;
       let steer = 0, smokeAmt = 0;
 
       if (c.state === 'run') {
@@ -703,7 +703,7 @@
         }
         // turbo flames when the car flicks the other way
         const sign = Math.sign(want);
-        if (parts.turbo >= 3 && sign !== 0 && sign !== c.lastSign) c.flameT = 0.16;
+        if (parts.turbo >= 2 && sign !== 0 && sign !== c.lastSign) c.flameT = 0.16;
         if (sign !== 0) c.lastSign = sign;
         // crash roll: only mid-drift, after a grace period
         c.grace -= dt;
@@ -764,9 +764,9 @@
 
       // smoke from the rear tires
       if (smokeAmt > 0) {
-        const rate = smokeAmt * Math.min(34, 18 + parts.tires * 0.8);
-        const col = parts.tires >= 10 ? tmpCol.set(0xffffff).lerp(new THREE.Color(sc.color), 0.4).getHex() : 0xffffff;
-        const big = 1 + parts.tires * 0.015;
+        const rate = smokeAmt * Math.min(34, 18 + parts.tires * 3.2);
+        const col = parts.tires >= 4 ? tmpCol.set(0xffffff).lerp(new THREE.Color(sc.color), 0.4).getHex() : 0xffffff;
+        const big = 1 + parts.tires * 0.06;
         [-1, 1].forEach((side) => {
           if (Math.random() < rate * dt) {
             wheelWorld(c, -m.len * 0.33, side * m.wid * 0.46, tmp2);
@@ -779,7 +779,7 @@
       // pose
       m.g.position.set(c.x, 0, c.z);
       m.g.rotation.y = c.heading;
-      const drop = Math.min(0.17, parts.stance * 0.012), camber = Math.min(0.22, parts.stance * 0.015);
+      const drop = Math.min(0.17, parts.stance * 0.034), camber = Math.min(0.22, parts.stance * 0.044);
       m.body.position.y = -drop;
       m.body.rotation.x = clamp(c.slip * 0.14, -0.09, 0.09);
       m.wheels.forEach((w) => {
@@ -827,7 +827,7 @@
             moving = true;
           } else if (mm.state === 'go') {
             mm.state = 'work';
-            mm.car.state = 'repair'; mm.car.repairT = 0; mm.car.repairDur = G.repairTime(state);
+            mm.car.state = 'repair'; mm.car.repairT = 0; mm.car.repairDur = G.carRepairTime(state, mm.car.sc);
           } else { mm.state = 'idle'; mm.g.rotation.y = Math.PI; }
         }
         mm.hop += dt * (moving ? 16 : mm.state === 'work' ? 11 : 0);
@@ -859,7 +859,7 @@
       // one pace for the whole field, so cars keep their gaps; engines and turbos speed everyone up a little
       let lv = 0, n = 0;
       cars.forEach((c) => { if (c.state === 'run') { lv += c.sc.parts.engine + c.sc.parts.turbo; n++; } });
-      speed0 = lerp(speed0, 15 + Math.min(7, n ? (lv / n) * 0.22 : 0), 1 - Math.exp(-dt));
+      speed0 = lerp(speed0, 15 + Math.min(7, n ? (lv / n) * 0.7 : 0), 1 - Math.exp(-dt));
 
       cars.forEach((c) => updateCar(c, dt));
       updateMechs(dt);
@@ -895,11 +895,12 @@
     }
     function status(id) { const c = cars.get(id); return c ? c.state : 'parked'; }
     function addEarnings(id, amount) { const c = cars.get(id); if (c) c.accrued += amount; }
+    function pos(id) { const c = cars.get(id); return c ? { x: c.x, z: c.z } : null; }
 
     resize();
     sync();
     Object.assign(world, { sync, update, render: () => renderer.render(scene, camera), setInsets, toScreen, indicators,
-      runningIds, status, addEarnings, path: P, _cars: cars, _mechs: mechs, _crash: (id) => { const c = cars.get(id); if (c && c.state === 'run') startCrash(c); } });
+      runningIds, status, addEarnings, pos, path: P, _cars: cars, _mechs: mechs, _crash: (id) => { const c = cars.get(id); if (c && c.state === 'run') startCrash(c); } });
     return world;
   }
 

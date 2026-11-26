@@ -13,22 +13,33 @@
   const TITLES = { garage: 'Garage', team: 'Team', venue: 'Venue' };
 
   function UI(state, world, actions) {
-    let tab = null, openCar = state.cars[0] ? state.cars[0].id : null, resetArmed = false;
+    let tab = null, openCar = state.cars[0] ? state.cars[0].id : null, armed = '', tryKey = '';
     const el = {
       cash: $('cash'), rate: $('rate'), meterFill: $('meter-fill'), meterText: $('meter-text'), meter: $('meter'),
       sheet: $('sheet'), body: $('sheet-body'), title: $('sheet-title'), tabs: $('tabs'), modal: $('modal'),
       popups: $('popups'), toast: $('toast'), hud: $('hud'),
     };
 
-    /* ---------- Buttons ---------- */
+    /* ---------- Small pieces ---------- */
     function buy(label, cost, act, attrs, cls) {
       const data = Object.keys(attrs || {}).map((k) => ' data-' + k + '="' + esc(attrs[k]) + '"').join('');
       if (!isFinite(cost)) return '<button class="buy maxed" disabled>Max</button>';
       return '<button class="buy ' + (cls || '') + '" data-act="' + act + '" data-cost="' + cost + '"' + data + '>' +
         (label ? '<span class="buy-label">' + label + '</span>' : '') + '<span class="buy-cost">' + G.money(cost) + '</span></button>';
     }
-    const bar = (label, v) => '<div class="stat"><span>' + label + '</span><i><b style="width:' + Math.round(v) + '%"></b></i><em>' + Math.round(v) + '</em></div>';
+    const bar = (label, v) => '<div class="stat"><span>' + label + '</span><i><b style="width:' + Math.min(100, Math.round(v / 1.6)) +
+      '%"></b></i><em>' + Math.round(v) + '</em></div>';
+    const stats = (d) => { const s = G.driverStats(d); return bar('Skill', s.skill) + bar('Control', s.control) + bar('Flair', s.flair); };
     const rarityTag = (d) => { const r = G.rarity(d.rarity); return '<span class="rarity" style="--r:' + r.color + '">' + r.name + '</span>'; };
+    const traitLine = (d) => { const t = G.trait(d); return t.name ? '<div class="trait"><b>' + t.name + '</b> ' + t.blurb + '</div>' : ''; };
+    const pips = (n) => { let h = '<span class="pips">'; for (let i = 0; i < D.PART_MAX; i++) h += '<i' + (i < n ? ' class="on"' : '') + '></i>'; return h + '</span>'; };
+    const xpPct = (d) => (G.xpToNext(d) ? Math.min(100, (d.xp / G.xpToNext(d)) * 100) : 100);
+    function levelRow(d) {
+      const cap = G.levelCap(d), top = d.level >= cap;
+      return '<div class="level"><span>Lv ' + d.level + '<small> / ' + cap + '</small></span><i><b data-xp="' + d.id + '" style="width:' + xpPct(d) +
+        '%"></b></i><em>' + (top ? 'Top level' : 'Levels up with seat time') + '</em></div>';
+    }
+    const statLine = (d) => { const s = G.driverStats(d); return 'Lv ' + d.level + ' · Skill ' + s.skill + ' · Control ' + s.control + ' · Flair ' + s.flair; };
 
     /* ---------- Garage ---------- */
     function carCard(car, i) {
@@ -47,18 +58,19 @@
         h += '<div class="parts">';
         D.PARTS.forEach((p) => {
           const lv = car.parts[p.id], maxed = lv >= D.PART_MAX;
-          h += '<div class="row part"><div><strong>' + p.name + '</strong> <span class="lv">Lv ' + lv + '</span><small>' + p.blurb +
-            '</small><small class="delta">Style ' + pct(lv * p.per) + (maxed ? '' : ' → ' + pct((lv + 1) * p.per)) + '</small></div>' +
-            buy('', maxed ? Infinity : G.partCost(car, p.id), 'part', { car: car.id, part: p.id }) + '</div>';
+          h += '<div class="row part"><div><strong>' + p.name + '</strong> <span class="lv">' + D.PART_STAGES[lv] + '</span>' + pips(lv) + '<small>' + p.blurb +
+            '</small><small class="delta">' + (maxed ? 'Style ' + pct(lv * p.per) : D.PART_STAGES[lv + 1] + ': style ' + pct(lv * p.per) + ' → ' + pct((lv + 1) * p.per)) +
+            '</small></div>' + buy('', maxed ? Infinity : G.partCost(car, p.id), 'part', { car: car.id, part: p.id }) + '</div>';
         });
         h += '</div>';
         const next = D.MODELS[G.modelIndex(car.model) + 1];
         if (next) {
-          h += '<div class="row trade"><div><strong>Trade up: ' + esc(next.name) + '</strong><small>' + esc(next.blurb) + ' Base style ' +
-            G.fmt(m.base) + ' → ' + G.fmt(next.base) + '. Parts keep half their levels.</small></div>' +
+          h += '<div class="row trade"><div><strong>Trade up: ' + esc(next.name) + '</strong><small>' + esc(next.blurb) + '</small><small class="delta">Base style ' +
+            G.fmt(m.base) + ' → ' + G.fmt(next.base) + '. Parts and driver move across.</small></div>' +
             buy('', next.cost, 'trade', { car: car.id, model: next.id }, 'alt') + '</div>';
         }
-        h += '<p class="note">Crashes about once every ' + G.duration(1 / G.carCrashRate(state, car) || 0) + ' of drifting.</p>';
+        const rate = G.carCrashRate(state, car);
+        if (rate > 0) h += '<p class="note">Crashes about once every ' + G.duration(1 / rate) + ' of drifting.</p>';
       }
       return h + '</article>';
     }
@@ -74,27 +86,37 @@
         });
         h += '</article>';
       } else if (state.slots < G.MAX_SLOTS) {
-        h += '<article class="card"><div class="row"><div><strong>Open pit ' + (state.slots + 1) + '</strong><small>Room for one more car on track.</small></div>' +
+        h += '<article class="card"><div class="row"><div><strong>Open pit ' + (state.slots + 1) + '</strong><small>Room for one more car on track, and one more driver on the team.</small></div>' +
           buy('', G.slotCost(state), 'slot') + '</div></article>';
       }
       return h;
     }
 
     /* ---------- Team ---------- */
+    function tryoutState() {
+      if (state.prospects) return 'p';
+      return G.tryoutWait(state, Date.now()) > 0 ? 'w' : 'r';
+    }
     function driverCard(d) {
       const car = G.carOfDriver(state, d.id);
       return '<article class="card driver" style="--r:' + G.rarity(d.rarity).color + '"><div class="row"><div><strong>' + esc(d.name) + '</strong> ' + rarityTag(d) +
-        '<small>' + (car ? 'Drives the ' + esc(G.model(car.model).name) + ' (pit ' + (state.cars.indexOf(car) + 1) + ')' : 'On the bench') + '</small></div>' +
+        '<small>' + (car ? 'Drives the ' + esc(G.model(car.model).name) + ' (pit ' + (state.cars.indexOf(car) + 1) + ')' : 'Reserve driver. Only seat time earns experience') + '</small></div>' +
         '<button class="ghost" data-act="pick-car" data-driver="' + d.id + '">' + (car ? 'Move' : 'Assign') + '</button></div>' +
-        '<div class="stats">' + bar('Skill', d.skill) + bar('Control', d.control) + bar('Flair', d.flair) + '</div></article>';
+        levelRow(d) + traitLine(d) + '<div class="stats">' + stats(d) + '</div></article>';
     }
 
     function renderTeam() {
-      const odds = D.RARITIES.map((r) => r.name + ' ' + r.weight + '%').join(' · ');
-      let h = '<article class="card"><div class="row"><div><strong>Scout a driver</strong><small>A random driver joins the team. ' + odds + '</small></div>' +
-        buy('', G.scoutCost(state), 'scout') + '</div><p class="note">Skill and flair raise style. Control means fewer crashes.</p></article>';
+      tryKey = tryoutState();
+      const cap = G.rosterCap(state);
+      let action;
+      if (tryKey === 'p') action = '<button class="buy alt" data-act="view-tryout"><span class="buy-label">' + state.prospects.length + ' waiting</span><span class="buy-cost">Meet them</span></button>';
+      else if (tryKey === 'w') action = '<div class="wait"><small>Next tryout</small><b data-tryout-wait>' + G.clock(G.tryoutWait(state, Date.now())) + '</b></div>';
+      else action = buy('Hold one', G.tryoutCost(state), 'tryout');
+      let h = '<article class="card"><div class="row"><div><strong>Tryout day</strong><small>' + D.TRYOUT_SIZE +
+        ' prospects show up. Sign one, or send them all home.</small></div>' + action + '</div><p class="note">Drivers: ' + state.drivers.length + ' of ' + cap +
+        ' (one per pit, plus a reserve). With a full team, a signing replaces someone: they retire and pass half their experience to the newcomer.</p></article>';
       const order = D.RARITIES.map((r) => r.id);
-      state.drivers.slice().sort((a, b) => order.indexOf(b.rarity) - order.indexOf(a.rarity) || b.skill - a.skill)
+      state.drivers.slice().sort((a, b) => order.indexOf(b.rarity) - order.indexOf(a.rarity) || G.driverMult(b) - G.driverMult(a))
         .forEach((d) => (h += driverCard(d)));
       const t = G.repairTime(state), t2 = G.repairTime(state, state.mech.level + 1);
       h += '<h3 class="section">Mechanics</h3><article class="card">' +
@@ -111,10 +133,10 @@
       const inc = G.incomeRate(state);
       let h = '<article class="card"><h3>Parking Lot</h3><p class="note">Your first venue. Style from the cars turns into cash only as fast as the crowd can cheer: right now ' +
         G.fmt(inc.cap, 1) + ' style/s.</p></article>';
-      const now = { stands: G.fmt(G.crowdCap(state), 1) + ' style/s cheered', sponsors: 'Cash x' + G.sponsorMult(state).toFixed(2), prep: 'Style x' + G.prepMult(state).toFixed(1) };
+      const now = { stands: G.fmt(G.crowdCap(state), 1) + ' style/s cheered', sponsors: 'Cash x' + G.sponsorMult(state).toFixed(2), prep: 'Style x' + G.prepMult(state).toFixed(2) };
       const then = {
-        stands: G.fmt(G.crowdCap(state) * D.CROWD_GROWTH, 1) + ' style/s', sponsors: 'x' + (G.sponsorMult(state) + D.SPONSOR_PER).toFixed(2),
-        prep: 'x' + (G.prepMult(state) + D.PREP_PER).toFixed(1),
+        stands: G.fmt(G.crowdCap(state) * D.CROWD_GROWTH, 1) + ' style/s', sponsors: 'x' + (G.sponsorMult(state) * D.SPONSOR_MULT).toFixed(2),
+        prep: 'x' + (G.prepMult(state) * D.PREP_MULT).toFixed(2),
       };
       D.VENUE.forEach((v) => {
         h += '<article class="card"><div class="row"><div><strong>' + v.name + '</strong> <span class="lv">Lv ' + state.venue[v.id] + '</span><small>' + v.blurb +
@@ -122,7 +144,7 @@
       });
       h += '<article class="card"><div class="row"><div><strong>Pits: ' + state.slots + ' of ' + G.MAX_SLOTS + '</strong><small>Each pit is one more car on track.</small></div>' +
         buy('', G.slotCost(state), 'slot') + '</div></article>';
-      h += '<div class="reset"><button class="ghost danger" data-act="reset">' + (resetArmed ? 'Tap again to wipe this team' : 'Start over') + '</button></div>';
+      h += '<div class="reset"><button class="ghost danger" data-act="reset">' + (armed === 'reset' ? 'Tap again to wipe this team' : 'Start over') + '</button></div>';
       return h;
     }
 
@@ -135,14 +157,18 @@
       refresh();
     }
 
-    /* Cheap updates between renders: what can be afforded, car status chips. */
+    /* Cheap updates between renders: what can be afforded, car status chips, experience bars, the tryout clock. */
     function refresh() {
-      el.body.querySelectorAll('[data-cost]').forEach((b) => b.classList.toggle('cant', state.cash < +b.dataset.cost));
+      document.querySelectorAll('#sheet-body [data-cost], #modal [data-cost]').forEach((b) => b.classList.toggle('cant', state.cash < +b.dataset.cost));
       el.body.querySelectorAll('[data-status]').forEach((c) => {
         const st = STATUS[world.status(+c.dataset.status)] || STATUS.parked;
         if (c.textContent !== st[0]) { c.textContent = st[0]; c.className = 'chip ' + st[1]; }
       });
-      el.modal.querySelectorAll('[data-cost]').forEach((b) => b.classList.toggle('cant', state.cash < +b.dataset.cost));
+      if (tab !== 'team') return;
+      if (tryoutState() !== tryKey) { render(); return; }
+      el.body.querySelectorAll('[data-xp]').forEach((b) => { const d = G.getDriver(state, +b.dataset.xp); if (d) b.style.width = xpPct(d) + '%'; });
+      const w = el.body.querySelector('[data-tryout-wait]');
+      if (w) w.textContent = G.clock(G.tryoutWait(state, Date.now()));
     }
 
     /* ---------- Sheet and camera room ---------- */
@@ -155,7 +181,7 @@
     }
     function openTab(name) {
       tab = tab === name ? null : name;
-      resetArmed = false;
+      armed = '';
       el.sheet.hidden = !tab;
       el.tabs.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tab === tab)));
       if (tab) { el.body.scrollTop = 0; render(); }
@@ -164,13 +190,42 @@
 
     /* ---------- Modals ---------- */
     function showModal(html) { el.modal.innerHTML = '<div class="modal-card">' + html + '</div>'; el.modal.hidden = false; }
-    function closeModal() { el.modal.hidden = true; el.modal.innerHTML = ''; }
+    function closeModal() { el.modal.hidden = true; el.modal.innerHTML = ''; armed = ''; }
 
-    function driverReveal(d) {
-      const r = G.rarity(d.rarity), car = G.carOfDriver(state, d.id);
-      showModal('<div class="reveal" style="--r:' + r.color + '"><small>New driver</small><div class="helmet" style="background:' + d.helmet + '"><i></i></div>' +
-        '<h2>' + esc(d.name) + '</h2>' + rarityTag(d) + '<div class="stats">' + bar('Skill', d.skill) + bar('Control', d.control) + bar('Flair', d.flair) + '</div>' +
-        '<p class="note">' + (car ? 'Straight into the ' + esc(G.model(car.model).name) + '.' : 'On the bench until a seat opens. Assign them from the Team tab.') + '</p>' +
+    function prospectCard(p, i) {
+      const now = G.driverStats(p), top = G.driverStats(Object.assign({}, p, { level: G.levelCap(p) }));
+      const cell = (label, k) => '<div><small>' + label + '</small><b>' + now[k] + '</b><small>up to ' + top[k] + '</small></div>';
+      return '<div class="prospect" style="--r:' + G.rarity(p.rarity).color + '"><div class="row"><div><strong>' + esc(p.name) + '</strong> ' + rarityTag(p) +
+        '<small>Can reach level ' + G.levelCap(p) + '</small></div><button class="buy" data-act="sign" data-i="' + i + '">Sign</button></div>' +
+        traitLine(p) + '<div class="grid3">' + cell('Skill', 'skill') + cell('Control', 'control') + cell('Flair', 'flair') + '</div></div>';
+    }
+    function viewTryout() {
+      if (!state.prospects) return;
+      const full = G.rosterFull(state);
+      showModal('<h2>Tryout day</h2><p class="note">Sign one and the others go home. ' +
+        (full ? 'Your team is full, so whoever you sign replaces a driver, who retires and mentors them.' : 'There is a free place on the team.') + '</p>' +
+        state.prospects.map(prospectCard).join('') +
+        '<div class="pair"><button class="ghost" data-act="close">Decide later</button><button class="ghost danger" data-act="dismiss">' +
+        (armed === 'dismiss' ? 'Tap again to confirm' : 'Send them home') + '</button></div>');
+    }
+    function pickRetiree(i) {
+      const p = state.prospects[i];
+      let h = '<h2>Who makes way for ' + esc(p.name) + '?</h2><p class="note">They retire and mentor the newcomer, passing on half their experience. ' +
+        esc(p.name) + ' takes their seat.</p><div class="list">';
+      state.drivers.forEach((d) => {
+        const after = G.mentored(p, d), car = G.carOfDriver(state, d.id);
+        h += '<button class="pick" data-act="sign-over" data-i="' + i + '" data-driver="' + d.id + '"><span><strong>' + esc(d.name) + '</strong> ' + rarityTag(d) +
+          '<small>' + statLine(d) + '</small><small>' + (car ? 'Drives the ' + esc(G.model(car.model).name) : 'Reserve') + '</small></span><em>Newcomer starts at Lv ' +
+          after.level + '</em></button>';
+      });
+      showModal(h + '</div><button class="ghost wide" data-act="view-tryout">Back</button>');
+    }
+    function driverReveal(res) {
+      const d = res.driver, r = G.rarity(d.rarity), car = G.carOfDriver(state, d.id);
+      showModal('<div class="reveal" style="--r:' + r.color + '"><small>Signed</small><div class="helmet" style="background:' + d.helmet + '"><i></i></div>' +
+        '<h2>' + esc(d.name) + '</h2>' + rarityTag(d) + traitLine(d) + '<div class="stats">' + stats(d) + '</div>' +
+        '<p class="note">' + (res.retired ? esc(res.retired.name) + ' retires and stays on as mentor: ' + esc(d.name) + ' starts at level ' + d.level + '. ' : '') +
+        (car ? 'Drives the ' + esc(G.model(car.model).name) + '.' : 'Reserve driver until a seat opens. Assign them from the Team tab.') + '</p>' +
         '<button class="buy wide" data-act="close">Welcome aboard</button></div>');
     }
     function pickDriver(carId) {
@@ -179,8 +234,8 @@
       state.drivers.forEach((d) => {
         const other = G.carOfDriver(state, d.id), mine = other === car;
         h += '<button class="pick' + (mine ? ' current' : '') + '" data-act="assign" data-car="' + carId + '" data-driver="' + d.id + '"><span><strong>' + esc(d.name) +
-          '</strong> ' + rarityTag(d) + '<small>Skill ' + d.skill + ' · Control ' + d.control + ' · Flair ' + d.flair + '</small></span><em>' +
-          (mine ? 'Driving it now' : other ? 'Swaps from pit ' + (state.cars.indexOf(other) + 1) : 'Bench') + '</em></button>';
+          '</strong> ' + rarityTag(d) + '<small>' + statLine(d) + '</small></span><em>' +
+          (mine ? 'Driving it now' : other ? 'Swaps from pit ' + (state.cars.indexOf(other) + 1) : 'Reserve') + '</em></button>';
       });
       showModal(h + '</div><button class="ghost wide" data-act="close">Cancel</button>');
     }
@@ -197,19 +252,27 @@
     function showAway(info) {
       showModal('<div class="reveal away"><small>While you were away</small><h2>' + G.money(info.cash) + '</h2><p class="note">The team kept drifting for ' +
         G.duration(info.paidSeconds) + (info.seconds > info.paidSeconds ? ' (the crowd goes home after ' + G.duration(D.OFFLINE_CAP) + ')' : '') +
+        (info.levelUps ? '. ' + info.levelUps + (info.levelUps === 1 ? ' driver' : ' drivers') + ' levelled up' : '') +
         '.</p><button class="buy wide" data-act="close">Collect</button></div>');
     }
 
     /* ---------- Clicks ---------- */
+    function sign(i, retireId) {
+      const res = G.signProspect(state, i, retireId);
+      if (!res) return false;
+      driverReveal(res);
+      return true;
+    }
     function onAct(b) {
-      const a = b.dataset.act, carId = +b.dataset.car, driverId = +b.dataset.driver;
+      const a = b.dataset.act, carId = +b.dataset.car, driverId = +b.dataset.driver, i = +b.dataset.i;
       let changed = false;
       if (a === 'toggle-car') { openCar = openCar === carId ? null : carId; render(); return; }
       if (a === 'close') { closeModal(); return; }
       if (a === 'pick-driver') { pickDriver(carId); return; }
       if (a === 'pick-car') { if (state.cars.length) pickCar(driverId); return; }
+      if (a === 'view-tryout') { armed = ''; viewTryout(); return; }
       if (a === 'reset') {
-        if (!resetArmed) { resetArmed = true; render(); return; }
+        if (armed !== 'reset') { armed = 'reset'; render(); return; }
         actions.reset(); return;
       }
       if (a === 'part') changed = G.buyPart(state, carId, b.dataset.part);
@@ -220,17 +283,20 @@
       else if (a === 'hire') changed = G.hireMech(state);
       else if (a === 'train') changed = G.trainMech(state);
       else if (a === 'assign') { changed = G.assignDriver(state, carId, driverId); closeModal(); }
-      else if (a === 'scout') {
-        const d = G.scout(state, Math.random);
-        if (d) { changed = true; driverReveal(d); }
+      else if (a === 'tryout') { changed = G.holdTryout(state, Date.now(), Math.random); if (changed) viewTryout(); }
+      else if (a === 'sign') { if (G.rosterFull(state)) { pickRetiree(i); return; } changed = sign(i); }
+      else if (a === 'sign-over') changed = sign(i, driverId);
+      else if (a === 'dismiss') {
+        if (armed !== 'dismiss') { armed = 'dismiss'; viewTryout(); return; }
+        changed = G.dismissProspects(state); closeModal();
       }
-      if (changed) { b.classList.add('bought'); actions.changed(); render(); }
+      if (changed) { actions.changed(); render(); }
       else if (b.dataset.cost) { b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake'); }
     }
     document.addEventListener('click', (e) => {
       const t = e.target.closest('[data-tab]');
       if (t) { openTab(t.dataset.tab); return; }
-      if (e.target.id === 'sheet-close' || e.target.closest('#sheet-close')) { openTab(tab); return; }
+      if (e.target.closest('#sheet-close')) { openTab(tab); return; }
       const b = e.target.closest('[data-act]');
       if (b && !b.disabled) onAct(b);
     });
@@ -251,14 +317,20 @@
     function toast(text) {
       el.toast.textContent = text; el.toast.classList.add('show');
       clearTimeout(toastT);
-      toastT = setTimeout(() => el.toast.classList.remove('show'), 2200);
+      toastT = setTimeout(() => el.toast.classList.remove('show'), 2400);
+    }
+    function levelUp(d) {
+      const car = G.carOfDriver(state, d.id), p = car && world.pos(car.id);
+      if (p) popup(p.x, 5, p.z, 'Level ' + d.level + '!', 'good');
+      toast(d.name + ' reached level ' + d.level + (d.level >= G.levelCap(d) ? ', their top level.' : '.'));
+      if (tab) render();
     }
     const marks = new Map();
     function drawIndicators() {
       const seen = new Set();
       world.indicators().forEach((it) => {
         let n = marks.get(it.id);
-        if (!n) { n = document.createElement('div'); n.innerHTML = '<i></i><b></b>'; el.popups.appendChild(n); marks.set(it.id, n); }
+        if (!n) { n = document.createElement('div'); n.innerHTML = '<i></i>'; el.popups.appendChild(n); marks.set(it.id, n); }
         n.className = 'fix' + (it.repairing ? ' on' : '');
         n.style.left = it.x + 'px'; n.style.top = it.y + 'px';
         n.style.setProperty('--p', Math.round(it.p * 100) + '%');
@@ -285,7 +357,7 @@
     }
 
     layout(true);
-    return { frame, render, popup, toast, showAway, layout, openTab, isOpen: () => tab };
+    return { frame, render, popup, toast, showAway, levelUp, layout, openTab, isOpen: () => tab };
   }
 
   DT.UI = UI;

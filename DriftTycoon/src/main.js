@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   const DT = root.DT, G = DT.game;
-  const SAVE_KEY = 'drifttycoon.save.v1';
+  const SAVE_KEY = 'drifttycoon.save.v1';   // the key stays; the save's own `v` field carries its version
 
   function readSave() { try { return root.localStorage.getItem(SAVE_KEY); } catch (e) { return null; } }
   function writeSave(state) {
@@ -39,7 +39,11 @@
     });
 
     const away = saved ? G.offlineEarnings(state, Date.now()) : { cash: 0 };
-    if (away.cash > 0) { G.earn(state, away.cash); ui.showAway(away); }
+    if (away.cash > 0) {
+      G.earn(state, away.cash);
+      away.levelUps = G.awayXP(state, away.paidSeconds).length;
+      ui.showAway(away);
+    }
     writeSave(state);
 
     let last = performance.now(), saveT = 0;
@@ -47,7 +51,9 @@
       let dt = (now - last) / 1000;
       last = now;
       if (dt > 1) {   // the tab was in the background: pay the long-run rate for the gap, then carry on
-        G.earn(state, G.expectedIncome(state) * Math.min(dt, DT.data.OFFLINE_CAP));
+        const gap = Math.min(dt, DT.data.OFFLINE_CAP);
+        G.earn(state, G.expectedIncome(state) * gap);
+        G.awayXP(state, gap).forEach((d) => ui.levelUp(d));
         dt = 0.016;
       }
       dt = Math.min(dt, 0.05);
@@ -59,6 +65,7 @@
       if (inc.style > 0) {
         running.forEach((id) => world.addEarnings(id, earned * G.carStyle(state, G.getCar(state, id)) / inc.style));
       }
+      G.tickXP(state, running, dt).forEach((d) => ui.levelUp(d));
       world.hype = inc.cap ? Math.min(1, inc.style / inc.cap) : 0;
       ui.frame(inc, dt);
       world.render();

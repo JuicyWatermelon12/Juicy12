@@ -143,6 +143,27 @@ i.swatch { width: 18px; height: 12px; border-radius: 4px; vertical-align: -1px; 
 .stat b { display: block; height: 100%; border-radius: 999px; background: var(--r, var(--alt)); }
 .stat em { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
 
+/* ---- Parts, driver levels, traits, tryouts ---- */
+.pips { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: 1px; }
+.pips i { width: 9px; height: 9px; border-radius: 3px; background: var(--line); }
+.pips i.on { background: var(--accent); }
+.level { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 10px; row-gap: 2px; font-family: var(--display); font-weight: 600; font-size: 15px; }
+.level small { display: inline; font-size: 12px; }
+.level i { display: block; height: 10px; border-radius: 999px; background: var(--panel); overflow: hidden; }
+.level b { display: block; height: 100%; border-radius: 999px; background: var(--cash); box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.12); transition: width 0.25s linear; }
+.level em { grid-column: 2; font: 600 11px var(--body); font-style: normal; color: var(--ink-2); }
+.trait { font-size: 12px; font-weight: 600; color: var(--ink-2); line-height: 1.35; }
+.trait b { display: inline-block; font-weight: 800; color: var(--ink); background: #ffe9a8; border-radius: 6px; padding: 1px 7px; margin-right: 4px; }
+.wait { flex: none; min-width: 84px; text-align: center; padding: 6px 10px; border-radius: 12px; background: var(--panel); }
+.wait b { font-family: var(--display); font-weight: 600; font-size: 18px; font-variant-numeric: tabular-nums; }
+.pair { display: flex; gap: 10px; }
+.pair > * { flex: 1; min-width: 0; }
+.prospect { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 16px; background: var(--panel); border-left: 6px solid var(--r); }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; text-align: center; }
+.grid3 > div { background: var(--card); border-radius: 10px; padding: 5px 2px; }
+.grid3 b { display: block; font-family: var(--display); font-weight: 600; font-size: 18px; font-variant-numeric: tabular-nums; }
+.grid3 small { font-size: 11px; }
+
 /* ---- Modal ---- */
 #modal { position: absolute; inset: 0; background: rgba(23, 28, 42, 0.62); display: grid; place-items: center; padding-block: 16px;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
