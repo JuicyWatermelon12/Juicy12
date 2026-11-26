@@ -905,9 +905,11 @@
     resize();
     sync();
     Object.assign(world, { sync, update, render: () => renderer.render(scene, camera), setInsets, toScreen, indicators,
-      runningIds, status, addEarnings, pos, path: P, _cars: cars, _mechs: mechs, _crash: (id) => { const c = cars.get(id); if (c && c.state === 'run') startCrash(c); } });
+      runningIds, status, addEarnings, pos, renderer, resize, size: () => size, path: P, _cars: cars, _mechs: mechs, _crash: (id) => { const c = cars.get(id); if (c && c.state === 'run') startCrash(c); } });
     return world;
   }
 
   DT.World = World;
+  /* Building blocks shared with the touge mini-game. */
+  DT.kit = { Batch, mat, mesh, box, textTexture, disposeGroup, makeCarMesh, UNIT_BOX, WHITE };
 })(window);

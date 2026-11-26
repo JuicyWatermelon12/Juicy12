@@ -32,6 +32,10 @@
     }
     ui = DT.UI(state, world, {
       changed: () => { world.sync(); writeSave(state); },
+      tougeStart: (carId) => touge.start(carId),
+      tougeAgain: () => touge.again(),
+      tougeQuit: () => touge.quit(),
+      tougeExit: () => touge.stop(),
       // Wipe in place (no page reload, which a sandboxed page may not allow): empty the state object that
       // the world and the UI already hold, refill it as a new team, and save over the old progress.
       reset: () => {
@@ -41,6 +45,8 @@
         writeSave(state);
       },
     });
+
+    const touge = DT.Touge(world, state, { done: (res) => { ui.showTougeResult(res); writeSave(state); } });
 
     const away = saved ? G.offlineEarnings(state, Date.now()) : { cash: 0 };
     if (away.cash > 0) {
@@ -61,6 +67,15 @@
         dt = 0.016;
       }
       dt = Math.min(dt, 0.05);
+      if (touge.active()) {   // out on the pass: the venue is paused and the team earns its long-run rate meanwhile
+        G.earn(state, G.expectedIncome(state) * dt);
+        G.awayXP(state, dt);
+        touge.frame(dt);
+        saveT += dt;
+        if (saveT > 5) { saveT = 0; writeSave(state); }
+        root.requestAnimationFrame(frame);
+        return;
+      }
       world.update(dt);
       const running = world.runningIds();
       const inc = G.incomeRate(state, running);
@@ -80,7 +95,7 @@
     root.requestAnimationFrame(frame);
     document.addEventListener('visibilitychange', () => { if (document.hidden) writeSave(state); });
     root.addEventListener('pagehide', () => writeSave(state));
-    DT.debug = { state, world, ui, save: () => writeSave(state) };
+    DT.debug = { state, world, ui, touge, save: () => writeSave(state) };
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);

@@ -105,6 +105,33 @@
     SPONSOR_MULT: 1.25,                  // cash x1.25 per level
     PREP_MULT: 1.2,                      // style x1.2 per level
 
+    /* Touge practice: the drive-it-yourself run down a mountain pass. Distances in metres, angles in radians. */
+    TOUGE: {
+      LENGTH: 1000, STEP: 1, HALF_WIDTH: 6.2, CAR_HALF: 1.1, SLOPE: 0.11,
+      START_STRAIGHT: 60, FINISH_STRAIGHT: 40, FINISH_MARGIN: 12,
+      START_OFFSET: 18,                       // the car starts this far down the road, so there is road behind it
+      TURN_MIN: 0.6, TURN_MAX: 1.36,          // how far a bend swings the road away from straight downhill
+      RADIUS_MIN: 18, RADIUS_MAX: 34,
+      STRAIGHT_MIN: 6, STRAIGHT_MAX: 26,
+      COUNTDOWN: 2.4, START_SPEED: 9,
+      TOP_SPEED: 19, TOP_PER_STAGE: 0.6,       // m/s; engine and turbo stages each add TOP_PER_STAGE
+      ACCEL: 0.9,
+      STEER: 1.9, STEER_PER_ANGLE: 0.08,      // yaw rate in rad/s at full lock
+      GRIP: 2.3,                              // how fast the car's direction of travel catches up with its nose
+      MAX_SLIP: 0.72, SLIP_PER_ANGLE: 0.1,    // biggest drift angle; the angle kit adds to it
+      SLIDE_DRAG: 0.3,                        // share of top speed lost at a full-angle slide
+      HIT_KEEP: 0.5, HIT_KEEP_PER_SUSP: 0.06, // share of speed kept after touching a barrier
+      BOUNCE: 0.35,
+      DRIFT_MIN: 0.17, MIN_SPEED: 7,          // a slide counts as a drift past this angle and speed
+      SCORE_RATE: 12,                         // points = speed x angle x this x multiplier, per second
+      COMBO_TIME: 3, COMBO_MAX: 5,            // the multiplier gains 1 for every COMBO_TIME seconds of unbroken drifting
+      COMBO_GRACE: 0.8,                       // seconds straight before the multiplier resets
+      BONUS_PER_STANCE: 0.06, BONUS_PER_TIRES: 0.04, SKILL_DIV: 200, FLAIR_DIV: 300,
+      POINTS_PER_SECOND: 120,                 // this many points pay one second of the team's income
+      CLEAN_BONUS: 1.2,                       // finishing without touching a barrier
+      XP_MULT: 2,                             // the driver's seat time counts double
+    },
+
     OFFLINE_MIN: 30,          // seconds away before away-earnings are paid
     OFFLINE_CAP: 2 * 3600,
   };

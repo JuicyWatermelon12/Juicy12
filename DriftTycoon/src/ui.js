@@ -1,7 +1,7 @@
 /* Drift Tycoon — the HTML interface over the 3D view: money bar, tabs, upgrade sheets, pop-ups. */
 (function (root) {
   'use strict';
-  const DT = root.DT, D = DT.data, G = DT.game;
+  const DT = root.DT, D = DT.data, G = DT.game, C = DT.touge, T = D.TOUGE;
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const pct = (x) => '+' + Math.round(x * 100) + '%';
@@ -262,6 +262,35 @@
       if (tab) { el.body.scrollTop = 0; render(); }
       toast('Progress wiped. Fresh team, fresh tires.');
     }
+    /* ---------- Touge practice ---------- */
+    function tougeMenu() {
+      const income = G.expectedIncome(state);
+      let h = '<h2>Touge practice</h2><p class="note">Take one of your cars up the mountain pass at dusk and drift it down yourself. ' +
+        'The car drives; you slide a finger left and right to steer. Hold it sideways to build the multiplier. Touching a barrier resets it.</p>' +
+        '<p class="note">Every ' + T.POINTS_PER_SECOND + ' points pays one second of team income (now ' + G.money(income, 1) + '/s). A clean run to the bottom pays ' +
+        Math.round((T.CLEAN_BONUS - 1) * 100) + '% more, and the driver earns double seat time.</p><div class="list">';
+      let any = false;
+      state.cars.forEach((c, i) => {
+        const d = G.driverOf(state, c);
+        if (!d) return;
+        any = true;
+        const s = C.carSetup(state, c);
+        h += '<button class="pick" data-act="touge-go" data-car="' + c.id + '"><span><strong><i class="swatch" style="background:' + c.color + '"></i> ' +
+          esc(G.model(c.model).name) + '</strong><small>' + esc(d.name) + ' · pit ' + (i + 1) + '</small></span><em>' + Math.round(s.top * 3.6) + ' km/h · ' +
+          Math.round(s.maxSlip * 180 / Math.PI) + '° · score x' + s.bonus.toFixed(2) + '</em></button>';
+      });
+      if (!any) h += '<p class="note">No car has a driver yet.</p>';
+      showModal(h + '</div><button class="ghost wide" data-act="close">Not now</button>');
+    }
+    function showTougeResult(res) {
+      const d = res.driver, row = (a, b) => '<div><span>' + a + '</span><b>' + b + '</b></div>';
+      showModal('<div class="reveal away"><small>' + (res.finished ? 'Bottom of the pass' : 'Run ended early') + '</small><h2>' + G.money(res.cash, 1) + '</h2>' +
+        '<div class="result-rows">' + row('Points', res.score.toLocaleString('en-US')) + row('Best multiplier', 'x' + res.bestMult.toFixed(1)) +
+        row('Barrier touches', res.hits ? res.hits : 'None') + (res.clean ? row('Clean run', '+' + Math.round((T.CLEAN_BONUS - 1) * 100) + '%') : '') +
+        row('Worth', G.duration(res.seconds) + ' of team income') + '</div>' +
+        (d ? '<p class="note">' + esc(d.name) + ' banked ' + G.duration(res.xp) + ' of seat time' + (res.levels ? ' and reached level ' + d.level : '') + '.</p>' : '') +
+        '<button class="buy wide" data-act="touge-again">Run it again</button><button class="ghost wide" data-act="touge-exit">Back to the lot</button></div>');
+    }
     function showAway(info) {
       showModal('<div class="reveal away"><small>While you were away</small><h2>' + G.money(info.cash) + '</h2><p class="note">The team kept drifting for ' +
         G.duration(info.paidSeconds) + (info.seconds > info.paidSeconds ? ' (the crowd goes home after ' + G.duration(D.OFFLINE_CAP) + ')' : '') +
@@ -285,6 +314,11 @@
       if (a === 'pick-car') { if (state.cars.length) pickCar(driverId); return; }
       if (a === 'view-tryout') { armed = ''; viewTryout(); return; }
       if (a === 'menu') { armed = ''; showMenu(); return; }
+      if (a === 'touge-menu') { tougeMenu(); return; }
+      if (a === 'touge-go') { closeModal(); actions.tougeStart(carId); return; }
+      if (a === 'touge-again') { closeModal(); actions.tougeAgain(); return; }
+      if (a === 'touge-quit') { actions.tougeQuit(); return; }
+      if (a === 'touge-exit') { closeModal(); actions.tougeExit(); shownCash = -1; if (tab) render(); layout(true); return; }
       if (a === 'reset') {
         if (armed !== 'reset') { armed = 'reset'; showMenu(); return; }
         actions.reset(); afterReset(); return;
@@ -371,7 +405,7 @@
     }
 
     layout(true);
-    return { frame, render, popup, toast, showAway, levelUp, layout, openTab, isOpen: () => tab };
+    return { frame, render, popup, toast, showAway, showTougeResult, levelUp, layout, openTab, isOpen: () => tab };
   }
 
   DT.UI = UI;

@@ -35,8 +35,16 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
 - **Three limits to upgrade:** pits (how many cars run), the cars themselves (style a second), and grandstands
   (how much style the crowd can cheer for, which caps income). Sponsors multiply cash; track prep multiplies style.
 - **Away earnings:** up to two hours at the team's long-run rate, crashes included.
+- **Touge practice** (the Touge button): drive one of your own cars down a mountain pass at dusk. The car drives
+  itself; you slide one finger left and right to steer (arrow keys or A / D on a keyboard). The car's direction of
+  travel lags behind its nose, so it slides through every bend. Points are speed x drift angle x a multiplier that
+  builds while the drift is unbroken (up to x5) and resets after a straight or a barrier touch. Every 120 points
+  pays one second of the team's income, a clean run to the bottom pays 20% more, and the driver earns double seat
+  time. Each run is a new random road about a kilometre long. The car's parts change how it handles: engine and
+  turbo raise top speed, the angle kit adds steering and drift angle, suspension keeps more speed after a touch,
+  stance and tires raise the score, and so do the driver's skill and flair.
 
-Not built yet: the drive-it-yourself drift mini-game, more venues, prestige, sound.
+Not built yet: more venues, prestige, sound.
 
 ## Layout
 
@@ -44,6 +52,8 @@ Not built yet: the drive-it-yourself drift mini-game, more venues, prestige, sou
 index.html        page shell; loads Three.js r128 from cdnjs and the files below
 src/data.js       every tuning number (parts, cars, rarities, costs, crash and repair times)
 src/game.js       rules: income, costs, purchases, drivers, save and load. No DOM, no Three.js
+src/tougecore.js  Touge practice rules: the road, handling, scoring, payout. No DOM, no Three.js
+src/touge.js      Touge practice in 3D: the mountain road, chase camera, steering input, HUD
 src/world.js      the 3D venue: track, cars, smoke, tire marks, crashes, mechanics, crowd, camera
 src/ui.js         money bar, tabs, upgrade sheets, pop-ups
 src/main.js       boot, save, frame loop
