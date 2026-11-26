@@ -5284,3 +5284,19 @@ Not built now; listed so single-player work stays co-op-ready. Co-op has never b
 - One player's death ends the run (GameOver) for everyone (`TODO(co-op)` in `HandlePlayerDeath`). The run summary
   reads the owning player's upgrades and the best combo, which aren't replicated, and this machine's profile.
   `RequestReturnToHub` only checks that the requester is dead.
+
+## Side project — Grave Shift (web zombie shooter)
+
+Not part of BanditBaller and not an Unreal asset: a separate browser game asked for in a cloud session (no editor, no
+MCP). It doesn't change **Next up**.
+- **What:** a first-person, round-based zombie survival shooter that runs in a phone browser. One file,
+  `web/grave-shift/index.html` (three.js r128 from cdnjs, everything else inline, procedural art and sound).
+- **Built:** touch controls (left thumb moves, right thumb aims, FIRE / RELOAD / SWAP, a contextual buy button) plus
+  keyboard and mouse; cash for hits (+10) and kills (+60, headshot +100, explosive +50); four wall guns with ammo
+  re-buys; the "unclaimed freight" mystery crate ($950, nine weapons, four of them crate-only); four pay-to-raise
+  shutters into new bays; four power-up drops; a health tonic and an overclock bench as late cash sinks; rounds with
+  growing zombie count, health and speed; best round saved in the browser.
+- **Checked:** a headless phone-sized Chromium run (landscape and portrait) through start, kills paying out, a wall
+  buy, a shutter, the crate, the touch stick and fire button, pause and death. Not yet played on a real phone.
+- **Known issues:** frame rate on a real phone is unmeasured; balance is first-pass; opening it needs a connection
+  for three.js and the fonts.
