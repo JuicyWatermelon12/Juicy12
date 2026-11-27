@@ -148,8 +148,10 @@
     VENUE_MAX: { stands: 5, sponsors: 6, prep: 5 },   // top level of each upgrade, at every venue
     CROWD_GROWTH: 3,                     // the crowd can cheer x3 more style per grandstand level
 
-    /* The venue ladder. The team buys the next venue, then moves there for good: cars, parts, drivers,
-       mechanics and cosmetics move; grandstands, sponsors and track prep start again from zero.
+    /* The venue ladder. Every venue the team buys is kept, with its own grandstands, sponsors and track prep.
+       The team runs at one venue at a time and can move between the ones it owns. What is on sale (pits, car
+       models, part stages) follows the best venue owned; style, crowd and upgrade prices follow the venue
+       the team is at. Each owned venue's track can also be driven in Drift mode.
          cost    price of the venue: about 25 minutes of Street Drifting at the venue before, fully built
          pits    most cars it can run          cars    car models it puts on sale
          style   multiplier on all style there  crowd   style a second the crowd can cheer with no grandstands
@@ -175,6 +177,7 @@
       STEP: 1, HALF_WIDTH: 6.2, CAR_HALF: 1.1, SLOPE: 0.11,
       START_STRAIGHT: 60,
       START_OFFSET: 18,                       // the car starts this far down the road, so there is road behind it
+      LAP_LINE: 34,                           // a track's start line is this far ahead of the car's starting spot
       RAMP_KM: 6,
       TURN_MIN: [0.6, 0.95], TURN_MAX: [1.3, 1.4],   // how far a bend swings the road away from straight downhill
       RADIUS_MIN: [23, 18], RADIUS_MAX: [43, 28],
@@ -200,6 +203,12 @@
       POINTS_PER_SECOND: 60,                  // this many points pay one second of the team's income
       XP_MULT: 2,                             // the driver's seat time counts double
     },
+
+    /* Drift mode, Street: roads to drift down. One for now; more maps go here. */
+    STREET_MAPS: [
+      { id: 'pass', name: 'Mountain Pass', blurb: 'An endless mountain road at dusk. It gets tighter and faster the further you go.' },
+    ],
+    TRACK_SCALE: 5.5,   // Drift mode, Track: a venue's drift line is this many times bigger when you drive it
 
     /* Street cred: a rank earned only by Street Drifting. It never goes down and is never spent. */
     CRED_PER_100M: 1, CRED_PER_1000_POINTS: 1, CRED_NEW_BEST: 10,   // a new best score and a new best distance each pay CRED_NEW_BEST

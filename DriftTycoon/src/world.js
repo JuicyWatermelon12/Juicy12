@@ -9,17 +9,15 @@
   const CAR_SCALE = 1.5;                   // cars and people are drawn big, toy-style, so they read on a phone
   const BOUNDS = { x0: -LOT.hx + 3, x1: LOT.hx - 3, z0: -LOT.hz + 3, z1: LOT.hz - 3 }; // where a spinning car may end up
   /* What each venue looks like. All venues share the lot's footprint (so pits, stands and the camera stay put);
-     the drift line, the surface and everything around the lot change. `track` is the drift line as [x, z] points. */
+     the drift line, the surface and everything around the lot change. The drift lines themselves are in tracks.js. */
   const THEMES = {
-    lot: { sky: 0xa9def2, ground: 0x7cc45c, asphalt: '#414a5c', rim: 0xb9c0cc, pad: 0xc9cfda, edge: 'rgba(255,205,60,0.75)',
-      track: [[-11, -31], [0, -37], [11, -31], [15, -16], [6, -3], [15, 10], [13, 27], [0, 37], [-12, 29], [-16, 12], [-6, 0], [-15, -16]]
-        .map((p) => [p[0] * 0.78, p[1] * 0.78]) },
-    docks: { sky: 0xbfd3df, ground: 0x2c7396, asphalt: '#565d6a', rim: 0x8d96a3, pad: 0xaab2bd, edge: 'rgba(255,255,255,0.7)',
-      track: [[-11, -26], [0, -29], [11, -25], [13, -10], [12, 6], [13, 20], [8, 28], [-4, 28], [-12, 22], [-12, 10], [-2, 6], [2, -2], [-4, -8], [-12, -12]] },
-    airfield: { sky: 0xf6dcae, ground: 0xb7bf78, asphalt: '#3a3d47', rim: 0x9a9a8c, pad: 0xbdbba8, edge: 'rgba(255,205,60,0.85)',
-      track: [[-12, -22], [-6, -29], [6, -29], [12, -22], [12, -8], [5, 0], [12, 8], [12, 22], [6, 29], [-6, 29], [-12, 22], [-13, 0]] },
+    lot: { sky: 0xa9def2, ground: 0x7cc45c, asphalt: '#414a5c', rim: 0xb9c0cc, pad: 0xc9cfda, edge: 'rgba(255,205,60,0.75)' },
+    docks: { sky: 0xbfd3df, ground: 0x2c7396, asphalt: '#565d6a', rim: 0x8d96a3, pad: 0xaab2bd, edge: 'rgba(255,255,255,0.7)' },
+    airfield: { sky: 0xf6dcae, ground: 0xb7bf78, asphalt: '#3a3d47', rim: 0x9a9a8c, pad: 0xbdbba8, edge: 'rgba(255,205,60,0.85)' },
   };
   const themeOf = (state) => THEMES[G.place(state).id] || THEMES.lot;
+  /* A venue's drift line as [x, z] points for the curve below. */
+  const trackPoints = (id) => DT.tracks.sample(DT.tracks.LAYOUTS[id] ? id : 'lot', 150).pts.map((p) => [p.x, p.z]);
   const YAW = 10 * Math.PI / 180, EL = 52 * Math.PI / 180;
   const TAU = Math.PI * 2;
   const CROWD_COLORS = [0xff5a36, 0x19b3f5, 0xffd23f, 0x7ed957, 0xb56bff, 0xff6fb5, 0xffffff, 0x2a3142, 0xff9f1c];
@@ -311,7 +309,7 @@
   function World(canvas, state, hooks) {
     hooks = hooks || {};
     let theme = themeOf(state), themeId = G.place(state).id;
-    let P = buildPath(theme.track), corners = findCorners(P);
+    let P = buildPath(trackPoints(themeId)), corners = findCorners(P);
     const tmp = { x: 0, z: 0, ang: 0, kap: 0 }, tmp2 = { x: 0, z: 0, ang: 0, kap: 0 };
     const v = new V3();
 
@@ -969,7 +967,7 @@
     function setTheme() {
       themeId = G.place(state).id;
       theme = themeOf(state);
-      P = buildPath(theme.track);
+      P = buildPath(trackPoints(themeId));
       corners = findCorners(P);
       scene.background.set(theme.sky);
       scene.fog.color.set(theme.sky);
@@ -1065,5 +1063,5 @@
 
   DT.World = World;
   /* Building blocks shared with the touge mini-game. */
-  DT.kit = { Batch, mat, mesh, box, textTexture, disposeGroup, makeCarMesh, UNIT_BOX, WHITE };
+  DT.kit = { Batch, mat, mesh, box, textTexture, disposeGroup, makeCarMesh, UNIT_BOX, WHITE, THEMES };
 })(window);

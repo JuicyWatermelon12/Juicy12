@@ -32,7 +32,8 @@
     }
     ui = DT.UI(state, world, {
       changed: () => { world.sync(); writeSave(state); },
-      tougeStart: (carId) => touge.start(carId),
+      tougeStart: (carId, where) => touge.start(carId, where),
+      tougeActive: () => touge.active(),
       tougeAgain: () => touge.again(),
       tougeQuit: () => touge.quit(),
       tougeExit: () => touge.stop(),

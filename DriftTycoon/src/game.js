@@ -47,13 +47,15 @@
       cars: [], drivers: [],
       tryouts: 0, nextTryoutAt: 0, prospects: null,
       mech: { count: 1, level: 0 },
-      venue: { stands: 0, sponsors: 0, prep: 0 },
+      levels: [{ stands: 0, sponsors: 0, prep: 0 }],   // upgrade levels of every venue owned, by index into D.VENUES
+      venue: null,               // the levels of the venue the team is at: always the same object as levels[place]
       place: 0, placeOwned: 0,   // the venue the team is at, and the furthest venue it has bought (indexes into D.VENUES)
-      street: { runs: 0, bestScore: 0, bestDist: 0, cred: 0 },   // Street Drifting records and street cred
+      street: { runs: 0, cred: 0, best: {} },   // Drift mode: runs, street cred, and the best { score, dist } on each map
       owned: { paints: D.FACTORY_PAINTS.slice(), rims: ['steel'], kits: {} },   // cosmetics bought; kits are per car model
       fx: [],   // tap-bubble effects running at the venue: { id, left }. Not carried across a reload
       lastSeen: now || 0,
     };
+    s.venue = s.levels[0];
     const rookie = { id: s.nextId++, name: 'Sam "Rookie" Okada', rarity: 'common', skill: 12, control: 16, flair: 10,
       helmet: '#ffffff', level: 1, xp: 0, trait: null };
     s.drivers.push(rookie);
@@ -104,12 +106,14 @@
   }
   /* ---------- Venues ---------- */
   const place = (state) => D.VENUES[state.place];
-  const nextPlace = (state) => D.VENUES[state.place + 1] || null;
+  const bestPlace = (state) => D.VENUES[state.placeOwned];                    // the best venue owned: it decides what is on sale
+  const nextPlace = (state) => D.VENUES[state.placeOwned + 1] || null;        // the next venue to buy
+  const ownsPlace = (state, index) => index >= 0 && index <= state.placeOwned;
   /* The venue that puts a car model on sale, as an index into D.VENUES (-1: none yet). */
   const modelPlace = (modelId) => D.VENUES.findIndex((v) => v.cars.includes(modelId));
-  const modelUnlocked = (state, modelId) => { const i = modelPlace(modelId); return i >= 0 && i <= state.place; };
-  const maxPits = (state) => Math.min(MAX_SLOTS, place(state).pits);
-  const partCap = (state) => Math.min(D.PART_MAX, place(state).stage);   // highest part stage on sale at this venue
+  const modelUnlocked = (state, modelId) => { const i = modelPlace(modelId); return i >= 0 && i <= state.placeOwned; };
+  const maxPits = (state) => Math.min(MAX_SLOTS, bestPlace(state).pits);
+  const partCap = (state) => Math.min(D.PART_MAX, bestPlace(state).stage);   // highest part stage on sale
   const venueMaxed = (state) => D.VENUE.every((v) => state.venue[v.id] >= D.VENUE_MAX[v.id]);
 
   const prepMult = (state) => place(state).style * Math.pow(D.PREP_MULT, state.venue.prep);
@@ -265,18 +269,23 @@
     return true;
   }
 
-  /* Buy the next venue. The team stays where it is until it moves. */
+  const zeroLevels = () => { const l = {}; D.VENUE.forEach((v) => (l[v.id] = 0)); return l; };
+  /* Buy the next venue. It is kept for good; the team stays where it is until it moves. */
   function buyPlace(state) {
-    const v = D.VENUES[state.placeOwned + 1];
+    const v = nextPlace(state);
     if (!v || !spend(state, v.cost)) return false;
     state.placeOwned++;
+    state.levels[state.placeOwned] = state.levels[state.placeOwned] || zeroLevels();
     return true;
   }
-  /* Move to the next venue, once bought. One way. Its grandstands, sponsors and track prep start from zero. */
-  function movePlace(state) {
-    if (state.placeOwned <= state.place) return false;
-    state.place++;
-    D.VENUE.forEach((v) => (state.venue[v.id] = 0));
+  /* Move the team to a venue it owns (the newest one if none is named). Every venue keeps its own
+     grandstands, sponsors and track prep; a new venue starts with none. */
+  function movePlace(state, index) {
+    if (index == null) index = state.placeOwned;
+    if (!ownsPlace(state, index) || index === state.place) return false;
+    state.levels[index] = state.levels[index] || zeroLevels();
+    state.place = index;
+    state.venue = state.levels[index];
     return true;
   }
 
@@ -516,8 +525,17 @@
     s.placeOwned = Math.min(D.VENUES.length - 1, Math.floor(num(raw.placeOwned, 0)));
     s.place = Math.min(s.placeOwned, Math.floor(num(raw.place, 0)));
     s.slots = Math.min(maxPits(s), s.slots);
-    D.VENUE.forEach((v) => (s.venue[v.id] = Math.min(D.VENUE_MAX[v.id], Math.floor(num(raw.venue && raw.venue[v.id], 0)))));
-    Object.keys(s.street).forEach((k) => (s.street[k] = num(raw.street && raw.street[k], 0)));
+    s.levels = [];
+    for (let i = 0; i <= s.placeOwned; i++) {   // older saves only kept the levels of the venue the team was at
+      const from = (Array.isArray(raw.levels) && raw.levels[i]) || (i === s.place && raw.venue) || {};
+      s.levels[i] = zeroLevels();
+      D.VENUE.forEach((v) => (s.levels[i][v.id] = Math.min(D.VENUE_MAX[v.id], Math.floor(num(from[v.id], 0)))));
+    }
+    s.venue = s.levels[s.place];
+    const st = raw.street || {};
+    s.street.runs = Math.floor(num(st.runs, 0)); s.street.cred = num(st.cred, 0);
+    Object.keys(st.best || {}).forEach((k) => (s.street.best[k] = { score: num(st.best[k] && st.best[k].score, 0), dist: num(st.best[k] && st.best[k].dist, 0) }));
+    if (!st.best && (st.bestScore || st.bestDist)) s.street.best.pass = { score: num(st.bestScore, 0), dist: num(st.bestDist, 0) };
     const o = raw.owned || {}, known = (list, all) => (Array.isArray(list) ? list.filter((id) => byId(all, id)) : []);
     s.owned.paints = Array.from(new Set(s.owned.paints.concat(known(o.paints, D.PAINTS))));
     s.owned.rims = Array.from(new Set(s.owned.rims.concat(known(o.rims, D.RIMS))));
@@ -591,7 +609,7 @@
     partCost, slotCost, venueCost, tryoutCost, mechHireCost, mechTrainCost, mechTrainMaxed,
     earn, buyPart, buySlot, buyCar, tradeCar, buyVenue, rollDriver, assignDriver, hireMech, trainMech,
     bubble, boost, fxLeft, bubbleGap, rollBubble, popBubble, tickFx,
-    place, nextPlace, partCap, modelPlace, modelUnlocked, maxPits, venueMaxed, buyPlace, movePlace,
+    place, bestPlace, nextPlace, ownsPlace, partCap, modelPlace, modelUnlocked, maxPits, venueMaxed, buyPlace, movePlace,
     rankOf, rank, credFor, addCred, cosmetic, cosmeticCost, ownsCosmetic, cosmeticUnlocked, applyCosmetic, buyCosmetic,
     rosterCap, rosterFull, needsDriver, tryoutWait, holdTryout, mentored, signProspect, dismissProspects,
     fmt, money, duration, clock,

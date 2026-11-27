@@ -7,7 +7,8 @@ const { data: D, game: G } = globalThis.DT;
 
 /* A team with money to burn, already at the last venue so nothing there is locked. */
 const LAST = D.VENUES.length - 1;
-const rich = () => { const s = G.newState(1000); s.cash = 1e18; s.place = s.placeOwned = LAST; return s; };
+const own = (s, upTo) => { while (s.placeOwned < upTo) { s.placeOwned++; s.levels[s.placeOwned] = { stands: 0, sponsors: 0, prep: 0 }; } return s; };
+const rich = () => { const s = own(G.newState(1000), LAST); s.cash = 1e18; G.movePlace(s, LAST); return s; };
 const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, a + ' vs ' + b);
 const mk = (s, fields) => Object.assign({ id: s.nextId++, name: 'T' + s.nextId, rarity: 'common', skill: 20, control: 20, flair: 20,
   helmet: '#fff', level: 1, xp: 0, trait: null }, fields);
@@ -91,7 +92,7 @@ test('suspension and tires lower the crash rate, turbo raises it, control lowers
 
 test('income is capped by the crowd; grandstands, sponsors and track prep each multiply', () => {
   const s = rich();
-  s.place = s.placeOwned = 0;
+  G.movePlace(s, 0);
   const car = s.cars[0];
   for (const p of D.PARTS) car.parts[p.id] = 3;
   let inc = G.incomeRate(s);
@@ -403,6 +404,7 @@ test('every cost is a positive whole number and each model costs and scores more
 });
 
 /* ---------- Street Drifting (code name: touge) ---------- */
+require('../src/tracks.js');
 require('../src/tougecore.js');
 const C = globalThis.DT.touge, T = D.TOUGE;
 const HZ = 120;
@@ -599,12 +601,17 @@ test('street payout: points buy seconds of team income, the driver gets double s
   assert.equal(got.levels, d.level - 1);
   assert.ok(got.bestScore && got.bestDist);
   assert.equal(got.cred, 12 * D.CRED_PER_100M + 7 * D.CRED_PER_1000_POINTS + 2 * D.CRED_NEW_BEST, 'distance + points + two records');
-  assert.deepEqual(s.street, { runs: 1, bestScore: 7000, bestDist: 1234, cred: got.cred });
+  assert.deepEqual(s.street, { runs: 1, cred: got.cred, best: { pass: { score: 7000, dist: 1234 } } });
   run.score = 5000; run.dist = 2000;
   const next = C.collect(s, car, run);
   assert.ok(!next.bestScore && next.bestDist);
   assert.equal(next.cred, 20 + 5 + D.CRED_NEW_BEST);
-  assert.deepEqual(s.street, { runs: 2, bestScore: 7000, bestDist: 2000, cred: got.cred + next.cred });
+  assert.deepEqual(s.street, { runs: 2, cred: got.cred + next.cred, best: { pass: { score: 7000, dist: 2000 } } });
+  // records are kept per map: the first run on another map sets both of its records
+  run.map = 'track:lot'; run.score = 100; run.dist = 300;
+  const other = C.collect(s, car, run);
+  assert.ok(other.bestScore && other.bestDist);
+  assert.deepEqual(s.street.best, { pass: { score: 7000, dist: 2000 }, 'track:lot': { score: 100, dist: 300 } });
   assert.deepEqual(G.load(G.serialize(s), 0).street, s.street);
 });
 
@@ -778,36 +785,57 @@ test('a venue limits pits, car models, part stages and upgrade levels', () => {
   assert.ok(G.venueMaxed(s));
 });
 
-test('buying the next venue and moving: one way, team and parts move, venue upgrades start again', () => {
-  const s = G.newState(0), car = s.cars[0], next = D.VENUES[1];
-  assert.equal(G.movePlace(s), false, 'not bought yet');
+test('venues are kept: buying adds one, each keeps its own upgrade levels, and the team moves between them', () => {
+  const s = G.newState(0), car = s.cars[0], lot = D.VENUES[0], next = D.VENUES[1];
+  assert.equal(G.movePlace(s), false, 'nowhere else to go yet');
+  assert.equal(G.movePlace(s, 1), false, 'not bought yet');
   s.cash = next.cost - 1;
   assert.equal(G.buyPlace(s), false);
   s.cash = next.cost + 5e7;
-  car.parts.engine = 2; s.venue = { stands: 3, sponsors: 4, prep: 2 }; s.mech.level = 2;
+  car.parts.engine = 2; Object.assign(s.venue, { stands: 3, sponsors: 4, prep: 2 }); s.mech.level = 2;
   G.addCred(s, 500); G.buyCosmetic(s, car.id, 'paint', 'black');
-  const cash = s.cash, driver = car.driver, style = G.carStyle(s, car), cred = s.street.cred;
+  const cash = s.cash, driver = car.driver, style = G.carStyle(s, car), cred = s.street.cred, lotIncome = G.expectedIncome(s);
   assert.ok(G.buyPlace(s));
   near(cash - s.cash, next.cost);
   assert.equal(s.place, 0, 'bought, but the team has not moved');
   assert.equal(s.placeOwned, 1);
-  assert.deepEqual(s.venue, { stands: 3, sponsors: 4, prep: 2 });
+  assert.ok(G.ownsPlace(s, 0) && G.ownsPlace(s, 1) && !G.ownsPlace(s, 2));
+  // owning it already puts its car, pits and part stage on sale
+  assert.ok(G.modelUnlocked(s, next.cars[0]) && G.partCap(s) === next.stage && G.maxPits(s) === next.pits);
+  assert.equal(G.nextPlace(s), D.VENUES[2] || null);
+  // move there: its levels start at zero, the old venue keeps its own
   assert.ok(G.movePlace(s));
-  assert.equal(s.place, 1);
   assert.equal(G.place(s), next);
   assert.deepEqual(s.venue, { stands: 0, sponsors: 0, prep: 0 });
+  assert.equal(s.venue, s.levels[1]);
+  assert.deepEqual(s.levels[0], { stands: 3, sponsors: 4, prep: 2 });
   assert.deepEqual([car.parts.engine, car.driver, car.paint, s.mech.level, s.street.cred], [2, driver, 'black', 2, cred]);
   near(G.carStyle(s, car) / style, next.style / Math.pow(D.PREP_MULT, 2), 1e-9);
   near(G.crowdCap(s), next.crowd);
   assert.equal(G.venueCost(s, 'stands'), Math.ceil(D.VENUE[0].cost * next.scale));
-  assert.equal(G.movePlace(s), false, 'the one after is not bought');
-  assert.equal(G.maxPits(s), next.pits);
-  assert.ok(G.modelUnlocked(s, next.cars[0]) && G.partCap(s) === next.stage);
+  s.cash = 1e12; G.buyVenue(s, 'prep');
+  // and back again: the Parking Lot is as it was left, the Docks keep what was just bought
+  assert.equal(G.movePlace(s, 1), false, 'already there');
+  assert.ok(G.movePlace(s, 0));
+  assert.equal(G.place(s), lot);
+  assert.deepEqual(s.venue, { stands: 3, sponsors: 4, prep: 2 });
+  near(G.expectedIncome(s), lotIncome, 1e-9);
+  assert.equal(G.venueCost(s, 'stands'), Math.ceil(D.VENUE[0].cost * lot.scale * Math.pow(D.VENUE[0].growth, 3)));
+  assert.deepEqual(s.levels[1], { stands: 0, sponsors: 0, prep: 1 });
+  assert.ok(G.modelUnlocked(s, next.cars[0]), 'what is on sale follows the best venue owned, not the one the team is at');
   // saved and loaded
+  G.movePlace(s, 1);
   const back = G.load(G.serialize(s), 0);
-  assert.deepEqual([back.place, back.placeOwned], [1, 1]);
-  // at the last venue there is nothing more to buy
-  s.place = s.placeOwned = LAST; s.cash = 1e30;
+  assert.deepEqual([back.place, back.placeOwned, back.levels], [1, 1, s.levels]);
+  assert.equal(back.venue, back.levels[1]);
+  // a save from before venues were kept: only the current venue's levels were stored
+  const old = JSON.parse(G.serialize(s));
+  delete old.levels; old.venue = { stands: 2, sponsors: 1, prep: 1 }; old.street = { runs: 4, cred: 77, bestScore: 900, bestDist: 450 };
+  const conv = G.load(old, 0);
+  assert.deepEqual(conv.levels, [{ stands: 0, sponsors: 0, prep: 0 }, { stands: 2, sponsors: 1, prep: 1 }]);
+  assert.deepEqual(conv.street, { runs: 4, cred: 77, best: { pass: { score: 900, dist: 450 } } });
+  // with every venue owned there is nothing more to buy
+  own(s, LAST); s.cash = 1e30;
   assert.equal(G.nextPlace(s), null);
   assert.equal(G.buyPlace(s), false);
 });
@@ -856,4 +884,59 @@ test('bubbles: a perfect drift pays cash at once; a wave and a meet lift the ven
   // effects are not carried across a reload
   G.popBubble(s, 'meet');
   assert.deepEqual(G.load(G.serialize(s), 0).fx, []);
+});
+
+/* ---------- Track layouts and Track drifting ---------- */
+const TR = globalThis.DT.tracks;
+
+test('track layouts: every venue has one; it closes, fits the lot, and keeps its distance from itself', () => {
+  for (const v of D.VENUES) assert.ok(TR.LAYOUTS[v.id], v.id + ' has a layout');
+  for (const id of TR.ids) {
+    const t = TR.trace(id), st = TR.LAYOUTS[id].start;
+    assert.ok(Math.hypot(t.end.x - st[0], t.end.z - st[1]) < 1e-6, id + ' ends where it starts');
+    near(t.end.th, 2 * Math.PI, 1e-9);   // one full clockwise turn
+    const s = TR.sample(id, 500).pts, n = s.length;
+    let tight = Infinity, turns = 0;
+    for (let i = 0; i < n; i++) {
+      assert.ok(Math.abs(s[i].x) <= 14 && Math.abs(s[i].z) <= 30, id + ' stays on the asphalt');
+      if (s[i].k) tight = Math.min(tight, 1 / Math.abs(s[i].k));
+      if (Math.sign(s[i].k) !== Math.sign(s[(i + 1) % n].k) && s[(i + 1) % n].k !== 0) turns++;
+      for (let j = i + 1; j < n; j++) {
+        const along = Math.min(j - i, n - (j - i)) * t.length / n;
+        if (along >= 16) assert.ok(Math.hypot(s[i].x - s[j].x, s[i].z - s[j].z) >= 6.5, id + ' sections stay apart');
+      }
+    }
+    assert.ok(tight >= 4.2, id + ' has no corner tighter than a car can drive');
+    assert.ok(s.some((p) => p.k > 0) && s.some((p) => p.k < 0), id + ' turns both ways');
+    assert.ok(turns >= 8, id + ' has plenty of corners: ' + turns);
+  }
+});
+
+test('track drifting: a venue track is an endless lapped road, and test drivers get round it', () => {
+  const { s, car, setup } = stock();
+  for (const id of TR.ids) {
+    const road = C.trackRoad(id), lap = road.loop.lap;
+    near(lap * road.ds, TR.trace(id).length * D.TRACK_SCALE, 1e-6);
+    C.extendRoad(road, lap * 3 + 50);
+    for (let i = 0; i < lap + 50; i++) {   // the next lap is the same place, one full turn on
+      const a = road.pts[i], b = road.pts[i + lap];
+      assert.ok(a.x === b.x && a.z === b.z && a.k === b.k);
+      near(a.h - b.h, 2 * Math.PI, 1e-9);
+    }
+    for (let i = 1; i < lap * 2; i++) {    // evenly spaced, no jumps, heading matches the direction of travel
+      const a = road.pts[i - 1], b = road.pts[i], d = Math.hypot(b.x - a.x, b.z - a.z);
+      assert.ok(Math.abs(d - road.ds) < 0.02, id + ' step ' + i);
+      assert.ok(Math.abs(C.wrapPi(Math.atan2(b.x - a.x, b.z - a.z) - a.h)) < 0.08, id + ' heading ' + i);
+    }
+    assert.ok(Math.max(...road.loop.base.map((p) => Math.abs(p.k))) < 1 / 20, id + ' has no bend tighter than about 23 m to drive');
+    const run = go(road, setup);
+    assert.equal(C.lapsDone(run), 0);
+    drive(run, (r) => C.autopilot(r), 400);
+    console.log(`   ${id.padEnd(8)} lap ${lap} m: the road-following driver did ${C.lapsDone(run)} laps, ${(run.dist / 1000).toFixed(1)} km`);
+    assert.ok(C.lapsDone(run) >= 2, id + ' can be lapped');
+    assert.equal(C.payout(s, run).laps, C.lapsDone(run));
+    run.map = 'track:' + id;
+    C.collect(s, car, run);
+    assert.ok(s.street.best['track:' + id].dist > 0);
+  }
 });

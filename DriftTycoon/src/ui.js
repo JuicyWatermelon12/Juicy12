@@ -14,6 +14,7 @@
 
   function UI(state, world, actions) {
     let tab = null, openCar = state.cars[0] ? state.cars[0].id : null, armed = '', tryKey = '';
+    const drift = { kind: 'street', street: D.STREET_MAPS[0].id, track: '' };   // what the Drift menu last chose
     const el = {
       cash: $('cash'), rate: $('rate'), meterFill: $('meter-fill'), meterText: $('meter-text'), meter: $('meter'),
       sheet: $('sheet'), body: $('sheet-body'), title: $('sheet-title'), tabs: $('tabs'), modal: $('modal'),
@@ -156,17 +157,28 @@
       });
       h += '<article class="card"><div class="row"><div><strong>Pits: ' + state.slots + ' of ' + G.maxPits(state) + '</strong><small>Each pit is one more car on track.</small></div>' +
         buy('', G.slotCost(state), 'slot') + '</div></article>';
+      if (state.placeOwned > 0) {   // every venue bought is kept, with its own upgrades
+        h += '<h3 class="section">Your venues</h3>';
+        D.VENUES.forEach((v, n) => {
+          if (!G.ownsPlace(state, n)) return;
+          const lv = state.levels[n] || {}, at = n === state.place;
+          h += '<article class="card' + (at ? ' here' : '') + '"><div class="row"><div><strong>' + esc(v.name) + '</strong><small>x' + v.style + ' style · ' +
+            D.VENUE.map((u) => u.name + ' ' + (lv[u.id] || 0)).join(' · ') + '</small></div>' +
+            (at ? '<span class="tag">Team is here</span>' : '<button class="buy alt" data-act="move-place" data-place="' + n + '"><span class="buy-cost">Move team</span></button>') +
+            '</div></article>';
+        });
+        h += '<p class="note">The team drifts for the crowd at one venue at a time. Each venue keeps its own grandstands, sponsors and track prep, ' +
+          'and every track you own can be driven in Drift mode.</p>';
+      }
       if (next) {
-        const cars = next.cars.map((id) => G.model(id).name).join(', '), owned = state.placeOwned > state.place;
+        const cars = next.cars.map((id) => G.model(id).name).join(', '), best = G.bestPlace(state);
         h += '<h3 class="section">Next venue</h3><article class="card next-place"><div class="row"><div><strong>' + esc(next.name) + '</strong><small>' + esc(next.blurb) + '</small>' +
-          '<small class="delta">' + next.pits + ' pits · x' + (next.style / here.style) + ' style · ' + D.PART_STAGES[next.stage] + ' parts · new car: ' + esc(cars) + '</small></div>' +
-          (owned ? '<button class="buy alt" data-act="move-place"><span class="buy-cost">' + (armed === 'move' ? 'Tap again' : 'Move team') + '</span></button>'
-            : buy('Buy venue', next.cost, 'buy-place')) + '</div><p class="note">' +
-          (owned ? 'Bought. Moving is for good. Cars, parts, drivers, mechanics and looks come with you; grandstands, sponsors and track prep start again from zero there.'
-            : 'Buy it, then move the team when you are ready. Cars, parts, drivers, mechanics and looks move with you; grandstands, sponsors and track prep start again from zero.') +
-          '</p></article>';
+          '<small class="delta">' + next.pits + ' pits · x' + (next.style / best.style) + ' style · ' + D.PART_STAGES[next.stage] + ' parts · new car: ' + esc(cars) + '</small></div>' +
+          buy('Buy venue', next.cost, 'buy-place') + '</div><p class="note">' +
+          'Yours for good once bought, along with everything you already own. Its car, pits and parts go on sale at once, and its track opens in Drift mode. ' +
+          'Move the team there when you are ready: its grandstands, sponsors and track prep start from zero.</p></article>';
       } else {
-        h += '<article class="card"><p class="note">This is the last venue for now. More are on the way.</p></article>';
+        h += '<article class="card"><p class="note">You own every venue there is for now. More are on the way.</p></article>';
       }
       return h;
     }
@@ -311,21 +323,53 @@
         list.map((c) => cosTile(car, kind, c)).join('') + '</div>';
       showModal('<h2>' + esc(G.model(car.model).name) + ' looks</h2><p class="note">The crowd pays for a good-looking car: paint, rims and kit each add style at the venue. This car has <b>+' +
         Math.round((G.looksMult(car) - 1) * 100) + '% style</b> from its looks. They do not change how it drives on the street. ' +
-        'Street cred rank puts new items on sale; you earn it by Street Drifting.</p>' + rankBar() +
+        'Street cred rank puts new items on sale; you earn it in Drift mode.</p>' + rankBar() +
         sec('Paint', 'Yours for the whole team once bought.', 'paint', D.PAINTS, 'small') +
         sec('Rims', 'Yours for the whole team once bought.', 'rims', D.RIMS, '') +
         sec('Body kit', 'Bought for this model, the ' + esc(G.model(car.model).name) + '.', 'kit', D.KITS, 'wide') +
         '<button class="ghost wide" data-act="close">Done</button>');
     }
 
-    /* ---------- Street Drifting ---------- */
+    /* ---------- Drift mode: Street maps, or the Track of any venue owned ---------- */
+    const trackKey = (id) => 'track:' + id;
+    const bestLine = (key) => {
+      const b = state.street.best[key];
+      return b ? 'Best ' + b.score.toLocaleString('en-US') + ' pts · ' + (b.dist / 1000).toFixed(2) + ' km' : 'Not driven yet';
+    };
+    function driftMap() {   // what the menu has chosen, as touge.start wants it
+      if (drift.kind === 'track') {
+        const n = D.VENUES.findIndex((v) => v.id === drift.track);
+        return { kind: 'track', id: G.ownsPlace(state, n) ? drift.track : G.place(state).id };
+      }
+      return { kind: 'street', id: D.STREET_MAPS.some((m) => m.id === drift.street) ? drift.street : D.STREET_MAPS[0].id };
+    }
+    function mapName(key) {
+      if (key.indexOf('track:') === 0) { const v = D.VENUES.find((x) => trackKey(x.id) === key); return v ? v.name + ' track' : 'Track'; }
+      const m = D.STREET_MAPS.find((x) => x.id === key);
+      return m ? m.name : 'Street';
+    }
     function tougeMenu() {
-      const income = G.expectedIncome(state), rec = state.street;
-      let h = '<h2>Street Drifting</h2><p class="note">Take one of your cars to the mountain road at dusk and drift it yourself. ' +
-        'The car drives; you slide a finger left and right to steer. Hold it sideways to build the multiplier.</p>' +
-        '<p class="note">The road never ends and gets harder as it goes. ' + (T.MAX_HITS === 1 ? 'Touching a barrier ends the run' : 'Barrier touch number ' + T.MAX_HITS + ' ends the run') + ', and you keep everything you scored. ' +
-        'Every ' + T.POINTS_PER_SECOND + ' points pays one second of team income (now ' + G.money(income, 1) + '/s), and the driver earns double seat time.</p>' +
-        rankBar() + (rec.runs ? '<p class="note">Best so far: ' + rec.bestScore.toLocaleString('en-US') + ' points, ' + (rec.bestDist / 1000).toFixed(2) + ' km.</p>' : '') + '<div class="list">';
+      const income = G.expectedIncome(state), sel = driftMap(), track = sel.kind === 'track';
+      let h = '<h2>Drift</h2><p class="note">Drift one of your cars yourself. The car drives; you slide a finger left and right to steer. ' +
+        'Hold it sideways to build the multiplier. ' + (T.MAX_HITS === 1 ? 'Touching a barrier ends the run' : 'Barrier touch number ' + T.MAX_HITS + ' ends the run') +
+        ', and you keep everything you scored: every ' + T.POINTS_PER_SECOND + ' points pays one second of team income (now ' + G.money(income, 1) + '/s).</p>' +
+        '<div class="seg"><button data-act="drift-kind" data-kind="street" aria-pressed="' + !track + '">Street</button>' +
+        '<button data-act="drift-kind" data-kind="track" aria-pressed="' + track + '">Track</button></div><div class="list">';
+      if (track) {
+        D.VENUES.forEach((v, n) => {
+          if (!G.ownsPlace(state, n)) { h += '<div class="pick locked"><span><strong>' + esc(v.name) + '</strong><small>Buy this venue to drive its track</small></span><em>Not owned</em></div>'; return; }
+          h += '<button class="pick' + (v.id === sel.id ? ' current' : '') + '" data-act="drift-map" data-map="' + v.id + '"><span><strong>' + esc(v.name) + '</strong><small>' +
+            bestLine(trackKey(v.id)) + '</small></span><em>' + (DT.tracks.trace(v.id).length * D.TRACK_SCALE / 1000).toFixed(2) + ' km lap</em></button>';
+        });
+      } else {
+        D.STREET_MAPS.forEach((m) => {
+          h += '<button class="pick' + (m.id === sel.id ? ' current' : '') + '" data-act="drift-map" data-map="' + m.id + '"><span><strong>' + esc(m.name) + '</strong><small>' +
+            bestLine(m.id) + '</small></span><em>Endless</em></button>';
+        });
+      }
+      h += '</div><p class="note">' + (track ? 'Lap the drift track of a venue you own, at full size. The laps never end and the pace rises every kilometre.'
+        : esc((D.STREET_MAPS.find((m) => m.id === sel.id) || {}).blurb || '') + ' More street maps are on the way.') + '</p>' + rankBar() +
+        '<h3>Pick a car to start</h3><div class="list">';
       let any = false;
       state.cars.forEach((c, i) => {
         const d = G.driverOf(state, c);
@@ -342,15 +386,17 @@
     function showTougeResult(res) {
       const d = res.driver, row = (a, b) => '<div><span>' + a + '</span><b>' + b + '</b></div>';
       const best = (on) => (on ? ' <span class="rarity" style="--r:var(--accent)">New best</span>' : '');
-      showModal('<div class="reveal away"><small>' + (res.out ? 'Hit the barrier' : 'Run banked') + '</small><h2>' + G.money(res.cash, 1) + '</h2>' +
+      const track = res.map.indexOf('track:') === 0;
+      showModal('<div class="reveal away"><small>' + esc(mapName(res.map)) + ' · ' + (res.out ? 'hit the barrier' : 'run banked') + '</small><h2>' + G.money(res.cash, 1) + '</h2>' +
         '<div class="result-rows">' + row('Points' + best(res.bestScore), res.score.toLocaleString('en-US')) +
-        row('Distance' + best(res.bestDist), (res.dist / 1000).toFixed(2) + ' km') + row('Best multiplier', 'x' + res.bestMult.toFixed(1)) +
+        row('Distance' + best(res.bestDist), (res.dist / 1000).toFixed(2) + ' km') + (track ? row('Laps', res.laps) : '') + row('Best multiplier', 'x' + res.bestMult.toFixed(1)) +
         (res.cleanKm ? row('Clean kilometres: ' + res.cleanKm, '+' + res.cleanBonus.toLocaleString('en-US')) : '') +
         row('Worth', G.duration(res.seconds) + ' of team income') + '</div>' +
         '<p class="note">+' + res.cred + ' street cred' + (res.rank.after.index > res.rank.before.index ? '. New rank: <b>' + res.rank.after.name + '</b>' +
           (res.rank.unlocked.length ? '. Now on sale: ' + res.rank.unlocked.map((u) => esc(u.item.name)).join(', ') : '') : '') + '.</p>' + rankBar() +
         (d ? '<p class="note">' + esc(d.name) + ' banked ' + G.duration(res.xp) + ' of seat time' + (res.levels ? ' and reached level ' + d.level : '') + '.</p>' : '') +
-        '<button class="buy wide" data-act="touge-again">Go again</button><button class="ghost wide" data-act="touge-exit">Back to the venue</button></div>');
+        '<button class="buy wide" data-act="touge-again">Go again</button><button class="ghost wide" data-act="touge-menu">Change map or car</button>' +
+        '<button class="ghost wide" data-act="touge-exit">Back to the venue</button></div>');
     }
     function showAway(info) {
       showModal('<div class="reveal away"><small>While you were away</small><h2>' + G.money(info.cash) + '</h2><p class="note">The team kept drifting for ' +
@@ -386,8 +432,14 @@
         else if (b.dataset.cost) { b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake'); }
         return;
       }
-      if (a === 'touge-menu') { tougeMenu(); return; }
-      if (a === 'touge-go') { closeModal(); actions.tougeStart(carId); return; }
+      if (a === 'touge-menu') {
+        if (actions.tougeActive()) { actions.tougeExit(); shownCash = -1; if (tab) render(); layout(true); }   // from a result: leave the run first
+        if (!drift.track) drift.track = G.place(state).id;
+        tougeMenu(); return;
+      }
+      if (a === 'drift-kind') { drift.kind = b.dataset.kind === 'track' ? 'track' : 'street'; if (!drift.track) drift.track = G.place(state).id; tougeMenu(); return; }
+      if (a === 'drift-map') { drift[drift.kind] = b.dataset.map; tougeMenu(); return; }
+      if (a === 'touge-go') { const where = driftMap(); closeModal(); actions.tougeStart(carId, where); return; }
       if (a === 'touge-again') { closeModal(); actions.tougeAgain(); return; }
       if (a === 'touge-quit') { actions.tougeQuit(); return; }
       if (a === 'touge-exit') { closeModal(); actions.tougeExit(); shownCash = -1; if (tab) render(); layout(true); return; }
@@ -399,11 +451,9 @@
       else if (a === 'trade') changed = G.tradeCar(state, carId, b.dataset.model);
       else if (a === 'buy-car') { changed = G.buyCar(state, b.dataset.model); if (changed) openCar = state.cars[state.cars.length - 1].id; }
       else if (a === 'slot') changed = G.buySlot(state);
-      else if (a === 'buy-place') changed = G.buyPlace(state);
+      else if (a === 'buy-place') { changed = G.buyPlace(state); if (changed) toast(G.bestPlace(state).name + ' bought. Move the team when you are ready.'); }
       else if (a === 'move-place') {
-        if (armed !== 'move') { armed = 'move'; render(); return; }
-        armed = '';
-        changed = G.movePlace(state);
+        changed = G.movePlace(state, +b.dataset.place);
         if (changed) { el.body.scrollTop = 0; toast('Welcome to the ' + G.place(state).name + '.'); }
       }
       else if (a === 'venue') changed = G.buyVenue(state, b.dataset.id);

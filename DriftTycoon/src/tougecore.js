@@ -36,8 +36,33 @@
     if (g.rng() < 0.85) g.side = -g.side;
   }
 
+  /* A venue's drift line as a road to drive: the layout scaled up, lapped for ever. Flat, clockwise. */
+  function trackRoad(layoutId) {
+    const scale = D.TRACK_SCALE, lap = Math.round(DT.tracks.trace(layoutId).length * scale / T.STEP);
+    const s = DT.tracks.sample(layoutId, lap), base = [];
+    for (let i = 0; i < lap; i++) {
+      let k = 0;
+      for (let j = -SMOOTH; j <= SMOOTH; j++) k += s.pts[(i + j + lap) % lap].k;   // ease in and out of bends, as on the street
+      // headings: the layout's 0 is +x and grows clockwise; a road's 0 is +z and its direction is (sin h, cos h)
+      base.push({ x: s.pts[i].x * scale, z: s.pts[i].z * scale, h: Math.PI / 2 - s.pts[i].th, k: -k / (2 * SMOOTH + 1) / scale });
+    }
+    const road = { pts: [], n: 0, ds: s.length * scale / lap, halfW: T.HALF_WIDTH, loop: { lap, base, id: layoutId } };
+    extendRoad(road, lap + 300);
+    return road;
+  }
+
   /* Make sure the road has at least `count` points. */
   function extendRoad(road, count) {
+    if (road.loop) {   // another lap is the same points again, with the heading one full turn on
+      const lp = road.loop;
+      while (road.n < count) {
+        const b = lp.base[road.n % lp.lap];
+        road.pts.push({ x: b.x, z: b.z, h: b.h - 2 * Math.PI * Math.floor(road.n / lp.lap), k: b.k });
+        road.n++;
+      }
+      return road;
+    }
+    if (!road.gen) return road;
     const g = road.gen, ds = road.ds;
     while (road.n < count) {
       const i = road.n;
@@ -77,6 +102,8 @@
 
   const multCap = (run) => T.COMBO_MAX + T.COMBO_MAX_PER_KM * run.km;
   const hitsLeft = (run) => Math.max(0, T.MAX_HITS - run.hits);
+  /* Laps of a track are counted at its start line, a little ahead of where the car sets off; the first crossing starts lap 1. */
+  const lapsDone = (run) => (run.road.loop ? Math.max(0, Math.floor((run.idx - T.START_OFFSET - T.LAP_LINE) / run.road.loop.lap)) : 0);
 
   /* Move the nearest-road-point index along with the car (it only ever looks a little way around). */
   function locate(run) {
@@ -173,7 +200,7 @@
   function payout(state, run) {
     const seconds = run.score / T.POINTS_PER_SECOND;
     return { score: Math.floor(run.score), seconds, cash: seconds * G.expectedIncome(state), xp: run.t * T.XP_MULT,
-      bestMult: run.bestMult, hits: run.hits, out: run.hits >= T.MAX_HITS, time: run.t, dist: run.dist,
+      bestMult: run.bestMult, hits: run.hits, out: run.hits >= T.MAX_HITS, time: run.t, dist: run.dist, laps: lapsDone(run),
       cleanKm: run.cleanKm, cleanBonus: Math.floor(run.cleanBonus) };
   }
 
@@ -184,8 +211,10 @@
     const d = G.driverOf(state, car);
     res.driver = d;
     res.levels = d ? G.addXP(d, res.xp * (G.trait(d).xp || 1)) : 0;
-    res.bestScore = res.score > rec.bestScore; res.bestDist = res.dist > rec.bestDist;
-    rec.runs++; rec.bestScore = Math.max(rec.bestScore, res.score); rec.bestDist = Math.max(rec.bestDist, res.dist);
+    const best = (rec.best[run.map || 'pass'] = rec.best[run.map || 'pass'] || { score: 0, dist: 0 });   // records are kept per map
+    res.map = run.map || 'pass';
+    res.bestScore = res.score > best.score; res.bestDist = res.dist > best.dist;
+    rec.runs++; best.score = Math.max(best.score, res.score); best.dist = Math.max(best.dist, res.dist);
     res.cred = G.credFor(res.dist, res.score, (res.bestScore ? 1 : 0) + (res.bestDist ? 1 : 0));
     res.rank = G.addCred(state, res.cred);   // { before, after, unlocked }
     return res;
@@ -203,5 +232,5 @@
     return clamp(autopilot(run) + Math.sin(run.t * 3.1) * (keen == null ? 0.7 : keen) * straight * clamp(room * 2, 0, 1), -1, 1);
   }
 
-  DT.touge = { newRoad, extendRoad, difficulty, carSetup, newRun, step, payout, collect, multCap, hitsLeft, autopilot, drifter, wrapPi };
+  DT.touge = { newRoad, trackRoad, lapsDone, extendRoad, difficulty, carSetup, newRun, step, payout, collect, multCap, hitsLeft, autopilot, drifter, wrapPi };
 })(typeof window !== 'undefined' ? window : globalThis);
