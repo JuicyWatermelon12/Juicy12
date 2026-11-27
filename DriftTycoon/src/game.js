@@ -33,9 +33,10 @@
   }
 
   function addCar(state, modelId) {
-    const used = state.cars.map((c) => c.color);
-    const color = D.CAR_COLORS.find((c) => !used.includes(c)) || D.CAR_COLORS[state.cars.length % D.CAR_COLORS.length];
-    const car = { id: state.nextId++, model: modelId, parts: emptyParts(), driver: null, color };
+    const used = state.cars.map((c) => c.paint);
+    const paint = D.FACTORY_PAINTS.find((p) => !used.includes(p)) || D.FACTORY_PAINTS[state.cars.length % D.FACTORY_PAINTS.length];
+    // `color` is the paint's colour, kept on the car so everything that draws it has it to hand
+    const car = { id: state.nextId++, model: modelId, parts: emptyParts(), driver: null, paint, color: byId(D.PAINTS, paint).color, rims: 'steel', kit: 'stock' };
     state.cars.push(car);
     return car;
   }
@@ -47,7 +48,8 @@
       tryouts: 0, nextTryoutAt: 0, prospects: null,
       mech: { count: 1, level: 0 },
       venue: { stands: 0, sponsors: 0, prep: 0 },
-      street: { runs: 0, bestScore: 0, bestDist: 0 },   // Street Drifting records
+      street: { runs: 0, bestScore: 0, bestDist: 0, cred: 0 },   // Street Drifting records and street cred
+      owned: { paints: D.FACTORY_PAINTS.slice(), rims: ['steel'], kits: {} },   // cosmetics bought; kits are per car model
       lastSeen: now || 0,
     };
     const rookie = { id: s.nextId++, name: 'Sam "Rookie" Okada', rarity: 'common', skill: 12, control: 16, flair: 10,
@@ -237,6 +239,7 @@
     const m = model(modelId);
     if (!car || !m || modelIndex(modelId) <= modelIndex(car.model) || !spend(state, m.cost)) return false;
     car.model = modelId;
+    if (!ownsCosmetic(state, 'kit', car.kit, modelId)) car.kit = 'stock';   // kits are per model; paint and rims stay
     return true;
   }
 
@@ -244,6 +247,66 @@
     if (!byId(D.VENUE, id) || !spend(state, venueCost(state, id))) return false;
     state.venue[id]++;
     return true;
+  }
+
+  /* ---------- Street cred ---------- */
+
+  /* The rank a cred total has reached, and how far it is to the next. */
+  function rankOf(cred) {
+    let index = 0;
+    D.RANKS.forEach((r, i) => { if (cred >= r.cred) index = i; });
+    const next = D.RANKS[index + 1] || null, base = D.RANKS[index].cred;
+    return { index, name: D.RANKS[index].name, cred, next, progress: next ? (cred - base) / (next.cred - base) : 1 };
+  }
+  const rank = (state) => rankOf(state.street.cred);
+  /* Cred for one run: distance, points, and a bonus for each record it set. */
+  function credFor(dist, score, bests) {
+    return Math.floor(dist / 100) * D.CRED_PER_100M + Math.floor(score / 1000) * D.CRED_PER_1000_POINTS + (bests || 0) * D.CRED_NEW_BEST;
+  }
+  /* Add cred. Returns the rank before and after, and what the new ranks put on sale. */
+  function addCred(state, amount) {
+    const before = rank(state);
+    state.street.cred += Math.max(0, amount);
+    const after = rank(state), unlocked = [];
+    if (after.index > before.index) {
+      const fresh = (list, kind) => list.forEach((c) => { if (c.rank > before.index && c.rank <= after.index) unlocked.push({ kind, item: c }); });
+      fresh(D.PAINTS, 'paint'); fresh(D.RIMS, 'rims'); fresh(D.KITS, 'kit');
+    }
+    return { before, after, unlocked };
+  }
+
+  /* ---------- Cosmetics: paint, rims, body kits. Looks only. ---------- */
+
+  const COSMETICS = { paint: D.PAINTS, rims: D.RIMS, kit: D.KITS };
+  const cosmetic = (kind, id) => (COSMETICS[kind] ? byId(COSMETICS[kind], id) : undefined);
+  /* Set price: it depends on the item (and, for a kit, the car model), never on the car's upgrades. */
+  function cosmeticCost(kind, id, modelId) {
+    const c = cosmetic(kind, id);
+    return c ? c.cost * (kind === 'kit' ? model(modelId).kitScale : 1) : Infinity;
+  }
+  function ownsCosmetic(state, kind, id, modelId) {
+    const c = cosmetic(kind, id);
+    if (!c) return false;
+    if (c.cost === 0) return true;
+    if (kind === 'kit') return (state.owned.kits[modelId] || []).includes(id);
+    return state.owned[kind === 'paint' ? 'paints' : 'rims'].includes(id);
+  }
+  const cosmeticUnlocked = (state, kind, id) => { const c = cosmetic(kind, id); return !!c && rank(state).index >= c.rank; };
+  /* Put an owned cosmetic on a car. */
+  function applyCosmetic(state, carId, kind, id) {
+    const car = getCar(state, carId), c = cosmetic(kind, id);
+    if (!car || !c || !ownsCosmetic(state, kind, id, car.model)) return false;
+    if (kind === 'paint') { car.paint = id; car.color = c.color; } else car[kind] = id;
+    return true;
+  }
+  /* Buy a cosmetic (for this car's model, if it is a kit) and put it on the car. */
+  function buyCosmetic(state, carId, kind, id) {
+    const car = getCar(state, carId);
+    if (!car || !cosmetic(kind, id) || ownsCosmetic(state, kind, id, car.model) || !cosmeticUnlocked(state, kind, id)) return false;
+    if (!spend(state, cosmeticCost(kind, id, car.model))) return false;
+    if (kind === 'kit') (state.owned.kits[car.model] = state.owned.kits[car.model] || []).push(id);
+    else state.owned[kind === 'paint' ? 'paints' : 'rims'].push(id);
+    return applyCosmetic(state, carId, kind, id);
   }
 
   /* ---------- Tryouts ---------- */
@@ -382,6 +445,10 @@
     s.mech.level = Math.floor(num(raw.mech && raw.mech.level, 0));
     D.VENUE.forEach((v) => (s.venue[v.id] = Math.floor(num(raw.venue && raw.venue[v.id], 0))));
     Object.keys(s.street).forEach((k) => (s.street[k] = num(raw.street && raw.street[k], 0)));
+    const o = raw.owned || {}, known = (list, all) => (Array.isArray(list) ? list.filter((id) => byId(all, id)) : []);
+    s.owned.paints = Array.from(new Set(s.owned.paints.concat(known(o.paints, D.PAINTS))));
+    s.owned.rims = Array.from(new Set(s.owned.rims.concat(known(o.rims, D.RIMS))));
+    D.MODELS.forEach((m) => { const k = known(o.kits && o.kits[m.id], D.KITS); if (k.length) s.owned.kits[m.id] = k; });
     s.drivers = raw.drivers.filter(isDriver).map((d) => cleanDriver(d, num));
     s.cars = raw.cars.filter((c) => c && model(c.model)).slice(0, s.slots).map((c, i) => {
       const parts = emptyParts();
@@ -390,7 +457,14 @@
         parts[p.id] = Math.min(D.PART_MAX, lv);
       });
       const driver = s.drivers.some((d) => d.id === c.driver) ? c.driver : null;
-      return { id: c.id, model: c.model, parts, driver, color: c.color || D.CAR_COLORS[i % D.CAR_COLORS.length] };
+      const paint = byId(D.PAINTS, c.paint) || D.PAINTS.find((p) => p.color === c.color) || byId(D.PAINTS, D.FACTORY_PAINTS[i % D.FACTORY_PAINTS.length]);
+      return { id: c.id, model: c.model, parts, driver, paint: paint.id, color: paint.color,
+        rims: byId(D.RIMS, c.rims) ? c.rims : 'steel', kit: byId(D.KITS, c.kit) ? c.kit : 'stock' };
+    });
+    s.cars.forEach((c) => {   // nothing worn that the team does not own
+      if (!ownsCosmetic(s, 'paint', c.paint)) { c.paint = D.FACTORY_PAINTS[0]; c.color = byId(D.PAINTS, c.paint).color; }
+      if (!ownsCosmetic(s, 'rims', c.rims)) c.rims = 'steel';
+      if (!ownsCosmetic(s, 'kit', c.kit, c.model)) c.kit = 'stock';
     });
     // The roster has a size now: seated drivers stay, then the best of the bench while there is room.
     const cap = rosterCap(s);
@@ -443,6 +517,7 @@
     incomeRate, expectedIncome, offlineEarnings,
     partCost, slotCost, venueCost, tryoutCost, mechHireCost, mechTrainCost, mechTrainMaxed,
     earn, buyPart, buySlot, buyCar, tradeCar, buyVenue, rollDriver, assignDriver, hireMech, trainMech,
+    rankOf, rank, credFor, addCred, cosmetic, cosmeticCost, ownsCosmetic, cosmeticUnlocked, applyCosmetic, buyCosmetic,
     rosterCap, rosterFull, needsDriver, tryoutWait, holdTryout, mentored, signProspect, dismissProspects,
     fmt, money, duration, clock,
   };

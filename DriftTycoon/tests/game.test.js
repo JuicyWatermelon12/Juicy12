@@ -594,11 +594,13 @@ test('street payout: points buy seconds of team income, the driver gets double s
   near(G.totalXP(d) - xp, 50 * T.XP_MULT);
   assert.equal(got.levels, d.level - 1);
   assert.ok(got.bestScore && got.bestDist);
-  assert.deepEqual(s.street, { runs: 1, bestScore: 7000, bestDist: 1234 });
+  assert.equal(got.cred, 12 * D.CRED_PER_100M + 7 * D.CRED_PER_1000_POINTS + 2 * D.CRED_NEW_BEST, 'distance + points + two records');
+  assert.deepEqual(s.street, { runs: 1, bestScore: 7000, bestDist: 1234, cred: got.cred });
   run.score = 5000; run.dist = 2000;
   const next = C.collect(s, car, run);
   assert.ok(!next.bestScore && next.bestDist);
-  assert.deepEqual(s.street, { runs: 2, bestScore: 7000, bestDist: 2000 });
+  assert.equal(next.cred, 20 + 5 + D.CRED_NEW_BEST);
+  assert.deepEqual(s.street, { runs: 2, bestScore: 7000, bestDist: 2000, cred: got.cred + next.cred });
   assert.deepEqual(G.load(G.serialize(s), 0).street, s.street);
 });
 
@@ -613,4 +615,107 @@ test('street pays better than waiting: a test driver in a stock car earns severa
   const ratio = seconds / time;
   console.log(`   a stock-car run is worth ${ratio.toFixed(1)} times the venue's income over the same time`);
   assert.ok(ratio > 2.5 && ratio < 8);
+});
+
+/* ---------- Street cred and cosmetics ---------- */
+
+test('street cred: ranks only go up, each needs more than the last, and a new rank reports what it puts on sale', () => {
+  const creds = D.RANKS.map((r) => r.cred);
+  assert.equal(creds[0], 0);
+  assert.deepEqual(creds, creds.slice().sort((a, b) => a - b));
+  assert.equal(new Set(creds).size, creds.length);
+  assert.equal(G.rankOf(0).index, 0);
+  assert.equal(G.rankOf(D.RANKS[1].cred - 1).index, 0);
+  assert.equal(G.rankOf(D.RANKS[1].cred).index, 1);
+  near(G.rankOf((D.RANKS[1].cred + D.RANKS[2].cred) / 2).progress, 0.5);
+  const top = G.rankOf(1e9);
+  assert.equal(top.index, D.RANKS.length - 1);
+  assert.equal(top.next, null);
+  const s = G.newState(0);
+  let r = G.addCred(s, D.RANKS[1].cred - 1);
+  assert.equal(r.after.index, 0);
+  assert.deepEqual(r.unlocked, []);
+  r = G.addCred(s, D.RANKS[3].cred);
+  assert.equal(r.before.index, 0);
+  assert.equal(r.after.index, 3);
+  const want = [].concat(D.PAINTS, D.RIMS, D.KITS).filter((c) => c.rank >= 1 && c.rank <= 3).map((c) => c.id).sort();
+  assert.deepEqual(r.unlocked.map((u) => u.item.id).sort(), want);
+  assert.ok(want.length > 0);
+  G.addCred(s, -50);
+  assert.equal(G.rank(s).index, 3, 'cred never goes down');
+  // idling earns none
+  const cred = s.street.cred;
+  G.earn(s, 1e9); G.awayXP(s, 3600);
+  assert.equal(s.street.cred, cred);
+});
+
+test('cosmetics data: set prices, dearer at higher ranks, every rank needed exists, new cars use free paint', () => {
+  for (const list of [D.PAINTS, D.RIMS, D.KITS]) {
+    assert.equal(new Set(list.map((c) => c.id)).size, list.length);
+    for (const c of list) assert.ok(c.cost >= 0 && c.rank >= 0 && c.rank < D.RANKS.length, c.id);
+    const paid = list.filter((c) => c.cost > 0);
+    for (let i = 1; i < paid.length; i++) assert.ok(paid[i].rank >= paid[i - 1].rank && paid[i].cost >= paid[i - 1].cost, 'later unlocks cost more: ' + paid[i].id);
+  }
+  for (const id of D.FACTORY_PAINTS) assert.equal(G.cosmetic('paint', id).cost, 0);
+  const s = rich();
+  for (let i = 0; i < 5; i++) { G.buySlot(s); G.buyCar(s, 'kumo'); }
+  assert.equal(new Set(s.cars.map((c) => c.paint)).size, 6, 'six cars, six different factory paints');
+  for (const c of s.cars) { assert.equal(c.color, G.cosmetic('paint', c.paint).color); assert.equal(c.rims, 'steel'); assert.equal(c.kit, 'stock'); }
+});
+
+test('cosmetics: locked until the rank, bought once with cash, no effect on performance', () => {
+  const s = G.newState(0), car = s.cars[0];
+  const before = { style: G.carStyle(s, car), crash: G.carCrashRate(s, car), setup: C.carSetup(s, car), income: G.expectedIncome(s) };
+  s.cash = 1e12;
+  assert.ok(!G.cosmeticUnlocked(s, 'paint', 'midnight'));
+  assert.equal(G.buyCosmetic(s, car.id, 'paint', 'midnight'), false, 'rank too low');
+  assert.equal(G.applyCosmetic(s, car.id, 'paint', 'midnight'), false, 'not owned');
+  G.addCred(s, D.RANKS[D.RANKS.length - 1].cred);
+  s.cash = 100;
+  assert.equal(G.buyCosmetic(s, car.id, 'paint', 'midnight'), false, 'not enough cash');
+  s.cash = 1e12;
+  const cost = G.cosmeticCost('paint', 'midnight');
+  assert.ok(G.buyCosmetic(s, car.id, 'paint', 'midnight'));
+  near(1e12 - s.cash, cost);
+  assert.equal(car.paint, 'midnight');
+  assert.equal(car.color, G.cosmetic('paint', 'midnight').color);
+  assert.equal(G.buyCosmetic(s, car.id, 'paint', 'midnight'), false, 'already owned');
+  assert.ok(G.buyCosmetic(s, car.id, 'rims', 'bronze') && G.buyCosmetic(s, car.id, 'kit', 'drift'));
+  assert.equal(car.rims, 'bronze'); assert.equal(car.kit, 'drift');
+  // upgrades do not change a cosmetic's price
+  for (const p of D.PARTS) car.parts[p.id] = D.PART_MAX;
+  assert.equal(G.cosmeticCost('paint', 'midnight'), cost);
+  assert.equal(G.cosmeticCost('kit', 'pro', car.model), G.cosmetic('kit', 'pro').cost * G.model(car.model).kitScale);
+  for (const p of D.PARTS) car.parts[p.id] = 0;
+  assert.deepEqual({ style: G.carStyle(s, car), crash: G.carCrashRate(s, car), setup: C.carSetup(s, car), income: G.expectedIncome(s) }, before);
+});
+
+test('cosmetics: paint and rims belong to the team and survive a trade-up; kits are per model', () => {
+  const s = rich();
+  G.addCred(s, 1e6);
+  G.buySlot(s); G.buyCar(s, 'kumo');
+  const [a, b] = s.cars;
+  G.buyCosmetic(s, a.id, 'paint', 'black'); G.buyCosmetic(s, a.id, 'rims', 'six'); G.buyCosmetic(s, a.id, 'kit', 'street');
+  s.cash = 1e9;   // small enough for exact sums
+  const cash = s.cash;
+  assert.ok(G.applyCosmetic(s, b.id, 'paint', 'black') && G.applyCosmetic(s, b.id, 'rims', 'six'), 'the other car can wear them');
+  assert.ok(G.applyCosmetic(s, b.id, 'kit', 'street'), 'same model, same kit');
+  assert.equal(s.cash, cash, 'applying is free');
+  assert.ok(G.applyCosmetic(s, b.id, 'paint', 'blue') && G.applyCosmetic(s, b.id, 'kit', 'stock'));
+  G.tradeCar(s, a.id, 'hachi');
+  assert.equal(a.paint, 'black'); assert.equal(a.rims, 'six');
+  assert.equal(a.kit, 'stock', 'the Kumo kit does not fit the Hachi');
+  assert.ok(!G.ownsCosmetic(s, 'kit', 'street', 'hachi') && G.ownsCosmetic(s, 'kit', 'street', 'kumo'));
+  assert.ok(G.buyCosmetic(s, a.id, 'kit', 'street'));
+  near(cash - s.cash, G.model('hachi').cost + G.cosmeticCost('kit', 'street', 'hachi'));
+  assert.ok(G.cosmeticCost('kit', 'street', 'hachi') > G.cosmeticCost('kit', 'street', 'kumo'));
+  // saved and loaded; anything not owned falls back
+  const back = G.load(G.serialize(s), 0);
+  assert.deepEqual(back.owned, s.owned);
+  assert.deepEqual(back.cars.map((c) => [c.paint, c.rims, c.kit]), s.cars.map((c) => [c.paint, c.rims, c.kit]));
+  const raw = JSON.parse(G.serialize(s));
+  raw.cars[0].paint = 'blood'; raw.cars[0].rims = 'neon'; raw.cars[0].kit = 'pro'; raw.owned.paints.push('nope');
+  const fixed = G.load(raw, 0);
+  assert.deepEqual([fixed.cars[0].paint, fixed.cars[0].rims, fixed.cars[0].kit], [D.FACTORY_PAINTS[0], 'steel', 'stock']);
+  assert.ok(!fixed.owned.paints.includes('nope'));
 });

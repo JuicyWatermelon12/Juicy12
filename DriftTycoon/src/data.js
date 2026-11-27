@@ -28,20 +28,60 @@
        Each model scores 4x the last and costs 100x the last: prices have to outrun what they
        earn, or the game snowballs. `body` drives the low-poly model. */
     MODELS: [
-      { id: 'kumo', name: 'Kumo 180', blurb: 'Light pop-up-lamp coupe. Every team starts here.', cost: 1500, base: 2,
+      { id: 'kumo', kitScale: 1, name: 'Kumo 180', blurb: 'Light pop-up-lamp coupe. Every team starts here.', cost: 1500, base: 2,
         body: { len: 4.1, wid: 1.75, cabLen: 2.0, cabOff: -0.35, cabH: 0.58, tf: 0.55, tr: 0.75, wing: 0 } },
-      { id: 'hachi', name: 'Hachi Coupe', blurb: 'Boxy little hatch that punches up.', cost: 150000, base: 8,
+      { id: 'hachi', kitScale: 6, name: 'Hachi Coupe', blurb: 'Boxy little hatch that punches up.', cost: 150000, base: 8,
         body: { len: 3.9, wid: 1.7, cabLen: 2.1, cabOff: -0.45, cabH: 0.62, tf: 0.5, tr: 0.3, wing: 0 } },
-      { id: 'kaze', name: 'Kaze Tourer', blurb: 'Four doors, straight six, endless smoke.', cost: 1.5e7, base: 32,
+      { id: 'kaze', kitScale: 40, name: 'Kaze Tourer', blurb: 'Four doors, straight six, endless smoke.', cost: 1.5e7, base: 32,
         body: { len: 4.6, wid: 1.8, cabLen: 2.4, cabOff: -0.2, cabH: 0.6, tf: 0.55, tr: 0.55, wing: 0 } },
-      { id: 'rotor', name: 'Rotor Seven', blurb: 'Screaming rotary with a long nose.', cost: 1.5e9, base: 128,
+      { id: 'rotor', kitScale: 250, name: 'Rotor Seven', blurb: 'Screaming rotary with a long nose.', cost: 1.5e9, base: 128,
         body: { len: 4.3, wid: 1.85, cabLen: 1.8, cabOff: -0.5, cabH: 0.52, tf: 0.7, tr: 0.8, wing: 1 } },
-      { id: 'skyward', name: 'Skyward R', blurb: 'Wide-body legend with round tail lamps.', cost: 1.5e11, base: 512,
+      { id: 'skyward', kitScale: 1500, name: 'Skyward R', blurb: 'Wide-body legend with round tail lamps.', cost: 1.5e11, base: 512,
         body: { len: 4.6, wid: 1.95, cabLen: 2.1, cabOff: -0.3, cabH: 0.58, tf: 0.6, tr: 0.6, wing: 1 } },
-      { id: 'shogun', name: 'Shogun GT', blurb: 'A thousand horsepower and a wing to match.', cost: 1.5e13, base: 2048,
+      { id: 'shogun', kitScale: 10000, name: 'Shogun GT', blurb: 'A thousand horsepower and a wing to match.', cost: 1.5e13, base: 2048,
         body: { len: 4.7, wid: 2.0, cabLen: 2.0, cabOff: -0.4, cabH: 0.54, tf: 0.75, tr: 0.9, wing: 2 } },
     ],
-    CAR_COLORS: ['#ff5a36', '#19b3f5', '#ffd23f', '#7ed957', '#b56bff', '#ff6fb5'],
+
+    /* Cosmetics: looks only, no bonuses. Bought once with cash at a set price that never changes.
+       `rank` is the street cred rank that puts the item on sale. Paints and rims belong to the team and
+       can go on any car; body kits are bought per car model (price x the model's kitScale). */
+    PAINTS: [
+      { id: 'red', name: 'Factory Red', color: '#ff5a36', cost: 0, rank: 0 },
+      { id: 'blue', name: 'Factory Blue', color: '#19b3f5', cost: 0, rank: 0 },
+      { id: 'yellow', name: 'Factory Yellow', color: '#ffd23f', cost: 0, rank: 0 },
+      { id: 'green', name: 'Factory Green', color: '#7ed957', cost: 0, rank: 0 },
+      { id: 'violet', name: 'Factory Violet', color: '#b56bff', cost: 0, rank: 0 },
+      { id: 'pink', name: 'Factory Pink', color: '#ff6fb5', cost: 0, rank: 0 },
+      { id: 'white', name: 'Pearl White', color: '#f4f6fa', cost: 2500, rank: 0 },
+      { id: 'black', name: 'Gloss Black', color: '#20242e', cost: 2500, rank: 0 },
+      { id: 'gunmetal', name: 'Gunmetal', color: '#6b7386', cost: 8000, rank: 1 },
+      { id: 'forest', name: 'Forest Green', color: '#1f6b4a', cost: 8000, rank: 1 },
+      { id: 'midnight', name: 'Midnight Blue', color: '#1c2f8f', cost: 25000, rank: 2 },
+      { id: 'burnt', name: 'Burnt Orange', color: '#d9651a', cost: 60000, rank: 3 },
+      { id: 'grape', name: 'Midnight Purple', color: '#4b2a8c', cost: 150000, rank: 4 },
+      { id: 'teal', name: 'Lagoon Teal', color: '#12a59a', cost: 400000, rank: 5 },
+      { id: 'gold', name: 'Champagne Gold', color: '#d8b45a', cost: 1.5e6, rank: 6 },
+      { id: 'magenta', name: 'Hot Magenta', color: '#e0177f', cost: 5e6, rank: 7 },
+      { id: 'silver', name: 'Liquid Silver', color: '#c9d2e0', cost: 2e7, rank: 8 },
+      { id: 'blood', name: 'Blood Red', color: '#a30f1f', cost: 8e7, rank: 9 },
+    ],
+    FACTORY_PAINTS: ['red', 'blue', 'yellow', 'green', 'violet', 'pink'],   // free; new cars arrive in one of these
+    /* Rims: `spokes` 0 is a plain disc; `r` is the rim's radius in metres (the tire is 0.4). */
+    RIMS: [
+      { id: 'steel', name: 'Steelies', color: '#dfe5ee', spokes: 0, r: 0.22, cost: 0, rank: 0 },
+      { id: 'five', name: 'Silver Five-Spoke', color: '#e6ebf2', spokes: 5, r: 0.3, cost: 15000, rank: 1 },
+      { id: 'six', name: 'White Six-Spoke', color: '#ffffff', spokes: 6, r: 0.3, cost: 40000, rank: 2 },
+      { id: 'bronze', name: 'Bronze Mesh', color: '#b07a3c', spokes: 10, r: 0.3, cost: 120000, rank: 3 },
+      { id: 'dish', name: 'Black Deep Dish', color: '#2a2f3b', spokes: 0, r: 0.31, cost: 300000, rank: 4 },
+      { id: 'goldfive', name: 'Gold Five-Spoke', color: '#e8b730', spokes: 5, r: 0.31, cost: 2e6, rank: 6 },
+      { id: 'neon', name: 'Neon Six-Spoke', color: '#2ff5e0', spokes: 6, r: 0.31, cost: 2.5e7, rank: 8 },
+    ],
+    KITS: [
+      { id: 'stock', name: 'Stock body', blurb: 'As it left the factory.', cost: 0, rank: 0 },
+      { id: 'street', name: 'Street kit', blurb: 'Front lip, side skirts and a ducktail.', cost: 30000, rank: 2 },
+      { id: 'drift', name: 'Drift kit', blurb: 'Wide arches, a front-mount intercooler and a GT wing.', cost: 250000, rank: 5 },
+      { id: 'pro', name: 'Pro kit', blurb: 'Full wide-body: canards, roof scoop, diffuser and a big wing.', cost: 5e6, rank: 8 },
+    ],
 
     /* Drivers. Base stats are rolled evenly inside the rarity's range. Seat time earns experience;
        every level adds LEVEL_STAT of the base stats, up to the rarity's level cap.
@@ -139,6 +179,14 @@
       POINTS_PER_SECOND: 30,                  // this many points pay one second of the team's income
       XP_MULT: 2,                             // the driver's seat time counts double
     },
+
+    /* Street cred: a rank earned only by Street Drifting. It never goes down and is never spent. */
+    CRED_PER_100M: 1, CRED_PER_1000_POINTS: 1, CRED_NEW_BEST: 10,   // a new best score and a new best distance each pay CRED_NEW_BEST
+    RANKS: [
+      { name: 'Unknown', cred: 0 }, { name: 'Newcomer', cred: 40 }, { name: 'Local', cred: 100 }, { name: 'Regular', cred: 200 },
+      { name: 'Known', cred: 350 }, { name: 'Respected', cred: 550 }, { name: 'Notorious', cred: 800 }, { name: 'Street Hero', cred: 1100 },
+      { name: 'Mountain Ace', cred: 1500 }, { name: 'Street King', cred: 2000 }, { name: 'Legend', cred: 2700 }, { name: 'Myth', cred: 3600 },
+    ],
 
     OFFLINE_MIN: 30,          // seconds away before away-earnings are paid
     OFFLINE_CAP: 4 * 3600,

@@ -55,6 +55,8 @@
       if (open) {
         h += '<div class="row driver-row"><div><small>Driver</small><div>' + (d ? esc(d.name) + ' ' + rarityTag(d) : 'Empty seat — this car is parked') +
           '</div></div><button class="ghost" data-act="pick-driver" data-car="' + car.id + '">' + (d ? 'Change' : 'Choose') + '</button></div>';
+        h += '<div class="row driver-row"><div><small>Looks</small><div>' + esc(G.cosmetic('paint', car.paint).name) + ' · ' + esc(G.cosmetic('rims', car.rims).name) +
+          ' · ' + esc(G.cosmetic('kit', car.kit).name) + '</div></div><button class="ghost" data-act="style" data-car="' + car.id + '">Customise</button></div>';
         h += '<div class="parts">';
         D.PARTS.forEach((p) => {
           const lv = car.parts[p.id], maxed = lv >= D.PART_MAX;
@@ -262,6 +264,36 @@
       if (tab) { el.body.scrollTop = 0; render(); }
       toast('Progress wiped. Fresh team, fresh tires.');
     }
+    /* ---------- Cosmetics and street cred ---------- */
+    function rankBar() {
+      const r = G.rank(state);
+      return '<div class="rankbar"><div><b>Rank ' + r.index + ' · ' + r.name + '</b><small>' + (r.next ? Math.floor(r.cred) + ' / ' + r.next.cred + ' street cred' : 'Top rank · ' +
+        Math.floor(r.cred) + ' street cred') + '</small></div><i><b style="width:' + Math.round(r.progress * 100) + '%"></b></i></div>';
+    }
+    function cosTile(car, kind, c) {
+      const worn = car[kind] === c.id, owned = G.ownsCosmetic(state, kind, c.id, car.model), open = G.cosmeticUnlocked(state, kind, c.id);
+      const cost = G.cosmeticCost(kind, c.id, car.model);
+      const art = kind === 'paint' ? '<i class="dot" style="background:' + c.color + '"></i>'
+        : kind === 'rims' ? '<i class="wheel' + (c.spokes ? ' spoked' : '') + '" style="--c:' + c.color + '"></i>' : '';
+      const foot = worn ? '<em class="on">On the car</em>' : owned ? '<em>Owned · tap to fit</em>'
+        : open ? '<em class="price">' + G.money(cost) + '</em>' : '<em class="lock">Rank ' + c.rank + ' · ' + D.RANKS[c.rank].name + '</em>';
+      return '<button class="cos' + (worn ? ' worn' : '') + (!owned && !open ? ' locked' : '') + '" data-act="cos" data-car="' + car.id + '" data-kind="' + kind +
+        '" data-id="' + c.id + '"' + (!owned && open ? ' data-cost="' + cost + '"' : '') + '>' + art + '<span>' + esc(c.name) +
+        (kind === 'kit' ? '<small>' + esc(c.blurb) + '</small>' : '') + '</span>' + foot + '</button>';
+    }
+    function styleCar(carId) {
+      const car = G.getCar(state, carId);
+      if (!car) return;
+      const sec = (title, note, kind, list, cls) => '<h3>' + title + '</h3><p class="note">' + note + '</p><div class="cos-grid ' + cls + '">' +
+        list.map((c) => cosTile(car, kind, c)).join('') + '</div>';
+      showModal('<h2>' + esc(G.model(car.model).name) + ' looks</h2><p class="note">Looks only: nothing here changes how the car scores or handles. ' +
+        'Street cred rank puts new items on sale; you earn it by Street Drifting.</p>' + rankBar() +
+        sec('Paint', 'Yours for the whole team once bought.', 'paint', D.PAINTS, 'small') +
+        sec('Rims', 'Yours for the whole team once bought.', 'rims', D.RIMS, '') +
+        sec('Body kit', 'Bought for this model, the ' + esc(G.model(car.model).name) + '.', 'kit', D.KITS, 'wide') +
+        '<button class="ghost wide" data-act="close">Done</button>');
+    }
+
     /* ---------- Street Drifting ---------- */
     function tougeMenu() {
       const income = G.expectedIncome(state), rec = state.street;
@@ -269,7 +301,7 @@
         'The car drives; you slide a finger left and right to steer. Hold it sideways to build the multiplier.</p>' +
         '<p class="note">The road never ends and gets harder as it goes. ' + (T.MAX_HITS === 1 ? 'Touching a barrier ends the run' : 'Barrier touch number ' + T.MAX_HITS + ' ends the run') + ', and you keep everything you scored. ' +
         'Every ' + T.POINTS_PER_SECOND + ' points pays one second of team income (now ' + G.money(income, 1) + '/s), and the driver earns double seat time.</p>' +
-        (rec.runs ? '<p class="note">Best so far: ' + rec.bestScore.toLocaleString('en-US') + ' points, ' + (rec.bestDist / 1000).toFixed(2) + ' km.</p>' : '') + '<div class="list">';
+        rankBar() + (rec.runs ? '<p class="note">Best so far: ' + rec.bestScore.toLocaleString('en-US') + ' points, ' + (rec.bestDist / 1000).toFixed(2) + ' km.</p>' : '') + '<div class="list">';
       let any = false;
       state.cars.forEach((c, i) => {
         const d = G.driverOf(state, c);
@@ -291,6 +323,8 @@
         row('Distance' + best(res.bestDist), (res.dist / 1000).toFixed(2) + ' km') + row('Best multiplier', 'x' + res.bestMult.toFixed(1)) +
         (res.cleanKm ? row('Clean kilometres: ' + res.cleanKm, '+' + res.cleanBonus.toLocaleString('en-US')) : '') +
         row('Worth', G.duration(res.seconds) + ' of team income') + '</div>' +
+        '<p class="note">+' + res.cred + ' street cred' + (res.rank.after.index > res.rank.before.index ? '. New rank: <b>' + res.rank.after.name + '</b>' +
+          (res.rank.unlocked.length ? '. Now on sale: ' + res.rank.unlocked.map((u) => esc(u.item.name)).join(', ') : '') : '') + '.</p>' + rankBar() +
         (d ? '<p class="note">' + esc(d.name) + ' banked ' + G.duration(res.xp) + ' of seat time' + (res.levels ? ' and reached level ' + d.level : '') + '.</p>' : '') +
         '<button class="buy wide" data-act="touge-again">Go again</button><button class="ghost wide" data-act="touge-exit">Back to the venue</button></div>');
     }
@@ -317,6 +351,16 @@
       if (a === 'pick-car') { if (state.cars.length) pickCar(driverId); return; }
       if (a === 'view-tryout') { armed = ''; viewTryout(); return; }
       if (a === 'menu') { armed = ''; showMenu(); return; }
+      if (a === 'style') { styleCar(carId); return; }
+      if (a === 'cos') {
+        const kind = b.dataset.kind, id = b.dataset.id, car = G.getCar(state, carId);
+        if (!car || car[kind] === id) return;
+        const keep = el.modal.firstChild.scrollTop;
+        const done = G.ownsCosmetic(state, kind, id, car.model) ? G.applyCosmetic(state, carId, kind, id) : G.buyCosmetic(state, carId, kind, id);
+        if (done) { actions.changed(); render(); styleCar(carId); el.modal.firstChild.scrollTop = keep; }
+        else if (b.dataset.cost) { b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake'); }
+        return;
+      }
       if (a === 'touge-menu') { tougeMenu(); return; }
       if (a === 'touge-go') { closeModal(); actions.tougeStart(carId); return; }
       if (a === 'touge-again') { closeModal(); actions.tougeAgain(); return; }

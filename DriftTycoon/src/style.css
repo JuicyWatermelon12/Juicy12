@@ -228,3 +228,30 @@ i.swatch { width: 18px; height: 12px; border-radius: 4px; vertical-align: -1px; 
 .result-rows { width: 100%; display: flex; flex-direction: column; gap: 6px; }
 .result-rows div { display: flex; justify-content: space-between; font-weight: 700; padding: 7px 12px; border-radius: 10px; background: var(--panel); }
 .result-rows b { font-family: var(--display); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ---- Street cred rank and cosmetics ---- */
+.rankbar { display: flex; flex-direction: column; gap: 5px; width: 100%; padding: 10px 12px; border-radius: 14px; background: var(--night); color: #fff; text-align: left; }
+.rankbar > div { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.rankbar b { font-family: var(--display); font-weight: 600; font-size: 15px; }
+.rankbar small { color: #c9d2ff; }
+.rankbar i { display: block; height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.16); overflow: hidden; }
+.rankbar i b { display: block; height: 100%; background: var(--cash); border-radius: 999px; }
+.modal-card h3 { font-family: var(--display); font-weight: 600; font-size: 17px; margin-top: 4px; }
+.modal-card h3 + .note { margin-top: -8px; }
+.cos-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.cos-grid.small { grid-template-columns: repeat(3, 1fr); }
+.cos-grid.wide { grid-template-columns: 1fr; }
+.cos { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 6px 8px; border-radius: 14px; background: var(--panel); box-shadow: 0 3px 0 var(--line);
+  font-weight: 800; font-size: 12px; text-align: center; min-width: 0; }
+.cos span { line-height: 1.25; }
+.cos small { font-size: 11px; margin-top: 2px; }
+.cos em { font-style: normal; font-size: 11px; color: var(--ink-2); }
+.cos em.price { font-family: var(--display); font-weight: 600; font-size: 14px; color: #fff; background: var(--go); border-radius: 8px; padding: 2px 9px; }
+.cos.cant em.price { background: #c4ccd9; }
+.cos em.on { color: var(--go-d); }
+.cos.worn { outline: 3px solid var(--go); }
+.cos.locked { opacity: 0.55; }
+.cos.shake { animation: shake 0.25s; }
+.dot { display: block; width: 38px; height: 38px; border-radius: 50%; box-shadow: inset 0 -5px 0 rgba(0, 0, 0, 0.2), 0 0 0 2px var(--card); }
+.wheel { display: block; width: 40px; height: 40px; border-radius: 50%; background: var(--c); border: 8px solid #15181f; box-sizing: border-box; }
+.wheel.spoked { background: repeating-conic-gradient(var(--c) 0 18deg, #1e222b 18deg 60deg); }

@@ -177,7 +177,7 @@
       cleanKm: run.cleanKm, cleanBonus: Math.floor(run.cleanBonus) };
   }
 
-  /* Pay the run out: cash to the team, seat time to the driver, and the team's records. */
+  /* Pay the run out: cash to the team, seat time to the driver, the team's records and street cred. */
   function collect(state, car, run) {
     const res = payout(state, run), rec = state.street;
     G.earn(state, res.cash);
@@ -186,6 +186,8 @@
     res.levels = d ? G.addXP(d, res.xp * (G.trait(d).xp || 1)) : 0;
     res.bestScore = res.score > rec.bestScore; res.bestDist = res.dist > rec.bestDist;
     rec.runs++; rec.bestScore = Math.max(rec.bestScore, res.score); rec.bestDist = Math.max(rec.bestDist, res.dist);
+    res.cred = G.credFor(res.dist, res.score, (res.bestScore ? 1 : 0) + (res.bestDist ? 1 : 0));
+    res.rank = G.addCred(state, res.cred);   // { before, after, unlocked }
     return res;
   }
 

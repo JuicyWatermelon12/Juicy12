@@ -52,7 +52,16 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
     suspension keeps more speed after a touch, stance and tires raise the score, and so do the driver's skill and
     flair. Steering scales with speed, so fast cars can still make the bends.
 
-Planned next: street cred and car cosmetics, more venues, tap bubbles at the venue. Not built yet: sound.
+- **Street cred:** a rank earned only by Street Drifting: 1 cred per 100 m, 1 per 1,000 points, and 10 for each
+  record a run sets (best score, best distance). Twelve ranks, Unknown to Myth. It never goes down, is never
+  spent, and gives no bonuses; it puts cosmetics on sale.
+- **Cosmetics** (Garage → a car → Customise): paint, rims and body kits. Looks only, bought with cash at set
+  prices that never change; items at higher ranks cost more. Paint and rims belong to the team and stay on the car
+  when it is traded up. Body kits (Street, Drift, Pro) are bought per car model. The kit decides the car's wing,
+  lip, skirts, arches and intercooler; parts no longer add those (stance height, smoke and exhaust flames still
+  come from parts).
+
+Planned next: more venues, tap bubbles at the venue. Not built yet: sound.
 
 ## Layout
 

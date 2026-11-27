@@ -200,7 +200,7 @@
   }
 
   function carSignature(c) {
-    return [c.model, c.color, c.parts.engine >= 2 ? 1 : 0, c.parts.engine >= 4 ? 1 : 0, c.parts.turbo >= 2 ? 1 : 0].join('|');
+    return [c.model, c.color, c.rims, c.kit].join('|');   // the look comes from cosmetics; parts only change performance
   }
 
   /* Local axes: +X is forward, +Y up. */
@@ -220,27 +220,54 @@
       mesh(new THREE.BoxGeometry(0.08, 0.16, 0.42), lamp, b.len / 2 + 0.01, 0.7, s * (b.wid / 2 - 0.32), body);
       mesh(new THREE.BoxGeometry(0.08, 0.14, 0.5), tail, -b.len / 2 - 0.01, 0.74, s * (b.wid / 2 - 0.34), body);
     });
-    const wing = Math.max(b.wing, c.parts.engine >= 4 ? 2 : c.parts.engine >= 2 ? 1 : 0);
-    if (wing === 1) box(0.36, 0.07, b.wid * 0.92, paint, -b.len / 2 + 0.24, 0.98, 0, body);
+    // body kit: each one builds on the last. The stock body keeps whatever wing the model came with.
+    const kit = ['stock', 'street', 'drift', 'pro'].indexOf(c.kit), dark = 0x1b2130, rear = -b.len / 2, front = b.len / 2;
+    const wing = kit >= 2 ? 2 : Math.max(b.wing, kit >= 1 ? 1 : 0);
+    if (wing === 1) box(0.36, 0.09, b.wid * 0.92, paint, rear + 0.24, 0.98, 0, body);
     if (wing === 2) {
-      box(0.6, 0.08, b.wid + 0.1, 0x1b2130, -b.len / 2 + 0.3, 1.5, 0, body, true);
-      [-1, 1].forEach((s) => box(0.12, 0.56, 0.08, 0x1b2130, -b.len / 2 + 0.34, 1.2, s * b.wid * 0.3, body));
+      const big = kit >= 3, wy = big ? 1.68 : 1.5;
+      box(big ? 0.75 : 0.6, 0.08, b.wid + (big ? 0.3 : 0.1), dark, rear + 0.3, wy, 0, body, true);
+      [-1, 1].forEach((s) => box(0.12, wy - 0.94, 0.08, dark, rear + 0.34, (wy + 0.94) / 2, s * b.wid * 0.3, body));
+      if (big) [-1, 1].forEach((s) => box(0.8, 0.34, 0.06, paint, rear + 0.3, wy + 0.05, s * (b.wid / 2 + 0.15), body));
     }
-    if (c.parts.turbo >= 2) box(0.1, 0.2, b.wid * 0.6, 0xcfd6e2, b.len / 2 + 0.08, 0.36, 0, body);
+    if (kit >= 1) {
+      box(0.3, 0.08, b.wid + (kit >= 3 ? 0.3 : 0.12), dark, front + 0.06, 0.2, 0, body);                       // front lip
+      [-1, 1].forEach((s) => box(b.len * 0.5, 0.1, 0.1, dark, 0, 0.22, s * (b.wid / 2 + 0.04), body));           // side skirts
+    }
+    if (kit >= 2) {
+      const out = kit >= 3 ? 0.2 : 0.13;                                                                          // wide arches
+      [1, -1].forEach((fx) => [-1, 1].forEach((s) => box(1.0, 0.16, out, paint, fx * b.len * 0.31, 0.8, s * (b.wid / 2 + out / 2 - 0.01), body)));
+      box(0.1, 0.2, b.wid * 0.6, 0xcfd6e2, front + 0.08, 0.38, 0, body);                                           // front-mount intercooler
+    }
+    if (kit >= 3) {
+      [-1, 1].forEach((s) => { const m = box(0.34, 0.05, 0.3, dark, front - 0.05, 0.52, s * (b.wid / 2 + 0.1), body); m.rotation.z = -0.3; });   // canards
+      box(0.5, 0.13, 0.42, dark, b.cabOff + (b.tr - b.tf) / 2 + 0.1, 0.92 + b.cabH + 0.12, 0, body);              // roof scoop
+      [-0.5, 0, 0.5].forEach((z) => box(0.4, 0.2, 0.05, dark, rear - 0.08, 0.26, z * b.wid * 0.6, body));        // diffuser fins
+    }
     const flame = mesh(new THREE.ConeGeometry(0.2, 0.9, 6), new THREE.MeshBasicMaterial({ color: 0xffa21f }),
       -b.len / 2 - 0.5, 0.36, -b.wid * 0.25, body);
     flame.rotation.z = Math.PI / 2;
     flame.visible = false;
 
-    const tireGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 12), rimGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.32, 8);
+    // wheels: a plain disc, or a dark barrel with spokes in the rim colour on the outside face
+    const rimDef = D.RIMS.find((r) => r.id === c.rims) || D.RIMS[0], track = kit >= 2 ? 0.07 : 0;
+    const tireGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 12), rimGeo = new THREE.CylinderGeometry(rimDef.r, rimDef.r, 0.32, 10);
+    const spokeGeo = new THREE.BoxGeometry(rimDef.r, 0.075, 0.04), hubGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.36, 8);
     const wheels = [];
     [1, -1].forEach((fx) => [1, -1].forEach((side) => {
       const pivot = new THREE.Group(), camber = new THREE.Group();
-      pivot.position.set(fx * b.len * 0.31, 0.4, side * (b.wid / 2 - 0.02));
+      pivot.position.set(fx * b.len * 0.31, 0.4, side * (b.wid / 2 - 0.02 + track));
       pivot.add(camber);
       const tire = mesh(tireGeo, mat(0x15181f), 0, 0, 0, camber);
-      const rim = mesh(rimGeo, mat(0xdfe5ee), 0, 0, 0, camber);
+      const rim = mesh(rimGeo, mat(rimDef.spokes ? 0x1e222b : rimDef.color), 0, 0, 0, camber);
       tire.rotation.x = rim.rotation.x = Math.PI / 2;
+      if (rimDef.spokes) {
+        mesh(hubGeo, mat(rimDef.color), 0, 0, 0, camber).rotation.x = Math.PI / 2;
+        for (let k = 0; k < rimDef.spokes; k++) {
+          const a = k / rimDef.spokes * Math.PI * 2;
+          mesh(spokeGeo, mat(rimDef.color), Math.cos(a) * rimDef.r / 2, Math.sin(a) * rimDef.r / 2, side * 0.17, camber).rotation.z = a;
+        }
+      }
       g.add(pivot);
       wheels.push({ pivot, camber, front: fx > 0, side });
     }));
