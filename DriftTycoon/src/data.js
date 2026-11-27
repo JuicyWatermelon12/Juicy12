@@ -245,6 +245,9 @@
       // so the latest stages keep cars drivable (they still add their full style at the venue and score bonus).
       HANDLING_STAGES: 5, HANDLING_EXTRA: 0.4,
       MAX_HITS: 1,                            // barrier touches that end the run
+      // Steering by finger: a slide of STEER_DRAG x the screen width (up to 520 px) gives full lock, divided by the
+      // player's sensitivity setting; the wheel follows the finger at STEER_RESPONSE (higher is quicker).
+      STEER_DRAG: 0.245, STEER_RESPONSE: 8, STEER_SENS: [0.6, 1.5],   // sensitivity setting: lowest, highest (1 is the default)
       COUNTDOWN: 2.4, START_SPEED: 13,
       TOP_SPEED: 24, TOP_PER_STAGE: 0.4,       // m/s; engine and turbo stages each add TOP_PER_STAGE
       ACCEL: 1.2,

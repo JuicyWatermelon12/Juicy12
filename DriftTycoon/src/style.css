@@ -307,6 +307,9 @@ i.swatch { width: 18px; height: 12px; border-radius: 4px; vertical-align: -1px; 
 .pick.locked { opacity: 0.55; box-shadow: none; outline: 2px dashed var(--line); outline-offset: -2px; }
 /* Venue tab: the venues the team owns */
 .tag { flex: none; padding: 6px 10px; border-radius: 10px; background: var(--go); color: #fff; font-weight: 800; font-size: 12px; }
+.slider { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 800; color: var(--ink-2); }
+.slider input { flex: 1; accent-color: var(--accent); height: 28px; }
+.slider-val { text-align: center; margin-top: -4px; }
 .tag.off { background: var(--line); color: var(--ink-2); }
 .progress { display: block; height: 8px; border-radius: 999px; background: var(--panel); overflow: hidden; }
 .progress b { display: block; height: 100%; background: var(--go); border-radius: 999px; }

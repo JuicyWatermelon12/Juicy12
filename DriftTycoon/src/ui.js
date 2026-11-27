@@ -295,7 +295,11 @@
     }
     function showMenu() {
       const on = armed === 'reset';
-      showModal('<h2>Menu</h2><p class="note">Wipes this team for good: cash, cars, parts, drivers, mechanics and venue upgrades. You start again with one Kumo and the rookie.</p>' +
+      const sens = G.steerSens(state), lo = T.STEER_SENS[0], hi = T.STEER_SENS[1];
+      showModal('<h2>Menu</h2><h3>Drift steering</h3><p class="note">How far you slide your finger to steer. Lower is smoother, higher reacts to smaller slides.</p>' +
+        '<div class="slider"><span>Smooth</span><input type="range" data-set="steer" min="' + lo + '" max="' + hi + '" step="0.05" value="' + sens + '" aria-label="Drift steering sensitivity"><span>Quick</span></div>' +
+        '<p class="note slider-val" id="steer-val">' + Math.round(sens * 100) + '%' + (Math.abs(sens - 1) < 0.001 ? ' (default)' : '') + '</p>' +
+        '<h3>Progress</h3><p class="note">Wipes this team for good: cash, cars, parts, drivers, mechanics and venue upgrades. You start again with one Kumo and the rookie.</p>' +
         '<button class="ghost wide danger' + (on ? ' armed' : '') + '" data-act="reset">' + (on ? 'Tap again to wipe everything' : 'Reset all progress') + '</button>' +
         '<button class="ghost wide" data-act="close">Close</button>');
     }
@@ -492,6 +496,14 @@
       if (changed) { actions.changed(); render(); }
       else if (b.dataset.cost) { b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake'); }
     }
+    // settings sliders: saved as they move
+    document.addEventListener('input', (e) => {
+      const t = e.target;
+      if (!t.dataset || t.dataset.set !== 'steer') return;
+      const v = G.setSteerSens(state, t.value), out = document.getElementById('steer-val');
+      if (out) out.textContent = Math.round(v * 100) + '%' + (Math.abs(v - 1) < 0.001 ? ' (default)' : '');
+      actions.changed();
+    });
     document.addEventListener('click', (e) => {
       const t = e.target.closest('[data-tab]');
       if (t) { openTab(t.dataset.tab); return; }

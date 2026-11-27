@@ -134,7 +134,7 @@
     const s = run.setup;
     extendRoad(run.road, run.idx + 320);
     run.t += dt;
-    run.steer += (clamp(input || 0, -1, 1) - run.steer) * (1 - Math.exp(-12 * dt));
+    run.steer += (clamp(input || 0, -1, 1) - run.steer) * (1 - Math.exp(-T.STEER_RESPONSE * dt));
     // the nose turns with the wheel; steering right swings the heading towards -x
     run.h -= run.steer * s.lock * run.speed * dt;
     let p = run.road.pts[run.idx];

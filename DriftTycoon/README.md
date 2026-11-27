@@ -91,6 +91,9 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
     15%, 2 km about half, 3 km the same, 5 km about twice and 8 km about three times as much. The run's cash and
     the current rate show under "End run", each kilometre marker announces the new rate, and the result card
     shows what each kilometre paid. The driver earns double seat time.
+  - **Steering:** a slide of about a quarter of the screen width (`STEER_DRAG`, up to 520 px) gives full lock, and
+    the wheel follows the finger in about an eighth of a second (`STEER_RESPONSE`). Menu → Drift steering sets the
+    sensitivity from 60% (smoother, longer slides) to 150% (quicker); it is saved and survives a progress reset.
   - **Headlights:** on the street and on night tracks each headlight throws its own beam on the road. Light on
     the ground (beams, underglow) is drawn from vertex colours, not canvas textures: some browsers add noise to
     canvas pixels, which showed as coloured spots in the light.

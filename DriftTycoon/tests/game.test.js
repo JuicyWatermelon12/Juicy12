@@ -1024,6 +1024,24 @@ test('underglow: on sale by rank, adds style, kept in the save', () => {
   assert.ok(G.load(old, 0).cars.every((c) => c.glow === 'none'), 'older saves load with no underglow');
 });
 
+test('drift steering sensitivity: a setting that defaults to 1, stays in range, and is kept in the save', () => {
+  const s = G.newState(0), [lo, hi] = T.STEER_SENS;
+  assert.equal(G.steerSens(s), 1);
+  assert.ok(lo < 1 && hi > 1);
+  assert.equal(G.setSteerSens(s, 0.8), 0.8);
+  assert.equal(G.setSteerSens(s, 9), hi);
+  assert.equal(G.setSteerSens(s, 0.1), lo);
+  assert.equal(G.setSteerSens(s, 'nope'), 1, 'nonsense falls back to the default');
+  G.setSteerSens(s, 1.25);
+  assert.equal(G.load(G.serialize(s), 0).settings.steer, 1.25);
+  const old = JSON.parse(G.serialize(s)); delete old.settings;
+  assert.equal(G.load(old, 0).settings.steer, 1, 'older saves get the default');
+  // the wheel follows the finger more gently than before: about an eighth of a second to get most of the way
+  const run = go(straight(500), stock().setup);
+  for (let i = 0; i < HZ / 8; i++) C.step(run, 1, 1 / HZ);
+  assert.ok(run.steer > 0.6 && run.steer < 0.7, 'steer after 1/8 s: ' + run.steer.toFixed(2));
+});
+
 /* ---------- Tap bubbles ---------- */
 
 test('bubbles: the gap is inside its range, kinds come by weight, and a running effect does not come again', () => {

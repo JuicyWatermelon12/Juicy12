@@ -54,6 +54,7 @@
       place: 0, placeOwned: 0,   // the venue the team is at, and the furthest venue it has bought (indexes into D.VENUES)
       street: { runs: 0, cred: 0, best: {} },   // Drift mode: runs, street cred, and the best { score, dist } on each map
       fx: [],   // tap-bubble effects running at the venue: { id, left }. Not carried across a reload
+      settings: { steer: 1 },   // the player's settings: Drift steering sensitivity (1 = default)
       lastSeen: now || 0,
     };
     s.venue = s.levels[0];
@@ -507,6 +508,10 @@
   /* ---------- Save / load ---------- */
 
   const serialize = (state) => JSON.stringify(state);
+  /* Drift steering sensitivity, kept inside the allowed range. */
+  const steerSensOf = (v) => Math.min(D.TOUGE.STEER_SENS[1], Math.max(D.TOUGE.STEER_SENS[0], +v || 1));
+  const steerSens = (state) => steerSensOf(state.settings && state.settings.steer);
+  function setSteerSens(state, v) { state.settings = state.settings || {}; state.settings.steer = steerSensOf(v); return state.settings.steer; }
 
   function cleanDriver(d, num) {
     const out = { id: d.id, name: d.name, rarity: d.rarity, skill: num(d.skill, 10), control: num(d.control, 10),
@@ -528,6 +533,7 @@
     s.totalEarned = num(raw.totalEarned, 0);
     s.slots = Math.max(1, Math.floor(num(raw.slots, 1)));   // capped to the venue's pits below, once the venue is known
     s.lastSeen = num(raw.lastSeen, now || 0);
+    s.settings.steer = steerSensOf(num(raw.settings && raw.settings.steer, 1));
     s.tryouts = Math.floor(num(raw.tryouts, 0));
     s.nextTryoutAt = num(raw.nextTryoutAt, 0);
     s.mech.count = Math.min(D.MECH_MAX, Math.max(1, Math.floor(num(raw.mech && raw.mech.count, 1))));
@@ -616,7 +622,7 @@
   const clock = (seconds) => { seconds = Math.ceil(seconds); return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0'); };
 
   DT.game = {
-    SAVE_VERSION, MAX_SLOTS, seeded, model, part, rarity, trait, modelIndex, newState, load, serialize,
+    SAVE_VERSION, MAX_SLOTS, steerSens, setSteerSens, seeded, model, part, rarity, trait, modelIndex, newState, load, serialize,
     getCar, getDriver, driverOf, carOfDriver, benchDrivers, seatedDrivers,
     driverStats, driverMult, levelCap, xpForLevel, xpToNext, totalXP, addXP, tickXP, awayXP,
     partsMult, looksMult, prepMult, sponsorMult, cashMult, crowdCap, carStyle, carCrashRate, repairTime, carRepairTime, carUptime,

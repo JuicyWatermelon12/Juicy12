@@ -40,8 +40,10 @@
       // Wipe in place (no page reload, which a sandboxed page may not allow): empty the state object that
       // the world and the UI already hold, refill it as a new team, and save over the old progress.
       reset: () => {
+        const keep = state.settings;   // settings are not progress: they survive a reset
         Object.keys(state).forEach((k) => delete state[k]);
         Object.assign(state, G.newState(Date.now()));
+        if (keep) state.settings = keep;
         world.sync();
         writeSave(state);
       },

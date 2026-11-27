@@ -527,7 +527,8 @@
     }
 
     /* ---------- Input: one finger, slid left and right ---------- */
-    function steerRange() { return Math.min(el.app.clientWidth, 520) * 0.2; }
+    /* How far a finger slides for full lock: longer at a lower sensitivity setting. */
+    function steerRange() { return Math.min(el.app.clientWidth, 520) * T.STEER_DRAG / G.steerSens(state); }
     el.root.addEventListener('pointerdown', (e) => {
       if (e.target.closest('button') || !active) return;
       drag = { id: e.pointerId, x0: e.clientX, v: 0 };
