@@ -11,7 +11,10 @@ cash, and cash buys parts, drivers, mechanics and venue upgrades, all of which s
 - Open `index.html` in a browser (it needs internet once, for Three.js and the fonts), or
 - `node tools/build.js` writes `dist/drift-tycoon.html`, one file with the game's own code inlined.
 
-Progress saves in the browser (`localStorage`). The menu button (top right) has "Reset all progress".
+Progress saves in the browser (`localStorage`). The menu button (top right) has "Reset all progress", the Drift
+steering setting, and testing tools (they can be hidden from the menu): add $500T, max street cred, max the current
+venue, fill all pits with the best car and a driver each, unlock all venues, a free Legendary tryout, skip an hour
+of away earnings, and start a Drift run at 5 km.
 
 ## What is built (first slice)
 

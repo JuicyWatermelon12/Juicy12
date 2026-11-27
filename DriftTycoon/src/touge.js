@@ -689,7 +689,7 @@
     }
     /* Start a run in one of the team's cars. `where` is { kind: 'street', id } (a street map)
        or { kind: 'track', id } (the track of a venue the team owns); the mountain pass if left out. */
-    function start(carId, where) {
+    function start(carId, where, startKm) {
       const c = G.getCar(state, carId);
       if (!c || !G.driverOf(state, c)) return false;
       const track = !!where && where.kind === 'track';
@@ -701,6 +701,7 @@
       road = track ? C.trackRoad(map.id) : C.newRoad(G.seeded(Math.floor(Math.random() * 4294967296)));
       run = C.newRun(road, C.carSetup(state, car));
       run.map = track ? 'track:' + map.id : map.id;   // the key its records are kept under
+      if (startKm) C.skipAhead(run, startKm);   // testing: start further down the road
       result = null; drag = null; keyL = keyR = false;
       camAng = run.va; shake = 0; lastMult = 1; markD = 0; went = false; shown = {}; endT = 0; lapShown = 0; incomeT = 0; payFlash = 0;
       build();

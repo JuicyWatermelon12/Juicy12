@@ -54,7 +54,7 @@
       place: 0, placeOwned: 0,   // the venue the team is at, and the furthest venue it has bought (indexes into D.VENUES)
       street: { runs: 0, cred: 0, best: {} },   // Drift mode: runs, street cred, and the best { score, dist } on each map
       fx: [],   // tap-bubble effects running at the venue: { id, left }. Not carried across a reload
-      settings: { steer: 1 },   // the player's settings: Drift steering sensitivity (1 = default)
+      settings: { steer: 1, testing: true },   // the player's settings: Drift steering sensitivity (1 = default), testing tools shown
       lastSeen: now || 0,
     };
     s.venue = s.levels[0];
@@ -410,9 +410,9 @@
     return D.RARITIES[0];
   }
 
-  function rollDriver(state, rng, taken) {
+  function rollDriver(state, rng, taken, rarityId) {
     rng = rng || Math.random;
-    const r = rollRarity(rng);
+    const r = rarityId ? rarity(rarityId) : rollRarity(rng);
     const stat = () => Math.round(r.min + rng() * (r.max - r.min));
     const pick = (list) => list[Math.floor(rng() * list.length)];
     const names = state.drivers.map((d) => d.name).concat(taken || []);
@@ -446,6 +446,44 @@
     for (let i = 0; i < D.TRYOUT_SIZE; i++) state.prospects.push(rollDriver(state, rng, state.prospects.map((p) => p.name)));
     state.nextTryoutAt = now + D.TRYOUT_COOLDOWN * 1000;
     return true;
+  }
+
+  /* ---------- Testing shortcuts (Menu → Testing). They skip the normal prices and limits on purpose. ---------- */
+
+  /* Every pit bought, each running the best car on sale, and a fresh driver in every empty seat. */
+  function testFillPits(state, rng) {
+    const best = D.MODELS.filter((m) => modelUnlocked(state, m.id)).pop().id;
+    state.slots = Math.max(state.slots, maxPits(state));
+    state.cars.forEach((c) => { if (modelIndex(c.model) < modelIndex(best)) { c.model = best; c.owned.kit = []; c.kit = 'stock'; } });
+    while (state.cars.length < state.slots) addCar(state, best);
+    state.cars.forEach((c) => {
+      if (c.driver != null) return;
+      const bench = benchDrivers(state)[0];
+      if (bench) { c.driver = bench.id; return; }
+      const d = rollDriver(state, rng);
+      state.drivers.push(d);
+      c.driver = d.id;
+    });
+    return true;
+  }
+  /* Own every venue, whatever the gate says. A venue not owned yet starts with no upgrades. */
+  function testUnlockVenues(state) {
+    while (state.placeOwned < D.VENUES.length - 1) { state.placeOwned++; state.levels[state.placeOwned] = state.levels[state.placeOwned] || zeroLevels(); }
+    return true;
+  }
+  /* A free tryout, at once, where all three prospects are Legendary. */
+  function testLegendaryTryout(state, now, rng) {
+    if (state.prospects) return false;
+    state.prospects = [];
+    for (let i = 0; i < D.TRYOUT_SIZE; i++) state.prospects.push(rollDriver(state, rng, state.prospects.map((p) => p.name), 'legendary'));
+    return true;
+  }
+  /* What an hour away would pay, as the away screen shows it. Pays it, and the drivers' seat time. */
+  function testSkipTime(state, seconds) {
+    const paid = Math.min(seconds, D.OFFLINE_CAP), info = { seconds, paidSeconds: paid, cash: expectedIncome(state) * paid };
+    earn(state, info.cash);
+    info.levelUps = awayXP(state, paid).length;
+    return info;
   }
 
   /* What a prospect would look like after being mentored by `retiree` (no changes made). */
@@ -534,6 +572,7 @@
     s.slots = Math.max(1, Math.floor(num(raw.slots, 1)));   // capped to the venue's pits below, once the venue is known
     s.lastSeen = num(raw.lastSeen, now || 0);
     s.settings.steer = steerSensOf(num(raw.settings && raw.settings.steer, 1));
+    s.settings.testing = !(raw.settings && raw.settings.testing === false);
     s.tryouts = Math.floor(num(raw.tryouts, 0));
     s.nextTryoutAt = num(raw.nextTryoutAt, 0);
     s.mech.count = Math.min(D.MECH_MAX, Math.max(1, Math.floor(num(raw.mech && raw.mech.count, 1))));
@@ -622,7 +661,7 @@
   const clock = (seconds) => { seconds = Math.ceil(seconds); return Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0'); };
 
   DT.game = {
-    SAVE_VERSION, MAX_SLOTS, steerSens, setSteerSens, seeded, model, part, rarity, trait, modelIndex, newState, load, serialize,
+    SAVE_VERSION, MAX_SLOTS, steerSens, setSteerSens, testFillPits, testUnlockVenues, testLegendaryTryout, testSkipTime, seeded, model, part, rarity, trait, modelIndex, newState, load, serialize,
     getCar, getDriver, driverOf, carOfDriver, benchDrivers, seatedDrivers,
     driverStats, driverMult, levelCap, xpForLevel, xpToNext, totalXP, addXP, tickXP, awayXP,
     partsMult, looksMult, prepMult, sponsorMult, cashMult, crowdCap, carStyle, carCrashRate, repairTime, carRepairTime, carUptime,

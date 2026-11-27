@@ -109,6 +109,14 @@
   }
 
   const multCap = (run) => T.COMBO_MAX + T.COMBO_MAX_PER_KM * run.km;
+  /* Put a run `km` kilometres down its road, as if it had driven there scoring nothing (testing). */
+  function skipAhead(run, km) {
+    const idx = T.START_OFFSET + Math.round(km * 1000 / run.road.ds);
+    extendRoad(run.road, idx + 400);
+    const p = run.road.pts[idx];
+    Object.assign(run, { idx, x: p.x, z: p.z, h: p.h, va: p.h, dist: (idx - T.START_OFFSET) * run.road.ds, km: Math.floor(km), kmMarks: new Array(Math.floor(km)).fill(0) });
+    return run;
+  }
   const hitsLeft = (run) => Math.max(0, T.MAX_HITS - run.hits);
   /* Laps of a track are counted at its start line, a little ahead of where the car sets off; the first crossing starts lap 1. */
   const lapsDone = (run) => (run.road.loop ? Math.max(0, Math.floor((run.idx - T.START_OFFSET - T.LAP_LINE) / run.road.loop.lap)) : 0);
@@ -264,5 +272,5 @@
     return clamp(-wrapPi(nose - run.h) * 2.5, -1, 1);
   }
 
-  DT.touge = { handling, newRoad, trackRoad, lapsDone, extendRoad, difficulty, carSetup, newRun, step, payRate, paySeconds, payout, collect, multCap, hitsLeft, autopilot, drifter, steady, wrapPi };
+  DT.touge = { handling, newRoad, trackRoad, lapsDone, extendRoad, difficulty, carSetup, newRun, skipAhead, step, payRate, paySeconds, payout, collect, multCap, hitsLeft, autopilot, drifter, steady, wrapPi };
 })(typeof window !== 'undefined' ? window : globalThis);

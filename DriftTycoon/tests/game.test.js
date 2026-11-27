@@ -1042,6 +1042,47 @@ test('drift steering sensitivity: a setting that defaults to 1, stays in range, 
   assert.ok(run.steer > 0.6 && run.steer < 0.7, 'steer after 1/8 s: ' + run.steer.toFixed(2));
 });
 
+test('testing tools: fill the pits, own every venue, a Legendary tryout, skip an hour, start a run further down the road', () => {
+  const s = G.newState(0), rng = G.seeded(4);
+  // fill the pits: every pit at the best venue owned, the best car on sale, a driver in every seat
+  own(s, 2);
+  G.testFillPits(s, rng);
+  const best = D.MODELS.filter((m) => G.modelUnlocked(s, m.id)).pop().id;
+  assert.equal(s.slots, G.maxPits(s));
+  assert.equal(s.cars.length, s.slots);
+  assert.ok(s.cars.every((c) => c.model === best && c.driver != null));
+  assert.equal(new Set(s.cars.map((c) => c.driver)).size, s.cars.length, 'one driver per car');
+  assert.equal(s.cars[0].driver, s.drivers.find((d) => d.name.includes('Rookie')).id, 'the driver already there keeps the seat');
+  // own every venue, gate or not
+  G.testUnlockVenues(s);
+  assert.equal(s.placeOwned, D.VENUES.length - 1);
+  assert.ok(s.levels.length === D.VENUES.length && s.levels.every((l) => l && l.stands === 0));
+  // a Legendary tryout, free and at once; refused while one is open
+  const cash = s.cash;
+  assert.ok(G.testLegendaryTryout(s, 0, rng));
+  assert.equal(s.cash, cash);
+  assert.equal(s.prospects.length, D.TRYOUT_SIZE);
+  assert.ok(s.prospects.every((p) => p.rarity === 'legendary' && p.skill >= G.rarity('legendary').min));
+  assert.equal(G.testLegendaryTryout(s, 0, rng), false);
+  // skip an hour: pays the long-run rate for it, and the seat time
+  const before = s.cash, inc = G.expectedIncome(s), xp = G.totalXP(G.driverOf(s, s.cars[0]));
+  const info = G.testSkipTime(s, 3600);
+  near(s.cash - before, inc * 3600, 1e-6);
+  near(info.cash, inc * 3600);
+  assert.ok(G.totalXP(G.driverOf(s, s.cars[0])) > xp);
+  // a Drift run started 5 km down the road: at the 5 km marker with nothing scored, paying the 6th kilometre's rate
+  const run = C.skipAhead(go(C.newRoad(G.seeded(3)), stock().setup), 5);
+  assert.ok(Math.abs(run.dist - 5000) < 2 && run.km === 5 && run.score === 0);
+  assert.deepEqual(run.kmMarks, [0, 0, 0, 0, 0]);
+  assert.equal(C.payout(s, run).rate, C.payRate(5));
+  for (let i = 0; i < HZ * 20 && !run.done; i++) C.step(run, C.steady(run), 1 / HZ);
+  assert.ok(run.dist > 5200 && C.payout(s, run).perKm.slice(-1)[0].rate === C.payRate(5), 'it drives on from there');
+  // the tools can be hidden; the setting is kept
+  s.settings.testing = false;
+  assert.equal(G.load(G.serialize(s), 0).settings.testing, false);
+  assert.equal(G.newState(0).settings.testing, true);
+});
+
 /* ---------- Tap bubbles ---------- */
 
 test('bubbles: the gap is inside its range, kinds come by weight, and a running effect does not come again', () => {

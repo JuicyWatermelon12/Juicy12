@@ -32,11 +32,12 @@
     }
     ui = DT.UI(state, world, {
       changed: () => { world.sync(); writeSave(state); },
-      tougeStart: (carId, where) => touge.start(carId, where),
+      tougeStart: (carId, where, startKm) => touge.start(carId, where, startKm),
       tougeActive: () => touge.active(),
       tougeAgain: () => touge.again(),
       tougeQuit: () => touge.quit(),
       tougeExit: () => touge.stop(),
+      showAway: (info) => ui.showAway(info),
       // Wipe in place (no page reload, which a sandboxed page may not allow): empty the state object that
       // the world and the UI already hold, refill it as a new team, and save over the old progress.
       reset: () => {

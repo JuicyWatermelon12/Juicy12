@@ -15,6 +15,7 @@
   function UI(state, world, actions) {
     let tab = null, openCar = state.cars[0] ? state.cars[0].id : null, armed = '', tryKey = '';
     const drift = { kind: 'street', street: D.STREET_MAPS[0].id, track: '' };   // what the Drift menu last chose
+    let testKm = 0;   // testing: the next Drift run starts this many km down the road
     const el = {
       cash: $('cash'), rate: $('rate'), meterFill: $('meter-fill'), meterText: $('meter-text'), meter: $('meter'),
       sheet: $('sheet'), body: $('sheet-body'), title: $('sheet-title'), tabs: $('tabs'), modal: $('modal'),
@@ -299,10 +300,18 @@
       showModal('<h2>Menu</h2><h3>Drift steering</h3><p class="note">How far you slide your finger to steer. Lower is smoother, higher reacts to smaller slides.</p>' +
         '<div class="slider"><span>Smooth</span><input type="range" data-set="steer" min="' + lo + '" max="' + hi + '" step="0.05" value="' + sens + '" aria-label="Drift steering sensitivity"><span>Quick</span></div>' +
         '<p class="note slider-val" id="steer-val">' + Math.round(sens * 100) + '%' + (Math.abs(sens - 1) < 0.001 ? ' (default)' : '') + '</p>' +
-        '<h3>Testing</h3><p class="note">Shortcuts for testing on this save.</p>' +
-        '<button class="ghost wide" data-act="test-cash">Add $500T</button>' +
-        '<button class="ghost wide" data-act="test-cred">Max street cred (' + D.RANKS[D.RANKS.length - 1].name + ')</button>' +
-        '<button class="ghost wide" data-act="test-venue">Max current venue (' + esc(G.place(state).name) + ')</button>' +
+        '<h3>Testing</h3>' + (state.settings.testing
+          ? '<p class="note">Shortcuts for testing on this save.</p>' +
+            '<button class="ghost wide" data-act="test-cash">Add $500T</button>' +
+            '<button class="ghost wide" data-act="test-cred">Max street cred (' + D.RANKS[D.RANKS.length - 1].name + ')</button>' +
+            '<button class="ghost wide" data-act="test-venue">Max current venue (' + esc(G.place(state).name) + ')</button>' +
+            '<button class="ghost wide" data-act="test-pits">Fill all pits (best car, a driver in each)</button>' +
+            '<button class="ghost wide" data-act="test-venues">Unlock all venues</button>' +
+            '<button class="ghost wide" data-act="test-tryout">Legendary tryout</button>' +
+            '<button class="ghost wide" data-act="test-time">Skip 1 hour (away earnings)</button>' +
+            '<button class="ghost wide" data-act="test-km">Start a Drift run at 5 km</button>' +
+            '<button class="ghost wide" data-act="test-toggle">Hide testing tools</button>'
+          : '<button class="ghost wide" data-act="test-toggle">Show testing tools</button>') +
         '<h3>Progress</h3><p class="note">Wipes this team for good: cash, cars, parts, drivers, mechanics and venue upgrades. You start again with one Kumo and the rookie.</p>' +
         '<button class="ghost wide danger' + (on ? ' armed' : '') + '" data-act="reset">' + (on ? 'Tap again to wipe everything' : 'Reset all progress') + '</button>' +
         '<button class="ghost wide" data-act="close">Close</button>');
@@ -369,7 +378,7 @@
     }
     function tougeMenu() {
       const income = G.expectedIncome(state), sel = driftMap(), track = sel.kind === 'track';
-      let h = '<h2>Drift</h2><p class="note">Drift one of your cars yourself. The car drives; you slide a finger left and right to steer. ' +
+      let h = '<h2>Drift</h2>' + (testKm ? '<p class="note"><b>Testing: this run starts at ' + testKm + ' km.</b></p>' : '') + '<p class="note">Drift one of your cars yourself. The car drives; you slide a finger left and right to steer. ' +
         'Hold it sideways to build the multiplier. ' + (T.MAX_HITS === 1 ? 'Touching a barrier ends the run' : 'Barrier touch number ' + T.MAX_HITS + ' ends the run') +
         ', and you keep everything you scored.</p><p class="note"><b>The money is far down the road.</b> Points pay in team income (now ' + G.money(income, 1) +
         '/s), and the pay rate rises every kilometre: x' + T.PAY_PER_KM[0] + ' in the first, x' + T.PAY_PER_KM[2] + ' in the third, x' +
@@ -446,13 +455,22 @@
       const a = b.dataset.act, carId = +b.dataset.car, driverId = +b.dataset.driver, i = +b.dataset.i;
       let changed = false;
       if (a === 'toggle-car') { openCar = openCar === carId ? null : carId; render(); return; }
-      if (a === 'close') { closeModal(); return; }
+      if (a === 'close') { testKm = 0; closeModal(); return; }
       if (a === 'pick-driver') { pickDriver(carId); return; }
       if (a === 'pick-car') { if (state.cars.length) pickCar(driverId); return; }
       if (a === 'view-tryout') { armed = ''; viewTryout(); return; }
       if (a === 'bubble') { popBubbleNow(); return; }
       if (a === 'menu') { armed = ''; showMenu(); return; }
       if (a === 'test-cash') { G.earn(state, 5e14); actions.changed(); toast('Added $500T.'); return; }
+      if (a === 'test-toggle') { state.settings.testing = !state.settings.testing; actions.changed(); showMenu(); return; }
+      if (a === 'test-pits') { G.testFillPits(state, Math.random); actions.changed(); if (tab) render(); toast('Every pit running a ' + G.model(state.cars[0].model).name + ' with a driver.'); return; }
+      if (a === 'test-venues') { G.testUnlockVenues(state); actions.changed(); if (tab) render(); toast('Every venue is yours. Move the team from the Venue tab.'); return; }
+      if (a === 'test-tryout') {
+        if (!G.testLegendaryTryout(state, Date.now(), Math.random)) { toast('Finish the open tryout first.'); viewTryout(); return; }
+        actions.changed(); viewTryout(); return;
+      }
+      if (a === 'test-time') { const info = G.testSkipTime(state, 3600); actions.changed(); actions.showAway(info); return; }
+      if (a === 'test-km') { testKm = 5; tougeMenu(); return; }
       if (a === 'test-venue') {   // every upgrade line at the venue the team is at, to its top level
         D.VENUE.forEach((v) => (state.venue[v.id] = v.max));
         actions.changed(); if (tab) render();
@@ -482,7 +500,7 @@
       }
       if (a === 'drift-kind') { drift.kind = b.dataset.kind === 'track' ? 'track' : 'street'; if (!drift.track) drift.track = G.place(state).id; tougeMenu(); return; }
       if (a === 'drift-map') { drift[drift.kind] = b.dataset.map; tougeMenu(); return; }
-      if (a === 'touge-go') { const where = driftMap(); closeModal(); actions.tougeStart(carId, where); return; }
+      if (a === 'touge-go') { const where = driftMap(), km = testKm; testKm = 0; closeModal(); actions.tougeStart(carId, where, km); return; }
       if (a === 'touge-again') { closeModal(); actions.tougeAgain(); return; }
       if (a === 'touge-quit') { actions.tougeQuit(); return; }
       if (a === 'touge-exit') { closeModal(); actions.tougeExit(); shownCash = -1; if (tab) render(); layout(true); return; }
