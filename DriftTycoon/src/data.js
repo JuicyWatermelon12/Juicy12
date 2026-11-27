@@ -12,25 +12,25 @@
        multiplier (parts multiply each other) and costs PART_GROWTH times the last. Parts belong to the
        pit, so they carry over when the car is traded up; their prices do not depend on the car.
        `crash` multiplies the car's crash rate once per stage. */
-    PART_GROWTH: 40,
+    PART_GROWTH: 50,
     PART_MAX: 5,
     PART_STAGES: ['Stock', 'Street', 'Sport', 'Race', 'Pro', 'Works'],
     PARTS: [
-      { id: 'engine', name: 'Engine', blurb: 'More power down the straights', per: 0.25, cost: 400, crash: 1.0 },
-      { id: 'turbo', name: 'Turbo', blurb: 'Big boost, a little more risk', per: 0.3, cost: 1600, crash: 1.07 },
-      { id: 'tires', name: 'Tires', blurb: 'More smoke and more grip', per: 0.12, cost: 125, crash: 0.9 },
-      { id: 'suspension', name: 'Suspension', blurb: 'Keeps the car off the wall', per: 0.08, cost: 225, crash: 0.75 },
-      { id: 'stance', name: 'Stance', blurb: 'Low and wide. The crowd loves it', per: 0.15, cost: 650, crash: 1.0 },
-      { id: 'angle', name: 'Angle kit', blurb: 'More steering lock, bigger angle', per: 0.2, cost: 1000, crash: 1.0 },
+      { id: 'engine', name: 'Engine', blurb: 'More power down the straights', per: 0.25, cost: 200, crash: 1.0 },
+      { id: 'turbo', name: 'Turbo', blurb: 'Big boost, a little more risk', per: 0.3, cost: 800, crash: 1.07 },
+      { id: 'tires', name: 'Tires', blurb: 'More smoke and more grip', per: 0.12, cost: 60, crash: 0.9 },
+      { id: 'suspension', name: 'Suspension', blurb: 'Keeps the car off the wall', per: 0.08, cost: 110, crash: 0.75 },
+      { id: 'stance', name: 'Stance', blurb: 'Low and wide. The crowd loves it', per: 0.15, cost: 320, crash: 1.0 },
+      { id: 'angle', name: 'Angle kit', blurb: 'More steering lock, bigger angle', per: 0.2, cost: 500, crash: 1.0 },
     ],
 
     /* Cars are fictional. `base` is style points a second before parts and driver.
        Each model scores 4x the last and costs 100x the last: prices have to outrun what they
        earn, or the game snowballs. `body` drives the low-poly model. */
     MODELS: [
-      { id: 'kumo', kitScale: 1, name: 'Kumo 180', blurb: 'Light pop-up-lamp coupe. Every team starts here.', cost: 1500, base: 2,
+      { id: 'kumo', kitScale: 1, name: 'Kumo 180', blurb: 'Light pop-up-lamp coupe. Every team starts here.', cost: 800, base: 2,
         body: { len: 4.1, wid: 1.75, cabLen: 2.0, cabOff: -0.35, cabH: 0.58, tf: 0.55, tr: 0.75, wing: 0 } },
-      { id: 'hachi', kitScale: 6, name: 'Hachi Coupe', blurb: 'Boxy little hatch that punches up.', cost: 150000, base: 8,
+      { id: 'hachi', kitScale: 6, name: 'Hachi Coupe', blurb: 'Boxy little hatch that punches up.', cost: 60000, base: 8,
         body: { len: 3.9, wid: 1.7, cabLen: 2.1, cabOff: -0.45, cabH: 0.62, tf: 0.5, tr: 0.3, wing: 0 } },
       { id: 'kaze', kitScale: 40, name: 'Kaze Tourer', blurb: 'Four doors, straight six, endless smoke.', cost: 1.5e7, base: 32,
         body: { len: 4.6, wid: 1.8, cabLen: 2.4, cabOff: -0.2, cabH: 0.6, tf: 0.55, tr: 0.55, wing: 0 } },
@@ -111,7 +111,7 @@
 
     /* Tryouts: pay, three prospects show up, sign one or none. One driver per pit plus the reserve. */
     TRYOUT_SIZE: 3,
-    TRYOUT_COST: 300, TRYOUT_GROWTH: 1.45,
+    TRYOUT_COST: 150, TRYOUT_GROWTH: 1.45,
     TRYOUT_COOLDOWN: 180,   // seconds between tryouts (waived while a car has nobody to drive it)
     RESERVE_SEATS: 1,
     FIRST_NAMES: ['Kenji', 'Tasha', 'Dmitri', 'Lena', 'Marco', 'Aiko', 'Jax', 'Priya', 'Sven', 'Rosa', 'Tobi', 'Mika',
@@ -134,7 +134,7 @@
     MECH_NAMES: ['Gus', 'Bea', 'Mo', 'Tilly', 'Rex'],
 
     /* Venue. Pits = how many cars can run. */
-    SLOT_COSTS: [0, 3000, 200000, 2e7, 2e9, 2e11],
+    SLOT_COSTS: [0, 1200, 80000, 2e7, 2e9, 2e11],
     VENUE: [
       { id: 'stands', name: 'Grandstands', blurb: 'More fans can watch. Raises how much style turns into cash.',
         cost: 300, growth: 3.6 },
@@ -156,9 +156,9 @@
        `track` (the drift line) and `theme` are for the 3D view. */
     VENUES: [
       { id: 'lot', name: 'Parking Lot', blurb: 'An empty car park behind the team shed. Everyone starts somewhere.',
-        cost: 0, pits: 3, cars: ['kumo', 'hachi'], style: 1, crowd: 20, scale: 1, stage: 2 },
+        cost: 0, pits: 3, cars: ['kumo', 'hachi'], style: 1, crowd: 20, scale: 0.4, stage: 2 },
       { id: 'docks', name: 'Docks', blurb: 'Container stacks, cranes and a quay that is closed at night.',
-        cost: 1e8, pits: 4, cars: ['kaze'], style: 4, crowd: 3000, scale: 150, stage: 3 },
+        cost: 4e7, pits: 4, cars: ['kaze'], style: 4, crowd: 3000, scale: 150, stage: 3 },
       { id: 'airfield', name: 'Airfield', blurb: 'A disused runway with room to go properly sideways.',
         cost: 6e9, pits: 5, cars: ['rotor'], style: 16, crowd: 1.2e5, scale: 10000, stage: 4 },
     ],
@@ -174,13 +174,13 @@
       START_OFFSET: 18,                       // the car starts this far down the road, so there is road behind it
       RAMP_KM: 6,
       TURN_MIN: [0.6, 0.95], TURN_MAX: [1.3, 1.4],   // how far a bend swings the road away from straight downhill
-      RADIUS_MIN: [18, 14], RADIUS_MAX: [34, 22],
-      STRAIGHT_MIN: [8, 4], STRAIGHT_MAX: [28, 10],
+      RADIUS_MIN: [23, 18], RADIUS_MAX: [43, 28],
+      STRAIGHT_MIN: [10, 5], STRAIGHT_MAX: [35, 13],
       SPEED_PER_KM: 0.05, SPEED_RAMP_MAX: 0.3,       // top speed grows 5% a kilometre, up to +30%
       MAX_HITS: 1,                            // barrier touches that end the run
-      COUNTDOWN: 2.4, START_SPEED: 9,
-      TOP_SPEED: 19, TOP_PER_STAGE: 0.6,       // m/s; engine and turbo stages each add TOP_PER_STAGE
-      ACCEL: 0.9,
+      COUNTDOWN: 2.4, START_SPEED: 13,
+      TOP_SPEED: 24, TOP_PER_STAGE: 0.4,       // m/s; engine and turbo stages each add TOP_PER_STAGE
+      ACCEL: 1.2,
       LOCK: 0.105, LOCK_PER_ANGLE: 0.005,     // tightest turn at full lock, as 1 / radius in metres: the nose turns faster the faster the car goes, so quick cars can still make the bends
       GRIP: 2.3,                              // how fast the car's direction of travel catches up with its nose
       MAX_SLIP: 0.72, SLIP_PER_ANGLE: 0.1,    // biggest drift angle; the angle kit adds to it

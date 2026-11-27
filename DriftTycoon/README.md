@@ -17,7 +17,7 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
 
 - **Cars:** six fictional models (Kumo 180 → Shogun GT). Each pit's car has six parts: engine, turbo, tires,
   suspension, stance, angle kit. A part has five big stages (Stock → Street → Sport → Race → Pro → Works), each
-  40 times the price of the last, so upgrades are occasional and each one shows: stance lowers the car, the angle
+  50 times the price of the last, so upgrades are occasional and each one shows: stance lowers the car, the angle
   kit widens its drift angle, tires add smoke, engine and turbo add wings, an intercooler and exhaust flames.
   Trading a car up to the next model keeps its parts and driver.
 - **Drivers:** a small team, one driver per pit plus one reserve. Each has a rarity (Common, Rare, Epic,
@@ -45,7 +45,7 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
   - **The end:** touching a barrier ends the run (`MAX_HITS` in `src/data.js`, now 1). "End run" banks it early. Either way you keep the score.
   - **Clean kilometres:** each kilometre marker passed with no touches so far adds 20% of that kilometre's points.
   - **Payout:** every 30 points pays one second of the team's income, and the driver earns double seat time.
-    A test driver in a stock car earns about three times the venue's income over the same time; built cars score
+    A test driver in a stock car earns about six times the venue's income over the same time; built cars score
     about twice as fast.
   - **Your build matters:** engine and turbo raise top speed, the angle kit adds steering lock and drift angle,
     suspension keeps more speed after a touch, stance and tires raise the score, and so do the driver's skill and
@@ -68,9 +68,9 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
   - the highest part stage on sale (Sport, Race, Pro), so parts last the whole ladder;
   - a style multiplier (x1, x4, x16), a bigger crowd, and dearer venue upgrades;
   - top levels for its upgrades: grandstands 5, sponsors 6, track prep 5.
-  The next venue costs about 20 to 25 minutes of Street Drifting at a fully built venue ($100M for the Docks,
-  $6B for the Airfield). The simulated active player builds the Parking Lot in about 25 to 33 minutes, the Docks
-  in about 30 to 40 and the Airfield in 45 to 65.
+  The Docks cost $40M and the Airfield $6B. Early progress is quick and it slows with each venue: the simulated
+  active player builds the Parking Lot in about 15 minutes and saves about 10 more for the Docks; the Docks take
+  about 35 to 45 minutes to build and 20 to 25 to save past; the Airfield takes 45 to 80.
 
 - **Tap bubbles:** while you watch the venue a bubble floats up every 30 to 60 seconds and goes after 10 seconds
   if ignored. None appear while you are away or Street Drifting.
