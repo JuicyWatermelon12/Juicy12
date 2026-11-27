@@ -44,8 +44,8 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
     rises over the first six kilometres.
   - **The end:** touching a barrier ends the run (`MAX_HITS` in `src/data.js`, now 1). "End run" banks it early. Either way you keep the score.
   - **Clean kilometres:** each kilometre marker passed with no touches so far adds 20% of that kilometre's points.
-  - **Payout:** every 30 points pays one second of the team's income, and the driver earns double seat time.
-    A test driver in a stock car earns about six times the venue's income over the same time; built cars score
+  - **Payout:** every 60 points pays one second of the team's income, and the driver earns double seat time.
+    A test driver in a stock car earns about 3.4 times the venue's income over the same time; built cars score
     about twice as fast.
   - **Your build matters:** engine and turbo raise top speed, the angle kit adds steering lock and drift angle,
     suspension keeps more speed after a touch, stance and tires raise the score, and so do the driver's skill and
@@ -54,8 +54,10 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
 - **Street cred:** a rank earned only by Street Drifting: 1 cred per 100 m, 1 per 1,000 points, and 10 for each
   record a run sets (best score, best distance). Twelve ranks, Unknown to Myth. It never goes down, is never
   spent, and gives no bonuses; it puts cosmetics on sale.
-- **Cosmetics** (Garage → a car → Customise): paint, rims and body kits. Looks only, bought with cash at set
-  prices that never change; items at higher ranks cost more. Paint and rims belong to the team and stay on the car
+- **Cosmetics** (Garage → a car → Customise): paint, rims and body kits, bought with cash at set
+  prices that never change; items at higher ranks cost more. The crowd pays for looks: each paid item adds style
+  to the car wearing it at the venue (paint up to +18%, rims up to +20%, kits +8% / +16% / +30%, added together).
+  They change nothing about how the car drives or scores on the street. Paint and rims belong to the team and stay on the car
   when it is traded up. Body kits (Street, Drift, Pro) are bought per car model. The kit decides the car's wing,
   lip, skirts, arches and intercooler; parts no longer add those (stance height, smoke and exhaust flames still
   come from parts).

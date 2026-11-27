@@ -98,7 +98,7 @@ test('income is capped by the crowd; grandstands, sponsors and track prep each m
   assert.ok(inc.full, 'style is above the crowd capacity');
   const crowd = G.place(s).crowd;
   assert.equal(inc.cheered, crowd);
-  assert.equal(inc.cash, crowd);
+  assert.equal(inc.cash, crowd * D.VENUE_CASH);
   G.buyVenue(s, 'stands');
   near(G.crowdCap(s), crowd * D.CROWD_GROWTH);
   const before = G.incomeRate(s).cash;
@@ -667,7 +667,7 @@ test('cosmetics data: set prices, dearer at higher ranks, every rank needed exis
   for (const c of s.cars) { assert.equal(c.color, G.cosmetic('paint', c.paint).color); assert.equal(c.rims, 'steel'); assert.equal(c.kit, 'stock'); }
 });
 
-test('cosmetics: locked until the rank, bought once with cash, no effect on performance', () => {
+test('cosmetics: locked until the rank, bought once with cash; looks add venue style and nothing else', () => {
   const s = G.newState(0), car = s.cars[0];
   const before = { style: G.carStyle(s, car), crash: G.carCrashRate(s, car), setup: C.carSetup(s, car), income: G.expectedIncome(s) };
   s.cash = 1e12;
@@ -691,7 +691,21 @@ test('cosmetics: locked until the rank, bought once with cash, no effect on perf
   assert.equal(G.cosmeticCost('paint', 'midnight'), cost);
   assert.equal(G.cosmeticCost('kit', 'pro', car.model), G.cosmetic('kit', 'pro').cost * G.model(car.model).kitScale);
   for (const p of D.PARTS) car.parts[p.id] = 0;
-  assert.deepEqual({ style: G.carStyle(s, car), crash: G.carCrashRate(s, car), setup: C.carSetup(s, car), income: G.expectedIncome(s) }, before);
+  // looks: the bonuses of paint, rims and kit add up on the style this car scores at the venue...
+  const looks = 1 + G.cosmetic('paint', 'midnight').style + G.cosmetic('rims', 'bronze').style + G.cosmetic('kit', 'drift').style;
+  near(G.looksMult(car), looks);
+  near(G.carStyle(s, car) / before.style, looks);
+  assert.ok(looks > 1.2);
+  // ...and change nothing else: crash rate and how the car drives and scores on the street stay the same
+  assert.deepEqual({ crash: G.carCrashRate(s, car), setup: C.carSetup(s, car) }, { crash: before.crash, setup: before.setup });
+  G.applyCosmetic(s, car.id, 'paint', 'red'); G.applyCosmetic(s, car.id, 'rims', 'steel'); G.applyCosmetic(s, car.id, 'kit', 'stock');
+  near(G.looksMult(car), 1);
+  near(G.carStyle(s, car), before.style);
+  for (const list of [D.PAINTS, D.RIMS, D.KITS]) {
+    const paid = list.filter((c) => c.cost > 0);
+    assert.ok(list.filter((c) => c.cost === 0).every((c) => !c.style), 'free items give nothing');
+    for (let i = 1; i < paid.length; i++) assert.ok(paid[i].style >= paid[i - 1].style && paid[0].style > 0, 'dearer items give at least as much');
+  }
 });
 
 test('cosmetics: paint and rims belong to the team and survive a trade-up; kits are per model', () => {

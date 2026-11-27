@@ -115,7 +115,9 @@
   const prepMult = (state) => place(state).style * Math.pow(D.PREP_MULT, state.venue.prep);
   const sponsorMult = (state) => Math.pow(D.SPONSOR_MULT, state.venue.sponsors);
   const traitSum = (state, key) => seatedDrivers(state).reduce((t, d) => t + (trait(d)[key] || 0), 0);
-  const cashMult = (state) => sponsorMult(state) * (1 + traitSum(state, 'cash'));
+  const cashMult = (state) => D.VENUE_CASH * sponsorMult(state) * (1 + traitSum(state, 'cash'));
+  /* How much the crowd likes this car's looks: 1 + the style bonuses of its paint, rims and body kit. */
+  const looksMult = (car) => 1 + ['paint', 'rims', 'kit'].reduce((t, k) => { const c = byId(k === 'paint' ? D.PAINTS : k === 'rims' ? D.RIMS : D.KITS, car[k === 'paint' ? 'paint' : k]); return t + ((c && c.style) || 0); }, 0);
   const crowdCap = (state) => place(state).crowd * Math.pow(D.CROWD_GROWTH, state.venue.stands) * (1 + traitSum(state, 'crowd'));
 
   /* Style points a second this car scores while it is drifting. 0 without a driver. */
@@ -123,7 +125,7 @@
     const d = driverOf(state, car);
     if (!d) return 0;
     const t = trait(d);
-    let v = model(car.model).base * partsMult(car) * driverMult(d) * prepMult(state) * (t.style || 1);
+    let v = model(car.model).base * partsMult(car) * driverMult(d) * prepMult(state) * (t.style || 1) * looksMult(car);
     if (t.perCar) v *= 1 + t.perCar * (seatedDrivers(state).length - 1);
     return v;
   }
@@ -584,7 +586,7 @@
     SAVE_VERSION, MAX_SLOTS, seeded, model, part, rarity, trait, modelIndex, newState, load, serialize,
     getCar, getDriver, driverOf, carOfDriver, benchDrivers, seatedDrivers,
     driverStats, driverMult, levelCap, xpForLevel, xpToNext, totalXP, addXP, tickXP, awayXP,
-    partsMult, prepMult, sponsorMult, cashMult, crowdCap, carStyle, carCrashRate, repairTime, carRepairTime, carUptime,
+    partsMult, looksMult, prepMult, sponsorMult, cashMult, crowdCap, carStyle, carCrashRate, repairTime, carRepairTime, carUptime,
     incomeRate, expectedIncome, offlineEarnings,
     partCost, slotCost, venueCost, tryoutCost, mechHireCost, mechTrainCost, mechTrainMaxed,
     earn, buyPart, buySlot, buyCar, tradeCar, buyVenue, rollDriver, assignDriver, hireMech, trainMech,

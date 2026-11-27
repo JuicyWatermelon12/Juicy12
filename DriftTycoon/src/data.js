@@ -42,7 +42,9 @@
         body: { len: 4.7, wid: 2.0, cabLen: 2.0, cabOff: -0.4, cabH: 0.54, tf: 0.75, tr: 0.9, wing: 2 } },
     ],
 
-    /* Cosmetics: looks only, no bonuses. Bought once with cash at a set price that never changes.
+    /* Cosmetics. Bought once with cash at a set price that never changes. The crowd likes a good-looking car:
+       `style` is added to the style the car wearing it scores at the venue (paint + rims + kit add up).
+       It does nothing to how the car handles or scores on the street.
        `rank` is the street cred rank that puts the item on sale. Paints and rims belong to the team and
        can go on any car; body kits are bought per car model (price x the model's kitScale). */
     PAINTS: [
@@ -52,35 +54,35 @@
       { id: 'green', name: 'Factory Green', color: '#7ed957', cost: 0, rank: 0 },
       { id: 'violet', name: 'Factory Violet', color: '#b56bff', cost: 0, rank: 0 },
       { id: 'pink', name: 'Factory Pink', color: '#ff6fb5', cost: 0, rank: 0 },
-      { id: 'white', name: 'Pearl White', color: '#f4f6fa', cost: 2500, rank: 0 },
-      { id: 'black', name: 'Gloss Black', color: '#20242e', cost: 2500, rank: 0 },
-      { id: 'gunmetal', name: 'Gunmetal', color: '#6b7386', cost: 8000, rank: 1 },
-      { id: 'forest', name: 'Forest Green', color: '#1f6b4a', cost: 8000, rank: 1 },
-      { id: 'midnight', name: 'Midnight Blue', color: '#1c2f8f', cost: 25000, rank: 2 },
-      { id: 'burnt', name: 'Burnt Orange', color: '#d9651a', cost: 60000, rank: 3 },
-      { id: 'grape', name: 'Midnight Purple', color: '#4b2a8c', cost: 150000, rank: 4 },
-      { id: 'teal', name: 'Lagoon Teal', color: '#12a59a', cost: 400000, rank: 5 },
-      { id: 'gold', name: 'Champagne Gold', color: '#d8b45a', cost: 1.5e6, rank: 6 },
-      { id: 'magenta', name: 'Hot Magenta', color: '#e0177f', cost: 5e6, rank: 7 },
-      { id: 'silver', name: 'Liquid Silver', color: '#c9d2e0', cost: 2e7, rank: 8 },
-      { id: 'blood', name: 'Blood Red', color: '#a30f1f', cost: 8e7, rank: 9 },
+      { id: 'white', name: 'Pearl White', color: '#f4f6fa', style: 0.02, cost: 2500, rank: 0 },
+      { id: 'black', name: 'Gloss Black', color: '#20242e', style: 0.02, cost: 2500, rank: 0 },
+      { id: 'gunmetal', name: 'Gunmetal', color: '#6b7386', style: 0.03, cost: 8000, rank: 1 },
+      { id: 'forest', name: 'Forest Green', color: '#1f6b4a', style: 0.03, cost: 8000, rank: 1 },
+      { id: 'midnight', name: 'Midnight Blue', color: '#1c2f8f', style: 0.04, cost: 25000, rank: 2 },
+      { id: 'burnt', name: 'Burnt Orange', color: '#d9651a', style: 0.05, cost: 60000, rank: 3 },
+      { id: 'grape', name: 'Midnight Purple', color: '#4b2a8c', style: 0.06, cost: 150000, rank: 4 },
+      { id: 'teal', name: 'Lagoon Teal', color: '#12a59a', style: 0.08, cost: 400000, rank: 5 },
+      { id: 'gold', name: 'Champagne Gold', color: '#d8b45a', style: 0.1, cost: 1.5e6, rank: 6 },
+      { id: 'magenta', name: 'Hot Magenta', color: '#e0177f', style: 0.12, cost: 5e6, rank: 7 },
+      { id: 'silver', name: 'Liquid Silver', color: '#c9d2e0', style: 0.15, cost: 2e7, rank: 8 },
+      { id: 'blood', name: 'Blood Red', color: '#a30f1f', style: 0.18, cost: 8e7, rank: 9 },
     ],
     FACTORY_PAINTS: ['red', 'blue', 'yellow', 'green', 'violet', 'pink'],   // free; new cars arrive in one of these
     /* Rims: `spokes` 0 is a plain disc; `r` is the rim's radius in metres (the tire is 0.4). */
     RIMS: [
       { id: 'steel', name: 'Steelies', color: '#dfe5ee', spokes: 0, r: 0.22, cost: 0, rank: 0 },
-      { id: 'five', name: 'Silver Five-Spoke', color: '#e6ebf2', spokes: 5, r: 0.3, cost: 15000, rank: 1 },
-      { id: 'six', name: 'White Six-Spoke', color: '#ffffff', spokes: 6, r: 0.3, cost: 40000, rank: 2 },
-      { id: 'bronze', name: 'Bronze Mesh', color: '#b07a3c', spokes: 10, r: 0.3, cost: 120000, rank: 3 },
-      { id: 'dish', name: 'Black Deep Dish', color: '#2a2f3b', spokes: 0, r: 0.31, cost: 300000, rank: 4 },
-      { id: 'goldfive', name: 'Gold Five-Spoke', color: '#e8b730', spokes: 5, r: 0.31, cost: 2e6, rank: 6 },
-      { id: 'neon', name: 'Neon Six-Spoke', color: '#2ff5e0', spokes: 6, r: 0.31, cost: 2.5e7, rank: 8 },
+      { id: 'five', name: 'Silver Five-Spoke', color: '#e6ebf2', spokes: 5, r: 0.3, style: 0.04, cost: 15000, rank: 1 },
+      { id: 'six', name: 'White Six-Spoke', color: '#ffffff', spokes: 6, r: 0.3, style: 0.06, cost: 40000, rank: 2 },
+      { id: 'bronze', name: 'Bronze Mesh', color: '#b07a3c', spokes: 10, r: 0.3, style: 0.08, cost: 120000, rank: 3 },
+      { id: 'dish', name: 'Black Deep Dish', color: '#2a2f3b', spokes: 0, r: 0.31, style: 0.1, cost: 300000, rank: 4 },
+      { id: 'goldfive', name: 'Gold Five-Spoke', color: '#e8b730', spokes: 5, r: 0.31, style: 0.14, cost: 2e6, rank: 6 },
+      { id: 'neon', name: 'Neon Six-Spoke', color: '#2ff5e0', spokes: 6, r: 0.31, style: 0.2, cost: 2.5e7, rank: 8 },
     ],
     KITS: [
       { id: 'stock', name: 'Stock body', blurb: 'As it left the factory.', cost: 0, rank: 0 },
-      { id: 'street', name: 'Street kit', blurb: 'Front lip, side skirts and a ducktail.', cost: 30000, rank: 2 },
-      { id: 'drift', name: 'Drift kit', blurb: 'Wide arches, a front-mount intercooler and a GT wing.', cost: 250000, rank: 5 },
-      { id: 'pro', name: 'Pro kit', blurb: 'Full wide-body: canards, roof scoop, diffuser and a big wing.', cost: 5e6, rank: 8 },
+      { id: 'street', name: 'Street kit', blurb: 'Front lip, side skirts and a ducktail.', style: 0.08, cost: 30000, rank: 2 },
+      { id: 'drift', name: 'Drift kit', blurb: 'Wide arches, a front-mount intercooler and a GT wing.', style: 0.16, cost: 250000, rank: 5 },
+      { id: 'pro', name: 'Pro kit', blurb: 'Full wide-body: canards, roof scoop, diffuser and a big wing.', style: 0.3, cost: 5e6, rank: 8 },
     ],
 
     /* Drivers. Base stats are rolled evenly inside the rarity's range. Seat time earns experience;
@@ -162,6 +164,7 @@
       { id: 'airfield', name: 'Airfield', blurb: 'A disused runway with room to go properly sideways.',
         cost: 6e9, pits: 5, cars: ['rotor'], style: 16, crowd: 1.2e5, scale: 10000, stage: 4 },
     ],
+    VENUE_CASH: 2,                       // cash for every point of style the crowd cheers, before sponsors
     SPONSOR_MULT: 1.25,                  // cash x1.25 per level
     PREP_MULT: 1.2,                      // style x1.2 per level
 
@@ -194,7 +197,7 @@
       COMBO_GRACE: 0.8,                       // seconds straight before the multiplier resets
       CLEAN_KM_BONUS: 0.2,                    // a kilometre marker passed with no touches so far adds this share of that kilometre's points
       BONUS_PER_STANCE: 0.06, BONUS_PER_TIRES: 0.04, SKILL_DIV: 400, FLAIR_DIV: 600,
-      POINTS_PER_SECOND: 30,                  // this many points pay one second of the team's income
+      POINTS_PER_SECOND: 60,                  // this many points pay one second of the team's income
       XP_MULT: 2,                             // the driver's seat time counts double
     },
 
