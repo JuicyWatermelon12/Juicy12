@@ -83,8 +83,12 @@
   }
 
   /* How this car and driver handle on the road. */
+  /* A part stage as far as handling goes: stages past HANDLING_STAGES count for only HANDLING_EXTRA each. */
+  const handling = (stage) => Math.min(stage, T.HANDLING_STAGES) + Math.max(0, stage - T.HANDLING_STAGES) * T.HANDLING_EXTRA;
   function carSetup(state, car) {
-    const p = car.parts, d = G.driverOf(state, car), s = d ? G.driverStats(d) : { skill: 0, control: 0, flair: 0 };
+    const parts = car.parts, d = G.driverOf(state, car), s = d ? G.driverStats(d) : { skill: 0, control: 0, flair: 0 };
+    const p = { engine: handling(parts.engine), turbo: handling(parts.turbo), angle: handling(parts.angle), suspension: handling(parts.suspension),
+      stance: parts.stance, tires: parts.tires };
     return {
       top: T.TOP_SPEED + T.TOP_PER_STAGE * (p.engine + p.turbo),
       accel: T.ACCEL,
@@ -260,5 +264,5 @@
     return clamp(-wrapPi(nose - run.h) * 2.5, -1, 1);
   }
 
-  DT.touge = { newRoad, trackRoad, lapsDone, extendRoad, difficulty, carSetup, newRun, step, payRate, paySeconds, payout, collect, multCap, hitsLeft, autopilot, drifter, steady, wrapPi };
+  DT.touge = { handling, newRoad, trackRoad, lapsDone, extendRoad, difficulty, carSetup, newRun, step, payRate, paySeconds, payout, collect, multCap, hitsLeft, autopilot, drifter, steady, wrapPi };
 })(typeof window !== 'undefined' ? window : globalThis);

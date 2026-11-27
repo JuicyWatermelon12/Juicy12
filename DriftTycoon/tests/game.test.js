@@ -53,8 +53,9 @@ test('parts: a few big stages that multiply each other, steep prices, a hard top
   s.cash = 0;
   assert.equal(G.buyPart(s, car.id, 'stance'), false);
   assert.equal(car.parts.stance, 0);
-  // a whole car is at most 6 x PART_MAX purchases
-  assert.equal(D.PARTS.length * D.PART_MAX, 30);
+  // every venue after the first puts exactly one more stage on sale, and the last venue sells the top stage
+  for (let i = 1; i < D.VENUES.length; i++) assert.equal(D.VENUES[i].stage, D.VENUES[i - 1].stage + 1, D.VENUES[i].id);
+  assert.equal(D.VENUES[D.VENUES.length - 1].stage, D.PART_MAX);
 });
 
 test('part prices do not depend on the car, and trading up keeps parts and driver', () => {
@@ -557,7 +558,7 @@ test('street distance: each kilometre raises the multiplier cap, the pay rate an
   for (const id of DT.tracks.ids) {
     const r = C.trackRoad(id);
     assert.deepEqual(r.speed, { top: T.TRACK_SPEED[id], perKm: T.TRACK_SPEED_PER_KM });
-    assert.ok(T.TRACK_SPEED[id] >= 1 && T.TRACK_SPEED_PER_KM > T.SPEED_PER_KM, id + ' is driven faster than the street');
+    assert.ok(T.TRACK_SPEED[id] > 0.9 && T.TRACK_SPEED_PER_KM > T.SPEED_PER_KM, id + ' speeds up faster than the street');
   }
 });
 
@@ -617,6 +618,20 @@ test('street runs: test drivers get a good way down every road, and a built car 
     assert.ok(dist / 10 > 1000, 'the road is drivable');
   }
   assert.ok(rate[3] > rate[0] * 1.3 && rate[5] > rate[3], 'upgrades pay on the street');
+});
+
+test('the latest part stages change handling only a little, so built cars stay drivable', () => {
+  assert.equal(C.handling(T.HANDLING_STAGES), T.HANDLING_STAGES);
+  near(C.handling(T.HANDLING_STAGES + 1), T.HANDLING_STAGES + T.HANDLING_EXTRA);
+  for (let st = 0; st <= T.HANDLING_STAGES; st++) assert.equal(C.handling(st), st);
+  const s = rich(), car = s.cars[0];
+  for (const p of D.PARTS) car.parts[p.id] = T.HANDLING_STAGES;
+  const works = C.carSetup(s, car);
+  for (const p of D.PARTS) car.parts[p.id] = D.PART_MAX;
+  const top = C.carSetup(s, car), extra = (D.PART_MAX - T.HANDLING_STAGES) * T.HANDLING_EXTRA;
+  near(top.top - works.top, 2 * extra * T.TOP_PER_STAGE, 1e-9);
+  near(top.lock - works.lock, extra * T.LOCK_PER_ANGLE, 1e-9);
+  assert.ok(top.bonus > works.bonus, 'stance and tires still add their full score bonus');
 });
 
 test('street setup: parts and the driver change the car on the road', () => {

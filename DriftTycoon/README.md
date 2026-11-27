@@ -16,10 +16,12 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
 ## What is built (first slice)
 
 - **Cars:** six fictional models (Kumo 180 → Shogun GT). Each pit's car has six parts: engine, turbo, tires,
-  suspension, stance, angle kit. A part has five big stages (Stock → Street → Sport → Race → Pro → Works), each
-  50 times the price of the last, so upgrades are occasional and each one shows: stance lowers the car, the angle
+  suspension, stance, angle kit. A part has big stages (Stock → Street → Sport → Race → Pro → Works →
+  Prototype; one more goes on sale at each venue), each 50 times the price of the last, so upgrades are occasional and each one shows: stance lowers the car, the angle
   kit widens its drift angle, tires add smoke, engine and turbo add wings, an intercooler and exhaust flames.
-  Trading a car up to the next model keeps its parts and driver.
+  Trading a car up to the next model keeps its parts and driver. In Drift mode, stages past Works change
+  handling by only 0.4 of a stage each (`HANDLING_EXTRA`), so the latest builds stay drivable; they still add
+  their full style at the venue and their score bonus.
 - **Drivers:** a small team, one driver per pit plus one reserve. Each has a rarity (Common, Rare, Epic,
   Legendary), three stats and sometimes a trait (Showboat, Safe Hands, Tandem Ace, …). Skill and flair raise
   style; control lowers the crash rate.
@@ -41,7 +43,8 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
     road at dusk, generated as you go.
   - **Track:** the drift track of any venue you own, at full size (`TRACK_SCALE`, 5.5 times the venue view), flat
     and in daylight, with the venue's own scenery. It is lapped for ever; laps are counted at the start line.
-    Laps are 1.07 km (Parking Lot), 1.22 km (Docks) and 0.85 km (Airfield).
+    Laps are 1.07 km (Parking Lot), 1.22 km (Docks), 0.85 km (Airfield), 0.94 km (Pro Circuit) and 1.12 km
+    (Stadium).
   Scoring, payout, street cred and the rules below are the same on both. Best score and distance are kept per map.
   - **Score:** speed x drift angle x a multiplier that builds while the drift is unbroken and resets after a
     straight or a barrier touch. The multiplier's cap starts at x5 and rises by 1 every kilometre.
@@ -73,25 +76,30 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
   lip, skirts, arches and intercooler; parts no longer add those (stance height, smoke and exhaust flames still
   come from parts).
 
-- **Venues:** a ladder: Parking Lot → Docks → Airfield (more to come). Every venue bought is kept. The team
+- **Venues:** a ladder: Parking Lot → Docks → Airfield → Pro Circuit → Stadium (more to come). Every venue bought is kept. The team
   drifts for the crowd at one venue at a time and can move between owned venues freely (Venue tab → Your venues).
   Cars, parts, drivers, mechanics and cosmetics go with the team; each venue keeps its own grandstands, sponsors
   and track prep, which start from zero at a new venue. What is on sale (pits, cars, part stages) follows the best
   venue owned, wherever the team is. Each venue has its own drift line (`src/tracks.js`: straights and arcs, with
   hairpins, kinks and esses) and scenery, and its track can be driven in Drift mode. A venue sets:
-  - how many pits it has (3, 4, 5) and which car it puts on sale (Kaze Tourer at the Docks, Rotor Seven at the
-    Airfield);
-  - the highest part stage on sale (Sport, Race, Pro), so parts last the whole ladder;
-  - a style multiplier (x1, x4, x16), a bigger crowd, and dearer venue upgrades;
+  - how many pits it has (3, 4, 5, then 6 from the Pro Circuit on) and which car it puts on sale (Kaze Tourer
+    at the Docks, Rotor Seven at the Airfield, Skyward R at the Pro Circuit, Shogun GT at the Stadium);
+  - the highest part stage on sale (Sport, Race, Pro, Works, Prototype), so parts last the whole ladder;
+  - a style multiplier (x1, x4, x16, x64, x256), a bigger crowd, and dearer venue upgrades;
   - top levels for its upgrades: grandstands 5, sponsors 6, track prep 5.
   - **a distance bar** (`bar`): the average Drift run that keeps the intended pace there. It grows with every
     venue, because the player is expected to get better: 2 km at the Parking Lot, 3 km at the Docks, 4 km at the
-    Airfield (the first three are the hook, on a quicker curve), and from then on about 1 km more per venue.
-    Each venue's cash rate (`cash`: x1.7, x1, x0.7) is set so a player at the bar keeps the earlier pace; a
-    player below it still progresses, only slower.
-  The Docks cost $40M and the Airfield $6B. A player at each bar builds the Parking Lot in about 10 minutes and
-  saves 5 to 10 more for the Docks; the Docks take about 20 to 30 minutes to build and 10 to 15 to save past; the
-  Airfield takes 30 to 40 to build.
+    Airfield (the first three are the hook, on a quicker curve), then 5 km at the Pro Circuit and 6 km at the
+    Stadium. Each venue's cash rate (`cash`: x1.7, x1, x0.7, x0.7, x0.45) sets its pace; a player below the bar
+    still progresses, only slower.
+  The Docks cost $40M, the Airfield $6B, the Pro Circuit $700B and the Stadium $60T. For a player at each bar
+  (from moving in to moving on): the Parking Lot about 15 to 20 minutes, the Docks 30 to 45, the Airfield about
+  an hour, the Pro Circuit about 2 hours, and the Stadium about 2 hours 15 minutes to build out. Each venue after
+  the hook takes about 1.75 times the one before.
+  - **Scenery:** the Pro Circuit has pit garages and race control under a main grandstand, a timing tower, and
+    the circuit running past with kerbs, gravel and tire walls. The Stadium sits on a football pitch (its lines
+    still show) inside a full bowl of stands with floodlights and a big screen. Both have their own Track-mode
+    surroundings too.
 
 - **Tap bubbles:** while you watch the venue a bubble floats up every 30 to 60 seconds and goes after 10 seconds
   if ignored. None appear while you are away or in Drift mode.

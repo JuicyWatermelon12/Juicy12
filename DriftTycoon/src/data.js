@@ -13,8 +13,8 @@
        pit, so they carry over when the car is traded up; their prices do not depend on the car.
        `crash` multiplies the car's crash rate once per stage. */
     PART_GROWTH: 50,
-    PART_MAX: 5,
-    PART_STAGES: ['Stock', 'Street', 'Sport', 'Race', 'Pro', 'Works'],
+    PART_MAX: 6,
+    PART_STAGES: ['Stock', 'Street', 'Sport', 'Race', 'Pro', 'Works', 'Prototype'],
     PARTS: [
       { id: 'engine', name: 'Engine', blurb: 'More power down the straights', per: 0.25, cost: 200, crash: 1.0 },
       { id: 'turbo', name: 'Turbo', blurb: 'Big boost, a little more risk', per: 0.3, cost: 800, crash: 1.07 },
@@ -169,6 +169,10 @@
         cost: 4e7, pits: 4, cars: ['kaze'], style: 4, crowd: 3000, scale: 150, stage: 3, bar: 3, cash: 1 },
       { id: 'airfield', name: 'Airfield', blurb: 'A disused runway with room to go properly sideways.',
         cost: 6e9, pits: 5, cars: ['rotor'], style: 16, crowd: 1.2e5, scale: 10000, stage: 4, bar: 4, cash: 0.7 },
+      { id: 'pro', name: 'Pro Circuit', blurb: 'A real race circuit, hired by the day: pit garages, kerbs and a proper grandstand.',
+        cost: 7e11, pits: 6, cars: ['skyward'], style: 64, crowd: 5e6, scale: 7e5, stage: 5, bar: 5, cash: 0.7 },
+      { id: 'stadium', name: 'Stadium', blurb: 'A football stadium turned arena for the night: floodlights and sixty thousand seats.',
+        cost: 6e13, pits: 6, cars: ['shogun'], style: 256, crowd: 2e8, scale: 5e7, stage: 6, bar: 6, cash: 0.45 },
     ],
     VENUE_CASH: 2,                       // cash for every point of style the crowd cheers, before sponsors
     SPONSOR_MULT: 1.25,                  // cash x1.25 per level
@@ -191,7 +195,10 @@
       SPEED_PER_KM: 0.05,                     // top speed grows 5% a kilometre, up to HARD_KM (+50%)
       // A venue track keeps its layout, so it is made harder with speed instead: the car's top speed is
       // multiplied by TRACK_SPEED for that track, and grows TRACK_SPEED_PER_KM a kilometre up to HARD_KM.
-      TRACK_SPEED: { lot: 1, docks: 1, airfield: 1.15 }, TRACK_SPEED_PER_KM: 0.07,
+      TRACK_SPEED: { lot: 1, docks: 1, airfield: 1.15, pro: 0.96, stadium: 1.03 }, TRACK_SPEED_PER_KM: 0.07,
+      // Part stages past HANDLING_STAGES change the car's handling here by only HANDLING_EXTRA of a stage each,
+      // so the latest stages keep cars drivable (they still add their full style at the venue and score bonus).
+      HANDLING_STAGES: 5, HANDLING_EXTRA: 0.4,
       MAX_HITS: 1,                            // barrier touches that end the run
       COUNTDOWN: 2.4, START_SPEED: 13,
       TOP_SPEED: 24, TOP_PER_STAGE: 0.4,       // m/s; engine and turbo stages each add TOP_PER_STAGE

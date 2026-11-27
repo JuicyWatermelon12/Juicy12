@@ -14,6 +14,8 @@
     lot: { sky: 0xa9def2, ground: 0x7cc45c, asphalt: '#414a5c', rim: 0xb9c0cc, pad: 0xc9cfda, edge: 'rgba(255,205,60,0.75)' },
     docks: { sky: 0xbfd3df, ground: 0x2c7396, asphalt: '#565d6a', rim: 0x8d96a3, pad: 0xaab2bd, edge: 'rgba(255,255,255,0.7)' },
     airfield: { sky: 0xf6dcae, ground: 0xb7bf78, asphalt: '#3a3d47', rim: 0x9a9a8c, pad: 0xbdbba8, edge: 'rgba(255,205,60,0.85)' },
+    pro: { sky: 0xa8d8f5, ground: 0x5fb456, asphalt: '#3a404e', rim: 0xd6dbe3, pad: 0xc6ccd6, edge: 'rgba(255,255,255,0.85)' },
+    stadium: { sky: 0xf2cfa6, ground: 0x3f8f45, asphalt: '#454b59', rim: 0x7d8494, pad: 0xb5bbc6, edge: 'rgba(255,255,255,0.8)' },
   };
   const themeOf = (state) => THEMES[G.place(state).id] || THEMES.lot;
   /* A venue's drift line as [x, z] points for the curve below. */
@@ -177,6 +179,20 @@
       for (let z = -bz; z < bz; z += 12.8) g.strokeRect(X(bx0), Z(z), (bx1 - bx0) * S, 11.2 * S);
       g.strokeStyle = 'rgba(255,200,40,0.6)'; g.lineWidth = 5;
       for (let z = -LOT.hz; z < LOT.hz; z += 2.4) { g.beginPath(); g.moveTo(X(LOT.hx - 2.6), Z(z)); g.lineTo(X(LOT.hx - 0.8), Z(z + 1.8)); g.stroke(); }
+    } else if (kind === 'pro') {     // a starting grid and the pit lane line down the left side
+      g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 3;
+      for (let z = -bz, k = 0; z <= bz + 0.01; z += 4.8, k++) {
+        const x0 = k % 2 ? bx0 : (bx0 + bx1) / 2;
+        g.beginPath(); g.moveTo(X(x0), Z(z)); g.lineTo(X(x0 + 2.2), Z(z)); g.lineTo(X(x0 + 2.2), Z(z + 1.2)); g.stroke();
+      }
+      g.setLineDash([22, 16]);
+      g.beginPath(); g.moveTo(X(bx1 + 0.6), Z(-LOT.hz)); g.lineTo(X(bx1 + 0.6), Z(LOT.hz)); g.stroke();
+      g.setLineDash([]);
+    } else if (kind === 'stadium') { // the football pitch's lines, still showing under the temporary surface
+      g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 6;
+      g.beginPath(); g.moveTo(X(-LOT.hx), Z(0)); g.lineTo(X(LOT.hx), Z(0)); g.stroke();
+      g.beginPath(); g.arc(X(0), Z(0), 9 * S, 0, Math.PI * 2); g.stroke();
+      [-1, 1].forEach((e) => { g.strokeRect(X(-10), Z(e < 0 ? -LOT.hz : LOT.hz - 14), 20 * S, 14 * S); g.strokeRect(X(-4.5), Z(e < 0 ? -LOT.hz : LOT.hz - 5.5), 9 * S, 5.5 * S); });
     } else {                         // a taxiway centre line and hold bars across the apron
       g.strokeStyle = 'rgba(255,205,60,0.7)'; g.lineWidth = 4;
       g.beginPath(); g.moveTo(X(0), Z(-LOT.hz)); g.lineTo(X(0), Z(LOT.hz)); g.stroke();
@@ -468,6 +484,69 @@
         // a container ship moored off the quay
         b.add(18, 7, 96, 0x2a3142, 78, 1.6, -46).add(18.4, 1.6, 96.4, 0xb3262b, 78, -0.6, -46).add(14, 12, 12, 0xf1f3f6, 78, 11, -86).add(4, 5, 4, 0xff6b2c, 78, 19, -88);
         for (let z = -70; z <= -6; z += 13) for (let x = 72; x <= 84; x += 6) b.add(5.4, 2.6, 12, crate[n++ % crate.length], x, 6.4, z).add(5.4, 2.6, 12, crate[n++ % crate.length], x, 9.02, z);
+      } else if (kind === 'pro') {
+        // the pit building and race control behind the top, a main grandstand behind that, a timing tower,
+        // and the circuit itself running past on the left with kerbs, gravel and tire walls
+        building(2, hqz, 46, 7, 12, 0xeef1f6, 0x2f8fff, 0x2a3142);
+        for (let i = 0; i < 8; i++) b.add(4.2, 3.6, 0.3, 0x39445a, -17.5 + i * 5.5, 1.8, hqz + 6.1);   // garage doors
+        b.add(46.2, 1.4, 0.3, 0x9fd3ff, 2, 5.2, hqz + 6.1);                                          // race control glass
+        signOn('PRO CIRCUIT', '#2a3142', '#ffffff', 2, 8.8, hqz + 6.2, 14);
+        for (let k = 0; k < 6; k++) b.add(56, 2.2 + k * 2.2, 3, k % 2 ? 0xcfd5df : 0xe1e6ee, 2, 1.1 + k * 1.1, hqz - 9 - k * 3);   // main grandstand
+        b.add(58, 0.5, 20, 0x2a3142, 2, 16, hqz - 16);
+        for (let i = 0; i < 6; i++) b.add(0.4, 16, 0.4, 0xdfe4ec, -24 + i * 10.4, 8, hqz - 6);
+        for (let k = 0; k < 6; k++) for (let x = -25; x <= 29; x += 1.25) if (Math.random() < 0.7) b.add(0.6, 0.9, 0.6, CROWD_COLORS[(x * 7 + k) & 7], x, 2.6 + k * 2.2, hqz - 9 - k * 3);
+        b.add(2.2, 18, 2.2, 0x2a3142, 34, 9, hqz + 4);                                                 // timing tower
+        for (let r = 0; r < 6; r++) b.add(2.4, 1.6, 0.4, [0xff6b2c, 0xffcf33, 0x19b3f5, 0xffffff, 0x7ed957, 0xe5484d][r], 34, 9 + r * 1.9, hqz + 5.2);
+        const cx = -LOT.hx - 30;                                                                       // the circuit
+        b.add(13, 0.06, 800, 0x3a404e, cx, -0.01, -80);
+        for (let z = -460; z < 320; z += 3) {
+          const c = Math.floor(z / 3) % 2 ? 0xe5484d : 0xf4f6fa;
+          b.add(1.2, 0.12, 3, c, cx - 7, 0.02, z + 1.5).add(1.2, 0.12, 3, c, cx + 7, 0.02, z + 1.5);
+        }
+        b.add(10, 0.05, 800, 0xd9c48f, cx - 13, -0.02, -80).add(6, 0.05, 800, 0xd9c48f, cx + 10.5, -0.02, -80);   // gravel traps
+        for (let z = -300; z < 200; z += 2.2) b.add(1.4, 0.8, 1.4, 0x15181f, cx - 18.5, 0.4, z).add(1.4, 0.8, 1.4, 0x15181f, cx + 14, 0.4, z);   // tire walls
+        b.add(0.8, 9, 0.8, 0x2a3142, cx - 10, 4.5, -22).add(0.8, 9, 0.8, 0x2a3142, cx + 10, 4.5, -22).add(22, 2.4, 1.2, 0x2a3142, cx, 9.5, -22);   // a gantry
+        signOn('TURN 1', '#2a3142', '#ffcf33', cx, 9.5, -21.3, 10);
+        const crowns = new Batch(new THREE.IcosahedronGeometry(1, 0), WHITE);
+        for (let i = 0, placed = 0; i < 700 && placed < 60; i++) {
+          const x = rand(-170, 150), z = rand(-240, 110);
+          if (x > cx - 24 && x < LOT.hx + 20 && z > hqz - 40) continue;
+          if (x > cx - 24 && x < cx + 18) continue;
+          const sc = rand(2.4, 4);
+          b.add(0.7, sc * 1.1, 0.7, 0x8a5a3c, x, sc * 0.55, z);
+          crowns.add(sc, sc * 1.15, sc, [0x3fa84f, 0x4dbb5e, 0x2f9146][placed % 3], x, sc * 1.6, z, rand(0, 3));
+          placed++;
+        }
+        crowns.build(staticGroup);
+      } else if (kind === 'stadium') {
+        // the pitch, mown in stripes, and a bowl of stands round it under a roof, with floodlights and a big screen
+        for (let z = -LOT.hz - 12, k = 0; z < LOT.hz + 30; z += 6, k++) {
+          if (k % 2) b.add(150, 0.04, 6, 0x4b9f50, 0, -0.03, z + 3);
+        }
+        const tiers = 9, seat = [0x2f6fb5, 0x26579a], bowl = { left: -LOT.hx - 15, top: -LOT.hz - 16, right: PIT_X + 11 };
+        for (let k = 0; k < tiers; k++) {
+          const h = 1.2 + k * 1.5, y = h / 2, c = seat[k % 2];
+          b.add(3, h, 220, c, bowl.left - k * 3, y, -30);                       // left
+          b.add(3, h, 220, c, bowl.right + k * 3, y, -30);                      // right, behind the pits
+          b.add(bowl.right - bowl.left + k * 6 + 3, h, 3, c, (bowl.left + bowl.right) / 2, y, bowl.top - k * 3);   // top
+          for (let i = 0; i < 90; i++) {                                         // a full house
+            const z = -100 + i * 2.2 + rand(-0.3, 0.3), x = (bowl.left + bowl.right) / 2 + (i - 45) * 1.2;
+            if (Math.random() < 0.75) b.add(0.6, 0.9, 0.6, CROWD_COLORS[(i + k) % 9], bowl.left - k * 3, h + 0.45, z);
+            if (Math.random() < 0.75) b.add(0.6, 0.9, 0.6, CROWD_COLORS[(i * 3 + k) % 9], bowl.right + k * 3, h + 0.45, z);
+            if (Math.random() < 0.75) b.add(0.6, 0.9, 0.6, CROWD_COLORS[(i * 5 + k) % 9], x, h + 0.45, bowl.top - k * 3);
+          }
+        }
+        const back = tiers * 3, roofY = 1.2 + tiers * 1.5 + 6;
+        b.add(5, roofY + 2, 220, 0x2a3142, bowl.left - back - 1, (roofY + 2) / 2, -30).add(5, roofY + 2, 220, 0x2a3142, bowl.right + back + 1, (roofY + 2) / 2, -30);
+        b.add(bowl.right - bowl.left + back * 2 + 12, roofY + 2, 5, 0x2a3142, (bowl.left + bowl.right) / 2, (roofY + 2) / 2, bowl.top - back - 1);
+        const lights = new Batch(null, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+        [[bowl.left - back + 2, bowl.top - back + 2], [bowl.right + back - 2, bowl.top - back + 2]].forEach((q) => {   // floodlight banks on the back corners
+          b.add(1.4, 6, 1.4, 0x2a3142, q[0], roofY + 3, q[1]);
+          for (let r = 0; r < 2; r++) for (let c = -2; c <= 2; c++) lights.add(1.6, 1.2, 0.5, 0xfff6d8, q[0] + c * 1.8, roofY + 5 + r * 1.5, q[1] + 1);
+        });
+        lights.build(staticGroup, false);
+        b.add(24, 8, 1, 0x15181f, 2, roofY - 4, bowl.top - back + 2);   // the big screen, on the back wall above the top tiers
+        signOn('DRIFT NIGHT LIVE', '#1d2433', '#ffcf33', 2, roofY - 4, bowl.top - back + 2.6, 20);
       } else {
         // a runway and taxiway on the left, hangars and a control tower behind, parked planes, a windsock
         const rx = -LOT.hx - 46;

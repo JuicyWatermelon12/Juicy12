@@ -19,6 +19,8 @@
     lot: { wall: [0xe5484d, 0xf1f3f6], gate: 0xff6b2c },
     docks: { wall: [0xffc233, 0x2a3142], gate: 0x2f8fff },
     airfield: { wall: [0xff6b2c, 0xf1f3f6], gate: 0x22b573 },
+    pro: { wall: [0xe5484d, 0xf4f6fa], gate: 0x2f8fff },
+    stadium: { wall: [0x2f6fb5, 0xf4f6fa], gate: 0xffcf33 },
   };
   const CROWD = [0xff5a36, 0x19b3f5, 0xffd23f, 0x7ed957, 0xb56bff, 0xff6fb5, 0xffffff, 0x2a3142, 0xff9f1c];
 
@@ -265,7 +267,7 @@
       const from = Math.max(0, a - CLEAR), to = Math.min(road.n, b + CLEAR);
       const near = (x, z, r) => { for (let i = from; i < to; i += 3) { const dx = P[i].x - x, dz = P[i].z - z; if (dx * dx + dz * dz < r * r) return true; } return false; };
       const crowns = new K.Batch(shared.cone, K.WHITE), rocks = new K.Batch(shared.rock, K.WHITE);
-      if (track) venueScenery(solid, crowns, near, P, hw);
+      if (track) venueScenery(solid, crowns, near, P, hw, group, textures);
       else {
         const greens = [0x1f5a48, 0x26694f, 0x1a4d44, 0x2f7a56], greys = [0x626a82, 0x4f5670, 0x767e96];
         for (let i = a; i < b; i += 4) {
@@ -293,7 +295,7 @@
 
     /* What stands around a venue's track: a crowd by the start line, then the venue's own clutter,
        all of it clear of the tarmac. Rows are kept neat (bays, stacks) so it reads as a place, not a scatter. */
-    function venueScenery(solid, crowns, near, P, hw) {
+    function venueScenery(solid, crowns, near, P, hw, group, textures) {
       const S = D.TRACK_SCALE, px = PAD.hx * S, pz = PAD.hz * S;
       // a grandstand beside the start straight, on whichever side has room (outside the circuit if both do)
       const sp = P[T.START_OFFSET + T.LAP_LINE], fx = Math.sin(sp.h), fz = Math.cos(sp.h), nx = Math.cos(sp.h), nz = -Math.sin(sp.h);
@@ -319,7 +321,65 @@
       const clearOfStand = (x, z) => { if (!side) return true; const dx = x - sp.x, dz = z - sp.z, t = dx * fx + dz * fz, o = (dx * nx + dz * nz) * side; return Math.abs(t) > 24 || o < hw || o > hw + 20; };
       const free = (x, z, r) => !near(x, z, hw + r) && clearOfStand(x, z);
 
-      if (map.id === 'docks') {
+      if (map.id === 'pro') {
+        // a circuit: pit garages and race control down one long side, gravel, tire walls and catch fencing all
+        // round, a timing tower, and trees beyond the run-off
+        const gx = -px - 26;
+        solid.add(30, 12, pz * 1.6, 0xeef1f6, gx, 6, 0).add(31, 1, pz * 1.6 + 1, 0x2a3142, gx, 12.5, 0).add(0.4, 2.4, pz * 1.6, 0x9fd3ff, gx + 15.1, 9, 0);
+        for (let z = -pz * 0.78; z < pz * 0.78; z += 9) solid.add(0.4, 6, 7, 0x39445a, gx + 15.1, 3, z + 4.5);
+        solid.add(5, 40, 5, 0x2a3142, gx + 4, 20, pz * 0.9);
+        for (let r = 0; r < 8; r++) solid.add(5.2, 3, 0.6, pick([0xff6b2c, 0xffcf33, 0x19b3f5, 0xffffff, 0x7ed957]), gx + 4, 22 + r * 3.6, pz * 0.9 - 2.8);
+        for (const [x0, z0, x1, z1] of [[-px, -pz, px, -pz], [px, -pz, px, pz], [-px, pz, px, pz], [-px, -pz, -px, pz]]) {
+          const n = Math.round(Math.hypot(x1 - x0, z1 - z0) / 2.2);
+          for (let i = 0; i <= n; i++) {
+            const x = x0 + (x1 - x0) * i / n, z = z0 + (z1 - z0) * i / n, ox = x0 === x1 ? Math.sign(x0) * 3 : 0, oz = z0 === z1 ? Math.sign(z0) * 3 : 0;
+            solid.add(1.4, 0.8, 1.4, 0x15181f, x + ox, 0.4, z + oz).add(1.4, 0.6, 1.4, i % 2 ? 0xe5484d : 0xf4f6fa, x + ox, 1.1, z + oz);   // tire wall
+            if (i % 4 === 0) solid.add(0.25, 5, 0.25, 0x8f98ac, x + ox * 2, 2.5, z + oz * 2);                                              // catch fencing
+          }
+        }
+        solid.add(px * 2 + 30, 0.05, 14, 0xd9c48f, 0, -0.04, -pz - 14).add(px * 2 + 30, 0.05, 14, 0xd9c48f, 0, -0.04, pz + 14);   // gravel at the ends
+        for (let n = 0; n < 200; n++) {
+          const x = rand(-px - 260, px + 260), z = rand(-pz - 240, pz + 240);
+          if (Math.abs(x) < px + 50 && Math.abs(z) < pz + 30) continue;
+          const h = rand(6, 11), r = rand(2.2, 3.6);
+          solid.add(0.7, 2, 0.7, 0x6b4a33, x, 1, z);
+          crowns.add(r, h, r, pick([0x3f9b4f, 0x4fae5a, 0x2f8a4a]), x, 1.6 + h / 2, z, rand(0, 3));
+        }
+      } else if (map.id === 'stadium') {
+        // a full stadium round the floor: tiers of seats and a full house, a roof, floodlights and a big screen
+        const tiers = 12, seat = [0x2f6fb5, 0x26579a];
+        for (let k = 0; k < tiers; k++) {
+          const h = 1.5 + k * 2, off = 10 + k * 4, c = seat[k % 2];
+          solid.add(4, h, pz * 2 + off * 2, c, -px - off, h / 2, 0).add(4, h, pz * 2 + off * 2, c, px + off, h / 2, 0);
+          solid.add(px * 2 + off * 2 + 4, h, 4, c, 0, h / 2, -pz - off).add(px * 2 + off * 2 + 4, h, 4, c, 0, h / 2, pz + off);
+          for (let t = -pz - off; t < pz + off; t += 1.6) {
+            if (Math.random() < 0.7) solid.add(0.7, 1, 0.7, pick(CROWD), -px - off, h + 0.5, t);
+            if (Math.random() < 0.7) solid.add(0.7, 1, 0.7, pick(CROWD), px + off, h + 0.5, t);
+          }
+          for (let t = -px - off; t < px + off; t += 1.6) {
+            if (Math.random() < 0.7) solid.add(0.7, 1, 0.7, pick(CROWD), t, h + 0.5, -pz - off);
+            if (Math.random() < 0.7) solid.add(0.7, 1, 0.7, pick(CROWD), t, h + 0.5, pz + off);
+          }
+        }
+        const out = 10 + tiers * 4 + 4, roofY = 1.5 + tiers * 2 + 10;
+        solid.add(6, roofY, pz * 2 + out * 2, 0x2a3142, -px - out, roofY / 2, 0).add(6, roofY, pz * 2 + out * 2, 0x2a3142, px + out, roofY / 2, 0);
+        solid.add(px * 2 + out * 2, roofY, 6, 0x2a3142, 0, roofY / 2, -pz - out).add(px * 2 + out * 2, roofY, 6, 0x2a3142, 0, roofY / 2, pz + out);
+        for (const s of [-1, 1]) {   // roof overhangs on the long sides
+          solid.add(out - 4, 1.2, pz * 2 + out * 2, 0xdfe4ec, s * (px + out / 2 + 6), roofY, 0);
+        }
+        const lit = new K.Batch(null, shared.glow);
+        for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {   // floodlight pylons at the corners
+          const x = sx * (px + out - 6), z = sz * (pz + out - 6);
+          solid.add(3, roofY + 30, 3, 0x2a3142, x, (roofY + 30) / 2, z);
+          for (let r = 0; r < 3; r++) for (let c = -2; c <= 2; c++) lit.add(3, 2.4, 0.8, 0xfff6d8, x - sx * 1.5 + c * 3.4 * Math.abs(sz), roofY + 26 + r * 3, z - sz * 2);
+        }
+        lit.build(group, false);
+        solid.add(70, 32, 3, 0x15181f, 0, roofY + 22, -pz - out + 1);
+        const tex = K.textTexture('DRIFT NIGHT LIVE', '#1d2433', '#ffcf33', 512, 128, 64);
+        textures.push(tex);
+        const screen = K.mesh(new THREE.PlaneGeometry(64, 16), new THREE.MeshBasicMaterial({ map: tex }), 0, roofY + 22, -pz - out + 2.6, group);
+        screen.rotation.y = 0;
+      } else if (map.id === 'docks') {
         // container stacks in rows across the quay, a ship alongside
         const cols = [0xd9483b, 0x2f6fb5, 0x2f9e6b, 0xe0a030, 0x7a4fb5, 0xdfe4ec, 0xc9603a];
         for (let z = -pz + 10; z < pz - 10; z += 14.5) {

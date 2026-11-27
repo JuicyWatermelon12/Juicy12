@@ -35,6 +35,16 @@
     airfield: { start: [-5, -29], steps: [].concat(
       [S(10), R(6.5, 90)], side(45, [[7.5, 30, 1], [7.5, 30, -1], [7.5, 30, 1]]), [R(6.5, 90), S(10), R(6.5, 90)],
       side(45, [[7.5, 30, 1], [7.5, 30, -1], [7.5, 30, 1]]), [R(6.5, 90)]) },
+    /* Pro Circuit: a deep C cut into the infield from the right (two lefts among the rights), a kink on the
+       bottom straight and esses down the left. */
+    pro: { start: [-4, -29], steps: [].concat(
+      [S(10), R(6, 90), S(18), R(4.5, 90), S(3), L(4.5, 90), S(8), L(4.5, 90), S(3), R(4.5, 90), S(2), R(6, 90)],
+      side(12, [[5, 20, 1]]), [R(6, 90)], side(46, [[8, 25, 1], [8, 25, -1]]), [R(6, 90), S(2)]) },
+    /* Stadium: a chicane on the start straight, a slalom down the right, a hairpin tongue up from the bottom
+       and a long sweep up the left. */
+    stadium: { start: [-9, -29], steps: [].concat(
+      side(17, [[5, 30, 1]]), [R(4.5, 90)], side(49, [[6, 25, 1], [6, 25, -1], [6, 25, 1]]), [R(4.5, 90)],
+      [R(4.25, 90), S(16), L(4.25, 180), S(16), R(4.25, 90)], [R(4.5, 90)], side(49, [[9, 25, 1]]), [R(4.5, 90)]) },
   };
 
   /* Walk a layout in small steps. Returns points { x, z, th, k, s }: th is the heading (0 = +x, growing
