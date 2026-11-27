@@ -299,6 +299,9 @@
       showModal('<h2>Menu</h2><h3>Drift steering</h3><p class="note">How far you slide your finger to steer. Lower is smoother, higher reacts to smaller slides.</p>' +
         '<div class="slider"><span>Smooth</span><input type="range" data-set="steer" min="' + lo + '" max="' + hi + '" step="0.05" value="' + sens + '" aria-label="Drift steering sensitivity"><span>Quick</span></div>' +
         '<p class="note slider-val" id="steer-val">' + Math.round(sens * 100) + '%' + (Math.abs(sens - 1) < 0.001 ? ' (default)' : '') + '</p>' +
+        '<h3>Testing</h3><p class="note">Shortcuts for testing on this save.</p>' +
+        '<button class="ghost wide" data-act="test-cash">Add $500T</button>' +
+        '<button class="ghost wide" data-act="test-cred">Max street cred (' + D.RANKS[D.RANKS.length - 1].name + ')</button>' +
         '<h3>Progress</h3><p class="note">Wipes this team for good: cash, cars, parts, drivers, mechanics and venue upgrades. You start again with one Kumo and the rookie.</p>' +
         '<button class="ghost wide danger' + (on ? ' armed' : '') + '" data-act="reset">' + (on ? 'Tap again to wipe everything' : 'Reset all progress') + '</button>' +
         '<button class="ghost wide" data-act="close">Close</button>');
@@ -448,6 +451,13 @@
       if (a === 'view-tryout') { armed = ''; viewTryout(); return; }
       if (a === 'bubble') { popBubbleNow(); return; }
       if (a === 'menu') { armed = ''; showMenu(); return; }
+      if (a === 'test-cash') { G.earn(state, 5e14); actions.changed(); toast('Added $500T.'); return; }
+      if (a === 'test-cred') {
+        const top = D.RANKS[D.RANKS.length - 1];
+        G.addCred(state, Math.max(0, top.cred - state.street.cred));
+        actions.changed(); if (tab) render(); toast('Street cred maxed: ' + top.name + '. Every cosmetic is on sale.');
+        return;
+      }
       if (a === 'style') { styleCar(carId); return; }
       if (a === 'cos') {
         const kind = b.dataset.kind, id = b.dataset.id, car = G.getCar(state, carId);
