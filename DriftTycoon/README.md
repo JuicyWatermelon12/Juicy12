@@ -52,6 +52,19 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
   of the time there, and the last at 60 to 85%. **The next venue goes on sale only once every line at the best
   venue owned is at its top level** (the Venue tab shows how far along it is). Saves from before keep their
   levels, so a venue that was maxed is now part built.
+
+  **Unique top pieces:** at every venue three lines have a top level of their own instead of the shared one
+  (Grandstands keep their roofs and add it):
+
+  | Venue | Unique top pieces |
+  |---|---|
+  | Parking Lot | waving tube men (Sponsors), a ferris wheel by the road (Fan zone), a TV news van with a turning dish (Media) |
+  | Docks | a giant crane swinging a sponsor banner (Sponsors), a container-stack grandstand full of fans (Grandstands), searchlights sweeping from the quayside (Lighting) |
+  | Airfield | a plane towing a sponsor banner (Sponsors), a stunt biplane looping and trailing smoke (Media), chasing runway approach lights (Lighting) |
+  | Pro Circuit | a sponsor bridge across the track (Sponsors), the winners' podium spraying champagne (Track prep), a cable cam following the leading car (Media) |
+  | Stadium | a giant fans' flag across the far stands (Grandstands), strobes flashing along the stands (Lighting), confetti cannons (Fan zone) |
+  | Neon City | rooftop lasers (Lighting), a turning hologram billboard (Sponsors), a news helicopter whose spotlight follows the leader (Media) |
+  | Aircraft Carrier | a jet formation flying over (Media), landing lights chasing down the angled deck (Lighting), signal flags strung from the island (Fan zone) |
 - **Away earnings:** up to four hours at the team's long-run rate, crashes included.
 - **Drift mode** (the Drift button; the code calls it "touge"): the main way to earn. Drive one of your own cars.
   The car drives itself; you slide one finger left and right to steer (arrow keys or A / D on a keyboard). The
