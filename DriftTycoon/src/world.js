@@ -4,13 +4,22 @@
   const DT = root.DT, THREE = root.THREE, D = DT.data, G = DT.game;
   const V3 = THREE.Vector3;
 
-  const SKY = 0xa9def2, GRASS = 0x7cc45c;
   const LOT = { hx: 17, hz: 36 };          // half size of the asphalt
   const PIT_X = LOT.hx + 5.2;              // centre line of the pit tents
   const CAR_SCALE = 1.5;                   // cars and people are drawn big, toy-style, so they read on a phone
   const BOUNDS = { x0: -LOT.hx + 3, x1: LOT.hx - 3, z0: -LOT.hz + 3, z1: LOT.hz - 3 }; // where a spinning car may end up
-  const TRACK = [[-11, -31], [0, -37], [11, -31], [15, -16], [6, -3], [15, 10], [13, 27], [0, 37], [-12, 29],
-    [-16, 12], [-6, 0], [-15, -16]].map((p) => [p[0] * 0.78, p[1] * 0.78]);
+  /* What each venue looks like. All venues share the lot's footprint (so pits, stands and the camera stay put);
+     the drift line, the surface and everything around the lot change. `track` is the drift line as [x, z] points. */
+  const THEMES = {
+    lot: { sky: 0xa9def2, ground: 0x7cc45c, asphalt: '#414a5c', rim: 0xb9c0cc, pad: 0xc9cfda, edge: 'rgba(255,205,60,0.75)',
+      track: [[-11, -31], [0, -37], [11, -31], [15, -16], [6, -3], [15, 10], [13, 27], [0, 37], [-12, 29], [-16, 12], [-6, 0], [-15, -16]]
+        .map((p) => [p[0] * 0.78, p[1] * 0.78]) },
+    docks: { sky: 0xbfd3df, ground: 0x2c7396, asphalt: '#565d6a', rim: 0x8d96a3, pad: 0xaab2bd, edge: 'rgba(255,255,255,0.7)',
+      track: [[-11, -26], [0, -29], [11, -25], [13, -10], [12, 6], [13, 20], [8, 28], [-4, 28], [-12, 22], [-12, 10], [-2, 6], [2, -2], [-4, -8], [-12, -12]] },
+    airfield: { sky: 0xf6dcae, ground: 0xb7bf78, asphalt: '#3a3d47', rim: 0x9a9a8c, pad: 0xbdbba8, edge: 'rgba(255,205,60,0.85)',
+      track: [[-12, -22], [-6, -29], [6, -29], [12, -22], [12, -8], [5, 0], [12, 8], [12, 22], [6, 29], [-6, 29], [-12, 22], [-13, 0]] },
+  };
+  const themeOf = (state) => THEMES[G.place(state).id] || THEMES.lot;
   const YAW = 10 * Math.PI / 180, EL = 52 * Math.PI / 180;
   const TAU = Math.PI * 2;
   const CROWD_COLORS = [0xff5a36, 0x19b3f5, 0xffd23f, 0x7ed957, 0xb56bff, 0xff6fb5, 0xffffff, 0x2a3142, 0xff9f1c];
@@ -88,8 +97,8 @@
 
   /* ---------- The drift line ---------- */
 
-  function buildPath() {
-    const curve = new THREE.CatmullRomCurve3(TRACK.map((p) => new V3(p[0], 0, p[1])), true, 'centripetal');
+  function buildPath(track) {
+    const curve = new THREE.CatmullRomCurve3(track.map((p) => new V3(p[0], 0, p[1])), true, 'centripetal');
     curve.arcLengthDivisions = 2400;
     const N = 720;
     const pts = curve.getSpacedPoints(N);
@@ -143,13 +152,13 @@
 
   /* ---------- Textures ---------- */
 
-  function asphaltTexture(P) {
+  function asphaltTexture(P, theme, kind) {
     const S = 16, w = LOT.hx * 2 * S, h = LOT.hz * 2 * S;
     const c = document.createElement('canvas');
     c.width = w; c.height = h;
     const g = c.getContext('2d');
     const X = (x) => (x + LOT.hx) * S, Z = (z) => (z + LOT.hz) * S;
-    g.fillStyle = '#414a5c'; g.fillRect(0, 0, w, h);
+    g.fillStyle = theme.asphalt; g.fillRect(0, 0, w, h);
     for (let i = 0; i < 9; i++) {   // patched repairs
       g.fillStyle = i % 2 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.06)';
       g.fillRect(rand(0, w), rand(0, h), rand(60, 220), rand(60, 260));
@@ -158,13 +167,26 @@
       g.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.08)';
       g.fillRect(Math.random() * w, Math.random() * h, 2, 2);
     }
-    g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 3;   // parking bays down the left side
     const bx0 = -LOT.hx + 0.6, bx1 = -LOT.hx + 5, bz = Math.floor((LOT.hz - 3) / 3.2) * 3.2;
-    for (let z = -bz; z <= bz + 0.01; z += 3.2) {
-      g.beginPath(); g.moveTo(X(bx0), Z(z)); g.lineTo(X(bx1), Z(z)); g.stroke();
+    if (kind === 'lot') {            // parking bays down the left side
+      g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 3;
+      for (let z = -bz; z <= bz + 0.01; z += 3.2) {
+        g.beginPath(); g.moveTo(X(bx0), Z(z)); g.lineTo(X(bx1), Z(z)); g.stroke();
+      }
+      g.beginPath(); g.moveTo(X(bx1), Z(-bz)); g.lineTo(X(bx1), Z(bz)); g.stroke();
+    } else if (kind === 'docks') {   // container slots and hazard hatching along the quay side
+      g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 3;
+      for (let z = -bz; z < bz; z += 12.8) g.strokeRect(X(bx0), Z(z), (bx1 - bx0) * S, 11.2 * S);
+      g.strokeStyle = 'rgba(255,200,40,0.6)'; g.lineWidth = 5;
+      for (let z = -LOT.hz; z < LOT.hz; z += 2.4) { g.beginPath(); g.moveTo(X(LOT.hx - 2.6), Z(z)); g.lineTo(X(LOT.hx - 0.8), Z(z + 1.8)); g.stroke(); }
+    } else {                         // a taxiway centre line and hold bars across the apron
+      g.strokeStyle = 'rgba(255,205,60,0.7)'; g.lineWidth = 4;
+      g.beginPath(); g.moveTo(X(0), Z(-LOT.hz)); g.lineTo(X(0), Z(LOT.hz)); g.stroke();
+      g.setLineDash([18, 14]);
+      [-30, 30].forEach((z) => { g.beginPath(); g.moveTo(X(-LOT.hx), Z(z)); g.lineTo(X(LOT.hx), Z(z)); g.stroke(); });
+      g.setLineDash([]);
     }
-    g.beginPath(); g.moveTo(X(bx1), Z(-bz)); g.lineTo(X(bx1), Z(bz)); g.stroke();
-    g.strokeStyle = 'rgba(255,205,60,0.75)'; g.lineWidth = 4;   // yellow edge line
+    g.strokeStyle = theme.edge; g.lineWidth = 4;   // edge line
     g.strokeRect(X(-LOT.hx + 0.6), Z(-LOT.hz + 0.6), (LOT.hx * 2 - 1.2) * S, (LOT.hz * 2 - 1.2) * S);
     const line = (width, style, jitter) => {                    // rubber laid down on the drift line
       g.strokeStyle = style; g.lineWidth = width * S; g.lineJoin = 'round';
@@ -288,8 +310,8 @@
 
   function World(canvas, state, hooks) {
     hooks = hooks || {};
-    const P = buildPath();
-    const corners = findCorners(P);
+    let theme = themeOf(state), themeId = G.place(state).id;
+    let P = buildPath(theme.track), corners = findCorners(P);
     const tmp = { x: 0, z: 0, ang: 0, kap: 0 }, tmp2 = { x: 0, z: 0, ang: 0, kap: 0 };
     const v = new V3();
 
@@ -299,8 +321,8 @@
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(SKY);
-    scene.fog = new THREE.Fog(SKY, 200, 700);
+    scene.background = new THREE.Color(theme.sky);
+    scene.fog = new THREE.Fog(theme.sky, 200, 700);
     const camera = new THREE.PerspectiveCamera(30, 1, 5, 2500);
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x9bb07a, 0.72));
@@ -368,52 +390,124 @@
       return { x: (v.x + 1) / 2 * size.w, y: (1 - v.y) / 2 * size.h };
     }
 
-    /* ----- Static scenery ----- */
-    (function buildStatic() {
-      const ground = mesh(new THREE.PlaneGeometry(2600, 2600), mat(GRASS), 0, -0.05, 0, scene);
+    /* ----- Scenery that belongs to the venue: ground, the lot's surface, everything around it ----- */
+    const staticGroup = new THREE.Group();
+    scene.add(staticGroup);
+    function buildStatic() {
+      disposeGroup(staticGroup);
+      const kind = themeId;
+      const ground = mesh(new THREE.PlaneGeometry(2600, 2600), mat(theme.ground), 0, kind === 'docks' ? -1.2 : -0.05, 0, staticGroup);
       ground.rotation.x = -Math.PI / 2;
       ground.receiveShadow = true;
-      const rim = box(LOT.hx * 2 + 2.4, 0.3, LOT.hz * 2 + 2.4, 0xb9c0cc, 0, -0.15, 0, scene);
+      const rim = box(LOT.hx * 2 + 2.4, 0.3, LOT.hz * 2 + 2.4, theme.rim, 0, -0.15, 0, staticGroup);
       rim.receiveShadow = true;
-      const lot = mesh(new THREE.PlaneGeometry(LOT.hx * 2, LOT.hz * 2), new THREE.MeshLambertMaterial({ map: asphaltTexture(P) }),
-        0, 0.03, 0, scene);
+      const lot = mesh(new THREE.PlaneGeometry(LOT.hx * 2, LOT.hz * 2), new THREE.MeshLambertMaterial({ map: asphaltTexture(P, theme, kind) }),
+        0, 0.03, 0, staticGroup);
       lot.rotation.x = -Math.PI / 2;
       lot.receiveShadow = true;
-      const pad = box(10.4, 0.3, LOT.hz * 2 - 2, 0xc9cfda, PIT_X + 0.2, -0.12, 0, scene);   // pit lane
+      const pad = box(10.4, 0.3, LOT.hz * 2 - 2, theme.pad, PIT_X + 0.2, -0.12, 0, staticGroup);   // pit lane
       pad.receiveShadow = true;
 
       const b = new Batch();
       for (let i = 0, x = -LOT.hx + 1.5; x < LOT.hx; x += 3, i++) b.add(2.9, 1, 0.6, i % 2 ? 0xe5484d : 0xf1f3f6, x, 0.5, -LOT.hz - 0.7);
       for (let i = 0, z = -LOT.hz + 1.5; z < LOT.hz; z += 3, i++) b.add(0.6, 1, 2.9, i % 2 ? 0xf1f3f6 : 0xe5484d, -LOT.hx - 0.7, 0.5, z);
       b.add(0.5, 0.8, LOT.hz * 2 - 2, 0xdfe4ec, PIT_X + 5.6, 0.4, 0);   // wall behind the pits
-      // Team HQ behind the top stands
       const hqz = -LOT.hz - 22;
-      b.add(30, 8, 11, 0xeef1f6, 2, 4, hqz).add(30.6, 0.6, 11.6, 0x2a3142, 2, 8.3, hqz).add(30.1, 1.2, 11.1, 0xff6b2c, 2, 6.2, hqz);
-      [-8, 2, 12].forEach((x) => b.add(7, 4.6, 0.3, 0x39445a, x, 2.3, hqz + 5.6));
-      // Road on the left
-      const roadX = -LOT.hx - 26;
-      b.add(9, 0.06, 700, 0x4b5366, roadX, -0.01, -60);
-      for (let z = -400; z < 280; z += 9) b.add(0.3, 0.07, 3.4, 0xf1f3f6, roadX, 0, z);
-      // Tree trunks
-      const crowns = new Batch(new THREE.IcosahedronGeometry(1, 0), WHITE);
-      const greens = [0x3fa84f, 0x4dbb5e, 0x2f9146, 0x66c35a];
-      let placed = 0;
-      for (let tries = 0; tries < 900 && placed < 90; tries++) {
-        const x = rand(-150, 130), z = rand(-230, 110);
-        if (x > -LOT.hx - 17 && x < LOT.hx + 16 && z > -LOT.hz - 34 && z < LOT.hz + 6) continue;
-        if (Math.abs(x - roadX) < 8) continue;
-        const sc = rand(2.2, 3.8);
-        b.add(0.7, sc * 1.1, 0.7, 0x8a5a3c, x, sc * 0.55, z);
-        crowns.add(sc, sc * 1.15, sc, greens[placed % 4], x, sc * 1.6, z, rand(0, 3));
-        if (placed % 3 === 0) crowns.add(1.3, 1, 1.3, greens[(placed + 1) % 4], x + rand(-6, 6), 0.6, z + rand(-6, 6), rand(0, 3));
-        placed++;
+      const building = (x, z, w, h, d, wall, band, roof) => {
+        b.add(w, h, d, wall, x, h / 2, z).add(w + 0.6, 0.6, d + 0.6, roof, x, h + 0.3, z).add(w + 0.1, 1.2, d + 0.1, band, x, h - 1.8, z);
+      };
+      const signOn = (text, bg, fg, x, y, z, w) => {
+        mesh(new THREE.PlaneGeometry(w, 2), new THREE.MeshBasicMaterial({ map: textTexture(text, bg, fg, 512, 96, 64) }), x, y, z, staticGroup).renderOrder = 1;
+      };
+
+      if (kind === 'lot') {
+        // team HQ behind the top stands, a road on the left, trees all round
+        building(2, hqz, 30, 8, 11, 0xeef1f6, 0xff6b2c, 0x2a3142);
+        [-8, 2, 12].forEach((x) => b.add(7, 4.6, 0.3, 0x39445a, x, 2.3, hqz + 5.6));
+        signOn('DRIFT HQ', '#2a3142', '#ffcf33', 2, 6.2, hqz + 5.65, 12);
+        const roadX = -LOT.hx - 26;
+        b.add(9, 0.06, 700, 0x4b5366, roadX, -0.01, -60);
+        for (let z = -400; z < 280; z += 9) b.add(0.3, 0.07, 3.4, 0xf1f3f6, roadX, 0, z);
+        const crowns = new Batch(new THREE.IcosahedronGeometry(1, 0), WHITE);
+        const greens = [0x3fa84f, 0x4dbb5e, 0x2f9146, 0x66c35a];
+        let placed = 0;
+        for (let tries = 0; tries < 900 && placed < 90; tries++) {
+          const x = rand(-150, 130), z = rand(-230, 110);
+          if (x > -LOT.hx - 17 && x < LOT.hx + 16 && z > -LOT.hz - 34 && z < LOT.hz + 6) continue;
+          if (Math.abs(x - roadX) < 8) continue;
+          const sc = rand(2.2, 3.8);
+          b.add(0.7, sc * 1.1, 0.7, 0x8a5a3c, x, sc * 0.55, z);
+          crowns.add(sc, sc * 1.15, sc, greens[placed % 4], x, sc * 1.6, z, rand(0, 3));
+          if (placed % 3 === 0) crowns.add(1.3, 1, 1.3, greens[(placed + 1) % 4], x + rand(-6, 6), 0.6, z + rand(-6, 6), rand(0, 3));
+          placed++;
+        }
+        crowns.build(staticGroup);
+      } else if (kind === 'docks') {
+        // a concrete quay with water on the near sides, container stacks, gantry cranes, a warehouse and a ship
+        const quay = box(250, 1.4, 250, 0x99a2ae, -80, -0.76, -86, staticGroup);
+        quay.receiveShadow = true;
+        const quay2 = box(60, 1.4, 60, 0x99a2ae, 15, -0.76, 9, staticGroup);   // the corner the lot stands on
+        quay2.receiveShadow = true;
+        for (let z = -34; z <= 38; z += 8) b.add(0.9, 0.9, 0.9, 0xffc233, 44, 0.4, z);                       // bollards along the water
+        for (let x = -12; x <= 40; x += 8) b.add(0.9, 0.9, 0.9, 0xffc233, x, 0.4, 38.2);
+        const crate = [0xe5484d, 0x2f8fff, 0x22b573, 0xff9f1c, 0xf1f3f6, 0x8a4dff, 0x19b3f5];
+        let n = 0;
+        const stack = (x, z, along) => {
+          const high = 1 + Math.floor(Math.random() * 3);
+          for (let k = 0; k < high; k++) b.add(along ? 12 : 2.5, 2.6, along ? 2.5 : 12, crate[n++ % crate.length], x, 1.3 + k * 2.62, z);
+        };
+        for (let x = -70; x <= -36; x += 3.4) for (let z = -52; z <= 34; z += 13.5) if (Math.random() < 0.85) stack(x, z, false);   // the yard on the left
+        for (let z = -104; z <= -80; z += 3.4) for (let x = -62; x <= 40; x += 13.5) if (Math.random() < 0.8) stack(x, z, true);    // and behind the warehouse
+        building(2, hqz, 34, 9, 12, 0x7f8da3, 0xffc233, 0x2a3142);
+        [-9, 2, 13].forEach((x) => b.add(8, 5.6, 0.3, 0x39445a, x, 2.8, hqz + 6.1));
+        signOn('PIER 9', '#2a3142', '#ffc233', 2, 7.2, hqz + 6.15, 12);
+        const crane = (x, z) => {   // a gantry crane straddling the stacks
+          [[-7, -5], [7, -5], [-7, 5], [7, 5]].forEach((l) => b.add(1, 24, 1, 0xff9f1c, x + l[0], 12, z + l[1]));
+          b.add(16, 1.6, 12, 0xff9f1c, x, 24.6, z).add(3, 2, 46, 0xff9f1c, x, 26.6, z + 6).add(4, 3, 4, 0x2a3142, x, 23, z + 14);
+          b.add(0.3, 9, 0.3, 0x2a3142, x, 18.6, z + 22).add(2.6, 2.6, 6, crate[n++ % crate.length], x, 13, z + 22);
+        };
+        crane(-52, -30); crane(-52, 16);
+        // a container ship moored off the quay
+        b.add(18, 7, 96, 0x2a3142, 78, 1.6, -46).add(18.4, 1.6, 96.4, 0xb3262b, 78, -0.6, -46).add(14, 12, 12, 0xf1f3f6, 78, 11, -86).add(4, 5, 4, 0xff6b2c, 78, 19, -88);
+        for (let z = -70; z <= -6; z += 13) for (let x = 72; x <= 84; x += 6) b.add(5.4, 2.6, 12, crate[n++ % crate.length], x, 6.4, z).add(5.4, 2.6, 12, crate[n++ % crate.length], x, 9.02, z);
+      } else {
+        // a runway and taxiway on the left, hangars and a control tower behind, parked planes, a windsock
+        const rx = -LOT.hx - 46;
+        b.add(34, 0.06, 900, 0x3a3d47, rx, -0.01, -80);
+        for (let z = -500; z < 340; z += 16) b.add(0.7, 0.07, 8, 0xf1f3f6, rx, 0, z);
+        for (let k = -3; k <= 3; k++) b.add(1.6, 0.07, 12, 0xf1f3f6, rx + k * 4, 0, 60);                       // threshold bars
+        b.add(30, 0.06, 12, 0x3a3d47, -LOT.hx - 16, -0.01, -20).add(30, 0.07, 0.4, 0xffcf33, -LOT.hx - 16, 0, -20);   // taxiway to the apron
+        [[-12, 0x9aa894], [20, 0xa7a08c]].forEach((hg) => {   // hangars
+          building(hg[0], hqz - 2, 26, 9, 16, hg[1], 0xf1f3f6, 0x6f7a6c);
+          b.add(20, 7, 0.3, 0x39445a, hg[0], 3.5, hqz + 6.1);
+        });
+        signOn('HANGAR 3', '#6f7a6c', '#ffffff', -12, 7.6, hqz + 6.15, 10);
+        b.add(4.4, 18, 4.4, 0xdfe4ec, 44, 9, hqz + 8).add(7.4, 3, 7.4, 0x22304a, 44, 19.5, hqz + 8).add(8.2, 0.6, 8.2, 0xe5484d, 44, 21.3, hqz + 8);   // control tower
+        const plane = (x, z, ry, col) => {
+          const c = Math.cos(ry), sn = Math.sin(ry), at = (lx, lz) => [x + lx * c + lz * sn, z - lx * sn + lz * c];
+          let q = at(0, 0); b.add(10, 1.5, 1.5, 0xf1f3f6, q[0], 1.9, q[1], ry);
+          q = at(1, 0); b.add(2, 0.22, 12, col, q[0], 2.2, q[1], ry);
+          q = at(-4.4, 0); b.add(1.2, 0.2, 4.4, col, q[0], 2.3, q[1], ry).add(1.4, 2, 0.2, col, q[0], 3.4, q[1], ry);
+          q = at(5.3, 0); b.add(0.3, 2.6, 0.2, 0x2a3142, q[0], 1.9, q[1], ry);
+          q = at(1.5, 0); b.add(0.2, 1.2, 0.2, 0x2a3142, q[0], 0.6, q[1], ry);
+        };
+        plane(-LOT.hx - 20, -44, 0.5, 0xe5484d); plane(-LOT.hx - 24, 6, -0.3, 0x2f8fff); plane(-LOT.hx - 18, 34, 0.9, 0xffc233); plane(30, hqz - 26, 1.6, 0x22b573);
+        b.add(0.25, 7, 0.25, 0xf1f3f6, PIT_X + 9, 3.5, -LOT.hz + 2);                                           // windsock
+        const sock = mesh(new THREE.ConeGeometry(0.7, 3.4, 8), mat(0xff6b2c), PIT_X + 10.8, 6.8, -LOT.hz + 2, staticGroup);
+        sock.rotation.z = -Math.PI / 2;
+        const tufts = new Batch(new THREE.IcosahedronGeometry(1, 0), WHITE);                                    // scrub and a few far trees
+        for (let i = 0; i < 70; i++) {
+          const x = rand(-170, 150), z = rand(-240, 110);
+          if (x > rx - 22 && x < LOT.hx + 20 && z > -LOT.hz - 44 && z < LOT.hz + 6) continue;
+          if (Math.abs(x - rx) < 22) continue;
+          const sc = rand(0.8, 2);
+          tufts.add(sc * 1.4, sc * 0.7, sc * 1.4, i % 2 ? 0x8f9a55 : 0xa3a862, x, sc * 0.3, z, rand(0, 3));
+        }
+        tufts.build(staticGroup);
       }
-      b.build(scene);
-      crowns.build(scene);
-      const sign = mesh(new THREE.PlaneGeometry(12, 2), new THREE.MeshBasicMaterial({ map: textTexture('DRIFT HQ', '#2a3142', '#ffcf33', 512, 96, 64) }),
-        2, 6.2, -LOT.hz - 22 + 5.65, scene);
-      sign.renderOrder = 1;
-    })();
+      b.build(staticGroup);
+    }
+    buildStatic();
 
     /* ----- Venue pieces that change with upgrades ----- */
     const venueGroup = new THREE.Group();
@@ -463,11 +557,12 @@
       }
 
       // Grandstands: a module per level, then roofs
+      const standsShown = Math.round(lvl.stands / D.VENUE_MAX.stands * STAND_MODULES.length);   // all eight by the top level, roofs at the top
       if (lvl.stands === 0) {
         for (let i = 0; i < 10; i++) addPerson(-LOT.hx - 2.2 + rand(-0.5, 0.5), 0, -16 + i * 3.4 + rand(-0.8, 0.8), Math.PI / 2);
       }
       STAND_MODULES.forEach((mod, j) => {
-        if (lvl.stands <= j) return;
+        if (standsShown <= j) return;
         const left = mod[0] === 'L', ry = left ? Math.PI / 2 : 0;
         const place = (lx, lz) => (left ? [-LOT.hx - 2.4 + lz, mod[1] - lx] : [mod[1] + lx, -LOT.hz - 2.4 + lz]);
         for (let k = 0; k < 3; k++) {
@@ -478,7 +573,7 @@
             addPerson(q[0], 0.9 * (k + 1), q[1], ry);
           }
         }
-        if (lvl.stands >= STAND_MODULES.length + 1 + j) {
+        if (lvl.stands >= D.VENUE_MAX.stands) {
           const r = place(0, -2.8), c = j % 2 ? 0x19b3f5 : 0xff6b2c;
           b.add(12.6, 0.3, 6.2, c, r[0], 6.2, r[1], ry);
           [-5.8, 5.8].forEach((lx) => { const q = place(lx, -5.6); b.add(0.3, 6.2, 0.3, 0xdfe4ec, q[0], 3.1, q[1], ry); });
@@ -871,7 +966,23 @@
     /* ----- Frame ----- */
     const world = { hype: 0.5 };
 
+    function setTheme() {
+      themeId = G.place(state).id;
+      theme = themeOf(state);
+      P = buildPath(theme.track);
+      corners = findCorners(P);
+      scene.background.set(theme.sky);
+      scene.fog.color.set(theme.sky);
+      buildStatic();
+      marks.mesh.instanceMatrix.array.fill(0);
+      marks.mesh.instanceMatrix.needsUpdate = true;
+      mechs.forEach((mm) => { const h = mechHome(mm.i); mm.x = h.x; mm.z = h.z; mm.state = 'idle'; mm.car = null; });
+      cars.forEach((c) => { c.mech = null; park(c); });   // every car starts from its pit on the new line
+      venueSig = '';
+    }
+
     function sync() {
+      if (G.place(state).id !== themeId) setTheme();
       const sig = [state.slots, state.venue.stands, state.venue.sponsors, state.venue.prep].join('|') + '|' + state.cars.map((c) => c.color).join(',');
       if (sig !== venueSig) { venueSig = sig; buildVenue(); }
       syncCars();
@@ -932,7 +1043,7 @@
     resize();
     sync();
     Object.assign(world, { sync, update, render: () => renderer.render(scene, camera), setInsets, toScreen, indicators,
-      runningIds, status, addEarnings, pos, renderer, resize, size: () => size, path: P, _cars: cars, _mechs: mechs, _crash: (id) => { const c = cars.get(id); if (c && c.state === 'run') startCrash(c); } });
+      runningIds, status, addEarnings, pos, renderer, resize, size: () => size, _cars: cars, _mechs: mechs, _crash: (id) => { const c = cars.get(id); if (c && c.state === 'run') startCrash(c); } });
     return world;
   }
 

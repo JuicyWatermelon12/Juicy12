@@ -26,14 +26,14 @@ function candidates(s) {
   };
   s.cars.forEach((c) => {
     D.PARTS.forEach((p) => {
-      if (c.parts[p.id] < D.PART_MAX) consider(G.model(c.model).name + ' ' + p.name, G.partCost(c, p.id), (t) => G.buyPart(t, c.id, p.id));
+      if (c.parts[p.id] < G.partCap(s)) consider(G.model(c.model).name + ' ' + p.name, G.partCost(c, p.id), (t) => G.buyPart(t, c.id, p.id));
     });
     const next = D.MODELS[G.modelIndex(c.model) + 1];
     if (next) consider('trade to ' + next.name, next.cost, (t) => G.tradeCar(t, c.id, next.id));
   });
   D.VENUE.forEach((v) => consider(v.name, G.venueCost(s, v.id), (t) => G.buyVenue(t, v.id)));
   if (!G.mechTrainMaxed(s)) consider('mechanic training', G.mechTrainCost(s), (t) => G.trainMech(t));
-  if (s.slots < G.MAX_SLOTS && s.cars.length >= s.slots) {
+  if (s.slots < G.maxPits(s) && s.cars.length >= s.slots) {
     const best = s.cars.reduce((m, c) => Math.max(m, G.modelIndex(c.model)), 0);
     const m = D.MODELS[Math.max(0, best - 1)];
     consider('pit + ' + m.name, G.slotCost(s) + m.cost, (t) => {
@@ -51,6 +51,7 @@ function candidates(s) {
 
 const s = G.newState(0);
 let now = 0, buys = [], log = [], target = null;
+const builtAt = {};
 const buckets = new Array(Math.ceil(minutes / 5)).fill(0);
 const note = (what) => { buys.push(now); buckets[Math.min(buckets.length - 1, Math.floor(now / 300))]++; log.push([now, what]); };
 
@@ -66,15 +67,34 @@ for (now = 0; now < minutes * 60; now++) {
     else { G.dismissProspects(s); note('tryout: none'); }
     target = null;
   }
+  // a fully built venue: every upgrade at its top level, every pit running the best car on sale there
+  const bestCar = D.MODELS.filter((m) => G.modelUnlocked(s, m.id)).pop().id;
+  const built = G.venueMaxed(s) && s.slots >= G.maxPits(s) && s.cars.length >= s.slots && s.cars.every((c) => c.model === bestCar && c.driver != null);
+  if (built && !builtAt[s.place]) {
+    builtAt[s.place] = now;
+    console.log('\n== ' + G.place(s).name + ' fully built at ' + G.duration(now) + ': income $' + G.fmt(G.expectedIncome(s), 1) + '/s, style ' + G.fmt(G.incomeRate(s).style) +
+      '/s, crowd cap ' + G.fmt(G.crowdCap(s)) + ', parts [' + s.cars.map((c) => D.PARTS.map((p) => c.parts[p.id]).join('')).join(' ') + ']');
+  }
+  if (built && G.nextPlace(s)) {   // save for the next venue, buy it and move at once
+    if (s.cash >= G.nextPlace(s).cost && G.buyPlace(s) && G.movePlace(s)) {
+      console.log('== moved to ' + G.place(s).name + ' at ' + G.duration(now) + ' (saved for ' + G.duration(now - builtAt[s.place - 1]) + '); income there $' +
+        G.fmt(G.expectedIncome(s), 1) + '/s, crowd full: ' + G.incomeRate(s).full);
+      note('move to ' + G.place(s).name);
+      target = null;
+    }
+    continue;
+  }
   if (!target) target = candidates(s)[0] || null;
   if (target && s.cash >= target.cost) {
     if (target.apply(s)) note(target.name);
     target = null;
   }
   if (s.mech.count < D.MECH_MAX && G.mechHireCost(s) < s.cash * 0.05) { G.hireMech(s); note('hire mechanic'); }
+  // cheap venue upgrades are bought even when they do not pay yet (a grandstand before the crowd is full)
+  D.VENUE.forEach((v) => { if (G.venueCost(s, v.id) < s.cash * 0.05 && G.buyVenue(s, v.id)) note(v.name); });
   if ((now + 1) % 600 === 0) {
     console.log(`\n${(now + 1) / 60} min: $${G.fmt(s.cash)}  income $${G.fmt(G.expectedIncome(s), 1)}/s  pits ${s.slots}  ` +
-      `stands ${s.venue.stands} sponsors ${s.venue.sponsors} prep ${s.venue.prep}  mech ${s.mech.count}/L${s.mech.level}`);
+      `${G.place(s).name}  stands ${s.venue.stands} sponsors ${s.venue.sponsors} prep ${s.venue.prep}  mech ${s.mech.count}/L${s.mech.level}`);
     s.cars.forEach((c) => { const d = G.driverOf(s, c); console.log(`   ${G.model(c.model).name} [${D.PARTS.map((p) => c.parts[p.id]).join('')}]  ${d ? d.rarity + ' L' + d.level : 'no driver'}`); });
   }
 }

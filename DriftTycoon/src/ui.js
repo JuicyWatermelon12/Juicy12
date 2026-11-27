@@ -32,6 +32,8 @@
     const stats = (d) => { const s = G.driverStats(d); return bar('Skill', s.skill) + bar('Control', s.control) + bar('Flair', s.flair); };
     const rarityTag = (d) => { const r = G.rarity(d.rarity); return '<span class="rarity" style="--r:' + r.color + '">' + r.name + '</span>'; };
     const traitLine = (d) => { const t = G.trait(d); return t.name ? '<div class="trait"><b>' + t.name + '</b> ' + t.blurb + '</div>' : ''; };
+    const placeName = (i) => (D.VENUES[i] ? 'the ' + D.VENUES[i].name : 'a later venue');
+    const stagePlace = (stage) => placeName(D.VENUES.findIndex((v) => v.stage >= stage));
     const pips = (n) => { let h = '<span class="pips">'; for (let i = 0; i < D.PART_MAX; i++) h += '<i' + (i < n ? ' class="on"' : '') + '></i>'; return h + '</span>'; };
     const xpPct = (d) => (G.xpToNext(d) ? Math.min(100, (d.xp / G.xpToNext(d)) * 100) : 100);
     function levelRow(d) {
@@ -59,17 +61,20 @@
           ' · ' + esc(G.cosmetic('kit', car.kit).name) + '</div></div><button class="ghost" data-act="style" data-car="' + car.id + '">Customise</button></div>';
         h += '<div class="parts">';
         D.PARTS.forEach((p) => {
-          const lv = car.parts[p.id], maxed = lv >= D.PART_MAX;
+          const lv = car.parts[p.id], maxed = lv >= G.partCap(state), last = lv >= D.PART_MAX;
           h += '<div class="row part"><div><strong>' + p.name + '</strong> <span class="lv">' + D.PART_STAGES[lv] + '</span>' + pips(lv) + '<small>' + p.blurb +
-            '</small><small class="delta">' + (maxed ? 'Style ' + pct(lv * p.per) : D.PART_STAGES[lv + 1] + ': style ' + pct(lv * p.per) + ' → ' + pct((lv + 1) * p.per)) +
+            '</small><small class="delta">' + (last ? 'Style ' + pct(lv * p.per) : maxed ? 'Style ' + pct(lv * p.per) + '. ' + D.PART_STAGES[lv + 1] + ' goes on sale at ' + stagePlace(lv + 1)
+              : D.PART_STAGES[lv + 1] + ': style ' + pct(lv * p.per) + ' → ' + pct((lv + 1) * p.per)) +
             '</small></div>' + buy('', maxed ? Infinity : G.partCost(car, p.id), 'part', { car: car.id, part: p.id }) + '</div>';
         });
         h += '</div>';
         const next = D.MODELS[G.modelIndex(car.model) + 1];
-        if (next) {
+        if (next && G.modelUnlocked(state, next.id)) {
           h += '<div class="row trade"><div><strong>Trade up: ' + esc(next.name) + '</strong><small>' + esc(next.blurb) + '</small><small class="delta">Base style ' +
             G.fmt(m.base) + ' → ' + G.fmt(next.base) + '. Parts and driver move across.</small></div>' +
             buy('', next.cost, 'trade', { car: car.id, model: next.id }, 'alt') + '</div>';
+        } else if (next) {
+          h += '<div class="row trade"><div><strong>Next car: ' + esc(next.name) + '</strong><small>On sale at ' + placeName(G.modelPlace(next.id)) + '.</small></div></div>';
         }
         const rate = G.carCrashRate(state, car);
         if (rate > 0) h += '<p class="note">Crashes about once every ' + G.duration(1 / rate) + ' of drifting.</p>';
@@ -83,13 +88,17 @@
       if (state.cars.length < state.slots) {
         h += '<article class="card"><h3>Pit ' + (state.cars.length + 1) + ' is empty</h3><p class="note">Pick a car for it.</p>';
         D.MODELS.forEach((m) => {
-          h += '<div class="row"><div><strong>' + esc(m.name) + '</strong><small>' + esc(m.blurb) + ' Base style ' + G.fmt(m.base) + '/s.</small></div>' +
-            buy('', m.cost, 'buy-car', { model: m.id }) + '</div>';
+          const open = G.modelUnlocked(state, m.id);
+          h += '<div class="row' + (open ? '' : ' dim') + '"><div><strong>' + esc(m.name) + '</strong><small>' + esc(m.blurb) + ' Base style ' + G.fmt(m.base) + '/s.' +
+            (open ? '' : ' On sale at ' + placeName(G.modelPlace(m.id)) + '.') + '</small></div>' + (open ? buy('', m.cost, 'buy-car', { model: m.id }) : '') + '</div>';
         });
         h += '</article>';
-      } else if (state.slots < G.MAX_SLOTS) {
+      } else if (state.slots < G.maxPits(state)) {
         h += '<article class="card"><div class="row"><div><strong>Open pit ' + (state.slots + 1) + '</strong><small>Room for one more car on track, and one more driver on the team.</small></div>' +
           buy('', G.slotCost(state), 'slot') + '</div></article>';
+      } else if (G.nextPlace(state)) {
+        h += '<article class="card"><p class="note">' + esc(G.place(state).name) + ' has ' + G.maxPits(state) + ' pits, all open. ' + esc(G.nextPlace(state).name) + ' has ' +
+          G.nextPlace(state).pits + '.</p></article>';
       }
       return h;
     }
@@ -132,20 +141,33 @@
 
     /* ---------- Venue ---------- */
     function renderVenue() {
-      const inc = G.incomeRate(state);
-      let h = '<article class="card"><h3>Parking Lot</h3><p class="note">Your first venue. Style from the cars turns into cash only as fast as the crowd can cheer: right now ' +
-        G.fmt(inc.cap, 1) + ' style/s.</p></article>';
-      const now = { stands: G.fmt(G.crowdCap(state), 1) + ' style/s cheered', sponsors: 'Cash x' + G.sponsorMult(state).toFixed(2), prep: 'Style x' + G.prepMult(state).toFixed(2) };
+      const inc = G.incomeRate(state), here = G.place(state), next = G.nextPlace(state);
+      let h = '<article class="card"><h3>' + esc(here.name) + '</h3><p class="note">' + esc(here.blurb) + ' Style from the cars turns into cash only as fast as the crowd can cheer: right now ' +
+        G.fmt(inc.cap, 1) + ' style/s.' + (here.style > 1 ? ' Everything scores x' + here.style + ' style here.' : '') + '</p></article>';
+      const now = { stands: G.fmt(G.crowdCap(state), 1) + ' style/s cheered', sponsors: 'Cash x' + G.sponsorMult(state).toFixed(2), prep: 'Style x' + (G.prepMult(state) / here.style).toFixed(2) };
       const then = {
         stands: G.fmt(G.crowdCap(state) * D.CROWD_GROWTH, 1) + ' style/s', sponsors: 'x' + (G.sponsorMult(state) * D.SPONSOR_MULT).toFixed(2),
-        prep: 'x' + (G.prepMult(state) * D.PREP_MULT).toFixed(2),
+        prep: 'x' + (G.prepMult(state) / here.style * D.PREP_MULT).toFixed(2),
       };
       D.VENUE.forEach((v) => {
-        h += '<article class="card"><div class="row"><div><strong>' + v.name + '</strong> <span class="lv">Lv ' + state.venue[v.id] + '</span><small>' + v.blurb +
-          '</small><small class="delta">' + now[v.id] + ' → ' + then[v.id] + '</small></div>' + buy('', G.venueCost(state, v.id), 'venue', { id: v.id }) + '</div></article>';
+        const top = state.venue[v.id] >= D.VENUE_MAX[v.id];
+        h += '<article class="card"><div class="row"><div><strong>' + v.name + '</strong> <span class="lv">Lv ' + state.venue[v.id] + ' / ' + D.VENUE_MAX[v.id] + '</span><small>' + v.blurb +
+          '</small><small class="delta">' + now[v.id] + (top ? '' : ' → ' + then[v.id]) + '</small></div>' + buy('', G.venueCost(state, v.id), 'venue', { id: v.id }) + '</div></article>';
       });
-      h += '<article class="card"><div class="row"><div><strong>Pits: ' + state.slots + ' of ' + G.MAX_SLOTS + '</strong><small>Each pit is one more car on track.</small></div>' +
+      h += '<article class="card"><div class="row"><div><strong>Pits: ' + state.slots + ' of ' + G.maxPits(state) + '</strong><small>Each pit is one more car on track.</small></div>' +
         buy('', G.slotCost(state), 'slot') + '</div></article>';
+      if (next) {
+        const cars = next.cars.map((id) => G.model(id).name).join(', '), owned = state.placeOwned > state.place;
+        h += '<h3 class="section">Next venue</h3><article class="card next-place"><div class="row"><div><strong>' + esc(next.name) + '</strong><small>' + esc(next.blurb) + '</small>' +
+          '<small class="delta">' + next.pits + ' pits · x' + (next.style / here.style) + ' style · ' + D.PART_STAGES[next.stage] + ' parts · new car: ' + esc(cars) + '</small></div>' +
+          (owned ? '<button class="buy alt" data-act="move-place"><span class="buy-cost">' + (armed === 'move' ? 'Tap again' : 'Move team') + '</span></button>'
+            : buy('Buy venue', next.cost, 'buy-place')) + '</div><p class="note">' +
+          (owned ? 'Bought. Moving is for good. Cars, parts, drivers, mechanics and looks come with you; grandstands, sponsors and track prep start again from zero there.'
+            : 'Buy it, then move the team when you are ready. Cars, parts, drivers, mechanics and looks move with you; grandstands, sponsors and track prep start again from zero.') +
+          '</p></article>';
+      } else {
+        h += '<article class="card"><p class="note">This is the last venue for now. More are on the way.</p></article>';
+      }
       return h;
     }
 
@@ -374,6 +396,13 @@
       else if (a === 'trade') changed = G.tradeCar(state, carId, b.dataset.model);
       else if (a === 'buy-car') { changed = G.buyCar(state, b.dataset.model); if (changed) openCar = state.cars[state.cars.length - 1].id; }
       else if (a === 'slot') changed = G.buySlot(state);
+      else if (a === 'buy-place') changed = G.buyPlace(state);
+      else if (a === 'move-place') {
+        if (armed !== 'move') { armed = 'move'; render(); return; }
+        armed = '';
+        changed = G.movePlace(state);
+        if (changed) { el.body.scrollTop = 0; toast('Welcome to the ' + G.place(state).name + '.'); }
+      }
       else if (a === 'venue') changed = G.buyVenue(state, b.dataset.id);
       else if (a === 'hire') changed = G.hireMech(state);
       else if (a === 'train') changed = G.trainMech(state);

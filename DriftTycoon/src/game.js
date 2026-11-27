@@ -48,6 +48,7 @@
       tryouts: 0, nextTryoutAt: 0, prospects: null,
       mech: { count: 1, level: 0 },
       venue: { stands: 0, sponsors: 0, prep: 0 },
+      place: 0, placeOwned: 0,   // the venue the team is at, and the furthest venue it has bought (indexes into D.VENUES)
       street: { runs: 0, bestScore: 0, bestDist: 0, cred: 0 },   // Street Drifting records and street cred
       owned: { paints: D.FACTORY_PAINTS.slice(), rims: ['steel'], kits: {} },   // cosmetics bought; kits are per car model
       lastSeen: now || 0,
@@ -100,11 +101,21 @@
   function partsMult(car) {
     return D.PARTS.reduce((m, p) => m * (1 + (car.parts[p.id] || 0) * p.per), 1);
   }
-  const prepMult = (state) => Math.pow(D.PREP_MULT, state.venue.prep);
+  /* ---------- Venues ---------- */
+  const place = (state) => D.VENUES[state.place];
+  const nextPlace = (state) => D.VENUES[state.place + 1] || null;
+  /* The venue that puts a car model on sale, as an index into D.VENUES (-1: none yet). */
+  const modelPlace = (modelId) => D.VENUES.findIndex((v) => v.cars.includes(modelId));
+  const modelUnlocked = (state, modelId) => { const i = modelPlace(modelId); return i >= 0 && i <= state.place; };
+  const maxPits = (state) => Math.min(MAX_SLOTS, place(state).pits);
+  const partCap = (state) => Math.min(D.PART_MAX, place(state).stage);   // highest part stage on sale at this venue
+  const venueMaxed = (state) => D.VENUE.every((v) => state.venue[v.id] >= D.VENUE_MAX[v.id]);
+
+  const prepMult = (state) => place(state).style * Math.pow(D.PREP_MULT, state.venue.prep);
   const sponsorMult = (state) => Math.pow(D.SPONSOR_MULT, state.venue.sponsors);
   const traitSum = (state, key) => seatedDrivers(state).reduce((t, d) => t + (trait(d)[key] || 0), 0);
   const cashMult = (state) => sponsorMult(state) * (1 + traitSum(state, 'cash'));
-  const crowdCap = (state) => D.CROWD_BASE * Math.pow(D.CROWD_GROWTH, state.venue.stands) * (1 + traitSum(state, 'crowd'));
+  const crowdCap = (state) => place(state).crowd * Math.pow(D.CROWD_GROWTH, state.venue.stands) * (1 + traitSum(state, 'crowd'));
 
   /* Style points a second this car scores while it is drifting. 0 without a driver. */
   function carStyle(state, car) {
@@ -186,10 +197,11 @@
     const p = part(partId);
     return Math.ceil(p.cost * Math.pow(D.PART_GROWTH, car.parts[partId] || 0));
   }
-  const slotCost = (state) => (state.slots >= MAX_SLOTS ? Infinity : D.SLOT_COSTS[state.slots]);
+  const slotCost = (state) => (state.slots >= maxPits(state) ? Infinity : D.SLOT_COSTS[state.slots]);
   function venueCost(state, id) {
     const v = byId(D.VENUE, id);
-    return Math.ceil(v.cost * Math.pow(v.growth, state.venue[id]));
+    if (state.venue[id] >= D.VENUE_MAX[id]) return Infinity;
+    return Math.ceil(v.cost * place(state).scale * Math.pow(v.growth, state.venue[id]));
   }
   const tryoutCost = (state) => Math.ceil(D.TRYOUT_COST * Math.pow(D.TRYOUT_GROWTH, state.tryouts));
   const mechHireCost = (state) =>
@@ -212,21 +224,21 @@
 
   function buyPart(state, carId, partId) {
     const car = getCar(state, carId);
-    if (!car || !part(partId) || car.parts[partId] >= D.PART_MAX) return false;
+    if (!car || !part(partId) || car.parts[partId] >= partCap(state)) return false;
     if (!spend(state, partCost(car, partId))) return false;
     car.parts[partId]++;
     return true;
   }
 
   function buySlot(state) {
-    if (state.slots >= MAX_SLOTS || !spend(state, slotCost(state))) return false;
+    if (state.slots >= maxPits(state) || !spend(state, slotCost(state))) return false;
     state.slots++;
     return true;
   }
 
   function buyCar(state, modelId) {
     const m = model(modelId);
-    if (!m || state.cars.length >= state.slots || !spend(state, m.cost)) return false;
+    if (!m || !modelUnlocked(state, modelId) || state.cars.length >= state.slots || !spend(state, m.cost)) return false;
     const car = addCar(state, modelId);
     const bench = benchDrivers(state).sort((a, b) => driverMult(b) - driverMult(a))[0];
     if (bench) car.driver = bench.id;
@@ -237,7 +249,7 @@
   function tradeCar(state, carId, modelId) {
     const car = getCar(state, carId);
     const m = model(modelId);
-    if (!car || !m || modelIndex(modelId) <= modelIndex(car.model) || !spend(state, m.cost)) return false;
+    if (!car || !m || !modelUnlocked(state, modelId) || modelIndex(modelId) <= modelIndex(car.model) || !spend(state, m.cost)) return false;
     car.model = modelId;
     if (!ownsCosmetic(state, 'kit', car.kit, modelId)) car.kit = 'stock';   // kits are per model; paint and rims stay
     return true;
@@ -246,6 +258,21 @@
   function buyVenue(state, id) {
     if (!byId(D.VENUE, id) || !spend(state, venueCost(state, id))) return false;
     state.venue[id]++;
+    return true;
+  }
+
+  /* Buy the next venue. The team stays where it is until it moves. */
+  function buyPlace(state) {
+    const v = D.VENUES[state.placeOwned + 1];
+    if (!v || !spend(state, v.cost)) return false;
+    state.placeOwned++;
+    return true;
+  }
+  /* Move to the next venue, once bought. One way. Its grandstands, sponsors and track prep start from zero. */
+  function movePlace(state) {
+    if (state.placeOwned <= state.place) return false;
+    state.place++;
+    D.VENUE.forEach((v) => (state.venue[v.id] = 0));
     return true;
   }
 
@@ -437,13 +464,16 @@
     const isDriver = (d) => d && rarity(d.rarity) && typeof d.name === 'string';
     s.cash = num(raw.cash, s.cash);
     s.totalEarned = num(raw.totalEarned, 0);
-    s.slots = Math.min(MAX_SLOTS, Math.max(1, Math.floor(num(raw.slots, 1))));
+    s.slots = Math.max(1, Math.floor(num(raw.slots, 1)));   // capped to the venue's pits below, once the venue is known
     s.lastSeen = num(raw.lastSeen, now || 0);
     s.tryouts = Math.floor(num(raw.tryouts, 0));
     s.nextTryoutAt = num(raw.nextTryoutAt, 0);
     s.mech.count = Math.min(D.MECH_MAX, Math.max(1, Math.floor(num(raw.mech && raw.mech.count, 1))));
     s.mech.level = Math.floor(num(raw.mech && raw.mech.level, 0));
-    D.VENUE.forEach((v) => (s.venue[v.id] = Math.floor(num(raw.venue && raw.venue[v.id], 0))));
+    s.placeOwned = Math.min(D.VENUES.length - 1, Math.floor(num(raw.placeOwned, 0)));
+    s.place = Math.min(s.placeOwned, Math.floor(num(raw.place, 0)));
+    s.slots = Math.min(maxPits(s), s.slots);
+    D.VENUE.forEach((v) => (s.venue[v.id] = Math.min(D.VENUE_MAX[v.id], Math.floor(num(raw.venue && raw.venue[v.id], 0)))));
     Object.keys(s.street).forEach((k) => (s.street[k] = num(raw.street && raw.street[k], 0)));
     const o = raw.owned || {}, known = (list, all) => (Array.isArray(list) ? list.filter((id) => byId(all, id)) : []);
     s.owned.paints = Array.from(new Set(s.owned.paints.concat(known(o.paints, D.PAINTS))));
@@ -517,6 +547,7 @@
     incomeRate, expectedIncome, offlineEarnings,
     partCost, slotCost, venueCost, tryoutCost, mechHireCost, mechTrainCost, mechTrainMaxed,
     earn, buyPart, buySlot, buyCar, tradeCar, buyVenue, rollDriver, assignDriver, hireMech, trainMech,
+    place, nextPlace, partCap, modelPlace, modelUnlocked, maxPits, venueMaxed, buyPlace, movePlace,
     rankOf, rank, credFor, addCred, cosmetic, cosmeticCost, ownsCosmetic, cosmeticUnlocked, applyCosmetic, buyCosmetic,
     rosterCap, rosterFull, needsDriver, tryoutWait, holdTryout, mentored, signProspect, dismissProspects,
     fmt, money, duration, clock,

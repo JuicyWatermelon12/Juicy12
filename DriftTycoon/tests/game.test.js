@@ -5,7 +5,9 @@ require('../src/data.js');
 require('../src/game.js');
 const { data: D, game: G } = globalThis.DT;
 
-const rich = () => { const s = G.newState(1000); s.cash = 1e18; return s; };
+/* A team with money to burn, already at the last venue so nothing there is locked. */
+const LAST = D.VENUES.length - 1;
+const rich = () => { const s = G.newState(1000); s.cash = 1e18; s.place = s.placeOwned = LAST; return s; };
 const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, a + ' vs ' + b);
 const mk = (s, fields) => Object.assign({ id: s.nextId++, name: 'T' + s.nextId, rarity: 'common', skill: 20, control: 20, flair: 20,
   helmet: '#fff', level: 1, xp: 0, trait: null }, fields);
@@ -46,7 +48,7 @@ test('parts: a few big stages that multiply each other, steep prices, a hard top
   assert.ok(G.buyPart(s, car.id, 'turbo'));
   near(G.carStyle(s, car) / base, (1 + G.part('engine').per) * (1 + G.part('turbo').per));
   for (let i = 0; i < 100; i++) G.buyPart(s, car.id, 'tires');
-  assert.equal(car.parts.tires, D.PART_MAX);
+  assert.equal(car.parts.tires, G.partCap(s), 'up to the top stage on sale at this venue');
   s.cash = 0;
   assert.equal(G.buyPart(s, car.id, 'stance'), false);
   assert.equal(car.parts.stance, 0);
@@ -89,14 +91,16 @@ test('suspension and tires lower the crash rate, turbo raises it, control lowers
 
 test('income is capped by the crowd; grandstands, sponsors and track prep each multiply', () => {
   const s = rich();
+  s.place = s.placeOwned = 0;
   const car = s.cars[0];
-  for (const p of D.PARTS) for (let i = 0; i < 3; i++) G.buyPart(s, car.id, p.id);
+  for (const p of D.PARTS) car.parts[p.id] = 3;
   let inc = G.incomeRate(s);
   assert.ok(inc.full, 'style is above the crowd capacity');
-  assert.equal(inc.cheered, D.CROWD_BASE);
-  assert.equal(inc.cash, D.CROWD_BASE);
+  const crowd = G.place(s).crowd;
+  assert.equal(inc.cheered, crowd);
+  assert.equal(inc.cash, crowd);
   G.buyVenue(s, 'stands');
-  near(G.crowdCap(s), D.CROWD_BASE * D.CROWD_GROWTH);
+  near(G.crowdCap(s), crowd * D.CROWD_GROWTH);
   const before = G.incomeRate(s).cash;
   G.buyVenue(s, 'sponsors'); G.buyVenue(s, 'sponsors');
   near(G.incomeRate(s).cash / before, D.SPONSOR_MULT * D.SPONSOR_MULT);
@@ -129,7 +133,7 @@ test('pits limit how many cars the team can own', () => {
   assert.equal(s.cars.length, 2);
   assert.notEqual(s.cars[0].color, s.cars[1].color);
   for (let i = 0; i < 10; i++) G.buySlot(s);
-  assert.equal(s.slots, G.MAX_SLOTS);
+  assert.equal(s.slots, G.place(s).pits, 'no more pits than the venue has');
   assert.equal(G.slotCost(s), Infinity);
 });
 
@@ -658,8 +662,8 @@ test('cosmetics data: set prices, dearer at higher ranks, every rank needed exis
   }
   for (const id of D.FACTORY_PAINTS) assert.equal(G.cosmetic('paint', id).cost, 0);
   const s = rich();
-  for (let i = 0; i < 5; i++) { G.buySlot(s); G.buyCar(s, 'kumo'); }
-  assert.equal(new Set(s.cars.map((c) => c.paint)).size, 6, 'six cars, six different factory paints');
+  for (let i = 0; i < 4; i++) { G.buySlot(s); G.buyCar(s, 'kumo'); }
+  assert.equal(new Set(s.cars.map((c) => c.paint)).size, 5, 'five cars, five different factory paints');
   for (const c of s.cars) { assert.equal(c.color, G.cosmetic('paint', c.paint).color); assert.equal(c.rims, 'steel'); assert.equal(c.kit, 'stock'); }
 });
 
@@ -718,4 +722,78 @@ test('cosmetics: paint and rims belong to the team and survive a trade-up; kits 
   const fixed = G.load(raw, 0);
   assert.deepEqual([fixed.cars[0].paint, fixed.cars[0].rims, fixed.cars[0].kit], [D.FACTORY_PAINTS[0], 'steel', 'stock']);
   assert.ok(!fixed.owned.paints.includes('nope'));
+});
+
+/* ---------- Venues ---------- */
+
+test('venue ladder: each venue costs more, has at least as many pits, more style, a new car and a higher part stage', () => {
+  const V = D.VENUES;
+  assert.equal(V[0].cost, 0);
+  assert.equal(V[0].style, 1);
+  for (let i = 1; i < V.length; i++) {
+    assert.ok(V[i].cost > V[i - 1].cost * 10 && V[i].pits >= V[i - 1].pits && V[i].style > V[i - 1].style && V[i].crowd > V[i - 1].crowd, V[i].id);
+    assert.ok(V[i].scale > V[i - 1].scale && V[i].stage > V[i - 1].stage && V[i].cars.length > 0, V[i].id);
+  }
+  assert.ok(V[LAST].stage <= D.PART_MAX && V[LAST].pits <= G.MAX_SLOTS);
+  // every car model is put on sale by exactly one venue, in order
+  const listed = V.flatMap((v) => v.cars);
+  assert.equal(new Set(listed).size, listed.length);
+  assert.deepEqual(listed, D.MODELS.slice(0, listed.length).map((m) => m.id));
+  assert.equal(G.modelPlace('kumo'), 0);
+  assert.equal(G.modelPlace(V[1].cars[0]), 1);
+});
+
+test('a venue limits pits, car models, part stages and upgrade levels', () => {
+  const s = G.newState(0), car = s.cars[0], lot = D.VENUES[0], next = D.VENUES[1];
+  s.cash = 1e18;
+  for (let i = 0; i < 10; i++) G.buySlot(s);
+  assert.equal(s.slots, lot.pits);
+  assert.equal(G.rosterCap(s), lot.pits + D.RESERVE_SEATS);
+  assert.ok(G.modelUnlocked(s, 'hachi') && !G.modelUnlocked(s, next.cars[0]));
+  assert.equal(G.buyCar(s, next.cars[0]), false, 'not on sale here');
+  assert.equal(G.tradeCar(s, car.id, next.cars[0]), false);
+  assert.ok(G.tradeCar(s, car.id, 'hachi'));
+  for (let i = 0; i < 10; i++) G.buyPart(s, car.id, 'engine');
+  assert.equal(car.parts.engine, lot.stage);
+  assert.equal(G.partCap(s), lot.stage);
+  for (const v of D.VENUE) {
+    for (let i = 0; i < 30; i++) G.buyVenue(s, v.id);
+    assert.equal(s.venue[v.id], D.VENUE_MAX[v.id]);
+    assert.equal(G.venueCost(s, v.id), Infinity);
+  }
+  assert.ok(G.venueMaxed(s));
+});
+
+test('buying the next venue and moving: one way, team and parts move, venue upgrades start again', () => {
+  const s = G.newState(0), car = s.cars[0], next = D.VENUES[1];
+  assert.equal(G.movePlace(s), false, 'not bought yet');
+  s.cash = next.cost - 1;
+  assert.equal(G.buyPlace(s), false);
+  s.cash = next.cost + 5e7;
+  car.parts.engine = 2; s.venue = { stands: 3, sponsors: 4, prep: 2 }; s.mech.level = 2;
+  G.addCred(s, 500); G.buyCosmetic(s, car.id, 'paint', 'black');
+  const cash = s.cash, driver = car.driver, style = G.carStyle(s, car), cred = s.street.cred;
+  assert.ok(G.buyPlace(s));
+  near(cash - s.cash, next.cost);
+  assert.equal(s.place, 0, 'bought, but the team has not moved');
+  assert.equal(s.placeOwned, 1);
+  assert.deepEqual(s.venue, { stands: 3, sponsors: 4, prep: 2 });
+  assert.ok(G.movePlace(s));
+  assert.equal(s.place, 1);
+  assert.equal(G.place(s), next);
+  assert.deepEqual(s.venue, { stands: 0, sponsors: 0, prep: 0 });
+  assert.deepEqual([car.parts.engine, car.driver, car.paint, s.mech.level, s.street.cred], [2, driver, 'black', 2, cred]);
+  near(G.carStyle(s, car) / style, next.style / Math.pow(D.PREP_MULT, 2), 1e-9);
+  near(G.crowdCap(s), next.crowd);
+  assert.equal(G.venueCost(s, 'stands'), Math.ceil(D.VENUE[0].cost * next.scale));
+  assert.equal(G.movePlace(s), false, 'the one after is not bought');
+  assert.equal(G.maxPits(s), next.pits);
+  assert.ok(G.modelUnlocked(s, next.cars[0]) && G.partCap(s) === next.stage);
+  // saved and loaded
+  const back = G.load(G.serialize(s), 0);
+  assert.deepEqual([back.place, back.placeOwned], [1, 1]);
+  // at the last venue there is nothing more to buy
+  s.place = s.placeOwned = LAST; s.cash = 1e30;
+  assert.equal(G.nextPlace(s), null);
+  assert.equal(G.buyPlace(s), false);
 });

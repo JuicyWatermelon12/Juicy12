@@ -143,7 +143,25 @@
       { id: 'prep', name: 'Track prep', blurb: 'Tire walls, lights and kerbs. Every car scores more style.',
         cost: 2000, growth: 6 },
     ],
-    CROWD_BASE: 15, CROWD_GROWTH: 3,     // style points a second the crowd can cheer for, x3 per level
+    VENUE_MAX: { stands: 5, sponsors: 6, prep: 5 },   // top level of each upgrade, at every venue
+    CROWD_GROWTH: 3,                     // the crowd can cheer x3 more style per grandstand level
+
+    /* The venue ladder. The team buys the next venue, then moves there for good: cars, parts, drivers,
+       mechanics and cosmetics move; grandstands, sponsors and track prep start again from zero.
+         cost    price of the venue: about 25 minutes of Street Drifting at the venue before, fully built
+         pits    most cars it can run          cars    car models it puts on sale
+         style   multiplier on all style there  crowd   style a second the crowd can cheer with no grandstands
+         scale   multiplier on the price of its grandstands, sponsors and track prep
+         stage   highest part stage on sale there (an index into PART_STAGES), so parts last the whole ladder
+       `track` (the drift line) and `theme` are for the 3D view. */
+    VENUES: [
+      { id: 'lot', name: 'Parking Lot', blurb: 'An empty car park behind the team shed. Everyone starts somewhere.',
+        cost: 0, pits: 3, cars: ['kumo', 'hachi'], style: 1, crowd: 20, scale: 1, stage: 2 },
+      { id: 'docks', name: 'Docks', blurb: 'Container stacks, cranes and a quay that is closed at night.',
+        cost: 1e8, pits: 4, cars: ['kaze'], style: 4, crowd: 3000, scale: 150, stage: 3 },
+      { id: 'airfield', name: 'Airfield', blurb: 'A disused runway with room to go properly sideways.',
+        cost: 6e9, pits: 5, cars: ['rotor'], style: 16, crowd: 1.2e5, scale: 10000, stage: 4 },
+    ],
     SPONSOR_MULT: 1.25,                  // cash x1.25 per level
     PREP_MULT: 1.2,                      // style x1.2 per level
 

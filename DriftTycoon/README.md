@@ -15,7 +15,6 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
 
 ## What is built (first slice)
 
-- **Venue:** the Parking Lot. One drift line, cones at the corners, pit tents, a team HQ.
 - **Cars:** six fictional models (Kumo 180 → Shogun GT). Each pit's car has six parts: engine, turbo, tires,
   suspension, stance, angle kit. A part has five big stages (Stock → Street → Sport → Race → Pro → Works), each
   40 times the price of the last, so upgrades are occasional and each one shows: stance lowers the car, the angle
@@ -61,7 +60,19 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
   lip, skirts, arches and intercooler; parts no longer add those (stance height, smoke and exhaust flames still
   come from parts).
 
-Planned next: more venues, tap bubbles at the venue. Not built yet: sound.
+- **Venues:** a ladder: Parking Lot → Docks → Airfield (more to come). The team buys the next venue, then moves
+  there for good. Cars, parts, drivers, mechanics and cosmetics move; grandstands, sponsors and track prep start
+  again from zero. Each venue has its own drift line and scenery and sets:
+  - how many pits it has (3, 4, 5) and which car it puts on sale (Kaze Tourer at the Docks, Rotor Seven at the
+    Airfield);
+  - the highest part stage on sale (Sport, Race, Pro), so parts last the whole ladder;
+  - a style multiplier (x1, x4, x16), a bigger crowd, and dearer venue upgrades;
+  - top levels for its upgrades: grandstands 5, sponsors 6, track prep 5.
+  The next venue costs about 20 to 25 minutes of Street Drifting at a fully built venue ($100M for the Docks,
+  $6B for the Airfield). The simulated active player builds the Parking Lot in about 25 to 33 minutes, the Docks
+  in about 30 to 40 and the Airfield in 45 to 65.
+
+Planned next: tap bubbles at the venue, more venues. Not built yet: sound.
 
 ## Layout
 
