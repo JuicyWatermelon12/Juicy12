@@ -102,6 +102,12 @@ for (now = 0; now < minutes * 60; now++) {
     continue;
   }
   if (!target) target = candidates(s)[0] || null;
+  // the next venue needs every upgrade line maxed: with nothing that pays better left, finish the cheapest line
+  if (!target || (G.nextPlace(s) && target.payback > 3600)) {
+    const left = D.VENUE.filter((v) => s.venue[v.id] < v.max).map((v) => ({ name: v.name, cost: G.venueCost(s, v.id), payback: Infinity, apply: (t) => G.buyVenue(t, v.id) }))
+      .sort((a, b) => a.cost - b.cost)[0];
+    if (left && (!target || left.cost < target.cost)) target = left;
+  }
   if (target && s.cash >= target.cost) {
     if (target.apply(s)) note(target.name);
     target = null;
@@ -111,7 +117,7 @@ for (now = 0; now < minutes * 60; now++) {
   D.VENUE.forEach((v) => { if (G.venueCost(s, v.id) < s.cash * 0.05 && G.buyVenue(s, v.id)) note(v.name); });
   if ((now + 1) % 600 === 0) {
     console.log(`\n${(now + 1) / 60} min: $${G.fmt(s.cash)}  income $${G.fmt(G.expectedIncome(s), 1)}/s  pits ${s.slots}  ` +
-      `${G.place(s).name}  stands ${s.venue.stands} sponsors ${s.venue.sponsors} prep ${s.venue.prep}  mech ${s.mech.count}/L${s.mech.level}`);
+      `${G.place(s).name}  upgrades ${G.venueProgress(s.venue).done}/${G.venueProgress(s.venue).total}  mech ${s.mech.count}/L${s.mech.level}`);
     s.cars.forEach((c) => { const d = G.driverOf(s, c); console.log(`   ${G.model(c.model).name} [${D.PARTS.map((p) => c.parts[p.id]).join('')}]  ${d ? d.rarity + ' L' + d.level : 'no driver'}`); });
   }
 }

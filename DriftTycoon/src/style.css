@@ -307,4 +307,7 @@ i.swatch { width: 18px; height: 12px; border-radius: 4px; vertical-align: -1px; 
 .pick.locked { opacity: 0.55; box-shadow: none; outline: 2px dashed var(--line); outline-offset: -2px; }
 /* Venue tab: the venues the team owns */
 .tag { flex: none; padding: 6px 10px; border-radius: 10px; background: var(--go); color: #fff; font-weight: 800; font-size: 12px; }
+.tag.off { background: var(--line); color: var(--ink-2); }
+.progress { display: block; height: 8px; border-radius: 999px; background: var(--panel); overflow: hidden; }
+.progress b { display: block; height: 100%; background: var(--go); border-radius: 999px; }
 .card.here { box-shadow: 0 3px 0 var(--line), inset 0 0 0 3px var(--go); }

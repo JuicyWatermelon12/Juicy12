@@ -446,7 +446,7 @@
 
     /* ----- Camera: fit the venue into the part of the screen the UI leaves free ----- */
     const fx0 = -LOT.hx - 8.5, fx1 = LOT.hx + 11, fz0 = -LOT.hz - 9, fz1 = LOT.hz + 1.5;
-    const FIT = [[fx0, 0, fz0], [fx1, 0, fz0], [fx0, 0, fz1], [fx1, 0, fz1], [fx0, 7, fz0], [fx1, 7, fz0], [2, 10, -LOT.hz - 19]]
+    const FIT = [[fx0, 0, fz0], [fx1, 0, fz0], [fx0, 0, fz1], [fx1, 0, fz1], [fx0, 7, fz0], [fx1, 7, fz0], [2, 10, -LOT.hz - 19], [0, 3, LOT.hz + 7]]
       .map((p) => new V3(p[0], p[1], p[2]));
     const camDir = new V3(Math.sin(YAW) * Math.cos(EL), Math.sin(EL), Math.cos(YAW) * Math.cos(EL));
     const target = new V3(1, 0, -3);
@@ -746,7 +746,7 @@
     /* ----- Venue pieces that change with upgrades ----- */
     const venueGroup = new THREE.Group();
     scene.add(venueGroup);
-    let venueSig = '', blimp = null;
+    let venueSig = '', movers = [];   // movers: things on the venue that move, run every frame
     const crowd = { mesh: null, n: 0, baseY: null, phase: null };
     const CROWD_MAX = 320;
     crowd.mesh = new THREE.InstancedMesh(UNIT_BOX, WHITE, CROWD_MAX);
@@ -775,7 +775,7 @@
 
     function buildVenue() {
       disposeGroup(venueGroup);
-      blimp = null;
+      movers = [];
       crowd.n = 0;
       const b = new Batch();
       const lvl = state.venue;
@@ -790,11 +790,22 @@
         b.add(1.1, 0.6, 1.1, 0x15181f, PIT_X + 4.6, 0.3, z + 1.6).add(1.1, 0.6, 1.1, 0x15181f, PIT_X + 4.6, 0.92, z + 1.6);
       }
 
-      // Grandstands: a module per level, then roofs
-      const standsShown = Math.round(lvl.stands / D.VENUE_MAX.stands * STAND_MODULES.length);   // all eight by the top level, roofs at the top
+      // Every upgrade level adds something you can see. Things that move are kept in `movers`.
+      const glow = new Batch(null, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+      const clearOf = (x, z, r) => !P.pts.some((t) => Math.hypot(t.x - x, t.z - z) < r);   // away from the drift line
+      const flat = (text, bg, fg, w, h, x, z, ry, alpha) => {   // a sign painted flat on the ground
+        const m = mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: textTexture(text, bg, fg, 512, 128, 64), transparent: alpha < 1, opacity: alpha }), x, 0.045, z, venueGroup);
+        m.rotation.set(-Math.PI / 2, 0, ry || 0);
+        return m;
+      };
+      const person = (x, z, ry) => addPerson(x, 0, z, ry || 0);
+
+      // Grandstands (10): a stand module for each of the first eight levels, then roofs on half, then on all
+      const standsShown = Math.min(STAND_MODULES.length, lvl.stands);
       if (lvl.stands === 0) {
         for (let i = 0; i < 10; i++) addPerson(-LOT.hx - 2.2 + rand(-0.5, 0.5), 0, -16 + i * 3.4 + rand(-0.8, 0.8), Math.PI / 2);
       }
+      const roofs = lvl.stands >= 10 ? STAND_MODULES.length : lvl.stands >= 9 ? 4 : 0;
       STAND_MODULES.forEach((mod, j) => {
         if (standsShown <= j) return;
         const left = mod[0] === 'L', ry = left ? Math.PI / 2 : 0;
@@ -807,21 +818,19 @@
             addPerson(q[0], 0.9 * (k + 1), q[1], ry);
           }
         }
-        if (lvl.stands >= D.VENUE_MAX.stands) {
+        if (j < roofs) {
           const r = place(0, -2.8), c = j % 2 ? 0x19b3f5 : 0xff6b2c;
           b.add(12.6, 0.3, 6.2, c, r[0], 6.2, r[1], ry);
           [-5.8, 5.8].forEach((lx) => { const q = place(lx, -5.6); b.add(0.3, 6.2, 0.3, 0xdfe4ec, q[0], 3.1, q[1], ry); });
         }
       });
-      crowd.mesh.count = crowd.n;
-      crowd.mesh.instanceMatrix.needsUpdate = true;
 
-      // Sponsors: banners, start arch, flags, blimp
+      // Sponsors (10): banners on the far fence, the start arch, banners on the near fence, flags, a pylon, the blimp, a balloon
       for (let i = 0; i < Math.min(4, lvl.sponsors); i++) {
         const tex = textTexture(BANNERS[i][0], BANNERS[i][1], '#ffffff', 512, 96, 58);
         mesh(new THREE.PlaneGeometry(7.8, 1.5), new THREE.MeshBasicMaterial({ map: tex }), -12.3 + i * 8.2, 1.9, -LOT.hz - 0.35, venueGroup);
       }
-      if (lvl.sponsors >= 3) {
+      if (lvl.sponsors >= 5) {
         const tube = mat(0xff6b2c);
         const az = -12.5, ax = 11.2;
         [ax - 5.6, ax + 5.6].forEach((x) => mesh(new THREE.CylinderGeometry(0.75, 0.9, 7.4, 10), tube, x, 3.7, az, venueGroup, true));
@@ -830,14 +839,34 @@
         mesh(new THREE.PlaneGeometry(7, 1.1), new THREE.MeshBasicMaterial({ map: textTexture('SEND IT', '#ffffff', '#ff6b2c', 384, 64, 48) }),
           ax, 7.6, az + 0.85, venueGroup);
       }
-      if (lvl.sponsors >= 5) {
+      if (lvl.sponsors >= 6) {
+        for (let i = 0; i < 4; i++) {
+          const k = (i + 2) % BANNERS.length;
+          b.add(7.9, 1.7, 0.2, 0xdfe4ec, -12.3 + i * 8.2, 1.15, LOT.hz + 0.45);
+          mesh(new THREE.PlaneGeometry(7.8, 1.5), new THREE.MeshBasicMaterial({ map: textTexture(BANNERS[k][0], BANNERS[k][1], '#ffffff', 512, 96, 58) }),
+            -12.3 + i * 8.2, 1.15, LOT.hz + 0.57, venueGroup);
+        }
+      }
+      if (lvl.sponsors >= 7) {
         for (let i = 0; i < 7; i++) {
           const z = -LOT.hz + 4 + i * 11, x = PIT_X + 6;
           b.add(0.16, 7, 0.16, 0xdfe4ec, x, 3.5, z).add(0.1, 3.8, 1.4, CROWD_COLORS[i % 6], x, 5, z + 0.75);
         }
       }
-      if (lvl.sponsors >= 6) {
-        blimp = new THREE.Group();
+      if (lvl.sponsors >= 8) {   // a sponsor pylon by the far corner, its sign turning
+        const px = -LOT.hx - 9, pz = -LOT.hz - 12;
+        b.add(1.2, 16, 1.2, 0x2a3142, px, 8, pz);
+        const sign = new THREE.Group();
+        sign.position.set(px, 17.5, pz);
+        [0, Math.PI / 2].forEach((r, k) => {
+          const m = mesh(new THREE.PlaneGeometry(7, 2.2), new THREE.MeshBasicMaterial({ map: textTexture(BANNERS[k][0], BANNERS[k][1], '#ffffff', 512, 160, 64), side: THREE.DoubleSide }), 0, 0, 0, sign);
+          m.rotation.y = r;
+        });
+        venueGroup.add(sign);
+        movers.push((t) => { sign.rotation.y = t * 0.6; });
+      }
+      if (lvl.sponsors >= 9) {
+        const blimp = new THREE.Group();
         const hull = mesh(new THREE.SphereGeometry(1, 14, 10), mat(0xf6f8fc), 0, 0, 0, blimp, true);
         hull.scale.set(8, 2.8, 2.8);
         const band = mesh(new THREE.SphereGeometry(1, 14, 10), mat(0xff6b2c), 0, 0, 0, blimp);
@@ -847,9 +876,25 @@
         box(2.2, 0.2, 2.6, 0xff6b2c, -7, 0, 0, blimp);
         blimp.scale.setScalar(0.6);
         venueGroup.add(blimp);
+        movers.push((t) => {
+          const a = t * 0.07;
+          blimp.position.set(Math.cos(a) * 30 - 4, 24, Math.sin(a) * 30 - 22);
+          blimp.rotation.y = -a - Math.PI / 2;
+        });
+      }
+      if (lvl.sponsors >= 10) {   // a hot-air balloon drifting over the far side
+        const bal = new THREE.Group();
+        const env = mesh(new THREE.SphereGeometry(3, 12, 10), mat(0xffcf33), 0, 0, 0, bal, true);
+        env.scale.set(1, 1.2, 1);
+        for (let k = 0; k < 4; k++) { const st = mesh(new THREE.SphereGeometry(3.04, 12, 10, k * Math.PI / 2, Math.PI / 6), mat(0xe5484d), 0, 0, 0, bal); st.scale.set(1, 1.2, 1); }
+        box(1.4, 1, 1.4, 0x8a5a3c, 0, -5, 0, bal);
+        [-0.6, 0.6].forEach((x) => [-0.6, 0.6].forEach((z) => box(0.06, 2.2, 0.06, 0x2a3142, x, -3.6, z, bal)));
+        venueGroup.add(bal);
+        movers.push((t) => bal.position.set(-20 + Math.sin(t * 0.05) * 18, 30 + Math.sin(t * 0.3) * 1.2, -60 + Math.cos(t * 0.05) * 8));
       }
 
-      // Track prep: cones always, then tire walls, lights, kerbs, a board
+      // Track prep (10): cones always, then tire walls, towers, kerbs, a board, more towers, barriers, marshals,
+      // catch fencing, apex flags and a race control tower
       const cones = new Batch(new THREE.ConeGeometry(0.5, 1, 8), WHITE);
       corners.forEach((ci, n) => {
         const p = P.pts[ci], a = P.ang[ci], sg = Math.sign(P.kap[ci]);
@@ -861,7 +906,7 @@
             const q = P.pts[(ci + k * 9 + P.N) % P.N], qa = P.ang[(ci + k * 9 + P.N) % P.N];
             const ox = Math.sin(qa) * sg, oz = Math.cos(qa) * sg;
             const wx = clamp(q.x + ox * 7.4, -LOT.hx + 1, LOT.hx - 1), wz = clamp(q.z + oz * 7.4, -LOT.hz + 1, LOT.hz - 1);
-            if (P.pts.some((t) => Math.hypot(t.x - wx, t.z - wz) < 6)) continue;   // never on another part of the drift line
+            if (!clearOf(wx, wz, 6)) continue;   // never on another part of the drift line
             b.add(1.4, 0.6, 1.4, 0x15181f, wx, 0.33, wz, qa).add(1.4, 0.6, 1.4, (k + n) % 2 ? 0xf1f3f6 : 0xe5484d, wx, 0.95, wz, qa);
           }
         }
@@ -870,6 +915,10 @@
             const idx = (ci + k * 5 + P.N) % P.N, q = P.pts[idx], qa = P.ang[idx];
             b.add(1.5, 0.1, 0.9, k % 2 ? 0xf1f3f6 : 0xe5484d, q.x - Math.sin(qa) * sg * 3.5, 0.08, q.z - Math.cos(qa) * sg * 3.5, qa);
           }
+        }
+        if (lvl.prep >= 9) {   // a flag on a pole at each apex
+          const fx = p.x + ix * 5.6, fz = p.z + iz * 5.6;
+          if (clearOf(fx, fz, 3)) b.add(0.12, 4, 0.12, 0xdfe4ec, fx, 2, fz).add(0.06, 1, 1.4, n % 2 ? 0xffcf33 : 0x2f8fff, fx, 3.4, fz + 0.7);
         }
       });
       cones.build(venueGroup);
@@ -886,6 +935,226 @@
         mesh(new THREE.PlaneGeometry(7, 3), new THREE.MeshBasicMaterial({ map: textTexture('BIG ANGLE', '#15181f', '#ffcf33', 384, 160, 62) }),
           bx, 6.4, bzz + 0.22, venueGroup);
       }
+      if (lvl.prep >= 6) {   // steel barriers inside the lot's edge, wherever the drift line is not close
+        const rail = (x, z, along) => { if (clearOf(x, z, 4.2)) b.add(along ? 3 : 0.25, 0.5, along ? 0.25 : 3, 0xc9d1dd, x, 0.55, z).add(0.18, 0.7, 0.18, 0x7d8696, x, 0.35, z); };
+        for (let x = -LOT.hx + 2; x < LOT.hx - 1; x += 3) { rail(x, -LOT.hz + 1.2, true); rail(x, LOT.hz - 1.2, true); }
+        for (let z = -LOT.hz + 2; z < LOT.hz - 1; z += 3) { rail(-LOT.hx + 1.2, z, false); rail(LOT.hx - 1.2, z, false); }
+      }
+      if (lvl.prep >= 7) {   // marshal posts in the lot's corners, a marshal with a flag in each
+        [[-LOT.hx + 2.6, -LOT.hz + 4.5], [LOT.hx - 2.6, -LOT.hz + 4.5], [-LOT.hx + 2.6, LOT.hz - 4.5], [LOT.hx - 2.6, LOT.hz - 4.5]].forEach((q, k) => {
+          if (!clearOf(q[0], q[1], 3)) return;
+          b.add(2, 2.2, 2, 0xff7a1a, q[0], 1.1, q[1]).add(2.3, 0.2, 2.3, 0xf1f3f6, q[0], 2.3, q[1]);
+          person(q[0] + 1.6, q[1], 0);
+          b.add(0.05, 1.2, 0.05, 0x2a3142, q[0] + 2.1, 2.2, q[1]).add(0.04, 0.6, 0.8, k % 2 ? 0xffcf33 : 0x22b573, q[0] + 2.1, 2.6, q[1] + 0.4);
+        });
+      }
+      if (lvl.prep >= 8) {   // catch fencing round the far and left edges
+        for (let x = -LOT.hx; x <= LOT.hx; x += 4) b.add(0.12, 3.6, 0.12, 0x8d99ad, x, 1.8, -LOT.hz - 1.1);
+        b.add(LOT.hx * 2, 2.6, 0.04, 0x9aa4b6, 0, 2.2, -LOT.hz - 1.1).add(LOT.hx * 2, 0.08, 0.08, 0x8d99ad, 0, 3.55, -LOT.hz - 1.1);
+      }
+      if (lvl.prep >= 10) {   // race control: a tall tower with glass all round, by the near corner
+        const rx = -LOT.hx - 6, rz = LOT.hz - 2;
+        b.add(3.4, 12, 3.4, 0xeef1f6, rx, 6, rz).add(4.6, 2.4, 4.6, 0x2a3142, rx, 13.2, rz).add(5, 0.4, 5, 0xff6b2c, rx, 14.6, rz);
+        glow.add(4.7, 1.2, 4.7, 0x9fd3ff, rx, 13.2, rz);
+      }
+
+      // Lighting (5): lamp posts, string lights over the pit lane, floodlight towers, glowing kerbs, a light show
+      if (lvl.lights >= 1) {
+        const lamp = (x, z) => { b.add(0.25, 6, 0.25, 0x5a6478, x, 3, z).add(1.2, 0.15, 0.25, 0x5a6478, x + 0.5, 6, z); glow.add(0.6, 0.3, 0.6, 0xfff0c2, x + 1, 5.85, z); };
+        [-12, 0, 12].forEach((x) => lamp(x, LOT.hz + 1.6));
+        if (lvl.lights >= 2) [-26, -8, 8, 26].forEach((z) => lamp(PIT_X + 6.9, z));
+      }
+      if (lvl.lights >= 2) {
+        const lx = PIT_X - 4.4, cols = [0xffcf33, 0xff6b2c, 0x3cf0ff, 0xff4fd8, 0x7ed957];
+        [-LOT.hz + 1, LOT.hz - 1].forEach((z) => b.add(0.2, 5.6, 0.2, 0x5a6478, lx, 2.8, z));
+        for (let z = -LOT.hz + 2, k = 0; z < LOT.hz - 1; z += 1.5, k++) glow.add(0.3, 0.3, 0.3, cols[k % cols.length], lx, 5.2 - Math.abs(Math.sin(z * 0.2)) * 0.5, z);
+      }
+      if (lvl.lights >= 3) {
+        [[-LOT.hx - 12, -LOT.hz - 10], [PIT_X + 10, -LOT.hz - 10], [-LOT.hx - 12, LOT.hz + 3], [PIT_X + 10, LOT.hz + 3]].forEach((q) => {
+          b.add(0.8, 20, 0.8, 0x5a6478, q[0], 10, q[1]).add(5, 0.4, 1, 0x2a3142, q[0], 20, q[1]);
+          for (let r = 0; r < 2; r++) for (let c = -1; c <= 1; c++) glow.add(1.3, 1, 0.3, 0xfff6d8, q[0] + c * 1.5, 21 + r * 1.2, q[1] + (q[1] < 0 ? 0.6 : -0.6));
+        });
+      }
+      if (lvl.lights >= 4) {
+        corners.forEach((ci) => {
+          const sg = Math.sign(P.kap[ci]);
+          for (let k = -5; k <= 5; k++) {
+            const idx = (ci + k * 5 + P.N) % P.N, q = P.pts[idx], qa = P.ang[idx];
+            glow.add(1.2, 0.06, 0.25, k % 2 ? 0x3cf0ff : 0xffffff, q.x + Math.sin(qa) * sg * 3.6, 0.1, q.z + Math.cos(qa) * sg * 3.6, qa);
+          }
+        });
+      }
+      if (lvl.lights >= 5) {   // four coloured beams sweeping the sky from the corners
+        const cone = new THREE.ConeGeometry(2.6, 46, 16, 1, true);
+        cone.rotateX(Math.PI); cone.translate(0, 23, 0);
+        [[-LOT.hx - 4, -LOT.hz - 4, 0xff4fd8], [LOT.hx + 4, -LOT.hz - 4, 0x3cf0ff], [-LOT.hx - 4, LOT.hz + 2, 0xffcf33], [LOT.hx + 4, LOT.hz + 2, 0x7ed957]].forEach((q, k) => {
+          const beam = mesh(cone, new THREE.MeshBasicMaterial({ color: q[2], transparent: true, opacity: 0.18, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }), q[0], 0.2, q[1], venueGroup);
+          beam.renderOrder = 4;
+          b.add(1.4, 0.8, 1.4, 0x2a3142, q[0], 0.4, q[1]);
+          movers.push((t) => { beam.rotation.set(Math.sin(t * 0.7 + k * 1.7) * 0.45, 0, Math.cos(t * 0.55 + k) * 0.45); });
+        });
+      }
+
+      // Track surface (5): fresh tarmac, painted run-off, drift-line markings, logos on the track, clipping points
+      if (lvl.surface >= 1) {
+        const fresh = mesh(new THREE.PlaneGeometry(LOT.hx * 2 - 1.2, LOT.hz * 2 - 1.2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.16, depthWrite: false }), 0, 0.04, 0, venueGroup);
+        fresh.rotation.x = -Math.PI / 2;
+      }
+      if (lvl.surface >= 2) {
+        corners.forEach((ci) => {
+          const sg = Math.sign(P.kap[ci]);
+          for (let k = -4; k <= 4; k++) {
+            const idx = (ci + k * 5 + P.N) % P.N, q = P.pts[idx], qa = P.ang[idx];
+            const x = q.x + Math.sin(qa) * sg * 5.4, z = q.z + Math.cos(qa) * sg * 5.4;
+            if (Math.abs(x) < LOT.hx - 0.8 && Math.abs(z) < LOT.hz - 0.8 && clearOf(x, z, 4.4)) b.add(1.6, 0.03, 2.2, k % 2 ? 0xe5484d : 0xf4f6fa, x, 0.05, z, qa);
+          }
+        });
+      }
+      if (lvl.surface >= 3) {
+        for (let i = 0; i < P.N; i += 6) {
+          const q = P.pts[i], qa = P.ang[i];
+          [-1, 1].forEach((sd) => b.add(1.3, 0.03, 0.16, 0xf4f6fa, q.x + Math.sin(qa) * sd * 2.5, 0.05, q.z + Math.cos(qa) * sd * 2.5, qa));
+        }
+      }
+      if (lvl.surface >= 4) {   // sponsor logos painted on the open tarmac
+        const spots = [];
+        for (let z = -LOT.hz + 6; z < LOT.hz - 6 && spots.length < 3; z += 3) for (let x = -LOT.hx + 6; x < LOT.hx - 6 && spots.length < 3; x += 3) {
+          if (clearOf(x, z, 5.6) && spots.every((q) => Math.hypot(q[0] - x, q[1] - z) > 14)) spots.push([x, z]);
+        }
+        spots.forEach((q, k) => flat(BANNERS[k][0], 'rgba(0,0,0,0)', BANNERS[k][1], 8, 2, q[0], q[1], 0, 0.75));
+      }
+      if (lvl.surface >= 5) {   // clipping points: a glowing marker at each apex
+        corners.forEach((ci) => {
+          const p = P.pts[ci], a = P.ang[ci], sg = Math.sign(P.kap[ci]);
+          const x = p.x - Math.sin(a) * sg * 2.6, z = p.z - Math.cos(a) * sg * 2.6;
+          const disc = mesh(new THREE.CircleGeometry(1, 20), new THREE.MeshBasicMaterial({ color: 0xffcf33, transparent: true, opacity: 0.85 }), x, 0.06, z, venueGroup);
+          disc.rotation.x = -Math.PI / 2;
+          glow.add(0.18, 1.6, 0.18, 0xffcf33, x, 0.8, z);
+        });
+      }
+
+      // Fan zone (5), along the near edge: food stalls, merch tents, a big screen, a stage, fireworks
+      const fz = LOT.hz + 6;
+      if (lvl.fans >= 1) {
+        [-14, -9, -4].forEach((x, k) => {
+          b.add(3.4, 2.2, 2.4, 0xeef1f6, x, 1.1, fz).add(3.6, 0.2, 2.8, 0x2a3142, x, 2.3, fz);
+          for (let c = 0; c < 4; c++) b.add(0.9, 0.5, 3, c % 2 ? 0xf4f6fa : CROWD_COLORS[k], x - 1.35 + c * 0.9, 2.7, fz + 0.2);
+          person(x - 0.8, fz + 2, Math.PI); person(x + 0.9, fz + 2.6, Math.PI);
+        });
+      }
+      if (lvl.fans >= 2) {
+        const tent = new Batch(new THREE.ConeGeometry(1, 1, 4), WHITE);
+        [13, 17.5, 22].forEach((x, k) => {
+          tent.add(3.2, 2.8, 3.2, [0xb56bff, 0x19b3f5, 0xff6fb5][k], x, 1.4, fz, Math.PI / 4);
+          b.add(2, 0.8, 0.8, 0xdfe4ec, x, 0.4, fz + 2);
+          person(x + 1, fz + 3, Math.PI);
+        });
+        tent.build(venueGroup);
+      }
+      if (lvl.fans >= 3) {
+        const sx = -21, sz = fz + 2;
+        b.add(0.4, 6, 0.4, 0x2a3142, sx - 3.2, 3, sz).add(0.4, 6, 0.4, 0x2a3142, sx + 3.2, 3, sz).add(7.4, 4.4, 0.5, 0x15181f, sx, 7.2, sz);
+        mesh(new THREE.PlaneGeometry(6.8, 3.8), new THREE.MeshBasicMaterial({ map: textTexture('LIVE', '#e5484d', '#ffffff', 256, 144, 80) }), sx, 7.2, sz + 0.27, venueGroup);
+      }
+      if (lvl.fans >= 4) {   // a stage with a truss, speakers and lights
+        const st = 4;
+        b.add(9, 1, 4.4, 0x2a3142, st, 0.5, fz + 1).add(9.4, 0.3, 0.3, 0x8d99ad, st, 5.2, fz - 1);
+        [-4.6, 4.6].forEach((dx) => b.add(0.3, 5.2, 0.3, 0x8d99ad, st + dx, 2.6, fz - 1).add(1.2, 2.4, 1, 0x15181f, st + dx, 2.2, fz + 2));
+        for (let k = 0; k < 6; k++) glow.add(0.5, 0.4, 0.4, CROWD_COLORS[k], st - 3.5 + k * 1.4, 4.9, fz - 0.8);
+        for (let k = 0; k < 8; k++) person(st - 4 + k * 1.1 + rand(-0.2, 0.2), fz + 4.2 + rand(0, 1.2), Math.PI);
+      }
+      if (lvl.fans >= 5) {   // fireworks over the far side, a burst every few seconds
+        const N = 180, fw = new THREE.InstancedMesh(new THREE.SphereGeometry(0.9, 6, 4), new THREE.MeshBasicMaterial({ color: 0xffffff }), N);
+        const pp = new Float32Array(N * 8);   // x y z vx vy vz age life
+        fw.frustumCulled = false;
+        for (let k = 0; k < N; k++) { fw.setColorAt(k, tmpCol.set(0xffffff)); pp[k * 8 + 6] = 1; pp[k * 8 + 7] = 0; }
+        fw.instanceMatrix.array.fill(0);
+        venueGroup.add(fw);
+        let next = 0, nextBurst = 0, last = null;
+        movers.push((t) => {
+          const dt = last == null ? 0 : Math.min(0.05, t - last); last = t;
+          if (t >= nextBurst) {
+            nextBurst = t + rand(1.1, 2.2);
+            const cx = rand(-16, 16), cy = rand(16, 22), cz = rand(-46, -30), col = CROWD_COLORS[Math.floor(rand(0, 6))];
+            for (let k = 0; k < 30; k++) {
+              const o = next * 8, th = rand(0, TAU), ph = Math.acos(rand(-1, 1)), sp = rand(7, 11);
+              pp.set([cx, cy, cz, Math.sin(ph) * Math.cos(th) * sp, Math.cos(ph) * sp, Math.sin(ph) * Math.sin(th) * sp, 0, rand(1, 1.6)], o);
+              fw.setColorAt(next, tmpCol.set(col));
+              next = (next + 1) % N;
+            }
+            fw.instanceColor.needsUpdate = true;
+          }
+          const a = fw.instanceMatrix.array;
+          for (let k = 0; k < N; k++) {
+            const o = k * 8, m = k * 16;
+            let sc = 0;
+            if (pp[o + 6] < pp[o + 7]) {
+              pp[o + 6] += dt; pp[o + 4] -= 6 * dt;
+              pp[o] += pp[o + 3] * dt; pp[o + 1] += pp[o + 4] * dt; pp[o + 2] += pp[o + 5] * dt;
+              sc = 1 - pp[o + 6] / pp[o + 7];
+            }
+            a[m] = sc; a[m + 5] = sc; a[m + 10] = sc; a[m + 12] = pp[o]; a[m + 13] = pp[o + 1]; a[m + 14] = pp[o + 2]; a[m + 15] = 1;
+          }
+          fw.instanceMatrix.needsUpdate = true;
+        });
+      }
+
+      // Media (5): camera towers, a cameraman, a commentary box, a drone over the leader, a helicopter
+      const camTower = (x, z, face) => {
+        [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach((q) => b.add(0.16, 6, 0.16, 0x8d99ad, x + q[0], 3, z + q[1]));
+        b.add(2.6, 0.2, 2.6, 0x8d99ad, x, 6, z).add(0.8, 0.7, 1.3, 0x2a3142, x, 6.6, z, face);
+        person(x + 0.6, z, face);
+        crowd.baseY[crowd.n - 1] += 6.1; tmpObj.position.set(x + 0.6, 6.85, z); tmpObj.rotation.set(0, face, 0); tmpObj.scale.set(0.8, 1.5, 0.6); tmpObj.updateMatrix(); crowd.mesh.setMatrixAt(crowd.n - 1, tmpObj.matrix);
+      };
+      if (lvl.media >= 1) camTower(-LOT.hx - 4, LOT.hz + 1, -0.5);
+      if (lvl.media >= 2) {
+        camTower(PIT_X + 9, -LOT.hz - 4, 2.4);
+        b.add(0.6, 0.5, 0.9, 0x2a3142, 9, 1.6, LOT.hz + 1.6);
+        person(9.5, LOT.hz + 1.6, Math.PI);
+      }
+      if (lvl.media >= 3) {   // the commentary box, up on legs at the far corner
+        const cx = -LOT.hx - 10, cz = -LOT.hz - 10;
+        [[-2, -1.5], [2, -1.5], [-2, 1.5], [2, 1.5]].forEach((q) => b.add(0.3, 8, 0.3, 0x5a6478, cx + q[0], 4, cz + q[1]));
+        b.add(5, 3, 3.6, 0xeef1f6, cx, 9.5, cz).add(5.4, 0.3, 4, 0x2a3142, cx, 11.15, cz);
+        glow.add(4.6, 1.4, 0.1, 0x9fd3ff, cx, 9.7, cz + 1.82);
+        mesh(new THREE.PlaneGeometry(2.4, 0.8), new THREE.MeshBasicMaterial({ map: textTexture('ON AIR', '#e5484d', '#ffffff', 256, 80, 52) }), cx, 11.9, cz + 1.9, venueGroup);
+      }
+      if (lvl.media >= 4) {   // a drone that follows the leading car
+        const drone = new THREE.Group();
+        box(0.9, 0.3, 0.9, 0x2a3142, 0, 0, 0, drone);
+        const props = [];
+        [[-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8]].forEach((q) => { box(0.5, 0.06, 0.08, 0x2a3142, q[0] / 2, 0, q[1] / 2, drone); props.push(box(0.9, 0.03, 0.12, 0xdfe4ec, q[0], 0.12, q[1], drone)); });
+        drone.position.set(0, 9, 0);
+        venueGroup.add(drone);
+        movers.push((t, dt) => {
+          let lead = null;
+          cars.forEach((c) => { if (!lead && c.state === 'run' && c.m) lead = c; });
+          const want = lead ? lead.m.g.position : { x: 0, z: 0 };
+          drone.position.x += (want.x - drone.position.x) * Math.min(1, dt * 1.5);
+          drone.position.z += (want.z + 4 - drone.position.z) * Math.min(1, dt * 1.5);
+          drone.position.y = 9 + Math.sin(t * 2) * 0.3;
+          props.forEach((pr, k) => { pr.rotation.y = t * 30 + k; });
+        });
+      }
+      if (lvl.media >= 5) {   // a TV helicopter circling high above
+        const heli = new THREE.Group();
+        box(3.2, 1.6, 1.6, 0x2f8fff, 0, 0, 0, heli);
+        box(4, 0.4, 0.4, 0x2f8fff, -3.4, 0.3, 0, heli).add(box(0.2, 1.4, 0.8, 0x2f8fff, -1.9, 0.5, 0));
+        glow.add(0.1, 0.1, 0.1, 0xffffff, 0, -100, 0);
+        const blade = box(9, 0.08, 0.4, 0x2a3142, 0, 1.1, 0, heli), tail = box(0.1, 1.6, 0.2, 0x2a3142, -5.4, 0.7, 0.3, heli);
+        box(1.6, 0.8, 1.5, 0x9fd3ff, 1.3, 0.2, 0, heli);
+        heli.scale.setScalar(0.9);
+        venueGroup.add(heli);
+        movers.push((t) => {
+          const a = t * 0.12;
+          heli.position.set(Math.cos(a) * 42, 34, Math.sin(a) * 42 - 10);
+          heli.rotation.y = -a;
+          blade.rotation.y = t * 25; tail.rotation.x = t * 30;
+        });
+      }
+      glow.build(venueGroup, false);
+      crowd.mesh.count = crowd.n;
+      crowd.mesh.instanceMatrix.needsUpdate = true;
       b.build(venueGroup);
     }
 
@@ -1217,7 +1486,7 @@
 
     function sync() {
       if (G.place(state).id !== themeId) setTheme();
-      const sig = [state.slots, state.venue.stands, state.venue.sponsors, state.venue.prep].join('|') + '|' + state.cars.map((c) => c.color).join(',');
+      const sig = [state.slots].concat(D.VENUE.map((v) => state.venue[v.id])).join('|') + '|' + state.cars.map((c) => c.color).join(',');
       if (sig !== venueSig) { venueSig = sig; buildVenue(); }
       syncCars();
       syncMechs();
@@ -1264,11 +1533,7 @@
       for (let i = 0; i < crowd.n; i++) a[i * 16 + 13] = crowd.baseY[i] + Math.max(0, Math.sin(time * 7 + crowd.phase[i])) * amp;
       if (crowd.n) crowd.mesh.instanceMatrix.needsUpdate = true;
 
-      if (blimp) {
-        const t = time * 0.07;
-        blimp.position.set(Math.cos(t) * 30 - 4, 24, Math.sin(t) * 30 - 22);
-        blimp.rotation.y = -t - Math.PI / 2;
-      }
+      for (let i = 0; i < movers.length; i++) movers[i](time, dt);
     }
 
     const indicatorList = [];
@@ -1294,7 +1559,7 @@
     resize();
     sync();
     Object.assign(world, { sync, update, render: () => renderer.render(scene, camera), setInsets, toScreen, indicators,
-      runningIds, status, addEarnings, pos, renderer, resize, size: () => size, _cars: cars, _mechs: mechs, _crash: (id) => { const c = cars.get(id); if (c && c.state === 'run') startCrash(c); } });
+      runningIds, status, addEarnings, pos, renderer, resize, size: () => size, _movers: () => movers, _scene: scene, _cars: cars, _mechs: mechs, _crash: (id) => { const c = cars.get(id); if (c && c.state === 'run') startCrash(c); } });
     return world;
   }
 

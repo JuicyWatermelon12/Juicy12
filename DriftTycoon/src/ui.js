@@ -145,15 +145,21 @@
       const inc = G.incomeRate(state), here = G.place(state), next = G.nextPlace(state);
       let h = '<article class="card"><h3>' + esc(here.name) + '</h3><p class="note">' + esc(here.blurb) + ' Style from the cars turns into cash only as fast as the crowd can cheer: right now ' +
         G.fmt(inc.cap, 1) + ' style/s.' + (here.style > 1 ? ' Everything scores x' + here.style + ' style here.' : '') + '</p></article>';
-      const now = { stands: G.fmt(G.crowdCap(state), 1) + ' style/s cheered', sponsors: 'Cash x' + G.sponsorMult(state).toFixed(2), prep: 'Style x' + (G.prepMult(state) / here.style).toFixed(2) };
-      const then = {
-        stands: G.fmt(G.crowdCap(state) * D.CROWD_GROWTH, 1) + ' style/s', sponsors: 'x' + (G.sponsorMult(state) * D.SPONSOR_MULT).toFixed(2),
-        prep: 'x' + (G.prepMult(state) / here.style * D.PREP_MULT).toFixed(2),
-      };
+      const prog = G.venueProgress(state.venue);
+      h += '<article class="card"><div class="row"><div><strong>Venue upgrades: ' + prog.done + ' of ' + prog.total + '</strong><small>' +
+        (prog.done >= prog.total ? 'Fully built. Every line is at its top level.' : 'Every level shows on the venue.' +
+          (G.nextPlace(state) && state.place === state.placeOwned ? ' The next venue goes on sale once all of them are bought.' : '')) +
+        '</small></div></div><i class="progress"><b style="width:' + Math.round(prog.done / prog.total * 100) + '%"></b></i></article>';
+      // what one more level of a line does, next to what the line gives now
+      const line = (v, lv) => Math.pow(v.per, lv);
+      const show = (v, lv) => v.effect === 'crowd' ? G.fmt(G.crowdCap(state) / line(v, state.venue[v.id]) * line(v, lv), 1) + ' style/s cheered'
+        : v.effect === 'cash' ? 'Cash x' + line(v, lv).toFixed(2) : v.effect === 'style' ? 'Style x' + line(v, lv).toFixed(2)
+        : 'Bubbles ' + Math.round((1 - v.per * lv) * 100) + '% as far apart, pay x' + (1 + 2 * v.per * lv).toFixed(2);
       D.VENUE.forEach((v) => {
-        const top = state.venue[v.id] >= D.VENUE_MAX[v.id];
-        h += '<article class="card"><div class="row"><div><strong>' + v.name + '</strong> <span class="lv">Lv ' + state.venue[v.id] + ' / ' + D.VENUE_MAX[v.id] + '</span><small>' + v.blurb +
-          '</small><small class="delta">' + now[v.id] + (top ? '' : ' → ' + then[v.id]) + '</small></div>' + buy('', G.venueCost(state, v.id), 'venue', { id: v.id }) + '</div></article>';
+        const lv = state.venue[v.id], top = lv >= v.max;
+        h += '<article class="card"><div class="row"><div><strong>' + v.name + '</strong> <span class="lv">Lv ' + lv + ' / ' + v.max + '</span><small>' + v.blurb +
+          '</small><small class="delta">' + show(v, lv) + (top ? '' : ' → ' + show(v, lv + 1).replace(/^(Cash |Style )/, '')) + '</small></div>' +
+          buy('', G.venueCost(state, v.id), 'venue', { id: v.id }) + '</div></article>';
       });
       h += '<article class="card"><div class="row"><div><strong>Pits: ' + state.slots + ' of ' + G.maxPits(state) + '</strong><small>Each pit is one more car on track.</small></div>' +
         buy('', G.slotCost(state), 'slot') + '</div></article>';
@@ -162,21 +168,24 @@
         D.VENUES.forEach((v, n) => {
           if (!G.ownsPlace(state, n)) return;
           const lv = state.levels[n] || {}, at = n === state.place;
+          const pr = G.venueProgress(lv);
           h += '<article class="card' + (at ? ' here' : '') + '"><div class="row"><div><strong>' + esc(v.name) + '</strong><small>x' + v.style + ' style · ' +
-            D.VENUE.map((u) => u.name + ' ' + (lv[u.id] || 0)).join(' · ') + '</small></div>' +
+            (pr.done >= pr.total ? 'fully built' : pr.done + ' of ' + pr.total + ' upgrades') + '</small></div>' +
             (at ? '<span class="tag">Team is here</span>' : '<button class="buy alt" data-act="move-place" data-place="' + n + '"><span class="buy-cost">Move team</span></button>') +
             '</div></article>';
         });
-        h += '<p class="note">The team drifts for the crowd at one venue at a time. Each venue keeps its own grandstands, sponsors and track prep, ' +
+        h += '<p class="note">The team drifts for the crowd at one venue at a time. Each venue keeps its own upgrades, ' +
           'and every track you own can be driven in Drift mode.</p>';
       }
       if (next) {
-        const cars = next.cars.map((id) => G.model(id).name).join(', '), best = G.bestPlace(state);
+        const cars = next.cars.map((id) => G.model(id).name).join(', '), best = G.bestPlace(state), locked = G.placeLocked(state);
+        const bp = G.venueProgress(state.levels[state.placeOwned]);
         h += '<h3 class="section">Next venue</h3><article class="card next-place"><div class="row"><div><strong>' + esc(next.name) + '</strong><small>' + esc(next.blurb) + '</small>' +
           '<small class="delta">' + next.pits + ' pits · x' + (next.style / best.style) + ' style · ' + D.PART_STAGES[next.stage] + ' parts · new car: ' + esc(cars) + '</small></div>' +
-          buy('Buy venue', next.cost, 'buy-place') + '</div><p class="note">' +
+          (locked ? '<span class="tag off">' + bp.done + ' / ' + bp.total + '</span>' : buy('Buy venue', next.cost, 'buy-place')) + '</div><p class="note">' +
+          (locked ? '<b>On sale once the ' + esc(best.name) + ' is fully built:</b> every upgrade there at its top level (' + bp.done + ' of ' + bp.total + ' so far). It will cost ' + G.money(next.cost) + '. ' : '') +
           'Yours for good once bought, along with everything you already own. Its car, pits and parts go on sale at once, and its track opens in Drift mode. ' +
-          'Move the team there when you are ready: its grandstands, sponsors and track prep start from zero.</p></article>';
+          'Move the team there when you are ready: its upgrades start from zero.</p></article>';
       } else {
         h += '<article class="card"><p class="note">You own every venue there is for now. More are on the way.</p></article>';
       }
@@ -531,7 +540,7 @@
 
     /* ---------- Tap bubbles ---------- */
     const SPOTS = { wave: [-21, 8, 2], meet: [0, 10, -6] };   // where the crowd and meet bubbles rise from; a perfect-drift one follows a car
-    let bubbleIn = G.bubbleGap(), bubbleNow = null;
+    let bubbleIn = G.bubbleGap(null, state), bubbleNow = null;
     const fxEl = document.createElement('div');
     fxEl.id = 'fx';
     el.hud.appendChild(fxEl);
@@ -574,7 +583,7 @@
       if (!bubbleNow) {
         bubbleIn -= dt;
         if (bubbleIn > 0) return;
-        bubbleIn = G.bubbleGap();
+        bubbleIn = G.bubbleGap(null, state);
         if (!spawnBubble(G.rollBubble(state))) return;
       }
       const b = bubbleNow, at = bubblePoint(b);

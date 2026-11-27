@@ -7,7 +7,10 @@ const { data: D, game: G } = globalThis.DT;
 
 /* A team with money to burn, already at the last venue so nothing there is locked. */
 const LAST = D.VENUES.length - 1;
-const own = (s, upTo) => { while (s.placeOwned < upTo) { s.placeOwned++; s.levels[s.placeOwned] = { stands: 0, sponsors: 0, prep: 0 }; } return s; };
+const zero = (o) => Object.assign(Object.fromEntries(D.VENUE.map((v) => [v.id, 0])), o || {});   // venue levels, all at 0 unless given
+const maxed = () => Object.fromEntries(D.VENUE.map((v) => [v.id, v.max]));
+const line = (id) => D.VENUE.find((v) => v.id === id);
+const own = (s, upTo) => { while (s.placeOwned < upTo) { s.placeOwned++; s.levels[s.placeOwned] = zero(); } return s; };
 const rich = () => { const s = own(G.newState(1000), LAST); s.cash = 1e18; G.movePlace(s, LAST); return s; };
 const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, a + ' vs ' + b);
 const mk = (s, fields) => Object.assign({ id: s.nextId++, name: 'T' + s.nextId, rarity: 'common', skill: 20, control: 20, flair: 20,
@@ -102,13 +105,67 @@ test('income is capped by the crowd; grandstands, sponsors and track prep each m
   assert.equal(inc.cheered, crowd);
   assert.equal(inc.cash, crowd * D.VENUE_CASH * G.place(s).cash);
   G.buyVenue(s, 'stands');
-  near(G.crowdCap(s), crowd * D.CROWD_GROWTH);
+  near(G.crowdCap(s), crowd * line('stands').per);
+  G.buyVenue(s, 'lights');
+  near(G.crowdCap(s), crowd * line('stands').per * line('lights').per);
   const before = G.incomeRate(s).cash;
   G.buyVenue(s, 'sponsors'); G.buyVenue(s, 'sponsors');
-  near(G.incomeRate(s).cash / before, D.SPONSOR_MULT * D.SPONSOR_MULT);
+  near(G.incomeRate(s).cash / before, line('sponsors').per * line('sponsors').per);
+  const before2 = G.incomeRate(s).cash;
+  G.buyVenue(s, 'fans');
+  near(G.incomeRate(s).cash / before2, line('fans').per);
   const style = G.carStyle(s, car);
   G.buyVenue(s, 'prep');
-  near(G.carStyle(s, car) / style, D.PREP_MULT);
+  near(G.carStyle(s, car) / style, line('prep').per);
+  G.buyVenue(s, 'surface');
+  near(G.carStyle(s, car) / style, line('prep').per * line('surface').per);
+});
+
+test('venue upgrades: seven lines, about fifty levels, the same totals at the top as the old three lines, and media speeds up bubbles', () => {
+  assert.equal(D.VENUE.length, 7);
+  const total = D.VENUE.reduce((t, v) => t + v.max, 0);
+  assert.ok(total >= 45 && total <= 55, total + ' levels');
+  const top = (effect) => D.VENUE.reduce((m, v) => (v.effect === effect ? m * Math.pow(v.per, v.max) : m), 1);
+  near(top('crowd'), 243, 0.02);    // 3^5 before
+  near(top('cash'), 3.815, 0.02);   // 1.25^6 before
+  near(top('style'), 2.488, 0.02);  // 1.2^5 before
+  for (const v of D.VENUE) assert.ok(['crowd', 'cash', 'style', 'media'].includes(v.effect) && v.max > 0 && v.cost > 0 && v.growth > 1, v.id);
+  const s = rich();
+  G.movePlace(s, 0);
+  const rng = () => 0.5, gap = G.bubbleGap(rng, s), cash0 = G.popBubble(s, 'perfect'), inc0 = G.expectedIncome(s);
+  for (let i = 0; i < line('media').max; i++) G.buyVenue(s, 'media');
+  near(G.expectedIncome(s), inc0, 1e-12);   // media lifts only the bubbles
+  near(G.bubbleGap(rng, s) / gap, 1 - line('media').per * line('media').max, 1e-9);
+  near(G.popBubble(s, 'perfect') / cash0, 1 + 2 * line('media').per * line('media').max, 1e-9);
+  // every level costs more than the last; a maxed line costs Infinity
+  for (const v of D.VENUE) {
+    let last = 0;
+    while (s.venue[v.id] < v.max) { const c = G.venueCost(s, v.id); assert.ok(c > last); last = c; G.buyVenue(s, v.id); }
+    assert.equal(G.venueCost(s, v.id), Infinity);
+    assert.equal(G.buyVenue(s, v.id), false);
+  }
+  assert.ok(G.venueMaxed(s));
+  assert.deepEqual(G.venueProgress(s.venue), { done: total, total });
+});
+
+test('the next venue goes on sale only once every upgrade at the best venue owned is maxed', () => {
+  const s = G.newState(0), next = D.VENUES[1];
+  s.cash = 1e15;
+  assert.ok(G.placeLocked(s));
+  assert.equal(G.buyPlace(s), false, 'locked while the Parking Lot is not fully built');
+  for (const v of D.VENUE) while (s.venue[v.id] < v.max - (v.id === 'media' ? 1 : 0)) G.buyVenue(s, v.id);
+  assert.equal(G.buyPlace(s), false, 'one level short is still locked');
+  G.buyVenue(s, 'media');
+  assert.ok(!G.placeLocked(s));
+  const cash = s.cash;
+  assert.ok(G.buyPlace(s));
+  near(cash - s.cash, next.cost);
+  // the gate follows the best venue owned: now the Docks must be built before the Airfield
+  assert.ok(G.placeLocked(s));
+  assert.equal(G.buyPlace(s), false);
+  G.movePlace(s, 1);
+  for (const v of D.VENUE) while (s.venue[v.id] < v.max) G.buyVenue(s, v.id);
+  assert.ok(G.buyPlace(s));
 });
 
 test('only running cars earn and gain experience', () => {
@@ -341,10 +398,9 @@ test('prices outrun what they buy, so the economy cannot snowball', () => {
   const avg = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
   const modelGain = Math.log(avg(steps(D.MODELS.map((m) => m.base)))) / Math.log(avg(steps(D.MODELS.map((m) => m.cost))));
   const partsGain = D.PARTS.reduce((t, p) => t + Math.log(1 + p.per * D.PART_MAX), 0) / (D.PART_MAX * Math.log(D.PART_GROWTH));
-  const venue = (id) => D.VENUE.find((v) => v.id === id).growth;
-  const venueGain = Math.log(D.SPONSOR_MULT) / Math.log(venue('sponsors')) + Math.log(D.PREP_MULT) / Math.log(venue('prep'));
+  const venueGain = D.VENUE.filter((v) => v.effect === 'cash' || v.effect === 'style').reduce((t, v) => t + Math.log(v.per) / Math.log(v.growth), 0);
   assert.ok(modelGain + partsGain + venueGain < 0.85, 'sum ' + (modelGain + partsGain + venueGain).toFixed(2));
-  assert.ok(venue('stands') > D.CROWD_GROWTH);
+  for (const v of D.VENUE) if (v.effect === 'crowd') assert.ok(v.growth > v.per, v.id);
 });
 
 test('save and load round-trips, prospects included; broken saves give a new team', () => {
@@ -858,7 +914,8 @@ test('venues are kept: buying adds one, each keeps its own upgrade levels, and t
   s.cash = next.cost - 1;
   assert.equal(G.buyPlace(s), false);
   s.cash = next.cost + 5e7;
-  car.parts.engine = 2; Object.assign(s.venue, { stands: 3, sponsors: 4, prep: 2 }); s.mech.level = 2;
+  assert.equal(G.buyPlace(s), false, 'not until the Parking Lot is fully built');
+  car.parts.engine = 2; Object.assign(s.venue, maxed()); s.mech.level = 2;
   G.addCred(s, 500); G.buyCosmetic(s, car.id, 'paint', 'black');
   const cash = s.cash, driver = car.driver, style = G.carStyle(s, car), cred = s.street.cred, lotIncome = G.expectedIncome(s);
   assert.ok(G.buyPlace(s));
@@ -872,11 +929,11 @@ test('venues are kept: buying adds one, each keeps its own upgrade levels, and t
   // move there: its levels start at zero, the old venue keeps its own
   assert.ok(G.movePlace(s));
   assert.equal(G.place(s), next);
-  assert.deepEqual(s.venue, { stands: 0, sponsors: 0, prep: 0 });
+  assert.deepEqual(s.venue, zero());
   assert.equal(s.venue, s.levels[1]);
-  assert.deepEqual(s.levels[0], { stands: 3, sponsors: 4, prep: 2 });
+  assert.deepEqual(s.levels[0], maxed());
   assert.deepEqual([car.parts.engine, car.driver, car.paint, s.mech.level, s.street.cred], [2, driver, 'black', 2, cred]);
-  near(G.carStyle(s, car) / style, next.style / Math.pow(D.PREP_MULT, 2), 1e-9);
+  near(G.carStyle(s, car) / style, next.style / G.lineMult(maxed(), 'style'), 1e-9);
   near(G.crowdCap(s), next.crowd);
   assert.equal(G.venueCost(s, 'stands'), Math.ceil(D.VENUE[0].cost * next.scale));
   s.cash = 1e12; G.buyVenue(s, 'prep');
@@ -884,10 +941,10 @@ test('venues are kept: buying adds one, each keeps its own upgrade levels, and t
   assert.equal(G.movePlace(s, 1), false, 'already there');
   assert.ok(G.movePlace(s, 0));
   assert.equal(G.place(s), lot);
-  assert.deepEqual(s.venue, { stands: 3, sponsors: 4, prep: 2 });
+  assert.deepEqual(s.venue, maxed());
   near(G.expectedIncome(s), lotIncome, 1e-9);
-  assert.equal(G.venueCost(s, 'stands'), Math.ceil(D.VENUE[0].cost * lot.scale * Math.pow(D.VENUE[0].growth, 3)));
-  assert.deepEqual(s.levels[1], { stands: 0, sponsors: 0, prep: 1 });
+  assert.equal(G.venueCost(s, 'stands'), Infinity, 'maxed at the Parking Lot');
+  assert.deepEqual(s.levels[1], zero({ prep: 1 }));
   assert.ok(G.modelUnlocked(s, next.cars[0]), 'what is on sale follows the best venue owned, not the one the team is at');
   // saved and loaded
   G.movePlace(s, 1);
@@ -898,7 +955,7 @@ test('venues are kept: buying adds one, each keeps its own upgrade levels, and t
   const old = JSON.parse(G.serialize(s));
   delete old.levels; old.venue = { stands: 2, sponsors: 1, prep: 1 }; old.street = { runs: 4, cred: 77, bestScore: 900, bestDist: 450 };
   const conv = G.load(old, 0);
-  assert.deepEqual(conv.levels, [{ stands: 0, sponsors: 0, prep: 0 }, { stands: 2, sponsors: 1, prep: 1 }]);
+  assert.deepEqual(conv.levels, [zero(), zero({ stands: 2, sponsors: 1, prep: 1 })]);
   assert.deepEqual(conv.street, { runs: 4, cred: 77, best: { pass: { score: 900, dist: 450 } } });
   // with every venue owned there is nothing more to buy
   own(s, LAST); s.cash = 1e30;

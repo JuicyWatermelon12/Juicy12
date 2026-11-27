@@ -33,8 +33,25 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
     the newcomer, who takes their seat.
 - **Crashes and mechanics:** a drifting car can spin out. A free mechanic runs to it, repairs it and it rejoins
   when the track around it is clear. More mechanics repair more cars at once; training shortens repairs.
-- **Three limits to upgrade:** pits (how many cars run), the cars themselves (style a second), and grandstands
-  (how much style the crowd can cheer for, which caps income). Sponsors multiply cash; track prep multiplies style.
+- **Three limits to upgrade:** pits (how many cars run), the cars themselves (style a second), and the crowd
+  (how much style it can cheer for, which caps income). The venue's upgrade lines raise the crowd, cash and style.
+- **Venue upgrades** (Venue tab): seven lines, 50 levels at every venue, and every level shows on the venue.
+
+  | Line | Levels | Does | You see |
+  |---|---|---|---|
+  | Grandstands | 10 | crowd x1.41 a level | a stand module each level, then roofs on half, then all |
+  | Sponsors | 10 | cash x1.09 a level | far-fence banners, the start arch, near-fence banners, flags, a turning sponsor pylon, the blimp, a hot-air balloon |
+  | Track prep | 10 | style x1.054 a level | tire walls, light towers, kerbs, the BIG ANGLE board, more towers, barriers, marshal posts, catch fencing, apex flags, a race control tower |
+  | Lighting | 5 | crowd x1.5 a level | lamp posts, string lights over the pit lane, floodlight towers, glowing kerbs, a sweeping light show |
+  | Track surface | 5 | style x1.08 a level | fresh tarmac, painted run-off, drift-line markings, logos painted on the track, glowing clipping points |
+  | Fan zone | 5 | cash x1.1 a level | food stalls, merch tents, a big LIVE screen, a stage, fireworks |
+  | Media | 5 | tap bubbles come 8% sooner and pay 16% more a level | a camera tower, a second one and a cameraman, the commentary box, a drone over the leading car, a TV helicopter |
+
+  A fully built venue earns what it did with the old three lines (crowd x243, cash x3.8, style x2.5). Prices are
+  set so purchases spread through a venue's life: in the simulator about half are bought by a quarter to a half
+  of the time there, and the last at 60 to 85%. **The next venue goes on sale only once every line at the best
+  venue owned is at its top level** (the Venue tab shows how far along it is). Saves from before keep their
+  levels, so a venue that was maxed is now part built.
 - **Away earnings:** up to four hours at the team's long-run rate, crashes included.
 - **Drift mode** (the Drift button; the code calls it "touge"): the main way to earn. Drive one of your own cars.
   The car drives itself; you slide one finger left and right to steer (arrow keys or A / D on a keyboard). The
@@ -100,16 +117,17 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
   - the highest part stage on sale (Sport, Race, Pro, Works, Prototype, Unlimited, Legend), so parts last the
     whole ladder;
   - a style multiplier (x4 per venue, up to x4096), a bigger crowd, and dearer venue upgrades;
-  - top levels for its upgrades: grandstands 5, sponsors 6, track prep 5.
+  - the price scale of its upgrades (`scale`).
   - **a distance bar** (`bar`): the average Drift run that keeps the intended pace there. It grows with every
     venue, because the player is expected to get better: 2 km at the Parking Lot, 3 km at the Docks, 4 km at the
     Airfield (the first three are the hook, on a quicker curve), then 1 km more per venue: 5 km at the Pro
-    Circuit up to 8 km on the Aircraft Carrier. Each venue's cash rate (`cash`: x1.7, x1, x0.7, x0.7, x0.45,
-    x0.45, x0.52) sets its pace; a player below the bar still progresses, only slower.
+    Circuit up to 8 km on the Aircraft Carrier. Each venue's cash rate (`cash`: x1.7, x1.15, x1.3, x1.1, x0.75,
+    x0.78, x0.45) sets its pace; a player below the bar still progresses, only slower.
   The Docks cost $40M, the Airfield $6B, the Pro Circuit $700B, the Stadium $60T, Neon City $2Q and the Carrier
   $80Q. For a player at each bar (from moving in to moving on): the Parking Lot about 15 to 20 minutes, the Docks
-  30 to 45, the Airfield about an hour, the Pro Circuit about 2 hours, the Stadium about 3½, Neon City about 6,
-  and the Aircraft Carrier about 10 hours to build out: about 24 hours in all. Each venue after the hook takes
+  35 to 45, the Airfield about an hour, the Pro Circuit about 2¼ hours, the Stadium about 3¾, Neon City about 6½,
+  and the Aircraft Carrier about 10 hours to build out: about 25 hours in all (with every venue built out before
+  the next one). Each venue after the hook takes
   about 1.75 times the one before.
   - **Scenery:** the Pro Circuit has pit garages and race control under a main grandstand, a timing tower, and
     the circuit running past with kerbs, gravel and tire walls. The Stadium sits on a football pitch (its lines

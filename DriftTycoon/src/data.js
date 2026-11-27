@@ -166,16 +166,30 @@
 
     /* Venue. Pits = how many cars can run. */
     SLOT_COSTS: [0, 1200, 80000, 2e7, 2e9, 2e11],
+    /* Venue upgrade lines. Every venue has all of them, each with its own levels; the next venue goes on sale
+       only once every line at the best venue owned is at its top level. Each level multiplies one thing by `per`:
+         crowd  how much style the crowd can cheer (it caps income)
+         cash   cash for every point of style cheered
+         style  every car's style
+         media  tap bubbles come more often (gap x (1 - per x level)) and pay more (x (1 + 2 per x level))
+       A level costs cost x the venue's `scale` x growth^level, so the top levels are a real share of what the
+       next venue costs and arrive late in a venue's life. Every level shows on the venue. */
     VENUE: [
       { id: 'stands', name: 'Grandstands', blurb: 'More fans can watch. Raises how much style turns into cash.',
-        cost: 300, growth: 3.6 },
-      { id: 'sponsors', name: 'Sponsors', blurb: 'Banners, an arch and one day a blimp. More cash for every point.',
-        cost: 3000, growth: 6 },
-      { id: 'prep', name: 'Track prep', blurb: 'Tire walls, lights and kerbs. Every car scores more style.',
-        cost: 2000, growth: 6 },
+        effect: 'crowd', per: Math.SQRT2, max: 10, cost: 3500, growth: 2 },
+      { id: 'sponsors', name: 'Sponsors', blurb: 'Banners, an arch, flags and one day a blimp. More cash for every point.',
+        effect: 'cash', per: 1.09, max: 10, cost: 3300, growth: 2 },
+      { id: 'prep', name: 'Track prep', blurb: 'Cones, tire walls, kerbs, barriers and marshals. Every car scores more style.',
+        effect: 'style', per: 1.054, max: 10, cost: 2600, growth: 2 },
+      { id: 'lights', name: 'Lighting', blurb: 'Light poles, floodlights, lit kerbs and a light show. The crowd can cheer more.',
+        effect: 'crowd', per: 1.5, max: 5, cost: 12000, growth: 3.5 },
+      { id: 'surface', name: 'Track surface', blurb: 'Fresh tarmac, painted run-off, drift-line markings and logos. More style.',
+        effect: 'style', per: 1.08, max: 5, cost: 18000, growth: 3.5 },
+      { id: 'fans', name: 'Fan zone', blurb: 'Food stalls, merch tents, a big screen, a stage and fireworks. More cash.',
+        effect: 'cash', per: 1.1, max: 5, cost: 24000, growth: 3.5 },
+      { id: 'media', name: 'Media', blurb: 'Camera towers, a commentary box, a drone and a helicopter. Bubbles come more often and pay more.',
+        effect: 'media', per: 0.08, max: 5, cost: 9000, growth: 3.5 },
     ],
-    VENUE_MAX: { stands: 5, sponsors: 6, prep: 5 },   // top level of each upgrade, at every venue
-    CROWD_GROWTH: 3,                     // the crowd can cheer x3 more style per grandstand level
 
     /* The venue ladder. Every venue the team buys is kept, with its own grandstands, sponsors and track prep.
        The team runs at one venue at a time and can move between the ones it owns. What is on sale (pits, car
@@ -195,21 +209,19 @@
       { id: 'lot', name: 'Parking Lot', blurb: 'An empty car park behind the team shed. Everyone starts somewhere.',
         cost: 0, pits: 3, cars: ['kumo', 'hachi'], style: 1, crowd: 20, scale: 0.4, stage: 2, bar: 2, cash: 1.7 },
       { id: 'docks', name: 'Docks', blurb: 'Container stacks, cranes and a quay that is closed at night.',
-        cost: 4e7, pits: 4, cars: ['kaze'], style: 4, crowd: 3000, scale: 150, stage: 3, bar: 3, cash: 1 },
+        cost: 4e7, pits: 4, cars: ['kaze'], style: 4, crowd: 3000, scale: 250, stage: 3, bar: 3, cash: 1.15},
       { id: 'airfield', name: 'Airfield', blurb: 'A disused runway with room to go properly sideways.',
-        cost: 6e9, pits: 5, cars: ['rotor'], style: 16, crowd: 1.2e5, scale: 10000, stage: 4, bar: 4, cash: 0.7 },
+        cost: 6e9, pits: 5, cars: ['rotor'], style: 16, crowd: 1.2e5, scale: 3e4, stage: 4, bar: 4, cash: 1.3},
       { id: 'pro', name: 'Pro Circuit', blurb: 'A real race circuit, hired by the day: pit garages, kerbs and a proper grandstand.',
-        cost: 7e11, pits: 6, cars: ['skyward'], style: 64, crowd: 5e6, scale: 7e5, stage: 5, bar: 5, cash: 0.7 },
+        cost: 7e11, pits: 6, cars: ['skyward'], style: 64, crowd: 5e6, scale: 2.5e6, stage: 5, bar: 5, cash: 1.1},
       { id: 'stadium', name: 'Stadium', blurb: 'A football stadium turned arena for the night: floodlights and sixty thousand seats.',
-        cost: 6e13, pits: 6, cars: ['shogun'], style: 256, crowd: 2e8, scale: 5e7, stage: 6, bar: 6, cash: 0.45 },
+        cost: 6e13, pits: 6, cars: ['shogun'], style: 256, crowd: 2e8, scale: 1.5e8, stage: 6, bar: 6, cash: 0.75},
       { id: 'neon', name: 'Neon City', blurb: 'Downtown after dark, closed off for one night only. Every block is lit up.',
-        cost: 2e15, pits: 6, cars: ['raijin'], style: 1024, crowd: 8e9, scale: 3.5e9, stage: 7, bar: 7, cash: 0.45, night: true },
+        cost: 2e15, pits: 6, cars: ['raijin'], style: 1024, crowd: 8e9, scale: 1e10, stage: 7, bar: 7, cash: 0.78, night: true },
       { id: 'carrier', name: 'Aircraft Carrier', blurb: 'The flight deck of a carrier at sea. Mind the edge.',
-        cost: 8e16, pits: 6, cars: ['kaiju'], style: 4096, crowd: 3.2e11, scale: 2.5e11, stage: 8, bar: 8, cash: 0.52 },
+        cost: 8e16, pits: 6, cars: ['kaiju'], style: 4096, crowd: 3.2e11, scale: 2.5e11, stage: 8, bar: 8, cash: 0.45},
     ],
     VENUE_CASH: 2,                       // cash for every point of style the crowd cheers, before sponsors
-    SPONSOR_MULT: 1.25,                  // cash x1.25 per level
-    PREP_MULT: 1.2,                      // style x1.2 per level
 
     /* Street Drifting: the drive-it-yourself run down an endless mountain road. The code calls it "touge".
        Distances in metres, angles in radians. Where a value has two numbers, the road moves from the first
@@ -291,4 +303,6 @@
     OFFLINE_MIN: 30,          // seconds away before away-earnings are paid
     OFFLINE_CAP: 4 * 3600,
   };
+  DT.data.VENUE_MAX = {};   // the top level of each venue upgrade line, by id
+  DT.data.VENUE.forEach((v) => (DT.data.VENUE_MAX[v.id] = v.max));
 })(typeof window !== 'undefined' ? window : globalThis);

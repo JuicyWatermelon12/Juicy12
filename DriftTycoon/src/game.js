@@ -47,7 +47,7 @@
       cars: [], drivers: [],
       tryouts: 0, nextTryoutAt: 0, prospects: null,
       mech: { count: 1, level: 0 },
-      levels: [{ stands: 0, sponsors: 0, prep: 0 }],   // upgrade levels of every venue owned, by index into D.VENUES
+      levels: [zeroLevels()],   // upgrade levels of every venue owned, by index into D.VENUES
       venue: null,               // the levels of the venue the team is at: always the same object as levels[place]
       place: 0, placeOwned: 0,   // the venue the team is at, and the furthest venue it has bought (indexes into D.VENUES)
       street: { runs: 0, cred: 0, best: {} },   // Drift mode: runs, street cred, and the best { score, dist } on each map
@@ -114,16 +114,22 @@
   const modelUnlocked = (state, modelId) => { const i = modelPlace(modelId); return i >= 0 && i <= state.placeOwned; };
   const maxPits = (state) => Math.min(MAX_SLOTS, bestPlace(state).pits);
   const partCap = (state) => Math.min(D.PART_MAX, bestPlace(state).stage);   // highest part stage on sale
-  const venueMaxed = (state) => D.VENUE.every((v) => state.venue[v.id] >= D.VENUE_MAX[v.id]);
+  const levelsMaxed = (levels) => !!levels && D.VENUE.every((v) => (levels[v.id] || 0) >= v.max);
+  const venueMaxed = (state) => levelsMaxed(state.venue);
+  /* Upgrade levels bought and in all, for a venue's levels. */
+  const venueProgress = (levels) => ({ done: D.VENUE.reduce((t, v) => t + Math.min(v.max, (levels && levels[v.id]) || 0), 0), total: D.VENUE.reduce((t, v) => t + v.max, 0) });
+  /* What a venue's upgrade lines of one effect multiply together: crowd, cash or style. */
+  const lineMult = (levels, effect) => D.VENUE.reduce((m, v) => (v.effect === effect ? m * Math.pow(v.per, (levels && levels[v.id]) || 0) : m), 1);
+  const mediaLevel = (state) => D.VENUE.reduce((t, v) => t + (v.effect === 'media' ? v.per * (state.venue[v.id] || 0) : 0), 0);
 
-  const prepMult = (state) => place(state).style * Math.pow(D.PREP_MULT, state.venue.prep);
-  const sponsorMult = (state) => Math.pow(D.SPONSOR_MULT, state.venue.sponsors);
+  const prepMult = (state) => place(state).style * lineMult(state.venue, 'style');
+  const sponsorMult = (state) => lineMult(state.venue, 'cash');
   const traitSum = (state, key) => seatedDrivers(state).reduce((t, d) => t + (trait(d)[key] || 0), 0);
   const cashMult = (state) => D.VENUE_CASH * (place(state).cash || 1) * sponsorMult(state) * (1 + traitSum(state, 'cash'));
   /* How much the crowd likes this car's looks: 1 + the style bonuses of its paint, rims, body kit and underglow. */
   const LOOKS = { paint: D.PAINTS, rims: D.RIMS, kit: D.KITS, glow: D.GLOWS };
   const looksMult = (car) => 1 + Object.keys(LOOKS).reduce((t, k) => { const c = byId(LOOKS[k], car[k]); return t + ((c && c.style) || 0); }, 0);
-  const crowdCap = (state) => place(state).crowd * Math.pow(D.CROWD_GROWTH, state.venue.stands) * (1 + traitSum(state, 'crowd'));
+  const crowdCap = (state) => place(state).crowd * lineMult(state.venue, 'crowd') * (1 + traitSum(state, 'crowd'));
 
   /* Style points a second this car scores while it is drifting. 0 without a driver. */
   function carStyle(state, car) {
@@ -271,10 +277,12 @@
   }
 
   const zeroLevels = () => { const l = {}; D.VENUE.forEach((v) => (l[v.id] = 0)); return l; };
+  /* The next venue goes on sale only once every upgrade line at the best venue owned is at its top level. */
+  const placeLocked = (state) => !levelsMaxed(state.levels[state.placeOwned]);
   /* Buy the next venue. It is kept for good; the team stays where it is until it moves. */
   function buyPlace(state) {
     const v = nextPlace(state);
-    if (!v || !spend(state, v.cost)) return false;
+    if (!v || placeLocked(state) || !spend(state, v.cost)) return false;
     state.placeOwned++;
     state.levels[state.placeOwned] = state.levels[state.placeOwned] || zeroLevels();
     return true;
@@ -300,8 +308,10 @@
     return out;
   }
   const fxLeft = (state, id) => { const f = state.fx.find((x) => x.id === id); return f ? f.left : 0; };
-  /* Seconds of watching until the next bubble. */
-  const bubbleGap = (rng) => D.BUBBLE_GAP[0] + (rng || Math.random)() * (D.BUBBLE_GAP[1] - D.BUBBLE_GAP[0]);
+  /* Seconds of watching until the next bubble. Media upgrades at the venue shorten it. */
+  const bubbleGap = (rng, state) => (D.BUBBLE_GAP[0] + (rng || Math.random)() * (D.BUBBLE_GAP[1] - D.BUBBLE_GAP[0])) * (state ? 1 - mediaLevel(state) : 1);
+  /* What bubbles pay, times: media upgrades raise it. */
+  const bubblePay = (state) => 1 + 2 * mediaLevel(state);
   /* Which bubble comes next. One whose effect is still running does not come again yet. */
   function rollBubble(state, rng) {
     const list = D.BUBBLES.filter((b) => !b.time || fxLeft(state, b.id) <= 0);
@@ -317,7 +327,7 @@
       const f = state.fx.find((x) => x.id === id);
       if (f) f.left = b.time; else state.fx.push({ id, left: b.time });
     }
-    const cash = (b.cash || 0) * expectedIncome(state);
+    const cash = (b.cash || 0) * expectedIncome(state) * bubblePay(state);
     earn(state, cash);
     return cash;
   }
@@ -613,7 +623,8 @@
     partCost, slotCost, venueCost, tryoutCost, mechHireCost, mechTrainCost, mechTrainMaxed,
     earn, buyPart, buySlot, buyCar, tradeCar, buyVenue, rollDriver, assignDriver, hireMech, trainMech,
     bubble, boost, fxLeft, bubbleGap, rollBubble, popBubble, tickFx,
-    place, bestPlace, nextPlace, ownsPlace, partCap, modelPlace, modelUnlocked, maxPits, venueMaxed, buyPlace, movePlace,
+    place, bestPlace, nextPlace, ownsPlace, partCap, modelPlace, modelUnlocked, maxPits, venueMaxed, levelsMaxed, venueProgress, lineMult, mediaLevel, bubblePay,
+    placeLocked, buyPlace, movePlace,
     rankOf, rank, credFor, addCred, cosmetic, cosmeticCost, ownsCosmetic, cosmeticUnlocked, applyCosmetic, buyCosmetic,
     rosterCap, rosterFull, needsDriver, tryoutWait, holdTryout, mentored, signProspect, dismissProspects,
     fmt, money, duration, clock,
