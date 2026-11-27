@@ -45,13 +45,19 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
   Scoring, payout, street cred and the rules below are the same on both. Best score and distance are kept per map.
   - **Score:** speed x drift angle x a multiplier that builds while the drift is unbroken and resets after a
     straight or a barrier touch. The multiplier's cap starts at x5 and rises by 1 every kilometre.
-  - **The road:** a street is different every run: bends tighten, straights shorten and top speed rises over the
-    first six kilometres. A track keeps its layout and only the top speed rises.
+  - **The road:** a street is different every run. Bends tighten, straights shorten and top speed rises 5% a
+    kilometre over the first six kilometres, then it keeps getting harder (tighter still, up to +50% speed) until
+    10 km, where it holds. A track keeps its layout, so it is made harder with speed: 7% more top speed a
+    kilometre up to 10 km, and the Airfield track starts 15% faster (`TRACK_SPEED`). The test drivers get about
+    three quarters as far on a track as on the street, which leaves room for learning the layout.
   - **The end:** touching a barrier ends the run (`MAX_HITS` in `src/data.js`, now 1). "End run" banks it early. Either way you keep the score.
-  - **Clean kilometres:** each kilometre marker passed with no touches so far adds 20% of that kilometre's points.
-  - **Payout:** every 60 points pays one second of the team's income, and the driver earns double seat time.
-    A test driver in a stock car earns about 3.4 times the venue's income over the same time; built cars score
-    about twice as fast.
+  - **Payout: the money is far down the road.** Points pay in seconds of the team's income, and each
+    kilometre's points pay at that kilometre's rate (`PAY_PER_KM`): x1 in the first kilometre, then x5, x11, x15,
+    x21, x23, x25, x27, x29, and x31 from the tenth kilometre on (at x1, 330 points pay one second). Against the
+    flat pay runs had before (60 points a second, +20% per clean kilometre), a run that ends at 1 km pays about
+    15%, 2 km about half, 3 km the same, 5 km about twice and 8 km about three times as much. The run's cash and
+    the current rate show under "End run", each kilometre marker announces the new rate, and the result card
+    shows what each kilometre paid. The driver earns double seat time.
   - **Your build matters:** engine and turbo raise top speed, the angle kit adds steering lock and drift angle,
     suspension keeps more speed after a touch, stance and tires raise the score, and so do the driver's skill and
     flair. Steering scales with speed, so fast cars can still make the bends.
@@ -78,9 +84,14 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
   - the highest part stage on sale (Sport, Race, Pro), so parts last the whole ladder;
   - a style multiplier (x1, x4, x16), a bigger crowd, and dearer venue upgrades;
   - top levels for its upgrades: grandstands 5, sponsors 6, track prep 5.
-  The Docks cost $40M and the Airfield $6B. Early progress is quick and it slows with each venue: the simulated
-  active player builds the Parking Lot in about 15 minutes and saves about 10 more for the Docks; the Docks take
-  about 35 to 45 minutes to build and 20 to 25 to save past; the Airfield takes 45 to 80.
+  - **a distance bar** (`bar`): the average Drift run that keeps the intended pace there. It grows with every
+    venue, because the player is expected to get better: 2 km at the Parking Lot, 3 km at the Docks, 4 km at the
+    Airfield (the first three are the hook, on a quicker curve), and from then on about 1 km more per venue.
+    Each venue's cash rate (`cash`: x1.7, x1, x0.7) is set so a player at the bar keeps the earlier pace; a
+    player below it still progresses, only slower.
+  The Docks cost $40M and the Airfield $6B. A player at each bar builds the Parking Lot in about 10 minutes and
+  saves 5 to 10 more for the Docks; the Docks take about 20 to 30 minutes to build and 10 to 15 to save past; the
+  Airfield takes 30 to 40 to build.
 
 - **Tap bubbles:** while you watch the venue a bubble floats up every 30 to 60 seconds and goes after 10 seconds
   if ignored. None appear while you are away or in Drift mode.
@@ -119,10 +130,11 @@ node --test tests/game.test.js
 
 ## Pacing
 
-Prices are set for a team that drifts in Drift mode. `node tools/sim.js [minutes] [seed] [--active=5]` plays a
-simple player and prints how many purchases they make in each five minutes; `--active=5` adds Drift mode
-income worth five times the venue's. With it the player makes about 160 to 175 purchases in the first hour; a
-team that only idles makes about 50 to 80. The rule that keeps the economy from snowballing: every price ladder
+Prices are set for a team that drifts in Drift mode. `node tools/sim.js [minutes] [seed] [--bar | --active=N]`
+plays a simple player and prints how many purchases they make in each five minutes. `--bar` is the reference:
+the player drifts with an average run of each venue's distance bar, and the sim works out what that is worth
+from the pay rates and a model of points per kilometre measured from the test drivers. `--active=N` instead adds
+a flat N times the venue's income (5 was the reference before pay rose with distance). The rule that keeps the economy from snowballing: every price ladder
 grows faster than what it buys (a test checks the sum).
 
 Saves from earlier prototype versions are not carried over: a save with another version number starts a new team.

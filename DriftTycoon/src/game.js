@@ -119,7 +119,7 @@
   const prepMult = (state) => place(state).style * Math.pow(D.PREP_MULT, state.venue.prep);
   const sponsorMult = (state) => Math.pow(D.SPONSOR_MULT, state.venue.sponsors);
   const traitSum = (state, key) => seatedDrivers(state).reduce((t, d) => t + (trait(d)[key] || 0), 0);
-  const cashMult = (state) => D.VENUE_CASH * sponsorMult(state) * (1 + traitSum(state, 'cash'));
+  const cashMult = (state) => D.VENUE_CASH * (place(state).cash || 1) * sponsorMult(state) * (1 + traitSum(state, 'cash'));
   /* How much the crowd likes this car's looks: 1 + the style bonuses of its paint, rims and body kit. */
   const looksMult = (car) => 1 + ['paint', 'rims', 'kit'].reduce((t, k) => { const c = byId(k === 'paint' ? D.PAINTS : k === 'rims' ? D.RIMS : D.KITS, car[k === 'paint' ? 'paint' : k]); return t + ((c && c.style) || 0); }, 0);
   const crowdCap = (state) => place(state).crowd * Math.pow(D.CROWD_GROWTH, state.venue.stands) * (1 + traitSum(state, 'crowd'));

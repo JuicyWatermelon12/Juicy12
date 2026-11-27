@@ -9,14 +9,17 @@
   const TAU = Math.PI * 2, SMOOTH = 5;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const wrapPi = (a) => { a = (a + Math.PI) % TAU; if (a < 0) a += TAU; return a - Math.PI; };
-  /* How hard the road is at a distance: 0 at the start, 1 from RAMP_KM on. */
-  const difficulty = (metres) => clamp(metres / (T.RAMP_KM * 1000), 0, 1);
-  const ramp = (pair, d) => pair[0] + (pair[1] - pair[0]) * d;
+  /* How hard the street is at a distance: 0 at the start, 1 at RAMP_KM, 2 from HARD_KM on. */
+  const difficulty = (metres) => {
+    const km = metres / 1000;
+    return km <= T.RAMP_KM ? clamp(km / T.RAMP_KM, 0, 1) : 1 + clamp((km - T.RAMP_KM) / (T.HARD_KM - T.RAMP_KM), 0, 1);
+  };
+  const ramp = (v, d) => (d <= 1 ? v[0] + (v[1] - v[0]) * d : v[1] + (v[2] - v[1]) * (d - 1));
 
   /* An endless winding road. It always makes progress downhill, so it can never cross itself.
      Points are made on demand by extendRoad; the same seed always gives the same road. */
   function newRoad(rng) {
-    const road = { pts: [], n: 0, ds: T.STEP, halfW: T.HALF_WIDTH,
+    const road = { pts: [], n: 0, ds: T.STEP, halfW: T.HALF_WIDTH, speed: { top: 1, perKm: T.SPEED_PER_KM },
       gen: { rng, kap: [], cur: 0, side: rng() < 0.5 ? -1 : 1, x: 0, z: 0, h: 0 } };
     for (let i = Math.round(T.START_STRAIGHT / T.STEP); i > 0; i--) road.gen.kap.push(0);
     extendRoad(road, 300);
@@ -46,7 +49,8 @@
       // headings: the layout's 0 is +x and grows clockwise; a road's 0 is +z and its direction is (sin h, cos h)
       base.push({ x: s.pts[i].x * scale, z: s.pts[i].z * scale, h: Math.PI / 2 - s.pts[i].th, k: -k / (2 * SMOOTH + 1) / scale });
     }
-    const road = { pts: [], n: 0, ds: s.length * scale / lap, halfW: T.HALF_WIDTH, loop: { lap, base, id: layoutId } };
+    const road = { pts: [], n: 0, ds: s.length * scale / lap, halfW: T.HALF_WIDTH, loop: { lap, base, id: layoutId },
+      speed: { top: T.TRACK_SPEED[layoutId] || 1, perKm: T.TRACK_SPEED_PER_KM } };
     extendRoad(road, lap + 300);
     return road;
   }
@@ -97,7 +101,7 @@
     const p = road.pts[T.START_OFFSET];
     return { road, setup, x: p.x, z: p.z, h: p.h, va: p.h, speed: T.START_SPEED, steer: 0, idx: T.START_OFFSET, slip: 0, lateral: 0,
       comboT: 0, grace: 0, mult: 1, bestMult: 1, score: 0, hits: 0, hitT: 0, t: 0, hold: T.COUNTDOWN,
-      dist: 0, km: 0, kmScore: 0, cleanKm: 0, cleanBonus: 0, drifting: false, done: false };
+      dist: 0, km: 0, kmMarks: [], drifting: false, done: false };
   }
 
   const multCap = (run) => T.COMBO_MAX + T.COMBO_MAX_PER_KM * run.km;
@@ -137,7 +141,8 @@
     slip = wrapPi(run.h - run.va);
     if (Math.abs(slip) > s.maxSlip) { slip = Math.sign(slip) * s.maxSlip; run.va = run.h - slip; }
     run.slip = slip;
-    const top = s.top * (1 + Math.min(T.SPEED_RAMP_MAX, T.SPEED_PER_KM * run.dist / 1000));   // the road gets faster the further down it goes
+    const sp = run.road.speed;   // the road gets faster the further along it goes, up to HARD_KM
+    const top = s.top * sp.top * (1 + sp.perKm * clamp(run.dist / 1000, 0, T.HARD_KM));
     const target = top * (1 - T.SLIDE_DRAG * Math.min(1, Math.abs(slip)));
     run.speed += (target - run.speed) * (1 - Math.exp(-s.accel * dt));
     run.x += Math.sin(run.va) * run.speed * dt;
@@ -182,26 +187,40 @@
       if (run.grace > T.COMBO_GRACE) { run.comboT = 0; run.mult = 1; }
     }
 
-    // kilometre markers: the multiplier cap rises, and a kilometre with no touches so far pays a bonus
+    // kilometre markers: the multiplier cap and the pay rate rise
     const km = Math.floor(run.dist / 1000);
     if (km > run.km) {
-      run.lastKmBonus = 0;
-      if (run.hits === 0) {
-        run.lastKmBonus = (run.score - run.kmScore) * T.CLEAN_KM_BONUS;
-        run.score += run.lastKmBonus; run.cleanBonus += run.lastKmBonus; run.cleanKm++;
-      }
-      run.km = km; run.kmScore = run.score;
+      while (run.kmMarks.length < km) run.kmMarks.push(run.score);   // the score when each marker was passed
+      run.km = km;
       ev.push('km');
     }
     return ev;
   }
 
-  /* What a run is worth: points buy seconds of the team's long-run income. */
+  /* The pay rate of a kilometre: index 0 is the first kilometre. It holds at the last entry. */
+  const payRate = (km) => T.PAY_PER_KM[clamp(km, 0, T.PAY_PER_KM.length - 1)];
+
+  /* What a run is worth: the points of each kilometre buy seconds of the team's long-run income at that
+     kilometre's pay rate. `perKm` lists each kilometre driven (the last one may be part of one). */
+  /* Seconds of team income the run is worth so far. */
+  function paySeconds(run) {
+    let seconds = 0, from = 0;
+    for (let k = 0; k <= run.kmMarks.length; k++) {
+      const to = k < run.kmMarks.length ? run.kmMarks[k] : run.score;
+      seconds += (to - from) * payRate(k) / T.POINTS_PER_SECOND; from = to;
+    }
+    return seconds;
+  }
   function payout(state, run) {
-    const seconds = run.score / T.POINTS_PER_SECOND;
-    return { score: Math.floor(run.score), seconds, cash: seconds * G.expectedIncome(state), xp: run.t * T.XP_MULT,
-      bestMult: run.bestMult, hits: run.hits, out: run.hits >= T.MAX_HITS, time: run.t, dist: run.dist, laps: lapsDone(run),
-      cleanKm: run.cleanKm, cleanBonus: Math.floor(run.cleanBonus) };
+    const income = G.expectedIncome(state), perKm = [];
+    let seconds = 0, from = 0;
+    for (let k = 0; k <= run.kmMarks.length; k++) {
+      const to = k < run.kmMarks.length ? run.kmMarks[k] : run.score, rate = payRate(k), s = (to - from) * rate / T.POINTS_PER_SECOND;
+      if (k < run.kmMarks.length || to > from) perKm.push({ km: k + 1, points: to - from, rate, cash: s * income });
+      seconds += s; from = to;
+    }
+    return { score: Math.floor(run.score), seconds, cash: seconds * income, xp: run.t * T.XP_MULT, perKm, rate: payRate(run.km),
+      bestMult: run.bestMult, hits: run.hits, out: run.hits >= T.MAX_HITS, time: run.t, dist: run.dist, laps: lapsDone(run) };
   }
 
   /* Pay the run out: cash to the team, seat time to the driver, the team's records and street cred. */
@@ -232,5 +251,14 @@
     return clamp(autopilot(run) + Math.sin(run.t * 3.1) * (keen == null ? 0.7 : keen) * straight * clamp(room * 2, 0, 1), -1, 1);
   }
 
-  DT.touge = { newRoad, trackRoad, lapsDone, extendRoad, difficulty, carSetup, newRun, step, payout, collect, multCap, hitsLeft, autopilot, drifter, wrapPi };
+  /* A careful driver: it aims the direction of travel (not the nose) at the road ahead, so it holds a line
+     at speed. Used to check that the hardest stretch of road can still be driven. */
+  function steady(run) {
+    const pts = run.road.pts, a = pts[Math.min(pts.length - 1, run.idx + Math.round(6 + run.speed * 0.5))];
+    const want = Math.atan2(a.x - run.x, a.z - run.z);
+    const nose = want + clamp(wrapPi(want - run.va) * 1.2, -0.9, 0.9);
+    return clamp(-wrapPi(nose - run.h) * 2.5, -1, 1);
+  }
+
+  DT.touge = { newRoad, trackRoad, lapsDone, extendRoad, difficulty, carSetup, newRun, step, payRate, paySeconds, payout, collect, multCap, hitsLeft, autopilot, drifter, steady, wrapPi };
 })(typeof window !== 'undefined' ? window : globalThis);

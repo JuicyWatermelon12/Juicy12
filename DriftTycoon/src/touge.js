@@ -91,14 +91,14 @@
 
   function Touge(world, state, hooks) {
     const el = { root: $('touge'), app: $('app'), score: $('tg-score'), mult: $('tg-mult'), bar: $('tg-combo-bar'), dist: $('tg-dist'),
-      msg: $('tg-msg'), speed: $('tg-speed'), angle: $('tg-angle'), lives: $('tg-lives') };
+      msg: $('tg-msg'), speed: $('tg-speed'), angle: $('tg-angle'), lives: $('tg-lives'), pay: $('tg-pay'), cash: $('tg-cash'), rate: $('tg-rate') };
     const camera = new THREE.PerspectiveCamera(58, 1, 0.5, 900);
     const tmp = new THREE.Object3D(), basis = new THREE.Matrix4(), f = new V3(), up = new V3(), side = new V3(), look = new V3();
     let active = false, scene = null, run = null, car = null, carM = null, road = null, result = null;
     let drag = null, keyL = false, keyR = false;
     let camAng = 0, shake = 0, msgT = 0, lastMult = 1, markD = 0, went = false, shown = {};
     let puffs = null, marks = null, markNext = 0, ground = null, peaks = null, shared = null, endT = 0;
-    let map = { kind: 'street', id: 'pass' }, slope = T.SLOPE, lapShown = 0, markN = 700;
+    let map = { kind: 'street', id: 'pass' }, slope = T.SLOPE, lapShown = 0, markN = 700, income = 0, incomeT = 0, payFlash = 0;
     const chunks = new Map();
     const gy = (z) => -slope * z;   // the mountainside is one slope, so height depends only on z; a track is flat
 
@@ -458,6 +458,12 @@
       set(el.dist, 'dist', (road.loop ? 'Lap ' + (C.lapsDone(run) + 1) + ' · ' : '') + (run.dist / 1000).toFixed(2) + ' km');
       set(el.speed, 'speed', Math.round(run.speed * 3.6) + ' km/h');
       set(el.angle, 'angle', Math.round(Math.abs(run.slip) * 180 / Math.PI) + '° angle');
+      // what the run has earned so far, and the pay rate of the kilometre the car is in
+      if ((incomeT -= dt) <= 0 && !run.done) { incomeT = 1; income = G.expectedIncome(state); }   // frozen once the run is over and paid
+      set(el.cash, 'cash', G.money(C.paySeconds(run) * income));
+      set(el.rate, 'rate', 'pay x' + C.payRate(run.km));
+      payFlash -= dt;
+      el.pay.classList.toggle('up', payFlash > 0);
       if (shown.hits !== run.hits) {
         shown.hits = run.hits;
         let h = '';
@@ -538,8 +544,9 @@
       for (let i = 0; i < steps && !run.done; i++) {
         const ev = C.step(run, input, dt / steps);
         if (ev.includes('km')) {
-          say(run.km + ' KM', 'good', 1.3, (run.lastKmBonus ? 'Clean so far: +' + Math.floor(run.lastKmBonus).toLocaleString('en-US') + ' points. ' : '') +
-            'Multiplier can now reach x' + C.multCap(run));
+          const rate = C.payRate(run.km), was = C.payRate(run.km - 1);
+          say(run.km + ' KM', 'good', 1.5, (rate > was ? 'Pay x' + was + ' → x' + rate + ' · ' : 'Pay x' + rate + ' · ') + 'multiplier up to x' + C.multCap(run));
+          if (rate > was) payFlash = 1.5;
         }
         if (ev.includes('hit')) {
           shake = 0.5;
@@ -583,7 +590,7 @@
       run = C.newRun(road, C.carSetup(state, car));
       run.map = track ? 'track:' + map.id : map.id;   // the key its records are kept under
       result = null; drag = null; keyL = keyR = false;
-      camAng = run.va; shake = 0; lastMult = 1; markD = 0; went = false; shown = {}; endT = 0; lapShown = 0;
+      camAng = run.va; shake = 0; lastMult = 1; markD = 0; went = false; shown = {}; endT = 0; lapShown = 0; incomeT = 0; payFlash = 0;
       build();
       streamRoad();
       active = true;

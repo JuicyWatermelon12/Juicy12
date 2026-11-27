@@ -99,7 +99,7 @@ test('income is capped by the crowd; grandstands, sponsors and track prep each m
   assert.ok(inc.full, 'style is above the crowd capacity');
   const crowd = G.place(s).crowd;
   assert.equal(inc.cheered, crowd);
-  assert.equal(inc.cash, crowd * D.VENUE_CASH);
+  assert.equal(inc.cash, crowd * D.VENUE_CASH * G.place(s).cash);
   G.buyVenue(s, 'stands');
   near(G.crowdCap(s), crowd * D.CROWD_GROWTH);
   const before = G.incomeRate(s).cash;
@@ -413,7 +413,8 @@ const drive = (run, steerFn, seconds) => {
   for (let i = 0; i < seconds * HZ && !run.done; i++) ev.push(...C.step(run, steerFn(run), 1 / HZ));
   return ev;
 };
-const straight = (halfW) => ({ pts: Array.from({ length: 40000 }, (_, i) => ({ x: 0, z: i, h: 0, k: 0 })), ds: 1, n: 40000, halfW, gen: null });
+const straight = (halfW) => ({ pts: Array.from({ length: 40000 }, (_, i) => ({ x: 0, z: i, h: 0, k: 0 })), ds: 1, n: 40000, halfW, gen: null,
+  speed: { top: 1, perKm: T.SPEED_PER_KM } });
 const go = (road, setup) => { const run = C.newRun(road, setup); run.hold = 0; return run; };
 const stock = () => { const s = G.newState(0); return { s, car: s.cars[0], setup: C.carSetup(s, s.cars[0]) }; };
 
@@ -430,25 +431,40 @@ test('street road: endless, made on demand, same seed same road, always heading 
     for (let i = 1; i < r.n; i++) {
       assert.ok(r.pts[i].z > r.pts[i - 1].z, 'z always grows, so the road cannot cross itself');
       assert.ok(Math.abs(r.pts[i].h) < Math.PI / 2 - 0.1);
-      assert.ok(Math.abs(r.pts[i].k) <= 1 / T.RADIUS_MIN[1] + 1e-9);
+      assert.ok(Math.abs(r.pts[i].k) <= 1 / T.RADIUS_MIN[2] + 1e-9);
     }
     assert.ok(r.pts.slice(0, T.START_STRAIGHT - 6).every((p) => p.k === 0), 'it starts with a straight');
   }
 });
 
-test('street road: bends get tighter and straights shorter over the first kilometres, then hold', () => {
+test('street road: bends get tighter and straights shorter to RAMP_KM, harder still to HARD_KM, then hold', () => {
   assert.equal(C.difficulty(0), 0);
   assert.equal(C.difficulty(T.RAMP_KM * 1000), 1);
-  assert.equal(C.difficulty(T.RAMP_KM * 5000), 1);
-  let early = 0, late = 0, later = 0;
+  assert.equal(C.difficulty(T.HARD_KM * 1000), 2);
+  assert.equal(C.difficulty(T.HARD_KM * 5000), 2);
+  let early = 0, mid = 0, late = 0, later = 0;
   const bend = (pts) => pts.reduce((t, p) => t + Math.abs(p.k), 0) / pts.length;
   for (let seed = 1; seed <= 12; seed++) {
-    const r = C.extendRoad(C.newRoad(G.seeded(seed)), 16000);
-    early += bend(r.pts.slice(100, 1500)); late += bend(r.pts.slice(8000, 11000)); later += bend(r.pts.slice(13000, 16000));
+    const r = C.extendRoad(C.newRoad(G.seeded(seed)), 20000);
+    early += bend(r.pts.slice(100, 1500)); mid += bend(r.pts.slice(5000, 6500)); late += bend(r.pts.slice(11000, 15000)); later += bend(r.pts.slice(16000, 20000));
   }
-  assert.ok(late > early * 1.25, 'more turning per metre later on: ' + (late / early).toFixed(2));
-  assert.ok(Math.abs(later / late - 1) < 0.1, 'and no harder after the ramp');
-  assert.ok(T.RADIUS_MIN[1] < T.RADIUS_MIN[0] && T.STRAIGHT_MAX[1] < T.STRAIGHT_MAX[0]);
+  assert.ok(mid > early * 1.25, 'more turning per metre by RAMP_KM: ' + (mid / early).toFixed(2));
+  assert.ok(late > mid * 1.05, 'and more again past it: ' + (late / mid).toFixed(2));
+  assert.ok(Math.abs(later / late - 1) < 0.1, 'and no harder after HARD_KM');
+  for (const k of ['RADIUS_MIN', 'RADIUS_MAX', 'STRAIGHT_MIN', 'STRAIGHT_MAX']) assert.ok(T[k][2] <= T[k][1] && T[k][1] < T[k][0], k);
+  for (const k of ['TURN_MIN', 'TURN_MAX']) assert.ok(T[k][2] > T[k][1] && T[k][1] > T[k][0], k);
+});
+
+test('the hardest street is still drivable: a careful driver gets to 12 km on every road, in a stock car and a built one', () => {
+  const s = rich(), car = s.cars[0];
+  for (const build of [0, D.PART_MAX]) {
+    for (const p of D.PARTS) car.parts[p.id] = build;
+    for (let seed = 1; seed <= 6; seed++) {
+      const run = go(C.newRoad(G.seeded(seed)), C.carSetup(s, car));
+      for (let i = 0; i < HZ * 1200 && !run.done && run.dist < 12000; i++) C.step(run, C.steady(run), 1 / HZ);
+      assert.ok(!run.done && run.dist >= 12000, 'build ' + build + ', road ' + seed + ' ended at ' + (run.dist / 1000).toFixed(1) + ' km');
+    }
+  }
 });
 
 test('street handling: the countdown holds the car, steering right turns right, the nose leads the slide', () => {
@@ -519,7 +535,7 @@ test('street barriers: a touch resets the multiplier and keeps the car on the ro
   assert.deepEqual({ x: run.x, z: run.z, score: run.score, t: run.t }, frozen);
 });
 
-test('street distance: each kilometre raises the multiplier cap and the speed; a kilometre with no touches pays a bonus', () => {
+test('street distance: each kilometre raises the multiplier cap, the pay rate and the speed', () => {
   const { setup } = stock();
   let run = go(straight(500), setup);
   assert.equal(C.multCap(run), T.COMBO_MAX);
@@ -527,29 +543,60 @@ test('street distance: each kilometre raises the multiplier cap and the speed; a
   const kms = ev.filter((e) => e === 'km').length;
   assert.ok(kms >= 2 && run.km === kms && run.dist >= kms * 1000);
   assert.equal(C.multCap(run), T.COMBO_MAX + kms * T.COMBO_MAX_PER_KM);
-  assert.equal(run.cleanKm, kms, 'no touches, so every marker paid');
-  assert.ok(run.cleanBonus > 0);
   assert.ok(run.bestMult > T.COMBO_MAX, 'the multiplier went past the first cap: x' + run.bestMult.toFixed(1));
-  // the bonus is CLEAN_KM_BONUS of the points scored in that kilometre
-  run = go(straight(500), setup);
-  let before = 0;
-  for (let i = 0; i < HZ * 200 && run.km < 1; i++) { before = run.score; C.step(run, Math.cos(run.t * 3.2) * 0.6, 1 / HZ); }
-  assert.ok(Math.abs(run.lastKmBonus / before - T.CLEAN_KM_BONUS) < 0.01);
-  // after a touch, markers pay nothing (only possible while a run survives a touch)
-  if (T.MAX_HITS > 1) {
-    run = go(straight(T.HALF_WIDTH), setup);
-    drive(run, () => 1, 4);
-    assert.equal(run.hits, 1);
-    ev = drive(run, (r) => C.drifter(r, 0.5), 100);
-    assert.ok(run.km >= 1 && run.cleanKm === 0 && run.cleanBonus === 0);
-  }
-  // top speed: +SPEED_PER_KM a kilometre, up to the cap
+  assert.equal(run.kmMarks.length, kms, 'the score is noted at every marker');
+  for (let k = 1; k < kms; k++) assert.ok(run.kmMarks[k] > run.kmMarks[k - 1]);
+  // top speed: +SPEED_PER_KM a kilometre, up to HARD_KM
   const fast = go(straight(500), setup);
   drive(fast, () => 0, 30);
   const v0 = fast.speed;
-  drive(fast, () => 0, 700);
-  assert.ok(fast.dist > T.SPEED_RAMP_MAX / T.SPEED_PER_KM * 1000);
-  assert.ok(Math.abs(fast.speed / setup.top - (1 + T.SPEED_RAMP_MAX)) < 0.01 && v0 < fast.speed);
+  drive(fast, () => 0, 900);
+  assert.ok(fast.dist > T.HARD_KM * 1000);
+  assert.ok(Math.abs(fast.speed / setup.top - (1 + T.SPEED_PER_KM * T.HARD_KM)) < 0.01 && v0 < fast.speed);
+  // a venue track: its own starting speed and a faster rise per kilometre, to the same HARD_KM
+  for (const id of DT.tracks.ids) {
+    const r = C.trackRoad(id);
+    assert.deepEqual(r.speed, { top: T.TRACK_SPEED[id], perKm: T.TRACK_SPEED_PER_KM });
+    assert.ok(T.TRACK_SPEED[id] >= 1 && T.TRACK_SPEED_PER_KM > T.SPEED_PER_KM, id + ' is driven faster than the street');
+  }
+});
+
+test('drift pay rises with every kilometre: short runs pay little, long runs a lot', () => {
+  // the rates: x1 in the first kilometre, rising every kilometre, holding from the last entry
+  assert.equal(C.payRate(0), 1);
+  for (let k = 1; k < T.PAY_PER_KM.length; k++) assert.ok(C.payRate(k) > C.payRate(k - 1), 'km ' + (k + 1));
+  assert.equal(C.payRate(T.PAY_PER_KM.length + 5), T.PAY_PER_KM[T.PAY_PER_KM.length - 1]);
+  assert.equal(T.PAY_PER_KM.length, T.HARD_KM, 'pay stops rising where the road stops getting harder');
+  // each kilometre's points pay at its own rate
+  const { s, car, setup } = stock();
+  const run = go(straight(500), setup);
+  Object.assign(run, { score: 9000, kmMarks: [2000, 5000], km: 2, dist: 2500 });
+  const res = C.payout(s, run), inc = G.expectedIncome(s);
+  near(res.seconds, (2000 * C.payRate(0) + 3000 * C.payRate(1) + 4000 * C.payRate(2)) / T.POINTS_PER_SECOND);
+  near(C.paySeconds(run), res.seconds);
+  assert.deepEqual(res.perKm.map((k) => [k.km, k.points, k.rate]), [[1, 2000, 1], [2, 3000, C.payRate(1)], [3, 4000, C.payRate(2)]]);
+  near(res.perKm.reduce((t, k) => t + k.cash, 0), res.cash);
+  near(res.cash, res.seconds * inc);
+  assert.equal(res.rate, C.payRate(2));
+  // against the old flat pay (60 points a second, +20% for every kilometre finished), on real runs by the test
+  // drivers: a run that ends at 1 km pays about 15%, at 2 km about half, at 3 km about the same, at 4 km more
+  const ratios = {};
+  for (const keen of [0.25, 0.4, 0.55]) {
+    for (let seed = 1; seed <= 8; seed++) {
+      const r = go(C.newRoad(G.seeded(seed)), setup);
+      for (const km of [1, 2, 3]) {
+        for (let i = 0; i < HZ * 400 && !r.done && r.dist < km * 1000; i++) C.step(r, C.drifter(r, keen), 1 / HZ);
+        if (r.done) break;
+        const old = (r.score + 0.2 * r.kmMarks[r.kmMarks.length - 1]) / 60;
+        (ratios[km] = ratios[km] || []).push(C.paySeconds(r) / old);
+      }
+    }
+  }
+  const median = (a) => a.slice().sort((x, y) => x - y)[a.length >> 1];
+  console.log('   pay against the old flat pay, for runs ending at 1 / 2 / 3 km: ' + [1, 2, 3].map((k) => median(ratios[k]).toFixed(2) + ' (' + ratios[k].length + ' runs)').join(' / '));
+  near(median(ratios[1]), 0.15, 0.03);
+  near(median(ratios[2]), 0.5, 0.08);
+  near(median(ratios[3]), 1, 0.12);
 });
 
 test('street runs: test drivers get a good way down every road, and a built car scores faster than a stock one', () => {
@@ -591,8 +638,8 @@ test('street payout: points buy seconds of team income, the driver gets double s
   Object.assign(run, { score: 7000, t: 50, hits: 3, dist: 1234, done: true });
   const income = G.expectedIncome(s);
   const res = C.payout(s, run);
-  near(res.seconds, 7000 / T.POINTS_PER_SECOND);
-  near(res.cash, income * 7000 / T.POINTS_PER_SECOND);
+  near(res.seconds, 7000 * C.payRate(0) / T.POINTS_PER_SECOND, 1e-9);   // never reached a marker: all of it at the first kilometre's rate
+  near(res.cash, income * res.seconds);
   assert.ok(res.out);
   const cash = s.cash, xp = G.totalXP(d);
   const got = C.collect(s, car, run);
@@ -615,17 +662,21 @@ test('street payout: points buy seconds of team income, the driver gets double s
   assert.deepEqual(G.load(G.serialize(s), 0).street, s.street);
 });
 
-test('street pays better than waiting: a test driver in a stock car earns several times the venue over the same time', () => {
+test('venue pace: each venue asks for longer runs, and its cash rate makes a run of that length keep the intended pace', () => {
+  for (let i = 0; i < D.VENUES.length; i++) {
+    const v = D.VENUES[i];
+    assert.ok(v.bar > 0 && v.cash > 0, v.id);
+    if (i) assert.ok(v.bar > D.VENUES[i - 1].bar, v.id + ' asks for longer runs than the venue before');
+  }
   const { s, car, setup } = stock();
   let seconds = 0, time = 0;
   for (let seed = 1; seed <= 10; seed++) {
     const run = go(C.newRoad(G.seeded(seed)), setup);
-    drive(run, (r) => C.drifter(r, 0.7), 90);   // the first minute and a half, where most real runs will end
+    drive(run, (r) => C.drifter(r, 0.7), 90);   // the first minute and a half
     seconds += C.payout(s, run).seconds; time += run.t;
   }
-  const ratio = seconds / time;
-  console.log(`   a stock-car run is worth ${ratio.toFixed(1)} times the venue's income over the same time`);
-  assert.ok(ratio > 2.5 && ratio < 8);
+  console.log(`   a stock-car test driver's first minute and a half is worth ${(seconds / time).toFixed(1)} times the venue's income`);
+  assert.ok(seconds / time > 0.3 && seconds / time < 5);
 });
 
 /* ---------- Street cred and cosmetics ---------- */

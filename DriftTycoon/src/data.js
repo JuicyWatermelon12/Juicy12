@@ -158,13 +158,17 @@
          scale   multiplier on the price of its grandstands, sponsors and track prep
          stage   highest part stage on sale there (an index into PART_STAGES), so parts last the whole ladder
        `track` (the drift line) and `theme` are for the 3D view. */
+    /* The venue ladder. `bar` is the average Drift run (km) a player needs to keep the intended pace there: it
+       rises with every venue, because the player is expected to get better. `cash` is the venue's cash per style
+       next to the others; it sets that pace (drift pay is tied to income, so it scales both). The first three
+       venues are the hook: they come quickly and ask for short runs. */
     VENUES: [
       { id: 'lot', name: 'Parking Lot', blurb: 'An empty car park behind the team shed. Everyone starts somewhere.',
-        cost: 0, pits: 3, cars: ['kumo', 'hachi'], style: 1, crowd: 20, scale: 0.4, stage: 2 },
+        cost: 0, pits: 3, cars: ['kumo', 'hachi'], style: 1, crowd: 20, scale: 0.4, stage: 2, bar: 2, cash: 1.7 },
       { id: 'docks', name: 'Docks', blurb: 'Container stacks, cranes and a quay that is closed at night.',
-        cost: 4e7, pits: 4, cars: ['kaze'], style: 4, crowd: 3000, scale: 150, stage: 3 },
+        cost: 4e7, pits: 4, cars: ['kaze'], style: 4, crowd: 3000, scale: 150, stage: 3, bar: 3, cash: 1 },
       { id: 'airfield', name: 'Airfield', blurb: 'A disused runway with room to go properly sideways.',
-        cost: 6e9, pits: 5, cars: ['rotor'], style: 16, crowd: 1.2e5, scale: 10000, stage: 4 },
+        cost: 6e9, pits: 5, cars: ['rotor'], style: 16, crowd: 1.2e5, scale: 10000, stage: 4, bar: 4, cash: 0.7 },
     ],
     VENUE_CASH: 2,                       // cash for every point of style the crowd cheers, before sponsors
     SPONSOR_MULT: 1.25,                  // cash x1.25 per level
@@ -178,11 +182,16 @@
       START_STRAIGHT: 60,
       START_OFFSET: 18,                       // the car starts this far down the road, so there is road behind it
       LAP_LINE: 34,                           // a track's start line is this far ahead of the car's starting spot
-      RAMP_KM: 6,
-      TURN_MIN: [0.6, 0.95], TURN_MAX: [1.3, 1.4],   // how far a bend swings the road away from straight downhill
-      RADIUS_MIN: [23, 18], RADIUS_MAX: [43, 28],
-      STRAIGHT_MIN: [10, 5], STRAIGHT_MAX: [35, 13],
-      SPEED_PER_KM: 0.05, SPEED_RAMP_MAX: 0.3,       // top speed grows 5% a kilometre, up to +30%
+      // The street gets harder in two stretches: from the start to RAMP_KM, then on to HARD_KM, where it stops.
+      // Each pair below is [at the start, at RAMP_KM, at HARD_KM].
+      RAMP_KM: 6, HARD_KM: 10,
+      TURN_MIN: [0.6, 0.95, 1.05], TURN_MAX: [1.3, 1.4, 1.45],   // how far a bend swings the road away from straight downhill
+      RADIUS_MIN: [23, 18, 16], RADIUS_MAX: [43, 28, 23],
+      STRAIGHT_MIN: [10, 5, 4], STRAIGHT_MAX: [35, 13, 10],
+      SPEED_PER_KM: 0.05,                     // top speed grows 5% a kilometre, up to HARD_KM (+50%)
+      // A venue track keeps its layout, so it is made harder with speed instead: the car's top speed is
+      // multiplied by TRACK_SPEED for that track, and grows TRACK_SPEED_PER_KM a kilometre up to HARD_KM.
+      TRACK_SPEED: { lot: 1, docks: 1, airfield: 1.15 }, TRACK_SPEED_PER_KM: 0.07,
       MAX_HITS: 1,                            // barrier touches that end the run
       COUNTDOWN: 2.4, START_SPEED: 13,
       TOP_SPEED: 24, TOP_PER_STAGE: 0.4,       // m/s; engine and turbo stages each add TOP_PER_STAGE
@@ -198,9 +207,14 @@
       COMBO_TIME: 3,                          // the multiplier gains 1 for every COMBO_TIME seconds of unbroken drifting
       COMBO_MAX: 5, COMBO_MAX_PER_KM: 1,      // its cap, and how much the cap rises each kilometre
       COMBO_GRACE: 0.8,                       // seconds straight before the multiplier resets
-      CLEAN_KM_BONUS: 0.2,                    // a kilometre marker passed with no touches so far adds this share of that kilometre's points
       BONUS_PER_STANCE: 0.06, BONUS_PER_TIRES: 0.04, SKILL_DIV: 400, FLAIR_DIV: 600,
-      POINTS_PER_SECOND: 60,                  // this many points pay one second of the team's income
+      // Pay: the points scored in each kilometre pay at that kilometre's rate. At pay x1, POINTS_PER_SECOND
+      // points pay one second of the team's income. The rate rises every kilometre and holds from the last entry on,
+      // so short runs pay little and the money is far down the road: against a flat x5.5 for every kilometre
+      // (what runs paid before), a run that ends at 1 km pays about 15%, 2 km half, 3 km the same, 5 km twice
+      // and 8 km three times as much. Tuned with tools/sim.js and the test drivers.
+      POINTS_PER_SECOND: 330,
+      PAY_PER_KM: [1, 5, 11, 15, 21, 23, 25, 27, 29, 31],
       XP_MULT: 2,                             // the driver's seat time counts double
     },
 

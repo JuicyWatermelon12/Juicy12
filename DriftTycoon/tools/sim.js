@@ -1,5 +1,5 @@
 /* Pacing check: a simple player plays for an hour and we count how often they buy something.
-   Run: node tools/sim.js [minutes=60] [seed=1] [--active=5]
+   Run: node tools/sim.js [minutes=60] [seed=1] [--active=5 | --bar]
    The player always saves for whatever pays itself back fastest, holds a tryout when one is ready and
    cheap next to their cash, and signs a prospect when they beat the weakest driver. */
 require('../src/data.js');
@@ -8,7 +8,24 @@ const { data: D, game: G } = globalThis.DT;
 
 const minutes = +process.argv[2] || 60, seed = +process.argv[3] || 1;
 // --active=N: the player also goes Street Drifting, which pays N times the venue's income on top of it
-const active = +((process.argv.find((a) => a.startsWith('--active=')) || '=0').split('=')[1]);
+const fixedActive = +((process.argv.find((a) => a.startsWith('--active=')) || '=0').split('=')[1]);
+/* --bar: the player drifts, with an average run of each venue's `bar` kilometres. What such a run is worth next to
+   the old flat pay (where a run paid ACTIVE_REF times the venue's income) comes from the pay rates and a model of
+   points per kilometre measured from the test drivers (it grows as the multiplier cap rises). */
+const ACTIVE_REF = 5, POINTS_PER_KM = [1, 1.41, 1.91, 2.6, 3.2, 3.8, 4.4, 5, 5.6, 6.2];
+const OLD_PAY = 1 / 60, OLD_CLEAN_KM = 0.2;
+function payVsOld(km) {
+  let now = 0, old = 0;
+  for (let k = 0; k < km; k++) {
+    const w = POINTS_PER_KM[Math.min(k, POINTS_PER_KM.length - 1)];
+    now += w * D.TOUGE.PAY_PER_KM[Math.min(k, D.TOUGE.PAY_PER_KM.length - 1)] / D.TOUGE.POINTS_PER_SECOND;
+    old += w * (1 + OLD_CLEAN_KM) * OLD_PAY;
+  }
+  return now / old;
+}
+const useBar = process.argv.includes('--bar');
+const activeAt = (s) => (useBar ? ACTIVE_REF * payVsOld(G.place(s).bar || 3) : fixedActive);
+if (useBar) console.log('Drift pay at each venue\'s bar, as times venue income: ' + D.VENUES.map((v) => v.name + ' ' + v.bar + ' km x' + (ACTIVE_REF * payVsOld(v.bar)).toFixed(1)).join(', '));
 const rng = G.seeded(seed);
 const clone = (s) => JSON.parse(JSON.stringify(s));
 const potential = (d) => { const c = Object.assign({}, d, { level: G.levelCap(d) }); return G.driverMult(c); };
@@ -56,7 +73,7 @@ const buckets = new Array(Math.ceil(minutes / 5)).fill(0);
 const note = (what) => { buys.push(now); buckets[Math.min(buckets.length - 1, Math.floor(now / 300))]++; log.push([now, what]); };
 
 for (now = 0; now < minutes * 60; now++) {
-  G.earn(s, G.expectedIncome(s) * (1 + active));
+  G.earn(s, G.expectedIncome(s) * (1 + activeAt(s)));
   G.awayXP(s, 1);
   // tryouts
   if (!s.prospects && G.tryoutWait(s, now * 1000) === 0 && (G.needsDriver(s) || G.tryoutCost(s) < s.cash * 0.25) && G.holdTryout(s, now * 1000, rng)) {

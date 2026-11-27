@@ -352,7 +352,9 @@
       const income = G.expectedIncome(state), sel = driftMap(), track = sel.kind === 'track';
       let h = '<h2>Drift</h2><p class="note">Drift one of your cars yourself. The car drives; you slide a finger left and right to steer. ' +
         'Hold it sideways to build the multiplier. ' + (T.MAX_HITS === 1 ? 'Touching a barrier ends the run' : 'Barrier touch number ' + T.MAX_HITS + ' ends the run') +
-        ', and you keep everything you scored: every ' + T.POINTS_PER_SECOND + ' points pays one second of team income (now ' + G.money(income, 1) + '/s).</p>' +
+        ', and you keep everything you scored.</p><p class="note"><b>The money is far down the road.</b> Points pay in team income (now ' + G.money(income, 1) +
+        '/s), and the pay rate rises every kilometre: x' + T.PAY_PER_KM[0] + ' in the first, x' + T.PAY_PER_KM[2] + ' in the third, x' +
+        T.PAY_PER_KM[T.PAY_PER_KM.length - 1] + ' from the ' + T.PAY_PER_KM.length + 'th on. Runs of about ' + G.place(state).bar + ' km keep you on pace at the ' + esc(G.place(state).name) + '.</p>' +
         '<div class="seg"><button data-act="drift-kind" data-kind="street" aria-pressed="' + !track + '">Street</button>' +
         '<button data-act="drift-kind" data-kind="track" aria-pressed="' + track + '">Track</button></div><div class="list">';
       if (track) {
@@ -383,6 +385,16 @@
       if (!any) h += '<p class="note">No car has a driver yet.</p>';
       showModal(h + '</div><button class="ghost wide" data-act="close">Not now</button>');
     }
+    /* What each kilometre of a run paid, as small bars: the money is far down the road. */
+    function kmChart(res) {
+      const list = res.perKm.slice(-12), top = Math.max(1e-9, ...list.map((k) => k.cash));
+      if (!list.length) return '';
+      const best = list.reduce((a, b) => (b.cash > a.cash ? b : a));
+      return '<p class="note">Pay by kilometre: the further you go, the more every point pays. ' +
+        (res.perKm.length > 1 ? 'Kilometre ' + best.km + ' paid most: ' + G.money(best.cash, 1) + ' at x' + best.rate + '.' : '') + '</p>' +
+        '<div class="km-chart">' + list.map((k, i) => '<div' + (i === list.length - 1 && res.dist < k.km * 1000 ? ' class="part"' : '') + ' title="Km ' + k.km + ': ' +
+          G.money(k.cash, 1) + ' at x' + k.rate + '"><i style="height:' + Math.max(2, Math.round(k.cash / top * 46)) + 'px"></i><span>' + k.km + '</span></div>').join('') + '</div>';
+    }
     function showTougeResult(res) {
       const d = res.driver, row = (a, b) => '<div><span>' + a + '</span><b>' + b + '</b></div>';
       const best = (on) => (on ? ' <span class="rarity" style="--r:var(--accent)">New best</span>' : '');
@@ -390,8 +402,7 @@
       showModal('<div class="reveal away"><small>' + esc(mapName(res.map)) + ' · ' + (res.out ? 'hit the barrier' : 'run banked') + '</small><h2>' + G.money(res.cash, 1) + '</h2>' +
         '<div class="result-rows">' + row('Points' + best(res.bestScore), res.score.toLocaleString('en-US')) +
         row('Distance' + best(res.bestDist), (res.dist / 1000).toFixed(2) + ' km') + (track ? row('Laps', res.laps) : '') + row('Best multiplier', 'x' + res.bestMult.toFixed(1)) +
-        (res.cleanKm ? row('Clean kilometres: ' + res.cleanKm, '+' + res.cleanBonus.toLocaleString('en-US')) : '') +
-        row('Worth', G.duration(res.seconds) + ' of team income') + '</div>' +
+        row('Worth', G.duration(res.seconds) + ' of team income') + '</div>' + kmChart(res) +
         '<p class="note">+' + res.cred + ' street cred' + (res.rank.after.index > res.rank.before.index ? '. New rank: <b>' + res.rank.after.name + '</b>' +
           (res.rank.unlocked.length ? '. Now on sale: ' + res.rank.unlocked.map((u) => esc(u.item.name)).join(', ') : '') : '') + '.</p>' + rankBar() +
         (d ? '<p class="note">' + esc(d.name) + ' banked ' + G.duration(res.xp) + ' of seat time' + (res.levels ? ' and reached level ' + d.level : '') + '.</p>' : '') +
