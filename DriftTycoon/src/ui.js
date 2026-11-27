@@ -302,6 +302,7 @@
         '<h3>Testing</h3><p class="note">Shortcuts for testing on this save.</p>' +
         '<button class="ghost wide" data-act="test-cash">Add $500T</button>' +
         '<button class="ghost wide" data-act="test-cred">Max street cred (' + D.RANKS[D.RANKS.length - 1].name + ')</button>' +
+        '<button class="ghost wide" data-act="test-venue">Max current venue (' + esc(G.place(state).name) + ')</button>' +
         '<h3>Progress</h3><p class="note">Wipes this team for good: cash, cars, parts, drivers, mechanics and venue upgrades. You start again with one Kumo and the rookie.</p>' +
         '<button class="ghost wide danger' + (on ? ' armed' : '') + '" data-act="reset">' + (on ? 'Tap again to wipe everything' : 'Reset all progress') + '</button>' +
         '<button class="ghost wide" data-act="close">Close</button>');
@@ -452,6 +453,12 @@
       if (a === 'bubble') { popBubbleNow(); return; }
       if (a === 'menu') { armed = ''; showMenu(); return; }
       if (a === 'test-cash') { G.earn(state, 5e14); actions.changed(); toast('Added $500T.'); return; }
+      if (a === 'test-venue') {   // every upgrade line at the venue the team is at, to its top level
+        D.VENUE.forEach((v) => (state.venue[v.id] = v.max));
+        actions.changed(); if (tab) render();
+        toast(G.place(state).name + ' fully built: every upgrade at its top level.');
+        return;
+      }
       if (a === 'test-cred') {
         const top = D.RANKS[D.RANKS.length - 1];
         G.addCred(state, Math.max(0, top.cred - state.street.cred));
