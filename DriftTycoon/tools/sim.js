@@ -1,5 +1,5 @@
 /* Pacing check: a simple player plays for an hour and we count how often they buy something.
-   Run: node tools/sim.js [minutes=60] [seed=1]
+   Run: node tools/sim.js [minutes=60] [seed=1] [--active=5]
    The player always saves for whatever pays itself back fastest, holds a tryout when one is ready and
    cheap next to their cash, and signs a prospect when they beat the weakest driver. */
 require('../src/data.js');
@@ -7,6 +7,8 @@ require('../src/game.js');
 const { data: D, game: G } = globalThis.DT;
 
 const minutes = +process.argv[2] || 60, seed = +process.argv[3] || 1;
+// --active=N: the player also goes Street Drifting, which pays N times the venue's income on top of it
+const active = +((process.argv.find((a) => a.startsWith('--active=')) || '=0').split('=')[1]);
 const rng = G.seeded(seed);
 const clone = (s) => JSON.parse(JSON.stringify(s));
 const potential = (d) => { const c = Object.assign({}, d, { level: G.levelCap(d) }); return G.driverMult(c); };
@@ -53,7 +55,7 @@ const buckets = new Array(Math.ceil(minutes / 5)).fill(0);
 const note = (what) => { buys.push(now); buckets[Math.min(buckets.length - 1, Math.floor(now / 300))]++; log.push([now, what]); };
 
 for (now = 0; now < minutes * 60; now++) {
-  G.earn(s, G.expectedIncome(s));
+  G.earn(s, G.expectedIncome(s) * (1 + active));
   G.awayXP(s, 1);
   // tryouts
   if (!s.prospects && G.tryoutWait(s, now * 1000) === 0 && (G.needsDriver(s) || G.tryoutCost(s) < s.cash * 0.25) && G.holdTryout(s, now * 1000, rng)) {

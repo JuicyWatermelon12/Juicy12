@@ -28,18 +28,17 @@
     <button data-tab="garage" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 6h13l2.3 5.2c.7.3 1.2 1 1.2 1.8v4a1 1 0 0 1-1 1h-1.2a2.3 2.3 0 0 1-4.6 0H8.8a2.3 2.3 0 0 1-4.6 0H3a1 1 0 0 1-1-1v-4c0-.8.5-1.5 1.200-1.800zm1.300 2-1.400 3h13.200l-1.400-3z"/></svg>Garage</button>
     <button data-tab="team" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 1 9 9v5a2 2 0 0 1-2 2h-8a8 8 0 0 1-8-8 8 8 0 0 1 9-8zm1 8v3.500h6V12a7 7 0 0 0-.100-1z"/></svg>Team</button>
     <button data-tab="venue" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 2h2v1h5l1 1.500h6v9h-7l-1-1.500H7V22H5zm2 3v5h4V5zm6 1.500v2.500h4V6.500zM11 10v1.500h2V10z"/></svg>Venue</button>
-    <button class="go" data-act="touge-menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4l4.500 8 2-3L22 20H2zm0 4.200L5.400 18h11.200l-3.100-5.500-1.600 2.400z"/></svg>Touge</button>
+    <button class="go" data-act="touge-menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4l4.500 8 2-3L22 20H2zm0 4.200L5.400 18h11.200l-3.100-5.500-1.600 2.400z"/></svg>Street</button>
   </nav>
   <div id="touge" hidden>
     <div class="tg-top">
       <div class="tg-score"><b id="tg-score">0</b><small>points</small></div>
-      <button id="tg-quit" data-act="touge-quit">End run</button>
+      <div class="tg-side"><button id="tg-quit" data-act="touge-quit">End run</button><div id="tg-lives" aria-label="Barrier touches left"></div></div>
     </div>
     <div class="tg-combo"><span id="tg-mult">x1.0</span><i><b id="tg-combo-bar"></b></i></div>
     <div id="tg-msg"></div>
     <div class="tg-foot">
-      <div class="tg-progress"><i><b id="tg-progress"></b></i><small>to the bottom of the pass</small></div>
-      <div class="tg-stats"><span id="tg-speed">0 km/h</span><span id="tg-angle">0°</span><span id="tg-hits">Clean</span></div>
+      <div class="tg-stats"><span id="tg-dist">0.00 km</span><span id="tg-speed">0 km/h</span><span id="tg-angle">0°</span></div>
     </div>
   </div>
   <div id="modal" hidden></div>

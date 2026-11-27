@@ -34,17 +34,25 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
   when the track around it is clear. More mechanics repair more cars at once; training shortens repairs.
 - **Three limits to upgrade:** pits (how many cars run), the cars themselves (style a second), and grandstands
   (how much style the crowd can cheer for, which caps income). Sponsors multiply cash; track prep multiplies style.
-- **Away earnings:** up to two hours at the team's long-run rate, crashes included.
-- **Touge practice** (the Touge button): drive one of your own cars down a mountain pass at dusk. The car drives
-  itself; you slide one finger left and right to steer (arrow keys or A / D on a keyboard). The car's direction of
-  travel lags behind its nose, so it slides through every bend. Points are speed x drift angle x a multiplier that
-  builds while the drift is unbroken (up to x5) and resets after a straight or a barrier touch. Every 120 points
-  pays one second of the team's income, a clean run to the bottom pays 20% more, and the driver earns double seat
-  time. Each run is a new random road about a kilometre long. The car's parts change how it handles: engine and
-  turbo raise top speed, the angle kit adds steering and drift angle, suspension keeps more speed after a touch,
-  stance and tires raise the score, and so do the driver's skill and flair.
+- **Away earnings:** up to four hours at the team's long-run rate, crashes included.
+- **Street Drifting** (the Street button; the code calls it "touge"): the main way to earn. Drive one of your own
+  cars down an endless mountain road at dusk. The car drives itself; you slide one finger left and right to steer
+  (arrow keys or A / D on a keyboard). The car's direction of travel lags behind its nose, so it slides through
+  every bend.
+  - **Score:** speed x drift angle x a multiplier that builds while the drift is unbroken and resets after a
+    straight or a barrier touch. The multiplier's cap starts at x5 and rises by 1 every kilometre.
+  - **The road:** generated as you go and different every run. Bends tighten, straights shorten and top speed
+    rises over the first six kilometres.
+  - **The end:** the third barrier touch ends the run. "End run" banks it early. Either way you keep the score.
+  - **Clean kilometres:** each kilometre marker passed with no touches so far adds 20% of that kilometre's points.
+  - **Payout:** every 30 points pays one second of the team's income, and the driver earns double seat time.
+    A test driver in a stock car earns about three times the venue's income over the same time; built cars score
+    about twice as fast.
+  - **Your build matters:** engine and turbo raise top speed, the angle kit adds steering lock and drift angle,
+    suspension keeps more speed after a touch, stance and tires raise the score, and so do the driver's skill and
+    flair. Steering scales with speed, so fast cars can still make the bends.
 
-Not built yet: more venues, prestige, sound.
+Planned next: street cred and car cosmetics, more venues, tap bubbles at the venue. Not built yet: sound.
 
 ## Layout
 
@@ -52,8 +60,8 @@ Not built yet: more venues, prestige, sound.
 index.html        page shell; loads Three.js r128 from cdnjs and the files below
 src/data.js       every tuning number (parts, cars, rarities, costs, crash and repair times)
 src/game.js       rules: income, costs, purchases, drivers, save and load. No DOM, no Three.js
-src/tougecore.js  Touge practice rules: the road, handling, scoring, payout. No DOM, no Three.js
-src/touge.js      Touge practice in 3D: the mountain road, chase camera, steering input, HUD
+src/tougecore.js  Street Drifting rules: the endless road, handling, scoring, payout. No DOM, no Three.js
+src/touge.js      Street Drifting in 3D: the road built in chunks ahead of the car, chase camera, steering, HUD
 src/world.js      the 3D venue: track, cars, smoke, tire marks, crashes, mechanics, crowd, camera
 src/ui.js         money bar, tabs, upgrade sheets, pop-ups
 src/main.js       boot, save, frame loop
@@ -70,9 +78,12 @@ node --test tests/game.test.js
 
 ## Pacing
 
-`node tools/sim.js [minutes] [seed]` plays a simple player and prints how many purchases they make in each five
-minutes. With the current numbers that is about 155 in the first hour (about 600 before parts became stages),
-dropping to a few every five minutes after two hours. The rule that keeps it from snowballing: every price ladder
+Prices are set for a team that goes Street Drifting. `node tools/sim.js [minutes] [seed] [--active=5]` plays a
+simple player and prints how many purchases they make in each five minutes; `--active=5` adds Street Drifting
+income worth five times the venue's. With it the player makes about 160 to 175 purchases in the first hour; a
+team that only idles makes about 50 to 80. The rule that keeps the economy from snowballing: every price ladder
 grows faster than what it buys (a test checks the sum).
+
+Saves from earlier prototype versions are not carried over: a save with another version number starts a new team.
 
 `DT.debug` in the browser console exposes `state`, `world` and `ui` for poking at a running game.

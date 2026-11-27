@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   const DT = root.DT, G = DT.game;
-  const SAVE_KEY = 'drifttycoon.save.v1';   // the key stays; the save's own `v` field carries its version
+  const SAVE_KEY = 'drifttycoon.save';   // the save's own `v` field carries its version; other versions start a new team
 
   function readSave() { try { return root.localStorage.getItem(SAVE_KEY); } catch (e) { return null; } }
   function writeSave(state) {

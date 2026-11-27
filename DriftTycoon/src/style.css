@@ -196,7 +196,7 @@ i.swatch { width: 18px; height: 12px; border-radius: 4px; vertical-align: -1px; 
   .pop, .fix, #sheet, .modal-card, .buy.shake { animation-duration: 0.01s; }
 }
 
-/* ---- Touge practice (the drive-it-yourself run) ---- */
+/* ---- Street Drifting (the drive-it-yourself run; code name "touge") ---- */
 #tabs { gap: 8px; }
 #tabs button.go { background: var(--night); color: #fff; box-shadow: 0 5px 0 #05070c; }
 #tabs button.go svg { fill: var(--cash); }
@@ -220,9 +220,10 @@ i.swatch { width: 18px; height: 12px; border-radius: 4px; vertical-align: -1px; 
 #tg-msg.bad { color: #ff7a7d; font-size: 34px; }
 #tg-msg.good { color: var(--cash); font-size: 40px; }
 .tg-foot { margin-top: auto; width: 100%; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
-.tg-progress i { display: block; height: 8px; border-radius: 999px; background: rgba(10, 12, 24, 0.55); overflow: hidden; }
-.tg-progress b { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 999px; }
-.tg-progress small { color: #c9d2ff; text-align: center; margin-top: 3px; font-size: 11px; }
+.tg-side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+#tg-lives { display: flex; gap: 6px; }
+#tg-lives i { width: 16px; height: 16px; border-radius: 5px; background: rgba(10, 12, 24, 0.55); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.25); }
+#tg-lives i.on { background: var(--accent); box-shadow: inset 0 -3px 0 var(--accent-d); }
 .tg-stats { display: flex; justify-content: space-between; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.4); }
 .result-rows { width: 100%; display: flex; flex-direction: column; gap: 6px; }
 .result-rows div { display: flex; justify-content: space-between; font-weight: 700; padding: 7px 12px; border-radius: 10px; background: var(--panel); }

@@ -262,13 +262,14 @@
       if (tab) { el.body.scrollTop = 0; render(); }
       toast('Progress wiped. Fresh team, fresh tires.');
     }
-    /* ---------- Touge practice ---------- */
+    /* ---------- Street Drifting ---------- */
     function tougeMenu() {
-      const income = G.expectedIncome(state);
-      let h = '<h2>Touge practice</h2><p class="note">Take one of your cars up the mountain pass at dusk and drift it down yourself. ' +
-        'The car drives; you slide a finger left and right to steer. Hold it sideways to build the multiplier. Touching a barrier resets it.</p>' +
-        '<p class="note">Every ' + T.POINTS_PER_SECOND + ' points pays one second of team income (now ' + G.money(income, 1) + '/s). A clean run to the bottom pays ' +
-        Math.round((T.CLEAN_BONUS - 1) * 100) + '% more, and the driver earns double seat time.</p><div class="list">';
+      const income = G.expectedIncome(state), rec = state.street;
+      let h = '<h2>Street Drifting</h2><p class="note">Take one of your cars to the mountain road at dusk and drift it yourself. ' +
+        'The car drives; you slide a finger left and right to steer. Hold it sideways to build the multiplier.</p>' +
+        '<p class="note">The road never ends and gets harder as it goes. The third barrier touch ends the run, and you keep everything you scored. ' +
+        'Every ' + T.POINTS_PER_SECOND + ' points pays one second of team income (now ' + G.money(income, 1) + '/s), and the driver earns double seat time.</p>' +
+        (rec.runs ? '<p class="note">Best so far: ' + rec.bestScore.toLocaleString('en-US') + ' points, ' + (rec.bestDist / 1000).toFixed(2) + ' km.</p>' : '') + '<div class="list">';
       let any = false;
       state.cars.forEach((c, i) => {
         const d = G.driverOf(state, c);
@@ -284,12 +285,14 @@
     }
     function showTougeResult(res) {
       const d = res.driver, row = (a, b) => '<div><span>' + a + '</span><b>' + b + '</b></div>';
-      showModal('<div class="reveal away"><small>' + (res.finished ? 'Bottom of the pass' : 'Run ended early') + '</small><h2>' + G.money(res.cash, 1) + '</h2>' +
-        '<div class="result-rows">' + row('Points', res.score.toLocaleString('en-US')) + row('Best multiplier', 'x' + res.bestMult.toFixed(1)) +
-        row('Barrier touches', res.hits ? res.hits : 'None') + (res.clean ? row('Clean run', '+' + Math.round((T.CLEAN_BONUS - 1) * 100) + '%') : '') +
+      const best = (on) => (on ? ' <span class="rarity" style="--r:var(--accent)">New best</span>' : '');
+      showModal('<div class="reveal away"><small>' + (res.out ? 'Third barrier touch' : 'Run banked') + '</small><h2>' + G.money(res.cash, 1) + '</h2>' +
+        '<div class="result-rows">' + row('Points' + best(res.bestScore), res.score.toLocaleString('en-US')) +
+        row('Distance' + best(res.bestDist), (res.dist / 1000).toFixed(2) + ' km') + row('Best multiplier', 'x' + res.bestMult.toFixed(1)) +
+        (res.cleanKm ? row('Clean kilometres: ' + res.cleanKm, '+' + res.cleanBonus.toLocaleString('en-US')) : '') +
         row('Worth', G.duration(res.seconds) + ' of team income') + '</div>' +
         (d ? '<p class="note">' + esc(d.name) + ' banked ' + G.duration(res.xp) + ' of seat time' + (res.levels ? ' and reached level ' + d.level : '') + '.</p>' : '') +
-        '<button class="buy wide" data-act="touge-again">Run it again</button><button class="ghost wide" data-act="touge-exit">Back to the lot</button></div>');
+        '<button class="buy wide" data-act="touge-again">Go again</button><button class="ghost wide" data-act="touge-exit">Back to the venue</button></div>');
     }
     function showAway(info) {
       showModal('<div class="reveal away"><small>While you were away</small><h2>' + G.money(info.cash) + '</h2><p class="note">The team kept drifting for ' +

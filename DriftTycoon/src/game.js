@@ -3,7 +3,7 @@
   'use strict';
   const DT = (root.DT = root.DT || {});
   const D = DT.data;
-  const SAVE_VERSION = 2;
+  const SAVE_VERSION = 3;
   const MAX_SLOTS = D.SLOT_COSTS.length;
 
   const byId = (list, id) => list.find((x) => x.id === id);
@@ -47,6 +47,7 @@
       tryouts: 0, nextTryoutAt: 0, prospects: null,
       mech: { count: 1, level: 0 },
       venue: { stands: 0, sponsors: 0, prep: 0 },
+      street: { runs: 0, bestScore: 0, bestDist: 0 },   // Street Drifting records
       lastSeen: now || 0,
     };
     const rookie = { id: s.nextId++, name: 'Sam "Rookie" Okada', rarity: 'common', skill: 12, control: 16, flair: 10,
@@ -367,7 +368,7 @@
     let raw;
     try { raw = typeof json === 'string' ? JSON.parse(json) : json; } catch (e) { raw = null; }
     if (!raw || typeof raw !== 'object' || !Array.isArray(raw.cars) || !Array.isArray(raw.drivers)) return newState(now);
-    const old = !(raw.v >= 2);   // version 1: 25 part levels, unlimited roster, no driver levels
+    if (raw.v !== SAVE_VERSION) return newState(now);   // saves from earlier prototypes are not carried over
     const s = newState(now);
     const num = (v, d) => (typeof v === 'number' && isFinite(v) && v >= 0 ? v : d);
     const isDriver = (d) => d && rarity(d.rarity) && typeof d.name === 'string';
@@ -379,15 +380,14 @@
     s.nextTryoutAt = num(raw.nextTryoutAt, 0);
     s.mech.count = Math.min(D.MECH_MAX, Math.max(1, Math.floor(num(raw.mech && raw.mech.count, 1))));
     s.mech.level = Math.floor(num(raw.mech && raw.mech.level, 0));
-    if (old) s.mech.level = Math.ceil(s.mech.level / 2);
-    // version 1 venue levels were small steps; two of them are about one of today's
-    D.VENUE.forEach((v) => (s.venue[v.id] = Math.floor(num(raw.venue && raw.venue[v.id], 0) / (old ? 2 : 1))));
+    D.VENUE.forEach((v) => (s.venue[v.id] = Math.floor(num(raw.venue && raw.venue[v.id], 0))));
+    Object.keys(s.street).forEach((k) => (s.street[k] = num(raw.street && raw.street[k], 0)));
     s.drivers = raw.drivers.filter(isDriver).map((d) => cleanDriver(d, num));
     s.cars = raw.cars.filter((c) => c && model(c.model)).slice(0, s.slots).map((c, i) => {
       const parts = emptyParts();
       D.PARTS.forEach((p) => {
         const lv = Math.floor(num(c.parts && c.parts[p.id], 0));
-        parts[p.id] = Math.min(D.PART_MAX, old ? Math.round(lv / 5) : lv);
+        parts[p.id] = Math.min(D.PART_MAX, lv);
       });
       const driver = s.drivers.some((d) => d.id === c.driver) ? c.driver : null;
       return { id: c.id, model: c.model, parts, driver, color: c.color || D.CAR_COLORS[i % D.CAR_COLORS.length] };
