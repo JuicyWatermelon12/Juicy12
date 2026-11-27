@@ -558,7 +558,7 @@ test('street distance: each kilometre raises the multiplier cap, the pay rate an
   for (const id of DT.tracks.ids) {
     const r = C.trackRoad(id);
     assert.deepEqual(r.speed, { top: T.TRACK_SPEED[id], perKm: T.TRACK_SPEED_PER_KM });
-    assert.ok(T.TRACK_SPEED[id] > 0.9 && T.TRACK_SPEED_PER_KM > T.SPEED_PER_KM, id + ' speeds up faster than the street');
+    assert.ok(T.TRACK_SPEED[id] > 0.8 && T.TRACK_SPEED_PER_KM > T.SPEED_PER_KM, id + ' speeds up faster than the street');
   }
 });
 

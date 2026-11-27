@@ -13,8 +13,8 @@
        pit, so they carry over when the car is traded up; their prices do not depend on the car.
        `crash` multiplies the car's crash rate once per stage. */
     PART_GROWTH: 50,
-    PART_MAX: 6,
-    PART_STAGES: ['Stock', 'Street', 'Sport', 'Race', 'Pro', 'Works', 'Prototype'],
+    PART_MAX: 8,
+    PART_STAGES: ['Stock', 'Street', 'Sport', 'Race', 'Pro', 'Works', 'Prototype', 'Unlimited', 'Legend'],
     PARTS: [
       { id: 'engine', name: 'Engine', blurb: 'More power down the straights', per: 0.25, cost: 200, crash: 1.0 },
       { id: 'turbo', name: 'Turbo', blurb: 'Big boost, a little more risk', per: 0.3, cost: 800, crash: 1.07 },
@@ -40,6 +40,10 @@
         body: { len: 4.6, wid: 1.95, cabLen: 2.1, cabOff: -0.3, cabH: 0.58, tf: 0.6, tr: 0.6, wing: 1 } },
       { id: 'shogun', kitScale: 10000, name: 'Shogun GT', blurb: 'A thousand horsepower and a wing to match.', cost: 1.5e13, base: 2048,
         body: { len: 4.7, wid: 2.0, cabLen: 2.0, cabOff: -0.4, cabH: 0.54, tf: 0.75, tr: 0.9, wing: 2 } },
+      { id: 'raijin', kitScale: 6e4, name: 'Raijin RS', blurb: 'Low, wide and electric blue at heart. Built for the city at night.', cost: 1.5e15, base: 8192,
+        body: { len: 4.5, wid: 2.0, cabLen: 1.9, cabOff: -0.35, cabH: 0.5, tf: 0.7, tr: 0.85, wing: 2 } },
+      { id: 'kaiju', kitScale: 4e5, name: 'Kaiju X', blurb: 'A monster of a car. Nobody quite knows what is under the bonnet.', cost: 1.5e17, base: 32768,
+        body: { len: 4.9, wid: 2.1, cabLen: 1.8, cabOff: -0.45, cabH: 0.48, tf: 0.8, tr: 1.0, wing: 2 } },
     ],
 
     /* Cosmetics. Bought once with cash at a set price that never changes. The crowd likes a good-looking car:
@@ -173,6 +177,10 @@
         cost: 7e11, pits: 6, cars: ['skyward'], style: 64, crowd: 5e6, scale: 7e5, stage: 5, bar: 5, cash: 0.7 },
       { id: 'stadium', name: 'Stadium', blurb: 'A football stadium turned arena for the night: floodlights and sixty thousand seats.',
         cost: 6e13, pits: 6, cars: ['shogun'], style: 256, crowd: 2e8, scale: 5e7, stage: 6, bar: 6, cash: 0.45 },
+      { id: 'neon', name: 'Neon City', blurb: 'Downtown after dark, closed off for one night only. Every block is lit up.',
+        cost: 2e15, pits: 6, cars: ['raijin'], style: 1024, crowd: 8e9, scale: 3.5e9, stage: 7, bar: 7, cash: 0.45, night: true },
+      { id: 'carrier', name: 'Aircraft Carrier', blurb: 'The flight deck of a carrier at sea. Mind the edge.',
+        cost: 8e16, pits: 6, cars: ['kaiju'], style: 4096, crowd: 3.2e11, scale: 2.5e11, stage: 8, bar: 8, cash: 0.52 },
     ],
     VENUE_CASH: 2,                       // cash for every point of style the crowd cheers, before sponsors
     SPONSOR_MULT: 1.25,                  // cash x1.25 per level
@@ -195,7 +203,7 @@
       SPEED_PER_KM: 0.05,                     // top speed grows 5% a kilometre, up to HARD_KM (+50%)
       // A venue track keeps its layout, so it is made harder with speed instead: the car's top speed is
       // multiplied by TRACK_SPEED for that track, and grows TRACK_SPEED_PER_KM a kilometre up to HARD_KM.
-      TRACK_SPEED: { lot: 1, docks: 1, airfield: 1.15, pro: 0.96, stadium: 1.03 }, TRACK_SPEED_PER_KM: 0.07,
+      TRACK_SPEED: { lot: 1, docks: 1, airfield: 1.15, pro: 0.96, stadium: 1.03, neon: 0.88, carrier: 1.11 }, TRACK_SPEED_PER_KM: 0.07,
       // Part stages past HANDLING_STAGES change the car's handling here by only HANDLING_EXTRA of a stage each,
       // so the latest stages keep cars drivable (they still add their full style at the venue and score bonus).
       HANDLING_STAGES: 5, HANDLING_EXTRA: 0.4,

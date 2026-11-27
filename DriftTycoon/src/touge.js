@@ -21,7 +21,10 @@
     airfield: { wall: [0xff6b2c, 0xf1f3f6], gate: 0x22b573 },
     pro: { wall: [0xe5484d, 0xf4f6fa], gate: 0x2f8fff },
     stadium: { wall: [0x2f6fb5, 0xf4f6fa], gate: 0xffcf33 },
+    neon: { wall: [0xff4fd8, 0x2a3142], gate: 0x3cf0ff },
+    carrier: { wall: [0xffcf33, 0x2a3142], gate: 0xe5484d },
   };
+  const NEON = [0xff4fd8, 0x3cf0ff, 0xa06bff, 0xffe14d, 0xff6b2c, 0x5dff8f];
   const CROWD = [0xff5a36, 0x19b3f5, 0xffd23f, 0x7ed957, 0xb56bff, 0xff6fb5, 0xffffff, 0x2a3142, 0xff9f1c];
 
   function roadTexture(track) {
@@ -109,10 +112,11 @@
       const track = map.kind === 'track', theme = track ? K.THEMES[map.id] : null;
       scene = new THREE.Scene();
       if (track) {
+        const li = theme.light || [0xffffff, 0x9bb07a, 0.8, 0xfff1d8, 0.6];
         scene.background = new THREE.Color(theme.sky);
         scene.fog = new THREE.Fog(theme.sky, 150, 640);
-        scene.add(new THREE.HemisphereLight(0xffffff, 0x9bb07a, 0.8));
-        const sun = new THREE.DirectionalLight(0xfff1d8, 0.6);
+        scene.add(new THREE.HemisphereLight(li[0], li[1], li[2]));
+        const sun = new THREE.DirectionalLight(li[3], li[4]);
         sun.position.set(-60, 90, -40);
         scene.add(sun);
       } else {
@@ -136,8 +140,10 @@
       ground = null; peaks = null;
       if (track) {   // the venue's surroundings with its asphalt on top; neither moves
         const flat = (w, d, color, y) => { const g = new THREE.PlaneGeometry(w, d); g.rotateX(-Math.PI / 2); return K.mesh(g, new THREE.MeshLambertMaterial({ color }), 0, y, 0, scene); };
-        flat(3200, 3200, theme.ground, -0.1);
+        const sea = map.id === 'carrier';   // the deck stands out of the sea on a grey hull
+        flat(3200, 3200, theme.ground, sea ? -22 : -0.1);
         flat(PAD.hx * 2 * D.TRACK_SCALE, PAD.hz * 2 * D.TRACK_SCALE, theme.asphalt, -0.05);
+        if (sea) K.mesh(new THREE.BoxGeometry(PAD.hx * 2 * D.TRACK_SCALE + 60, 22, PAD.hz * 2 * D.TRACK_SCALE + 80), new THREE.MeshLambertMaterial({ color: 0x5a606c }), 0, -11.1, 0, scene);
       } else {
         // the mountainside is one big tilted sheet that follows the car
         const sheet = new THREE.PlaneGeometry(1400, 1400, 1, 1);
@@ -161,7 +167,7 @@
       const shadow = new THREE.PlaneGeometry(carM.len + 0.6, carM.wid + 0.5);
       shadow.rotateX(-Math.PI / 2);
       K.mesh(shadow, new THREE.MeshBasicMaterial({ color: 0x05070c, transparent: true, opacity: 0.35, depthWrite: false }), 0, 0.05, 0, carM.g);
-      if (!track) {
+      if (!track || (theme && theme.light)) {   // headlights on the street at dusk, and on a track at night
         const beam = new THREE.PlaneGeometry(13, 8);
         beam.rotateX(-Math.PI / 2);
         K.mesh(beam, new THREE.MeshBasicMaterial({ map: glowTexture(), color: 0xfff0b8, transparent: true, opacity: 0.4, depthWrite: false,
@@ -321,7 +327,58 @@
       const clearOfStand = (x, z) => { if (!side) return true; const dx = x - sp.x, dz = z - sp.z, t = dx * fx + dz * fz, o = (dx * nx + dz * nz) * side; return Math.abs(t) > 24 || o < hw || o > hw + 20; };
       const free = (x, z, r) => !near(x, z, hw + r) && clearOfStand(x, z);
 
-      if (map.id === 'pro') {
+      if (map.id === 'neon') {
+        // downtown at night: towers with lit windows and neon on every block round the closed-off streets
+        const lit = new K.Batch(null, shared.glow);
+        const tower = (x, z, w, d, h) => {
+          solid.add(w, h, d, pick([0x232a44, 0x2b2f4a, 0x1f2540]), x, h / 2, z);
+          for (let y = 4; y < h - 2; y += 3.4) {
+            for (let u = -w / 2 + 2; u < w / 2 - 1; u += 3) {
+              if (Math.random() < 0.5) lit.add(1.6, 1.6, 0.2, Math.random() < 0.7 ? 0xffd98a : 0x9fe6ff, x + u, y, z + d / 2 + 0.1);
+              if (Math.random() < 0.5) lit.add(1.6, 1.6, 0.2, Math.random() < 0.7 ? 0xffd98a : 0x9fe6ff, x + u, y, z - d / 2 - 0.1);
+            }
+            for (let u = -d / 2 + 2; u < d / 2 - 1; u += 3) {
+              if (Math.random() < 0.5) lit.add(0.2, 1.6, 1.6, Math.random() < 0.7 ? 0xffd98a : 0x9fe6ff, x + w / 2 + 0.1, y, z + u);
+              if (Math.random() < 0.5) lit.add(0.2, 1.6, 1.6, Math.random() < 0.7 ? 0xffd98a : 0x9fe6ff, x - w / 2 - 0.1, y, z + u);
+            }
+          }
+          const c = pick(NEON);
+          lit.add(w + 0.5, 1, d + 0.5, c, x, rand(8, 16), z);   // a neon band all round
+          if (h > 60) lit.add(1, 1, 1, 0xff3a3a, x, h + 1, z);
+        };
+        for (let gx = -px - 300; gx <= px + 300; gx += 48) {
+          for (let gz = -pz - 300; gz <= pz + 300; gz += 48) {
+            if (Math.abs(gx) < px + 30 && Math.abs(gz) < pz + 30) continue;
+            const near = Math.abs(gx) < px + 80 && Math.abs(gz) < pz + 80;
+            tower(gx + rand(-4, 4), gz + rand(-4, 4), rand(26, 36), rand(26, 36), near ? rand(25, 60) : rand(50, 160));
+          }
+        }
+        for (let x = -px; x <= px; x += 18) lit.add(10, 0.8, 0.3, pick(NEON), x, 3, -pz - 2).add(10, 0.8, 0.3, pick(NEON), x, 3, pz + 2);   // neon on the fences
+        for (let z = -pz; z <= pz; z += 18) lit.add(0.3, 0.8, 10, pick(NEON), -px - 2, 3, z).add(0.3, 0.8, 10, pick(NEON), px + 2, 3, z);
+        lit.build(group, false);
+      } else if (map.id === 'carrier') {
+        // the deck: the island tower down one side, jets parked along the deck edge, nets, and the open sea
+        const ix = px + 22;
+        solid.add(30, 50, 110, 0x6c7380, ix, 25, -40).add(34, 10, 70, 0x2a3142, ix, 55, -40).add(26, 14, 40, 0x6c7380, ix, 67, -30);
+        solid.add(3, 50, 3, 0x2a3142, ix, 99, -30).add(22, 2, 2, 0x2a3142, ix, 114, -30).add(31, 4, 0.6, 0x9fd3ff, ix - 15.4, 55, -40);
+        solid.add(40, 0.5, pz * 2 + 80, 0x4d535f, ix, -0.06, 0);   // deck beside the pad, under the island
+        const jet = (x, z, ry) => {
+          const c = Math.cos(ry), sn = Math.sin(ry), at = (lx, lz) => [x + lx * c + lz * sn, z - lx * sn + lz * c];
+          let q = at(0, 0); solid.add(16, 2.2, 2.6, 0x8d949f, q[0], 2, q[1], ry);
+          q = at(-1.5, 0); solid.add(5, 0.3, 10, 0x8d949f, q[0], 2.2, q[1], ry);
+          q = at(-7, 0); solid.add(3, 3.6, 0.3, 0x8d949f, q[0], 4, q[1], ry).add(2, 0.3, 6, 0x8d949f, q[0], 2.4, q[1], ry);
+          q = at(4, 0); solid.add(3.2, 1.2, 1.6, 0x2a3142, q[0], 3.3, q[1], ry);
+        };
+        for (let z = -pz + 30; z < pz - 30; z += 34) { if (!near(ix - 10, z, hw + 8)) jet(ix - 6, z + 70, Math.PI / 2 + 0.5); }
+        for (let z = -pz; z < pz; z += 6) solid.add(5, 0.15, 5.5, 0x3a3f4a, -px - 3, -0.3, z);                   // nets over the edge
+        for (let x = -px; x < px; x += 6) solid.add(5.5, 0.15, 5, 0x3a3f4a, x, -0.3, pz + 3).add(5.5, 0.15, 5, 0x3a3f4a, x, -0.3, -pz - 3);
+        solid.add(60, 18, 300, 0x5a606c, -px - 700, -10, -500).add(30, 24, 40, 0x6c7380, -px - 700, 10, -560);     // an escort ship
+        for (let n = 0; n < 220; n++) {
+          const x = rand(-px - 900, px + 900), z = rand(-pz - 900, pz + 900);
+          if (Math.abs(x) < px + 70 && Math.abs(z) < pz + 60) continue;
+          solid.add(rand(4, 10), 0.2, 1.2, 0xe8f4ff, x, -21.8, z, rand(0, 3));
+        }
+      } else if (map.id === 'pro') {
         // a circuit: pit garages and race control down one long side, gravel, tire walls and catch fencing all
         // round, a timing tower, and trees beyond the run-off
         const gx = -px - 26;

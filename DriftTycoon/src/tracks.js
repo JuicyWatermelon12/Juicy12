@@ -45,6 +45,22 @@
     stadium: { start: [-9, -29], steps: [].concat(
       side(17, [[5, 30, 1]]), [R(4.5, 90)], side(49, [[6, 25, 1], [6, 25, -1], [6, 25, 1]]), [R(4.5, 90)],
       [R(4.25, 90), S(16), L(4.25, 180), S(16), R(4.25, 90)], [R(4.5, 90)], side(49, [[9, 25, 1]]), [R(4.5, 90)]) },
+    /* Neon City: a downtown street circuit. Both long sides jog in round a city block, right-left then
+       left-right, the two jogs interlocking; a chicane on the bottom street. */
+    neon: { start: [-7, -29], steps: [].concat(
+      [S(14), R(5, 90)],
+      [S(4), R(4.25, 90), L(4.25, 90), S(10), L(4.25, 90), R(4.25, 90), S(17)],
+      [R(5, 90)], side(14, [[5, 30, 1]]), [R(5, 90)],
+      [S(4), R(4.25, 90), L(4.25, 90), S(10), L(4.25, 90), R(4.25, 90), S(17)],
+      [R(5, 90)]) },
+    /* Aircraft Carrier: fast. A dogleg down the angled landing deck on the right, a sweeping S below it,
+       and the launch straight down the left with two chicanes. */
+    carrier: (() => {
+      const cut = 6 * (1 - Math.SQRT1_2), diag = (8 - 2 * cut) / Math.SQRT1_2, down = 23 - (-11 + 12 * Math.SQRT1_2 + diag * Math.SQRT1_2);
+      return { start: [-6, -29], steps: [].concat(
+        side(12, [[4.5, 20, 1]]), [R(6, 90), S(12), R(6, 45), S(diag), L(6, 45)], side(down, [[7, 35, -1]]), [R(6, 90), S(4), R(6, 90)],
+        side(46, [[7, 25, 1], [7, 25, 1]]), [R(6, 90)]) };
+    })(),
   };
 
   /* Walk a layout in small steps. Returns points { x, z, th, k, s }: th is the heading (0 = +x, growing

@@ -16,7 +16,12 @@
     airfield: { sky: 0xf6dcae, ground: 0xb7bf78, asphalt: '#3a3d47', rim: 0x9a9a8c, pad: 0xbdbba8, edge: 'rgba(255,205,60,0.85)' },
     pro: { sky: 0xa8d8f5, ground: 0x5fb456, asphalt: '#3a404e', rim: 0xd6dbe3, pad: 0xc6ccd6, edge: 'rgba(255,255,255,0.85)' },
     stadium: { sky: 0xf2cfa6, ground: 0x3f8f45, asphalt: '#454b59', rim: 0x7d8494, pad: 0xb5bbc6, edge: 'rgba(255,255,255,0.8)' },
+    // night: the light is cool and dim, and lit things glow (light: hemisphere sky, ground, strength; moon colour, strength)
+    neon: { sky: 0x10153a, ground: 0x1b1f30, asphalt: '#262b3d', rim: 0x3a4058, pad: 0x4b5170, edge: 'rgba(255,80,210,0.95)',
+      light: [0x8f9cff, 0x2a1f40, 0.62, 0xb7c0ff, 0.42] },
+    carrier: { sky: 0x9fd6f7, ground: 0x2a76b8, asphalt: '#4d535f', rim: 0x5f6672, pad: 0x7d8492, edge: 'rgba(255,210,60,0.9)' },
   };
+  const DAY_LIGHT = [0xffffff, 0x9bb07a, 0.72, 0xfff1d8, 0.62];
   const themeOf = (state) => THEMES[G.place(state).id] || THEMES.lot;
   /* A venue's drift line as [x, z] points for the curve below. */
   const trackPoints = (id) => DT.tracks.sample(DT.tracks.LAYOUTS[id] ? id : 'lot', 150).pts.map((p) => [p.x, p.z]);
@@ -188,6 +193,26 @@
       g.setLineDash([22, 16]);
       g.beginPath(); g.moveTo(X(bx1 + 0.6), Z(-LOT.hz)); g.lineTo(X(bx1 + 0.6), Z(LOT.hz)); g.stroke();
       g.setLineDash([]);
+    } else if (kind === 'neon') {    // wet city streets: lane lines, crosswalks, puddles catching the neon
+      for (let i = 0; i < 26; i++) {
+        g.fillStyle = ['rgba(255,80,210,0.07)', 'rgba(60,220,255,0.07)', 'rgba(160,110,255,0.07)'][i % 3];
+        g.beginPath(); g.ellipse(rand(0, w), rand(0, h), rand(30, 110), rand(16, 60), 0, 0, Math.PI * 2); g.fill();
+      }
+      g.fillStyle = 'rgba(255,255,255,0.4)';
+      [-LOT.hz + 4, LOT.hz - 6].forEach((z) => { for (let x = -LOT.hx + 2; x < LOT.hx - 2; x += 1.6) g.fillRect(X(x), Z(z), 0.8 * S, 2 * S); });
+      g.strokeStyle = 'rgba(255,220,90,0.35)'; g.lineWidth = 3; g.setLineDash([26, 18]);
+      g.beginPath(); g.moveTo(X(0), Z(-LOT.hz + 7)); g.lineTo(X(0), Z(LOT.hz - 7)); g.stroke();
+      g.setLineDash([]);
+    } else if (kind === 'carrier') { // flight deck: the angled landing area, its centre line and the catapult tracks
+      g.strokeStyle = 'rgba(255,210,60,0.75)'; g.lineWidth = 5;
+      [-3.5, 3.5].forEach((o) => { g.beginPath(); g.moveTo(X(-LOT.hx + o), Z(LOT.hz)); g.lineTo(X(LOT.hx + o - 6), Z(-LOT.hz)); g.stroke(); });
+      g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 4; g.setLineDash([30, 22]);
+      g.beginPath(); g.moveTo(X(-LOT.hx + 3), Z(LOT.hz)); g.lineTo(X(LOT.hx - 3), Z(-LOT.hz)); g.stroke();
+      g.setLineDash([]);
+      g.strokeStyle = 'rgba(20,22,30,0.45)'; g.lineWidth = 6;
+      [-LOT.hx + 2.4, -LOT.hx + 4.4].forEach((x) => { g.beginPath(); g.moveTo(X(x), Z(-LOT.hz)); g.lineTo(X(x), Z(-6)); g.stroke(); });
+      g.fillStyle = 'rgba(255,255,255,0.5)'; g.font = '700 ' + 9 * S + 'px Arial'; g.textAlign = 'center';
+      g.fillText('8', X(0), Z(LOT.hz - 4));
     } else if (kind === 'stadium') { // the football pitch's lines, still showing under the temporary surface
       g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 6;
       g.beginPath(); g.moveTo(X(-LOT.hx), Z(0)); g.lineTo(X(LOT.hx), Z(0)); g.stroke();
@@ -339,7 +364,8 @@
     scene.fog = new THREE.Fog(theme.sky, 200, 700);
     const camera = new THREE.PerspectiveCamera(30, 1, 5, 2500);
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x9bb07a, 0.72));
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x9bb07a, 0.72);
+    scene.add(hemi);
     const sun = new THREE.DirectionalLight(0xfff1d8, 0.62);
     sun.position.set(-55, 90, 40);
     sun.castShadow = true;
@@ -409,8 +435,9 @@
     scene.add(staticGroup);
     function buildStatic() {
       disposeGroup(staticGroup);
-      const kind = themeId;
-      const ground = mesh(new THREE.PlaneGeometry(2600, 2600), mat(theme.ground), 0, kind === 'docks' ? -1.2 : -0.05, 0, staticGroup);
+      const kind = themeId, li = theme.light || DAY_LIGHT;
+      hemi.color.set(li[0]); hemi.groundColor.set(li[1]); hemi.intensity = li[2]; sun.color.set(li[3]); sun.intensity = li[4];
+      const ground = mesh(new THREE.PlaneGeometry(2600, 2600), mat(theme.ground), 0, kind === 'docks' ? -1.2 : kind === 'carrier' ? -16 : -0.05, 0, staticGroup);
       ground.rotation.x = -Math.PI / 2;
       ground.receiveShadow = true;
       const rim = box(LOT.hx * 2 + 2.4, 0.3, LOT.hz * 2 + 2.4, theme.rim, 0, -0.15, 0, staticGroup);
@@ -518,6 +545,67 @@
           placed++;
         }
         crowns.build(staticGroup);
+      } else if (kind === 'neon') {
+        // downtown at night: towers on every block with lit windows, neon signs, street lamps and glowing streets
+        const glow = new Batch(null, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+        const NEON = [0xff4fd8, 0x3cf0ff, 0xa06bff, 0xffe14d, 0xff6b2c, 0x5dff8f];
+        const tower = (x, z, w, d, h) => {
+          b.add(w, h, d, [0x232a44, 0x2b2f4a, 0x1f2540][Math.floor(Math.random() * 3)], x, h / 2, z);
+          b.add(w + 0.4, 0.6, d + 0.4, 0x151a2c, x, h + 0.3, z);
+          for (let y = 3; y < h - 1.5; y += 2.4) {                                           // windows on the faces the camera sees
+            for (let u = -w / 2 + 1.2; u < w / 2 - 0.8; u += 1.8) if (Math.random() < 0.55) glow.add(1, 1.1, 0.12, Math.random() < 0.7 ? 0xffd98a : 0x9fe6ff, x + u, y, z + d / 2 + 0.07);
+            for (let u = -d / 2 + 1.2; u < d / 2 - 0.8; u += 1.8) if (Math.random() < 0.45) glow.add(0.12, 1.1, 1, Math.random() < 0.7 ? 0xffd98a : 0x9fe6ff, x + w / 2 + 0.07, y, z + u);
+          }
+          if (Math.random() < 0.6) glow.add(w * 0.8, 0.5, 0.15, NEON[Math.floor(Math.random() * NEON.length)], x, Math.min(h - 2, rand(6, 14)), z + d / 2 + 0.12);   // a neon strip
+          if (h > 30 && Math.random() < 0.7) glow.add(0.4, 0.4, 0.4, 0xff3a3a, x, h + 1.4, z);   // aircraft light
+        };
+        for (let gx = -200; gx <= 170; gx += 26) {
+          for (let gz = -260; gz <= 120; gz += 26) {
+            if (gx > -LOT.hx - 26 && gx < PIT_X + 18 && gz > -LOT.hz - 34 && gz < LOT.hz + 18) continue;   // the closed-off streets round the lot
+            const near = Math.abs(gx) < 80 && gz > -140;
+            tower(gx + rand(-2, 2), gz + rand(-2, 2), rand(12, 18), rand(12, 18), near ? rand(10, 26) : rand(18, 70));
+          }
+        }
+        for (let z = -300; z < 160; z += 26) for (let x = -213; x < 190; x += 26) {   // streets between the blocks, with glowing centre lines
+          if (x > -LOT.hx - 39 && x < PIT_X + 5 && z > -LOT.hz - 47 && z < LOT.hz + 5) continue;
+          glow.add(0.3, 0.04, 6, 0x3cf0ff, x, 0.02, z);
+        }
+        building(2, hqz, 40, 10, 12, 0x2b2f4a, 0xff4fd8, 0x151a2c);                                         // the club behind the top stands
+        signOn('NEON CITY', '#1b1440', '#ff4fd8', 2, 7.8, hqz + 6.2, 16);
+        for (let i = 0; i < 5; i++) glow.add(6, 0.4, 0.2, NEON[i], -14 + i * 8, 3, hqz + 6.2);
+        for (let z = -LOT.hz; z <= LOT.hz; z += 12) {                                                       // street lamps round the lot
+          b.add(0.3, 7, 0.3, 0x39405a, -LOT.hx - 10, 3.5, z);
+          glow.add(1.2, 0.4, 0.6, 0xfff0c2, -LOT.hx - 9.5, 7, z);
+        }
+        glow.build(staticGroup, false);
+      } else if (kind === 'carrier') {
+        // the flight deck: a grey hull standing out of the sea, the island tower behind the pits, parked jets,
+        // deck-edge nets, and an escort ship on the horizon
+        const deck = { x0: -LOT.hx - 23, x1: PIT_X + 20, z0: -LOT.hz - 62, z1: LOT.hz + 10 };
+        const hull = box(deck.x1 - deck.x0, 16, deck.z1 - deck.z0, 0x5a606c, (deck.x0 + deck.x1) / 2, -8.08, (deck.z0 + deck.z1) / 2, staticGroup);
+        hull.receiveShadow = true;
+        b.add(deck.x1 - deck.x0 + 0.4, 0.5, 0.6, 0x2a3142, (deck.x0 + deck.x1) / 2, -0.4, deck.z1).add(0.6, 0.5, deck.z1 - deck.z0, 0x2a3142, deck.x0, -0.4, (deck.z0 + deck.z1) / 2);
+        for (let z = deck.z0; z < deck.z1; z += 4) b.add(2.4, 0.08, 3.6, 0x3a3f4a, deck.x0 - 1.2, -0.3, z + 2);                     // safety nets
+        for (let x = deck.x0; x < deck.x1; x += 4) b.add(3.6, 0.08, 2.4, 0x3a3f4a, x + 2, -0.3, deck.z1 + 1.2);
+        const ix = PIT_X + 13, iz = hqz + 6;                                                                // the island
+        b.add(9, 14, 26, 0x6c7380, ix, 7, iz).add(10, 3, 18, 0x2a3142, ix, 15.5, iz).add(8, 4, 12, 0x6c7380, ix, 19, iz + 2);
+        b.add(1, 14, 1, 0x2a3142, ix, 27, iz + 2).add(6, 0.5, 0.5, 0x2a3142, ix, 31, iz + 2).add(0.5, 0.5, 5, 0x2a3142, ix, 29, iz + 2);
+        b.add(9.2, 1.2, 0.3, 0x9fd3ff, ix, 15.5, iz + 9.1);
+        const jet = (x, z, ry) => {   // a parked jet, folded wings
+          const c = Math.cos(ry), sn = Math.sin(ry), at = (lx, lz) => [x + lx * c + lz * sn, z - lx * sn + lz * c];
+          let q = at(0, 0); b.add(12, 1.6, 1.8, 0x8d949f, q[0], 1.5, q[1], ry);
+          q = at(-1, 0); b.add(4, 0.25, 7, 0x8d949f, q[0], 1.7, q[1], ry);
+          q = at(-5.2, 0); b.add(2, 2.6, 0.25, 0x8d949f, q[0], 3, q[1], ry).add(1.6, 0.2, 4, 0x8d949f, q[0], 1.8, q[1], ry);
+          q = at(3, 0); b.add(2.4, 0.9, 1.2, 0x2a3142, q[0], 2.5, q[1], ry);
+        };
+        for (let i = 0; i < 4; i++) jet(-LOT.hx - 18, -LOT.hz + 6 + i * 16, 0.4);
+        for (let i = 0; i < 3; i++) jet(-14 + i * 14, hqz - 12, Math.PI / 2 - 0.3);
+        b.add(14, 4, 60, 0x5a606c, 210, 0, -360).add(8, 8, 12, 0x6c7380, 210, 6, -370);                    // an escort ship
+        for (let i = 0; i < 140; i++) {                                                                     // white caps on the sea
+          const x = rand(-400, 400), z = rand(-500, 250);
+          if (x > deck.x0 - 10 && x < deck.x1 + 10 && z > deck.z0 - 10 && z < deck.z1 + 10) continue;
+          b.add(rand(2, 5), 0.1, 0.6, 0xe8f4ff, x, -15.9, z, rand(0, 3));
+        }
       } else if (kind === 'stadium') {
         // the pitch, mown in stripes, and a bowl of stands round it under a roof, with floodlights and a big screen
         for (let z = -LOT.hz - 12, k = 0; z < LOT.hz + 30; z += 6, k++) {
@@ -1045,7 +1133,7 @@
 
     function setTheme() {
       themeId = G.place(state).id;
-      theme = themeOf(state);
+      theme = themeOf(state);   // buildStatic sets the lights for it
       P = buildPath(trackPoints(themeId));
       corners = findCorners(P);
       scene.background.set(theme.sky);
