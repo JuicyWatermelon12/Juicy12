@@ -43,7 +43,7 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
     straight or a barrier touch. The multiplier's cap starts at x5 and rises by 1 every kilometre.
   - **The road:** generated as you go and different every run. Bends tighten, straights shorten and top speed
     rises over the first six kilometres.
-  - **The end:** the third barrier touch ends the run. "End run" banks it early. Either way you keep the score.
+  - **The end:** touching a barrier ends the run (`MAX_HITS` in `src/data.js`, now 1). "End run" banks it early. Either way you keep the score.
   - **Clean kilometres:** each kilometre marker passed with no touches so far adds 20% of that kilometre's points.
   - **Payout:** every 30 points pays one second of the team's income, and the driver earns double seat time.
     A test driver in a stock car earns about three times the venue's income over the same time; built cars score

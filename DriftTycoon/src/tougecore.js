@@ -91,7 +91,7 @@
   }
 
   /* One step of driving. `input` is the steering from -1 (full left) to 1 (full right), as the driver sees it.
-     Returns what happened: 'hit' (touched a barrier), 'km' (passed a kilometre marker), 'out' (third touch: run over). */
+     Returns what happened: 'hit' (touched a barrier), 'km' (passed a kilometre marker), 'out' (the last allowed touch: run over). */
   function step(run, input, dt) {
     const ev = [];
     if (run.done) return ev;

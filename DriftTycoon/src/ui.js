@@ -267,7 +267,7 @@
       const income = G.expectedIncome(state), rec = state.street;
       let h = '<h2>Street Drifting</h2><p class="note">Take one of your cars to the mountain road at dusk and drift it yourself. ' +
         'The car drives; you slide a finger left and right to steer. Hold it sideways to build the multiplier.</p>' +
-        '<p class="note">The road never ends and gets harder as it goes. The third barrier touch ends the run, and you keep everything you scored. ' +
+        '<p class="note">The road never ends and gets harder as it goes. ' + (T.MAX_HITS === 1 ? 'Touching a barrier ends the run' : 'Barrier touch number ' + T.MAX_HITS + ' ends the run') + ', and you keep everything you scored. ' +
         'Every ' + T.POINTS_PER_SECOND + ' points pays one second of team income (now ' + G.money(income, 1) + '/s), and the driver earns double seat time.</p>' +
         (rec.runs ? '<p class="note">Best so far: ' + rec.bestScore.toLocaleString('en-US') + ' points, ' + (rec.bestDist / 1000).toFixed(2) + ' km.</p>' : '') + '<div class="list">';
       let any = false;
@@ -286,7 +286,7 @@
     function showTougeResult(res) {
       const d = res.driver, row = (a, b) => '<div><span>' + a + '</span><b>' + b + '</b></div>';
       const best = (on) => (on ? ' <span class="rarity" style="--r:var(--accent)">New best</span>' : '');
-      showModal('<div class="reveal away"><small>' + (res.out ? 'Third barrier touch' : 'Run banked') + '</small><h2>' + G.money(res.cash, 1) + '</h2>' +
+      showModal('<div class="reveal away"><small>' + (res.out ? 'Hit the barrier' : 'Run banked') + '</small><h2>' + G.money(res.cash, 1) + '</h2>' +
         '<div class="result-rows">' + row('Points' + best(res.bestScore), res.score.toLocaleString('en-US')) +
         row('Distance' + best(res.bestDist), (res.dist / 1000).toFixed(2) + ' km') + row('Best multiplier', 'x' + res.bestMult.toFixed(1)) +
         (res.cleanKm ? row('Clean kilometres: ' + res.cleanKm, '+' + res.cleanBonus.toLocaleString('en-US')) : '') +

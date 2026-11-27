@@ -310,7 +310,7 @@
         shown.hits = run.hits;
         let h = '';
         for (let i = 0; i < T.MAX_HITS; i++) h += '<i' + (i < C.hitsLeft(run) ? ' class="on"' : '') + '></i>';
-        el.lives.innerHTML = h;
+        el.lives.innerHTML = T.MAX_HITS > 1 ? h : '';   // one touch ends the run, so there is nothing to count
       }
       if (run.hold > 0) {
         const n = Math.max(1, Math.ceil(run.hold / (T.COUNTDOWN / 3)));
@@ -392,7 +392,7 @@
         if (ev.includes('hit')) {
           shake = 0.5;
           const left = C.hitsLeft(run);
-          say(left ? 'Barrier!' : 'Run over', 'bad', left ? 0.8 : 3, left ? left + (left === 1 ? ' touch left' : ' touches left') : '');
+          say(left ? 'Barrier!' : 'Barrier! Run over', 'bad', left ? 0.8 : 3, left ? left + (left === 1 ? ' touch left' : ' touches left') : '');
           for (let j = 0; j < 8; j++) puffs.add(run.x, gy(run.z) + 0.6, run.z, rand(-4, 4), rand(1, 4), rand(-4, 4), rand(0.25, 0.5), rand(0.3, 0.6), 0xffb84d);
         }
         if (ev.includes('out')) endT = 0.9;   // a moment to see it before the results

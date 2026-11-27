@@ -119,7 +119,7 @@
       RADIUS_MIN: [18, 14], RADIUS_MAX: [34, 22],
       STRAIGHT_MIN: [8, 4], STRAIGHT_MAX: [28, 10],
       SPEED_PER_KM: 0.05, SPEED_RAMP_MAX: 0.3,       // top speed grows 5% a kilometre, up to +30%
-      MAX_HITS: 3,                            // barrier touches that end the run
+      MAX_HITS: 1,                            // barrier touches that end the run
       COUNTDOWN: 2.4, START_SPEED: 9,
       TOP_SPEED: 19, TOP_PER_STAGE: 0.6,       // m/s; engine and turbo stages each add TOP_PER_STAGE
       ACCEL: 0.9,

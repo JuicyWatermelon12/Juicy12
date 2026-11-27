@@ -529,12 +529,14 @@ test('street distance: each kilometre raises the multiplier cap and the speed; a
   let before = 0;
   for (let i = 0; i < HZ * 200 && run.km < 1; i++) { before = run.score; C.step(run, Math.cos(run.t * 3.2) * 0.6, 1 / HZ); }
   assert.ok(Math.abs(run.lastKmBonus / before - T.CLEAN_KM_BONUS) < 0.01);
-  // after a touch, markers pay nothing
-  run = go(straight(T.HALF_WIDTH), setup);
-  drive(run, () => 1, 4);
-  assert.equal(run.hits, 1);
-  ev = drive(run, (r) => C.drifter(r, 0.5), 100);
-  assert.ok(run.km >= 1 && run.cleanKm === 0 && run.cleanBonus === 0);
+  // after a touch, markers pay nothing (only possible while a run survives a touch)
+  if (T.MAX_HITS > 1) {
+    run = go(straight(T.HALF_WIDTH), setup);
+    drive(run, () => 1, 4);
+    assert.equal(run.hits, 1);
+    ev = drive(run, (r) => C.drifter(r, 0.5), 100);
+    assert.ok(run.km >= 1 && run.cleanKm === 0 && run.cleanBonus === 0);
+  }
   // top speed: +SPEED_PER_KM a kilometre, up to the cap
   const fast = go(straight(500), setup);
   drive(fast, () => 0, 30);
@@ -554,7 +556,7 @@ test('street runs: test drivers get a good way down every road, and a built car 
     for (let seed = 1; seed <= 10; seed++) {
       const run = go(C.newRoad(G.seeded(seed)), setup);
       drive(run, (r) => C.drifter(r, 0.7), 900);
-      assert.ok(run.done && run.hits === T.MAX_HITS, 'every run ends on the third touch');
+      assert.ok(run.done && run.hits === T.MAX_HITS, 'every run ends on the last allowed touch');
       t += run.t; score += run.score; dist += run.dist;
     }
     rate[build] = score / t;
