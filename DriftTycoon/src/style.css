@@ -265,6 +265,15 @@ i.swatch { width: 18px; height: 12px; border-radius: 4px; vertical-align: -1px; 
 .dot { display: block; width: 38px; height: 38px; border-radius: 50%; box-shadow: inset 0 -5px 0 rgba(0, 0, 0, 0.2), 0 0 0 2px var(--card); }
 .wheel { display: block; width: 40px; height: 40px; border-radius: 50%; background: var(--c); border: 8px solid #15181f; box-sizing: border-box; }
 .wheel.spoked { background: repeating-conic-gradient(var(--c) 0 18deg, #1e222b 18deg 60deg); }
+/* paint finishes and underglow swatches */
+.dot.pearl { background-image: radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.9) 0 14%, rgba(255, 255, 255, 0) 48%) !important; }
+.dot.chrome { background-image: linear-gradient(160deg, rgba(255, 255, 255, 0.95) 0 22%, rgba(255, 255, 255, 0) 40%, rgba(0, 0, 0, 0.25) 62%, rgba(255, 255, 255, 0.6) 82%) !important; }
+.dot.shift { background-image: linear-gradient(135deg, var(--c2) 10%, rgba(0, 0, 0, 0) 85%) !important; }
+.dot.matte { box-shadow: 0 0 0 2px var(--card); }
+.glow { display: block; width: 46px; height: 34px; border-radius: 50%; background: radial-gradient(ellipse at center, var(--c) 0 30%, transparent 70%); position: relative; }
+.glow::after { content: ''; position: absolute; left: 9px; right: 9px; top: 9px; height: 12px; border-radius: 5px; background: #2a3142; }
+.glow.off { background: none; }
+.glow.rainbow { background: radial-gradient(ellipse at center, transparent 0 22%, transparent 72%), conic-gradient(#ff5a36, #ffd23f, #7ed957, #3cf0ff, #a06bff, #ff4fd8, #ff5a36); border-radius: 50%; }
 
 /* ---- Venues ---- */
 .row.dim { opacity: 0.5; }

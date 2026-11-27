@@ -59,7 +59,7 @@
         h += '<div class="row driver-row"><div><small>Driver</small><div>' + (d ? esc(d.name) + ' ' + rarityTag(d) : 'Empty seat — this car is parked') +
           '</div></div><button class="ghost" data-act="pick-driver" data-car="' + car.id + '">' + (d ? 'Change' : 'Choose') + '</button></div>';
         h += '<div class="row driver-row"><div><small>Looks</small><div>' + esc(G.cosmetic('paint', car.paint).name) + ' · ' + esc(G.cosmetic('rims', car.rims).name) +
-          ' · ' + esc(G.cosmetic('kit', car.kit).name) + '</div><small class="delta">+' + Math.round((G.looksMult(car) - 1) * 100) + '% style from looks</small></div><button class="ghost" data-act="style" data-car="' + car.id + '">Customise</button></div>';
+          ' · ' + esc(G.cosmetic('kit', car.kit).name) + (car.glow !== 'none' ? ' · ' + esc(G.cosmetic('glow', car.glow).name) : '') + '</div><small class="delta">+' + Math.round((G.looksMult(car) - 1) * 100) + '% style from looks</small></div><button class="ghost" data-act="style" data-car="' + car.id + '">Customise</button></div>';
         h += '<div class="parts">';
         D.PARTS.forEach((p) => {
           const lv = car.parts[p.id], maxed = lv >= G.partCap(state), last = lv >= D.PART_MAX;
@@ -307,8 +307,9 @@
     function cosTile(car, kind, c) {
       const worn = car[kind] === c.id, owned = G.ownsCosmetic(state, kind, c.id, car.model), open = G.cosmeticUnlocked(state, kind, c.id);
       const cost = G.cosmeticCost(kind, c.id, car.model);
-      const art = kind === 'paint' ? '<i class="dot" style="background:' + c.color + '"></i>'
-        : kind === 'rims' ? '<i class="wheel' + (c.spokes ? ' spoked' : '') + '" style="--c:' + c.color + '"></i>' : '';
+      const art = kind === 'paint' ? '<i class="dot' + (c.finish ? ' ' + c.finish : '') + '" style="background:' + c.color + ';--c2:' + (c.color2 || c.color) + '"></i>'
+        : kind === 'rims' ? '<i class="wheel' + (c.spokes ? ' spoked' : '') + '" style="--c:' + c.color + '"></i>'
+        : kind === 'glow' ? '<i class="glow' + (c.rainbow ? ' rainbow' : '') + (c.cost ? '' : ' off') + '" style="--c:' + c.color + '"></i>' : '';
       const plus = c.style ? '<small class="delta">+' + Math.round(c.style * 100) + '% style</small>' : '';
       const foot = worn ? '<em class="on">On the car</em>' : owned ? '<em>Owned · tap to fit</em>'
         : open ? '<em class="price">' + G.money(cost) + '</em>' : '<em class="lock">Rank ' + c.rank + ' · ' + D.RANKS[c.rank].name + '</em>';
@@ -321,12 +322,13 @@
       if (!car) return;
       const sec = (title, note, kind, list, cls) => '<h3>' + title + '</h3><p class="note">' + note + '</p><div class="cos-grid ' + cls + '">' +
         list.map((c) => cosTile(car, kind, c)).join('') + '</div>';
-      showModal('<h2>' + esc(G.model(car.model).name) + ' looks</h2><p class="note">The crowd pays for a good-looking car: paint, rims and kit each add style at the venue. This car has <b>+' +
+      showModal('<h2>' + esc(G.model(car.model).name) + ' looks</h2><p class="note">The crowd pays for a good-looking car: paint, rims, kit and underglow each add style at the venue. This car has <b>+' +
         Math.round((G.looksMult(car) - 1) * 100) + '% style</b> from its looks. They do not change how it drives on the street. ' +
         'Street cred rank puts new items on sale; you earn it in Drift mode.</p>' + rankBar() +
         sec('Paint', 'Yours for the whole team once bought.', 'paint', D.PAINTS, 'small') +
         sec('Rims', 'Yours for the whole team once bought.', 'rims', D.RIMS, '') +
         sec('Body kit', 'Bought for this model, the ' + esc(G.model(car.model).name) + '.', 'kit', D.KITS, 'wide') +
+        sec('Underglow', 'A coloured light under the car. Yours for the whole team once bought.', 'glow', D.GLOWS, 'small') +
         '<button class="ghost wide" data-act="close">Done</button>');
     }
 

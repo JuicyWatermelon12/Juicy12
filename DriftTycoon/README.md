@@ -66,13 +66,24 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
     flair. Steering scales with speed, so fast cars can still make the bends.
 
 - **Street cred:** a rank earned only in Drift mode (Street or Track): 1 cred per 100 m, 1 per 1,000 points, and 10 for each
-  record a run sets (best score, best distance on that map). Twelve ranks, Unknown to Myth. It never goes down, is never
-  spent, and gives no bonuses; it puts cosmetics on sale.
-- **Cosmetics** (Garage → a car → Customise): paint, rims and body kits, bought with cash at set
-  prices that never change; items at higher ranks cost more. The crowd pays for looks: each paid item adds style
-  to the car wearing it at the venue (paint up to +18%, rims up to +20%, kits +8% / +16% / +30%, added together).
-  They change nothing about how the car drives or scores on the street. Paint and rims belong to the team and stay on the car
-  when it is traded up. Body kits (Street, Drift, Pro) are bought per car model. The kit decides the car's wing,
+  record a run sets (best score, best distance on that map). Twenty ranks, Unknown to The GOAT: the first twelve
+  (to Myth, 3,600 cred) come during the hook venues, and the eight late ones (Icon 5,500 to The GOAT 46,000) run
+  from about the end of the Pro Circuit to late on the Aircraft Carrier. It never goes down, is never spent, and
+  gives no bonuses; it puts cosmetics on sale.
+- **Cosmetics** (Garage → a car → Customise): paint, rims, body kits and underglow, bought with cash at set
+  prices that never change; items at higher ranks cost more, and the late items (from Icon) are priced for the
+  later venues. The crowd pays for looks: each paid item adds style to the car wearing it at the venue, added
+  together. A car in the best of everything has +166% style (it was +68% before the late items).
+  - **Paint:** up to +36%. The late paints have finishes: Matte Black, Pearl Frost, Mirror Chrome, Gold Chrome,
+    and two that shift between colours as the car moves (Violet Shift, Inferno Shift).
+  - **Rims:** up to +38%: Carbon Ten-Spoke, Chrome Deep Dish, Gold Mesh, Neon Pink Twin-Five, Forged Titanium.
+  - **Body kits:** Street +8%, Drift +16%, Pro +30%, then Widebody +40% (bolt-on overfenders, a deep splitter,
+    finned skirts, a ducktail and a tall wing), Time Attack +55% (a huge two-element wing on tall end plates,
+    canards, a vented bonnet, a finned diffuser) and Kaido Racer +70% (a long chin spoiler, boxy flares, pipes up
+    past the roof and an upright wing).
+  - **Underglow:** a soft light under the car, up to +22%: cyan, pink, violet, gold, and a rainbow that cycles.
+  They change nothing about how the car drives or scores in Drift mode. Paint, rims and underglow belong to the
+  team and stay on the car when it is traded up. Body kits are bought per car model. The kit decides the car's wing,
   lip, skirts, arches and intercooler; parts no longer add those (stance height, smoke and exhaust flames still
   come from parts).
 

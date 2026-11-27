@@ -49,8 +49,10 @@
     /* Cosmetics. Bought once with cash at a set price that never changes. The crowd likes a good-looking car:
        `style` is added to the style the car wearing it scores at the venue (paint + rims + kit add up).
        It does nothing to how the car handles or scores on the street.
-       `rank` is the street cred rank that puts the item on sale. Paints and rims belong to the team and
-       can go on any car; body kits are bought per car model (price x the model's kitScale). */
+       `rank` is the street cred rank that puts the item on sale. Paints, rims and underglow belong to the team
+       and can go on any car; body kits are bought per car model (price x the model's kitScale).
+       The late items (from rank 12) are priced for the later venues. A paint's `finish` changes how it is drawn:
+       matte, pearl, chrome, or shift (it slides between `color` and `color2`). */
     PAINTS: [
       { id: 'red', name: 'Factory Red', color: '#ff5a36', cost: 0, rank: 0 },
       { id: 'blue', name: 'Factory Blue', color: '#19b3f5', cost: 0, rank: 0 },
@@ -70,6 +72,12 @@
       { id: 'magenta', name: 'Hot Magenta', color: '#e0177f', style: 0.12, cost: 5e6, rank: 7 },
       { id: 'silver', name: 'Liquid Silver', color: '#c9d2e0', style: 0.15, cost: 2e7, rank: 8 },
       { id: 'blood', name: 'Blood Red', color: '#a30f1f', style: 0.18, cost: 8e7, rank: 9 },
+      { id: 'matteblack', name: 'Matte Black', color: '#24262d', finish: 'matte', style: 0.2, cost: 1e11, rank: 12 },
+      { id: 'pearlfrost', name: 'Pearl Frost', color: '#e8eefc', finish: 'pearl', style: 0.22, cost: 1.5e12, rank: 13 },
+      { id: 'chrome', name: 'Mirror Chrome', color: '#c9d3e2', finish: 'chrome', style: 0.25, cost: 5e12, rank: 14 },
+      { id: 'shiftviolet', name: 'Violet Shift', color: '#6a2cff', color2: '#19e0c8', finish: 'shift', style: 0.28, cost: 8e13, rank: 15 },
+      { id: 'goldchrome', name: 'Gold Chrome', color: '#f2c14e', finish: 'chrome', style: 0.32, cost: 2e15, rank: 17 },
+      { id: 'inferno', name: 'Inferno Shift', color: '#ff3a1a', color2: '#ffd23f', finish: 'shift', style: 0.36, cost: 2e16, rank: 19 },
     ],
     FACTORY_PAINTS: ['red', 'blue', 'yellow', 'green', 'violet', 'pink'],   // free; new cars arrive in one of these
     /* Rims: `spokes` 0 is a plain disc; `r` is the rim's radius in metres (the tire is 0.4). */
@@ -81,12 +89,29 @@
       { id: 'dish', name: 'Black Deep Dish', color: '#2a2f3b', spokes: 0, r: 0.31, style: 0.1, cost: 300000, rank: 4 },
       { id: 'goldfive', name: 'Gold Five-Spoke', color: '#e8b730', spokes: 5, r: 0.31, style: 0.14, cost: 2e6, rank: 6 },
       { id: 'neon', name: 'Neon Six-Spoke', color: '#2ff5e0', spokes: 6, r: 0.31, style: 0.2, cost: 2.5e7, rank: 8 },
+      { id: 'carbon', name: 'Carbon Ten-Spoke', color: '#3a404e', spokes: 10, r: 0.32, style: 0.24, cost: 2e11, rank: 12 },
+      { id: 'chromedish', name: 'Chrome Deep Dish', color: '#eef2f8', spokes: 0, r: 0.32, style: 0.27, cost: 3e12, rank: 13 },
+      { id: 'goldmesh', name: 'Gold Mesh', color: '#e8b730', spokes: 14, r: 0.32, style: 0.3, cost: 5e13, rank: 15 },
+      { id: 'pinkfive', name: 'Neon Pink Twin-Five', color: '#ff4fd8', spokes: 10, r: 0.33, style: 0.34, cost: 1e15, rank: 16 },
+      { id: 'forged', name: 'Forged Titanium', color: '#a9b4cc', spokes: 7, r: 0.34, style: 0.38, cost: 3e16, rank: 18 },
     ],
     KITS: [
       { id: 'stock', name: 'Stock body', blurb: 'As it left the factory.', cost: 0, rank: 0 },
       { id: 'street', name: 'Street kit', blurb: 'Front lip, side skirts and a ducktail.', style: 0.08, cost: 30000, rank: 2 },
       { id: 'drift', name: 'Drift kit', blurb: 'Wide arches, a front-mount intercooler and a GT wing.', style: 0.16, cost: 250000, rank: 5 },
       { id: 'pro', name: 'Pro kit', blurb: 'Full wide-body: canards, roof scoop, diffuser and a big wing.', style: 0.3, cost: 5e6, rank: 8 },
+      { id: 'widebody', name: 'Widebody', blurb: 'Bolt-on overfenders, a deep splitter, finned skirts and a ducktail with a tall wing.', style: 0.4, cost: 5e8, rank: 13 },
+      { id: 'timeattack', name: 'Time Attack', blurb: 'A huge two-element wing on tall end plates, canards, a vented bonnet and a finned diffuser.', style: 0.55, cost: 1e10, rank: 16 },
+      { id: 'kaido', name: 'Kaido Racer', blurb: 'A long chin spoiler, boxy flares, exhaust pipes up past the roof and an upright wing.', style: 0.7, cost: 2e11, rank: 18 },
+    ],
+    /* Underglow: a coloured light under the car. The rainbow cycles through every colour. */
+    GLOWS: [
+      { id: 'none', name: 'No underglow', color: '#2a3142', cost: 0, rank: 0 },
+      { id: 'cyan', name: 'Cyan Glow', color: '#3cf0ff', style: 0.1, cost: 2e10, rank: 12 },
+      { id: 'pink', name: 'Pink Glow', color: '#ff4fd8', style: 0.12, cost: 4e11, rank: 13 },
+      { id: 'violet', name: 'Violet Glow', color: '#a06bff', style: 0.15, cost: 1e13, rank: 15 },
+      { id: 'gold', name: 'Gold Glow', color: '#ffd23f', style: 0.18, cost: 3e14, rank: 16 },
+      { id: 'rainbow', name: 'Rainbow Cycle', color: '#ff5a36', rainbow: true, style: 0.22, cost: 1e16, rank: 19 },
     ],
 
     /* Drivers. Base stats are rolled evenly inside the rarity's range. Seat time earns experience;
@@ -245,6 +270,9 @@
       { name: 'Unknown', cred: 0 }, { name: 'Newcomer', cred: 40 }, { name: 'Local', cred: 100 }, { name: 'Regular', cred: 200 },
       { name: 'Known', cred: 350 }, { name: 'Respected', cred: 550 }, { name: 'Notorious', cred: 800 }, { name: 'Street Hero', cred: 1100 },
       { name: 'Mountain Ace', cred: 1500 }, { name: 'Street King', cred: 2000 }, { name: 'Legend', cred: 2700 }, { name: 'Myth', cred: 3600 },
+      // late ranks: from about the end of the Pro Circuit to late on the Aircraft Carrier
+      { name: 'Icon', cred: 5500 }, { name: 'Phenom', cred: 8500 }, { name: 'Titan', cred: 12000 }, { name: 'Immortal', cred: 16500 },
+      { name: 'Untouchable', cred: 22000 }, { name: 'Hall of Famer', cred: 29000 }, { name: 'Living Legend', cred: 37000 }, { name: 'The GOAT', cred: 46000 },
     ],
 
     /* Tap bubbles: they float up over the venue while you are watching it and vanish if ignored.

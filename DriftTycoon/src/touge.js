@@ -607,6 +607,7 @@
       basis.makeBasis(f, up, side);
       carM.g.quaternion.setFromRotationMatrix(basis);
       carM.g.position.set(run.x, y, run.z);
+      K.animateCar(carM, run.t);
       const parts = car.parts;
       carM.body.position.y = -Math.min(0.17, parts.stance * 0.034);
       carM.body.rotation.x = clamp(run.slip * 0.14, -0.1, 0.1);

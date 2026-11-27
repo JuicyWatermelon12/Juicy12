@@ -95,7 +95,7 @@
   function disposeGroup(group) {
     group.traverse((o) => {
       if (o.geometry && o.geometry !== UNIT_BOX && !o.geometry.userData.shared) o.geometry.dispose();
-      if (o.material && o.material.map) { o.material.map.dispose(); o.material.dispose(); }
+      if (o.material && o.material.map) { if (!(o.material.map.userData && o.material.map.userData.shared)) o.material.map.dispose(); o.material.dispose(); }
     });
     while (group.children.length) group.remove(group.children[0]);
   }
@@ -261,49 +261,93 @@
   }
 
   function carSignature(c) {
-    return [c.model, c.color, c.rims, c.kit].join('|');   // the look comes from cosmetics; parts only change performance
+    return [c.model, c.paint, c.color, c.rims, c.kit, c.glow].join('|');   // the look comes from cosmetics; parts only change performance
+  }
+  /* The body paint: flat, or with a finish (pearl, chrome, a colour that shifts). */
+  function paintMaterial(def, color) {
+    const f = def && def.finish;
+    if (f === 'pearl') return new THREE.MeshPhongMaterial({ color, specular: 0x9aa0b4, shininess: 45 });
+    if (f === 'chrome') return new THREE.MeshPhongMaterial({ color, specular: 0xffffff, shininess: 140, emissive: new THREE.Color(color).multiplyScalar(0.18) });
+    if (f === 'shift') return new THREE.MeshPhongMaterial({ color, specular: 0xb0b8d0, shininess: 70 });
+    if (f === 'matte') return new THREE.MeshLambertMaterial({ color: new THREE.Color(color).multiplyScalar(0.9) });
+    return mat(color);
   }
 
   /* Local axes: +X is forward, +Y up. */
   function makeCarMesh(c) {
     const b = G.model(c.model).body;
-    const g = new THREE.Group(), body = new THREE.Group();
+    const g = new THREE.Group(), body = new THREE.Group(), anim = [];
     g.add(body);
-    const paint = c.color;
-    mesh(new THREE.BoxGeometry(b.len, 0.6, b.wid), mat(paint), 0, 0.62, 0, body, true);
+    const paint = c.color, pdef = D.PAINTS.find((p) => p.id === c.paint), pm = paintMaterial(pdef, paint);
+    const pbox = (w, h, d, x, y, z, shadow) => mesh(new THREE.BoxGeometry(w, h, d), pm, x, y, z, body, shadow);
+    if (pdef && pdef.finish === 'shift') {   // slides between its two colours as the car moves
+      const c1 = new THREE.Color(pdef.color), c2 = new THREE.Color(pdef.color2), ph = Math.random() * 6;
+      anim.push((t) => pm.color.copy(c1).lerp(c2, 0.5 + 0.5 * Math.sin(t * 1.3 + ph)));
+    }
+    pbox(b.len, 0.6, b.wid, 0, 0.62, 0, true);
     box(b.len + 0.14, 0.2, b.wid + 0.06, 0x2a3142, 0, 0.3, 0, body);
     const cabW = b.wid * 0.9;
     mesh(taperedBox(b.cabLen, b.cabH, cabW, b.tf, b.tr, 0.84), mat(0x22304a), b.cabOff, 0.92 + b.cabH / 2, 0, body, true);
     const roofLen = Math.max(0.55, b.cabLen - b.tf - b.tr + 0.12);
-    box(roofLen, 0.07, cabW * 0.84 + 0.04, paint, b.cabOff + (b.tr - b.tf) / 2, 0.92 + b.cabH + 0.03, 0, body);
+    pbox(roofLen, 0.07, cabW * 0.84 + 0.04, b.cabOff + (b.tr - b.tf) / 2, 0.92 + b.cabH + 0.03, 0);
     const lamp = mat(0xfff1a8, { emissive: 0x9a8a4a }), tail = mat(0xff3b30, { emissive: 0x701010 });
     [-1, 1].forEach((s) => {
       mesh(new THREE.BoxGeometry(0.08, 0.16, 0.42), lamp, b.len / 2 + 0.01, 0.7, s * (b.wid / 2 - 0.32), body);
       mesh(new THREE.BoxGeometry(0.08, 0.14, 0.5), tail, -b.len / 2 - 0.01, 0.74, s * (b.wid / 2 - 0.34), body);
     });
-    // body kit: each one builds on the last. The stock body keeps whatever wing the model came with.
-    const kit = ['stock', 'street', 'drift', 'pro'].indexOf(c.kit), dark = 0x1b2130, rear = -b.len / 2, front = b.len / 2;
-    const wing = kit >= 2 ? 2 : Math.max(b.wing, kit >= 1 ? 1 : 0);
-    if (wing === 1) box(0.36, 0.09, b.wid * 0.92, paint, rear + 0.24, 0.98, 0, body);
+    // body kit. Stock to Pro each build on the last; the three late kits each have a look of their own on
+    // top of the Drift kit's base. The stock body keeps whatever wing the model came with.
+    const KIT_ORDER = ['stock', 'street', 'drift', 'pro', 'widebody', 'timeattack', 'kaido'];
+    const kitId = KIT_ORDER.includes(c.kit) ? c.kit : 'stock', kit = Math.min(3, KIT_ORDER.indexOf(kitId));
+    const late = KIT_ORDER.indexOf(kitId) >= 4 ? kitId : null, dark = 0x1b2130, rear = -b.len / 2, front = b.len / 2;
+    const roofX = b.cabOff + (b.tr - b.tf) / 2, roofY = 0.92 + b.cabH;
+    const wing = late === 'kaido' || late === 'timeattack' ? 0 : kit >= 2 ? 2 : Math.max(b.wing, kit >= 1 ? 1 : 0);
+    if (wing === 1) pbox(0.36, 0.09, b.wid * 0.92, rear + 0.24, 0.98, 0);
     if (wing === 2) {
-      const big = kit >= 3, wy = big ? 1.68 : 1.5;
+      const big = kit >= 3, tall = late === 'widebody', wy = tall ? 1.9 : big ? 1.68 : 1.5;
       box(big ? 0.75 : 0.6, 0.08, b.wid + (big ? 0.3 : 0.1), dark, rear + 0.3, wy, 0, body, true);
       [-1, 1].forEach((s) => box(0.12, wy - 0.94, 0.08, dark, rear + 0.34, (wy + 0.94) / 2, s * b.wid * 0.3, body));
-      if (big) [-1, 1].forEach((s) => box(0.8, 0.34, 0.06, paint, rear + 0.3, wy + 0.05, s * (b.wid / 2 + 0.15), body));
+      if (big) [-1, 1].forEach((s) => pbox(0.8, 0.34, 0.06, rear + 0.3, wy + 0.05, s * (b.wid / 2 + 0.15)));
     }
     if (kit >= 1) {
       box(0.3, 0.08, b.wid + (kit >= 3 ? 0.3 : 0.12), dark, front + 0.06, 0.2, 0, body);                       // front lip
       [-1, 1].forEach((s) => box(b.len * 0.5, 0.1, 0.1, dark, 0, 0.22, s * (b.wid / 2 + 0.04), body));           // side skirts
     }
     if (kit >= 2) {
-      const out = kit >= 3 ? 0.2 : 0.13;                                                                          // wide arches
-      [1, -1].forEach((fx) => [-1, 1].forEach((s) => box(1.0, 0.16, out, paint, fx * b.len * 0.31, 0.8, s * (b.wid / 2 + out / 2 - 0.01), body)));
+      const out = late === 'widebody' ? 0.32 : late === 'kaido' ? 0.28 : kit >= 3 ? 0.2 : 0.13;                   // wide arches
+      [1, -1].forEach((fx) => [-1, 1].forEach((s) => {
+        if (late === 'kaido') pbox(1.1, 0.34, out, fx * b.len * 0.31, 0.78, s * (b.wid / 2 + out / 2 - 0.01));   // boxy flares
+        else pbox(1.0, 0.16, out, fx * b.len * 0.31, 0.8, s * (b.wid / 2 + out / 2 - 0.01));
+        if (late === 'widebody') for (let k = -1; k <= 1; k++) box(0.06, 0.06, 0.04, 0xd7dde8, fx * b.len * 0.31 + k * 0.4, 0.86, s * (b.wid / 2 + out + 0.01), body);   // bolts
+      }));
       box(0.1, 0.2, b.wid * 0.6, 0xcfd6e2, front + 0.08, 0.38, 0, body);                                           // front-mount intercooler
     }
-    if (kit >= 3) {
+    if (kit >= 3 && late !== 'kaido') {
       [-1, 1].forEach((s) => { const m = box(0.34, 0.05, 0.3, dark, front - 0.05, 0.52, s * (b.wid / 2 + 0.1), body); m.rotation.z = -0.3; });   // canards
-      box(0.5, 0.13, 0.42, dark, b.cabOff + (b.tr - b.tf) / 2 + 0.1, 0.92 + b.cabH + 0.12, 0, body);              // roof scoop
+      if (!late) box(0.5, 0.13, 0.42, dark, roofX + 0.1, roofY + 0.12, 0, body);                                  // roof scoop
       [-0.5, 0, 0.5].forEach((z) => box(0.4, 0.2, 0.05, dark, rear - 0.08, 0.26, z * b.wid * 0.6, body));        // diffuser fins
+    }
+    if (late === 'widebody') {
+      box(0.5, 0.06, b.wid + 0.5, dark, front + 0.22, 0.14, 0, body);                                              // deep splitter
+      [-1, 1].forEach((s) => [-0.3, 0.3].forEach((x) => box(0.05, 0.16, 0.12, dark, x * b.len, 0.3, s * (b.wid / 2 + 0.1), body)));   // skirt fins
+      pbox(0.5, 0.12, b.wid * 0.94, rear + 0.2, 0.98, 0);                                                         // ducktail
+    }
+    if (late === 'timeattack') {
+      const wy = 2.05, wx = rear + 0.1;                                                                             // two-element wing on tall end plates
+      box(0.85, 0.08, b.wid + 0.5, dark, wx, wy, 0, body, true).add(box(0.5, 0.06, b.wid + 0.5, dark, -0.25, 0.22, 0));
+      [-1, 1].forEach((s) => { pbox(1.2, 0.8, 0.06, wx, wy, s * (b.wid / 2 + 0.25)); box(0.1, wy - 0.94, 0.08, dark, wx + 0.1, (wy + 0.94) / 2, s * b.wid * 0.25, body); });
+      [-1, 1].forEach((s) => { const m = box(0.3, 0.05, 0.26, dark, front - 0.25, 0.4, s * (b.wid / 2 + 0.12), body); m.rotation.z = -0.35; });   // second canards
+      [-0.25, 0.25].forEach((z) => box(0.6, 0.04, 0.14, 0x15181f, front - 0.7, 0.93, z * b.wid, body));          // bonnet vents
+      [-0.75, -0.25, 0.25, 0.75].forEach((z) => box(0.6, 0.3, 0.05, dark, rear - 0.2, 0.3, z * b.wid * 0.5, body));   // big diffuser
+    }
+    if (late === 'kaido') {
+      box(0.9, 0.06, b.wid * 0.9, dark, front + 0.4, 0.2, 0, body);                                                // long chin spoiler
+      [-1, 1].forEach((s) => {                                                                                     // pipes up past the roof
+        const p = mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.1, 8), mat(0xcfd6e2), rear + 0.1, 1.3, s * 0.32, body);
+        p.rotation.z = -0.35;
+      });
+      box(0.12, 1.3, 0.1, dark, rear + 0.35, 1.55, b.wid * 0.3, body).add(box(0.12, 1.3, 0.1, dark, 0, 0, -b.wid * 0.6));   // upright wing posts
+      pbox(0.35, 0.5, b.wid + 0.1, rear + 0.35, 2.3, 0);                                                          // the wing, stood up
     }
     const flame = mesh(new THREE.ConeGeometry(0.2, 0.9, 6), new THREE.MeshBasicMaterial({ color: 0xffa21f }),
       -b.len / 2 - 0.5, 0.36, -b.wid * 0.25, body);
@@ -332,8 +376,33 @@
       g.add(pivot);
       wheels.push({ pivot, camber, front: fx > 0, side });
     }));
-    return { g, body, wheels, flame, len: b.len, wid: b.wid };
+    // underglow: a soft coloured light on the ground under the car
+    const gdef = D.GLOWS.find((x) => x.id === c.glow);
+    if (gdef && gdef.cost > 0) {
+      const gm = new THREE.MeshBasicMaterial({ map: softGlow(), color: gdef.color, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending });
+      const pad = new THREE.PlaneGeometry(b.len + 1.4, b.wid + 1.2);
+      pad.rotateX(-Math.PI / 2);
+      mesh(pad, gm, 0, 0.06, 0, g).renderOrder = 2;
+      [-1, 1].forEach((s) => mesh(new THREE.BoxGeometry(b.len * 0.8, 0.05, 0.08), new THREE.MeshBasicMaterial({ color: gdef.color }), 0, 0.2, s * (b.wid / 2 - 0.1), body));
+      if (gdef.rainbow) anim.push((t) => gm.color.setHSL((t * 0.12) % 1, 1, 0.55));
+    }
+    return { g, body, wheels, flame, anim, len: b.len, wid: b.wid };
   }
+  /* A soft round light, shared by every underglow. */
+  let glowTex = null;
+  function softGlow() {
+    if (glowTex) return glowTex;
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d'), r = g.createRadialGradient(32, 32, 4, 32, 32, 32);
+    r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.55, 'rgba(255,255,255,0.55)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+    glowTex = new THREE.CanvasTexture(c);
+    glowTex.userData = { shared: true };
+    return glowTex;
+  }
+  /* Move a car's moving looks (a shifting paint, a rainbow underglow) along to time t. */
+  const animateCar = (m, t) => { for (let i = 0; i < m.anim.length; i++) m.anim[i](t); };
 
   function makeMechanic(color) {
     const g = new THREE.Group();
@@ -1156,6 +1225,7 @@
 
     function update(dt) {
       time += dt;
+      cars.forEach((c) => { if (c.m && c.m.anim.length) animateCar(c.m, time); });
       resize();
       const k = 1 - Math.exp(-dt * 9);
       if (Math.abs(inset.topT - inset.top) > 0.5 || Math.abs(inset.bottomT - inset.bottom) > 0.5) {
@@ -1230,5 +1300,5 @@
 
   DT.World = World;
   /* Building blocks shared with the touge mini-game. */
-  DT.kit = { Batch, mat, mesh, box, textTexture, disposeGroup, makeCarMesh, UNIT_BOX, WHITE, THEMES };
+  DT.kit = { Batch, mat, mesh, box, textTexture, disposeGroup, makeCarMesh, animateCar, UNIT_BOX, WHITE, THEMES };
 })(window);

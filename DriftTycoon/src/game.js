@@ -36,7 +36,7 @@
     const used = state.cars.map((c) => c.paint);
     const paint = D.FACTORY_PAINTS.find((p) => !used.includes(p)) || D.FACTORY_PAINTS[state.cars.length % D.FACTORY_PAINTS.length];
     // `color` is the paint's colour, kept on the car so everything that draws it has it to hand
-    const car = { id: state.nextId++, model: modelId, parts: emptyParts(), driver: null, paint, color: byId(D.PAINTS, paint).color, rims: 'steel', kit: 'stock' };
+    const car = { id: state.nextId++, model: modelId, parts: emptyParts(), driver: null, paint, color: byId(D.PAINTS, paint).color, rims: 'steel', kit: 'stock', glow: 'none' };
     state.cars.push(car);
     return car;
   }
@@ -51,7 +51,7 @@
       venue: null,               // the levels of the venue the team is at: always the same object as levels[place]
       place: 0, placeOwned: 0,   // the venue the team is at, and the furthest venue it has bought (indexes into D.VENUES)
       street: { runs: 0, cred: 0, best: {} },   // Drift mode: runs, street cred, and the best { score, dist } on each map
-      owned: { paints: D.FACTORY_PAINTS.slice(), rims: ['steel'], kits: {} },   // cosmetics bought; kits are per car model
+      owned: { paints: D.FACTORY_PAINTS.slice(), rims: ['steel'], glows: ['none'], kits: {} },   // cosmetics bought; kits are per car model
       fx: [],   // tap-bubble effects running at the venue: { id, left }. Not carried across a reload
       lastSeen: now || 0,
     };
@@ -120,8 +120,9 @@
   const sponsorMult = (state) => Math.pow(D.SPONSOR_MULT, state.venue.sponsors);
   const traitSum = (state, key) => seatedDrivers(state).reduce((t, d) => t + (trait(d)[key] || 0), 0);
   const cashMult = (state) => D.VENUE_CASH * (place(state).cash || 1) * sponsorMult(state) * (1 + traitSum(state, 'cash'));
-  /* How much the crowd likes this car's looks: 1 + the style bonuses of its paint, rims and body kit. */
-  const looksMult = (car) => 1 + ['paint', 'rims', 'kit'].reduce((t, k) => { const c = byId(k === 'paint' ? D.PAINTS : k === 'rims' ? D.RIMS : D.KITS, car[k === 'paint' ? 'paint' : k]); return t + ((c && c.style) || 0); }, 0);
+  /* How much the crowd likes this car's looks: 1 + the style bonuses of its paint, rims, body kit and underglow. */
+  const LOOKS = { paint: D.PAINTS, rims: D.RIMS, kit: D.KITS, glow: D.GLOWS };
+  const looksMult = (car) => 1 + Object.keys(LOOKS).reduce((t, k) => { const c = byId(LOOKS[k], car[k]); return t + ((c && c.style) || 0); }, 0);
   const crowdCap = (state) => place(state).crowd * Math.pow(D.CROWD_GROWTH, state.venue.stands) * (1 + traitSum(state, 'crowd'));
 
   /* Style points a second this car scores while it is drifting. 0 without a driver. */
@@ -349,14 +350,15 @@
     const after = rank(state), unlocked = [];
     if (after.index > before.index) {
       const fresh = (list, kind) => list.forEach((c) => { if (c.rank > before.index && c.rank <= after.index) unlocked.push({ kind, item: c }); });
-      fresh(D.PAINTS, 'paint'); fresh(D.RIMS, 'rims'); fresh(D.KITS, 'kit');
+      fresh(D.PAINTS, 'paint'); fresh(D.RIMS, 'rims'); fresh(D.KITS, 'kit'); fresh(D.GLOWS, 'glow');
     }
     return { before, after, unlocked };
   }
 
-  /* ---------- Cosmetics: paint, rims, body kits. Looks only. ---------- */
+  /* ---------- Cosmetics: paint, rims, body kits, underglow. Looks only. ---------- */
 
-  const COSMETICS = { paint: D.PAINTS, rims: D.RIMS, kit: D.KITS };
+  const COSMETICS = LOOKS;
+  const OWNED_LIST = { paint: 'paints', rims: 'rims', glow: 'glows' };   // team-owned kinds and where they are kept
   const cosmetic = (kind, id) => (COSMETICS[kind] ? byId(COSMETICS[kind], id) : undefined);
   /* Set price: it depends on the item (and, for a kit, the car model), never on the car's upgrades. */
   function cosmeticCost(kind, id, modelId) {
@@ -368,7 +370,7 @@
     if (!c) return false;
     if (c.cost === 0) return true;
     if (kind === 'kit') return (state.owned.kits[modelId] || []).includes(id);
-    return state.owned[kind === 'paint' ? 'paints' : 'rims'].includes(id);
+    return state.owned[OWNED_LIST[kind]].includes(id);
   }
   const cosmeticUnlocked = (state, kind, id) => { const c = cosmetic(kind, id); return !!c && rank(state).index >= c.rank; };
   /* Put an owned cosmetic on a car. */
@@ -384,7 +386,7 @@
     if (!car || !cosmetic(kind, id) || ownsCosmetic(state, kind, id, car.model) || !cosmeticUnlocked(state, kind, id)) return false;
     if (!spend(state, cosmeticCost(kind, id, car.model))) return false;
     if (kind === 'kit') (state.owned.kits[car.model] = state.owned.kits[car.model] || []).push(id);
-    else state.owned[kind === 'paint' ? 'paints' : 'rims'].push(id);
+    else state.owned[OWNED_LIST[kind]].push(id);
     return applyCosmetic(state, carId, kind, id);
   }
 
@@ -539,6 +541,7 @@
     const o = raw.owned || {}, known = (list, all) => (Array.isArray(list) ? list.filter((id) => byId(all, id)) : []);
     s.owned.paints = Array.from(new Set(s.owned.paints.concat(known(o.paints, D.PAINTS))));
     s.owned.rims = Array.from(new Set(s.owned.rims.concat(known(o.rims, D.RIMS))));
+    s.owned.glows = Array.from(new Set(s.owned.glows.concat(known(o.glows, D.GLOWS))));
     D.MODELS.forEach((m) => { const k = known(o.kits && o.kits[m.id], D.KITS); if (k.length) s.owned.kits[m.id] = k; });
     s.drivers = raw.drivers.filter(isDriver).map((d) => cleanDriver(d, num));
     s.cars = raw.cars.filter((c) => c && model(c.model)).slice(0, s.slots).map((c, i) => {
@@ -550,12 +553,13 @@
       const driver = s.drivers.some((d) => d.id === c.driver) ? c.driver : null;
       const paint = byId(D.PAINTS, c.paint) || D.PAINTS.find((p) => p.color === c.color) || byId(D.PAINTS, D.FACTORY_PAINTS[i % D.FACTORY_PAINTS.length]);
       return { id: c.id, model: c.model, parts, driver, paint: paint.id, color: paint.color,
-        rims: byId(D.RIMS, c.rims) ? c.rims : 'steel', kit: byId(D.KITS, c.kit) ? c.kit : 'stock' };
+        rims: byId(D.RIMS, c.rims) ? c.rims : 'steel', kit: byId(D.KITS, c.kit) ? c.kit : 'stock', glow: byId(D.GLOWS, c.glow) ? c.glow : 'none' };
     });
     s.cars.forEach((c) => {   // nothing worn that the team does not own
       if (!ownsCosmetic(s, 'paint', c.paint)) { c.paint = D.FACTORY_PAINTS[0]; c.color = byId(D.PAINTS, c.paint).color; }
       if (!ownsCosmetic(s, 'rims', c.rims)) c.rims = 'steel';
       if (!ownsCosmetic(s, 'kit', c.kit, c.model)) c.kit = 'stock';
+      if (!ownsCosmetic(s, 'glow', c.glow)) c.glow = 'none';
     });
     // The roster has a size now: seated drivers stay, then the best of the bench while there is room.
     const cap = rosterCap(s);

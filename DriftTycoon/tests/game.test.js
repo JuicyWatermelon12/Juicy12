@@ -906,6 +906,50 @@ test('venues are kept: buying adds one, each keeps its own upgrade levels, and t
   assert.equal(G.buyPlace(s), false);
 });
 
+test('late looks: eight more ranks run into the Carrier, and the late items are priced for the late venues', () => {
+  assert.equal(D.RANKS.length, 20);
+  for (let i = 1; i < D.RANKS.length; i++) assert.ok(D.RANKS[i].cred > D.RANKS[i - 1].cred, D.RANKS[i].name);
+  const kinds = { paint: D.PAINTS, rims: D.RIMS, kit: D.KITS, glow: D.GLOWS };
+  for (const k of Object.keys(kinds)) {
+    for (const c of kinds[k]) {
+      assert.ok(c.rank >= 0 && c.rank < D.RANKS.length, k + ' ' + c.id + ' goes on sale at a real rank');
+      if (c.rank >= 12) assert.ok(c.cost >= 1e8, k + ' ' + c.id + ' is priced for the late game');
+    }
+    assert.ok(kinds[k].some((c) => c.rank >= 12), k + ' has late items');
+  }
+  for (const f of ['matte', 'pearl', 'chrome', 'shift']) assert.ok(D.PAINTS.some((p) => p.finish === f), 'a ' + f + ' paint');
+  assert.ok(D.PAINTS.filter((p) => p.finish === 'shift').every((p) => p.color2));
+  for (const id of ['widebody', 'timeattack', 'kaido']) assert.ok(G.cosmetic('kit', id), id);
+  // fully dressed in the best of everything: about +150% style or more, against +68% before
+  const s = rich(), car = s.cars[0];
+  G.addCred(s, 1e6);
+  for (const [k, id] of [['paint', 'inferno'], ['rims', 'forged'], ['kit', 'kaido'], ['glow', 'rainbow']]) assert.ok(G.buyCosmetic(s, car.id, k, id), k);
+  const looks = G.looksMult(car) - 1;
+  console.log('   fully dressed late-game car: +' + Math.round(looks * 100) + '% style');
+  assert.ok(looks >= 1.45 && looks <= 1.8);
+});
+
+test('underglow: a team-owned look like paint and rims, on sale by rank, kept in the save', () => {
+  const s = G.newState(0), car = s.cars[0];
+  assert.equal(car.glow, 'none');
+  assert.ok(G.ownsCosmetic(s, 'glow', 'none'));
+  s.cash = 1e13;
+  assert.equal(G.buyCosmetic(s, car.id, 'glow', 'cyan'), false, 'not on sale at rank 0');
+  const r = G.addCred(s, D.RANKS[G.cosmetic('glow', 'cyan').rank].cred);
+  assert.ok(r.unlocked.some((u) => u.kind === 'glow' && u.item.id === 'cyan'), 'the new rank lists it');
+  const style = G.carStyle(s, car), cash = s.cash;
+  assert.ok(G.buyCosmetic(s, car.id, 'glow', 'cyan'));
+  near(cash - s.cash, G.cosmetic('glow', 'cyan').cost);
+  near(G.carStyle(s, car) / style, (G.looksMult(car)) / (G.looksMult(car) - G.cosmetic('glow', 'cyan').style), 1e-9);
+  G.buyCar(s, 'kumo'); const other = s.cars[1];
+  if (other) { assert.ok(G.applyCosmetic(s, other.id, 'glow', 'cyan'), 'any car of the team can wear it'); }
+  const back = G.load(G.serialize(s), 0);
+  assert.equal(back.cars[0].glow, 'cyan');
+  assert.ok(back.owned.glows.includes('cyan'));
+  const old = JSON.parse(G.serialize(s)); delete old.owned.glows; old.cars.forEach((c) => delete c.glow);
+  assert.ok(G.load(old, 0).cars.every((c) => c.glow === 'none'), 'older saves load with no underglow');
+});
+
 /* ---------- Tap bubbles ---------- */
 
 test('bubbles: the gap is inside its range, kinds come by weight, and a running effect does not come again', () => {
