@@ -715,7 +715,7 @@
 
     /* ----- Cars ----- */
     const cars = new Map();
-    let time = 0, speed0 = 15;
+    let time = 0, speed0 = 15, spread = 0;
 
     function tentSpot(i) { return { x: PIT_X, z: tentZ(i), h: Math.PI }; }
 
@@ -808,7 +808,7 @@
       if (c.state === 'run') {
         samplePath(P, c.s, tmp);
         samplePath(P, c.s + 5.5, tmp2);
-        const v0 = speed0 * (1 - 0.22 * Math.min(1, Math.abs(tmp.kap) * 14));
+        const v0 = speed0 * (1 - 0.22 * Math.min(1, Math.abs(tmp.kap) * 14)) * (c.pace || 1);
         c.s = (c.s + v0 * dt) % P.L;
         const want = maxSlip * Math.tanh(tmp2.kap / 0.05);
         c.slip += (want - c.slip) * (1 - Math.exp(-dt * 5.5));
@@ -1003,6 +1003,22 @@
       let lv = 0, n = 0;
       cars.forEach((c) => { if (c.state === 'run') { lv += c.sc.parts.engine + c.sc.parts.turbo; n++; } });
       speed0 = lerp(speed0, 15 + Math.min(7, n ? (lv / n) * 0.7 : 0), 1 - Math.exp(-dt));
+
+      // Spacing. Normally the cars keep the gaps they have; in a drift meet they close up behind the
+      // leader into a tandem train, and afterwards they ease back out round the lap.
+      const train = G.boost(state).train;
+      const runners = [];
+      cars.forEach((c) => { c.pace = 1; if (c.state === 'run') runners.push(c); });
+      if (runners.length > 1 && (train || spread > 0)) {
+        if (train) spread = 20;                                   // seconds of easing apart once the meet is over
+        const lead = runners.reduce((a, c) => (c.id < a.id ? c : a));
+        const behind = (c) => (((lead.s - c.s) % P.L) + P.L) % P.L;
+        const gap = train ? 9.5 : P.L / runners.length;
+        runners.filter((c) => c !== lead).sort((a, c) => behind(a) - behind(c)).forEach((c, i) => {
+          c.pace = 1 + clamp((behind(c) - (i + 1) * gap) * 0.045, -0.3, 0.3);
+        });
+      }
+      if (!train) spread = Math.max(0, spread - dt);
 
       cars.forEach((c) => updateCar(c, dt));
       updateMechs(dt);

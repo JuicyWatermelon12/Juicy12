@@ -85,7 +85,8 @@
         running.forEach((id) => world.addEarnings(id, earned * G.carStyle(state, G.getCar(state, id)) / inc.style));
       }
       G.tickXP(state, running, dt).forEach((d) => ui.levelUp(d));
-      world.hype = inc.cap ? Math.min(1, inc.style / inc.cap) : 0;
+      G.tickFx(state, dt);
+      world.hype = G.boost(state).crowd > 1 ? 1 : inc.cap ? Math.min(1, inc.style / inc.cap) : 0;
       ui.frame(inc, dt);
       world.render();
       saveT += dt;

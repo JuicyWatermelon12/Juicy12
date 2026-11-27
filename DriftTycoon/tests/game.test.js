@@ -797,3 +797,49 @@ test('buying the next venue and moving: one way, team and parts move, venue upgr
   assert.equal(G.nextPlace(s), null);
   assert.equal(G.buyPlace(s), false);
 });
+
+/* ---------- Tap bubbles ---------- */
+
+test('bubbles: the gap is inside its range, kinds come by weight, and a running effect does not come again', () => {
+  const rng = G.seeded(3), s = G.newState(0), counts = {};
+  for (let i = 0; i < 500; i++) { const g = G.bubbleGap(rng); assert.ok(g >= D.BUBBLE_GAP[0] && g <= D.BUBBLE_GAP[1]); }
+  for (let i = 0; i < 6000; i++) { const id = G.rollBubble(s, rng); counts[id] = (counts[id] || 0) + 1; }
+  const total = D.BUBBLES.reduce((t, b) => t + b.weight, 0);
+  for (const b of D.BUBBLES) assert.ok(Math.abs(counts[b.id] / 6000 - b.weight / total) < 0.03, b.id);
+  assert.ok(counts.meet < counts.wave && counts.wave < counts.perfect, 'the meet is the rare one');
+  G.popBubble(s, 'meet');
+  for (let i = 0; i < 500; i++) assert.notEqual(G.rollBubble(s, rng), 'meet');
+});
+
+test('bubbles: a perfect drift pays cash at once; a wave and a meet lift the venue for a while and then end', () => {
+  const s = G.newState(0), car = s.cars[0];
+  for (const p of D.PARTS) car.parts[p.id] = 3;   // more style than the crowd can cheer
+  const base = G.incomeRate(s), income = G.expectedIncome(s), cash = s.cash;
+  assert.ok(base.full);
+  assert.deepEqual(G.boost(s), { crowd: 1, cash: 1, train: false });
+  near(G.popBubble(s, 'perfect'), G.bubble('perfect').cash * income);
+  near(s.cash - cash, G.bubble('perfect').cash * income);
+  assert.deepEqual(s.fx, []);
+  const wave = G.bubble('wave'), meet = G.bubble('meet');
+  assert.equal(G.popBubble(s, 'wave'), 0);
+  near(G.incomeRate(s).cap, base.cap * wave.crowd);
+  near(G.incomeRate(s).cash, Math.min(base.style, base.cap * wave.crowd) * G.cashMult(s) * wave.boost);
+  assert.equal(G.boost(s).train, false);
+  G.popBubble(s, 'meet');
+  assert.deepEqual(G.boost(s), { crowd: wave.crowd * meet.crowd, cash: wave.boost * meet.boost, train: true });
+  near(G.expectedIncome(s), income, 1e-9);   // away earnings and Street Drifting payouts ignore the effects
+  assert.deepEqual(G.tickFx(s, wave.time - 1), []);
+  near(G.fxLeft(s, 'wave'), 1);
+  G.popBubble(s, 'wave');
+  near(G.fxLeft(s, 'wave'), wave.time, 1e-9);   // tapping again restarts the clock; it does not stack
+  assert.equal(s.fx.length, 2);
+  assert.deepEqual(G.tickFx(s, wave.time + 0.5), ['wave']);   // the meet has half a second left
+  assert.ok(G.boost(s).train);
+  assert.deepEqual(G.tickFx(s, 1), ['meet']);
+  assert.equal(G.boost(s).train, false);
+  assert.deepEqual(s.fx, []);
+  near(G.incomeRate(s).cash, base.cash);
+  // effects are not carried across a reload
+  G.popBubble(s, 'meet');
+  assert.deepEqual(G.load(G.serialize(s), 0).fx, []);
+});

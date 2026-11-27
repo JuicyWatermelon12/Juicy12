@@ -372,6 +372,7 @@
       if (a === 'pick-driver') { pickDriver(carId); return; }
       if (a === 'pick-car') { if (state.cars.length) pickCar(driverId); return; }
       if (a === 'view-tryout') { armed = ''; viewTryout(); return; }
+      if (a === 'bubble') { popBubbleNow(); return; }
       if (a === 'menu') { armed = ''; showMenu(); return; }
       if (a === 'style') { styleCar(carId); return; }
       if (a === 'cos') {
@@ -463,12 +464,69 @@
       marks.forEach((n, id) => { if (!seen.has(id)) { n.remove(); marks.delete(id); } });
     }
 
+    /* ---------- Tap bubbles ---------- */
+    const SPOTS = { wave: [-21, 8, 2], meet: [0, 10, -6] };   // where the crowd and meet bubbles rise from; a perfect-drift one follows a car
+    let bubbleIn = G.bubbleGap(), bubbleNow = null;
+    const fxEl = document.createElement('div');
+    fxEl.id = 'fx';
+    el.hud.appendChild(fxEl);
+    function bubblePoint(b) {
+      if (b.id === 'perfect') { const p = world.pos(b.car); return p ? [p.x, 6, p.z] : null; }
+      return SPOTS[b.id];
+    }
+    function spawnBubble(id) {
+      const ids = world.runningIds();
+      if (!G.bubble(id) || (id === 'perfect' && !ids.length)) return false;
+      dropBubble();
+      const node = document.createElement('button');
+      node.className = 'bubble ' + id;
+      node.dataset.act = 'bubble';
+      node.setAttribute('aria-label', G.bubble(id).name);
+      node.innerHTML = '<i></i><b>' + (id === 'perfect' ? '$' : id === 'wave' ? 'Wave' : 'Meet') + '</b>';
+      el.popups.appendChild(node);
+      bubbleNow = { id, node, left: D.BUBBLE_LIFE, car: ids[Math.floor(Math.random() * ids.length)] };
+      return true;
+    }
+    function dropBubble() { if (bubbleNow) { bubbleNow.node.remove(); bubbleNow = null; } }
+    function popBubbleNow() {
+      const b = bubbleNow;
+      if (!b) return;
+      const def = G.bubble(b.id), at = bubblePoint(b) || [0, 6, 0];
+      const cash = G.popBubble(state, b.id);
+      popup(at[0], at[1], at[2], cash ? '+' + G.money(cash, 1) : def.name + '!', 'good big');
+      if (def.time) toast(def.id === 'meet' ? 'Drift meet! The cars run as a train and cash is doubled for ' + def.time + ' s.'
+        : 'Crowd wave: the crowd cheers twice as much for ' + def.time + ' s.');
+      dropBubble();
+      actions.changed();
+    }
+    function bubbles(dt) {
+      // effect chips under the money bar
+      const key = state.fx.map((f) => f.id + Math.ceil(f.left)).join(',');
+      if (key !== fxEl.dataset.key) {
+        fxEl.dataset.key = key;
+        fxEl.innerHTML = state.fx.map((f) => '<span class="' + f.id + '">' + G.bubble(f.id).name + ' ' + G.clock(f.left) + '</span>').join('');
+      }
+      if (!bubbleNow) {
+        bubbleIn -= dt;
+        if (bubbleIn > 0) return;
+        bubbleIn = G.bubbleGap();
+        if (!spawnBubble(G.rollBubble(state))) return;
+      }
+      const b = bubbleNow, at = bubblePoint(b);
+      b.left -= dt;
+      if (b.left <= 0 || !at) { dropBubble(); return; }
+      const p = world.toScreen(at[0], at[1], at[2]);
+      b.node.style.left = p.x + 'px'; b.node.style.top = p.y + 'px';
+      b.node.classList.toggle('going', b.left < 2.5);
+    }
+
     /* ---------- Per-frame ---------- */
     let slow = 0, shownCash = -1;
     function frame(inc, dt) {
       const cash = Math.floor(state.cash);
       if (cash !== shownCash) { shownCash = cash; el.cash.textContent = G.money(state.cash); }
       drawIndicators();
+      bubbles(dt);
       slow -= dt;
       if (slow > 0) return;
       slow = 0.25;
@@ -481,7 +539,7 @@
     }
 
     layout(true);
-    return { frame, render, popup, toast, showAway, showTougeResult, levelUp, layout, openTab, isOpen: () => tab };
+    return { spawnBubble, frame, render, popup, toast, showAway, showTougeResult, levelUp, layout, openTab, isOpen: () => tab };
   }
 
   DT.UI = UI;

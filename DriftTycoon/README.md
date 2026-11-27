@@ -72,7 +72,16 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
   $6B for the Airfield). The simulated active player builds the Parking Lot in about 25 to 33 minutes, the Docks
   in about 30 to 40 and the Airfield in 45 to 65.
 
-Planned next: tap bubbles at the venue, more venues. Not built yet: sound.
+- **Tap bubbles:** while you watch the venue a bubble floats up every 30 to 60 seconds and goes after 10 seconds
+  if ignored. None appear while you are away or Street Drifting.
+  - **Perfect drift** (most common, over a car): pays 20 seconds of team income at once.
+  - **Crowd wave** (over the stands): for 30 seconds the crowd can cheer twice as much style and cash is x1.25.
+  - **Drift meet** (rare): for 60 seconds the crowd can cheer twice as much, cash is doubled and the cars close up
+    into a tandem train; afterwards they ease apart again.
+  Effects show as timers under the money bar. They lift only what the venue earns while you watch: away earnings
+  and Street Drifting payouts ignore them.
+
+Planned next: more venues. Not built yet: sound.
 
 ## Layout
 

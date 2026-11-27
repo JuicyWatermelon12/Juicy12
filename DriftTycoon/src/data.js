@@ -206,6 +206,19 @@
       { name: 'Mountain Ace', cred: 1500 }, { name: 'Street King', cred: 2000 }, { name: 'Legend', cred: 2700 }, { name: 'Myth', cred: 3600 },
     ],
 
+    /* Tap bubbles: they float up over the venue while you are watching it and vanish if ignored.
+         cash   pays this many seconds of the team's long-run income at once
+         crowd  multiplies how much style the crowd can cheer, for `time` seconds
+         boost  multiplies the venue's cash, for `time` seconds
+         train  the cars bunch up into a tandem train while it lasts */
+    BUBBLE_GAP: [30, 60],     // seconds of watching between bubbles
+    BUBBLE_LIFE: 10,          // seconds before an ignored bubble goes
+    BUBBLES: [
+      { id: 'perfect', name: 'Perfect drift', weight: 62, cash: 20 },
+      { id: 'wave', name: 'Crowd wave', weight: 30, crowd: 2, boost: 1.25, time: 30 },
+      { id: 'meet', name: 'Drift meet', weight: 8, crowd: 2, boost: 2, time: 60, train: true },
+    ],
+
     OFFLINE_MIN: 30,          // seconds away before away-earnings are paid
     OFFLINE_CAP: 4 * 3600,
   };

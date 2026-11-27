@@ -51,6 +51,7 @@
       place: 0, placeOwned: 0,   // the venue the team is at, and the furthest venue it has bought (indexes into D.VENUES)
       street: { runs: 0, bestScore: 0, bestDist: 0, cred: 0 },   // Street Drifting records and street cred
       owned: { paints: D.FACTORY_PAINTS.slice(), rims: ['steel'], kits: {} },   // cosmetics bought; kits are per car model
+      fx: [],   // tap-bubble effects running at the venue: { id, left }. Not carried across a reload
       lastSeen: now || 0,
     };
     const rookie = { id: s.nextId++, name: 'Sam "Rookie" Okada', rarity: 'common', skill: 12, control: 16, flair: 10,
@@ -152,12 +153,13 @@
     state.cars.forEach((c) => {
       if (!runningIds || runningIds.includes(c.id)) style += carStyle(state, c);
     });
-    const cap = crowdCap(state);
+    const b = boost(state), cap = crowdCap(state) * b.crowd;   // live venue income includes tap-bubble effects
     const cheered = Math.min(style, cap);
-    return { style, cap, cheered, cash: cheered * cashMult(state), full: style > cap };
+    return { style, cap, cheered, cash: cheered * cashMult(state) * b.cash, full: style > cap };
   }
 
-  /* Long-run income, allowing for crashes. Used for away earnings. */
+  /* Long-run income, allowing for crashes. Used for away earnings and Street Drifting payouts.
+     Tap-bubble effects are left out: they only lift what the venue earns while you watch it. */
   function expectedIncome(state) {
     let style = 0;
     state.cars.forEach((c) => (style += carStyle(state, c) * carUptime(state, c)));
@@ -274,6 +276,45 @@
     state.place++;
     D.VENUE.forEach((v) => (state.venue[v.id] = 0));
     return true;
+  }
+
+  /* ---------- Tap bubbles ---------- */
+
+  const bubble = (id) => byId(D.BUBBLES, id);
+  /* What the running effects add up to. */
+  function boost(state) {
+    const out = { crowd: 1, cash: 1, train: false };
+    (state.fx || []).forEach((f) => { const b = bubble(f.id); if (b) { out.crowd *= b.crowd || 1; out.cash *= b.boost || 1; out.train = out.train || !!b.train; } });
+    return out;
+  }
+  const fxLeft = (state, id) => { const f = state.fx.find((x) => x.id === id); return f ? f.left : 0; };
+  /* Seconds of watching until the next bubble. */
+  const bubbleGap = (rng) => D.BUBBLE_GAP[0] + (rng || Math.random)() * (D.BUBBLE_GAP[1] - D.BUBBLE_GAP[0]);
+  /* Which bubble comes next. One whose effect is still running does not come again yet. */
+  function rollBubble(state, rng) {
+    const list = D.BUBBLES.filter((b) => !b.time || fxLeft(state, b.id) <= 0);
+    let x = (rng || Math.random)() * list.reduce((t, b) => t + b.weight, 0);
+    for (const b of list) if ((x -= b.weight) < 0) return b.id;
+    return list[0].id;
+  }
+  /* The player tapped a bubble: pay its cash now, or start its effect. Returns the cash paid. */
+  function popBubble(state, id) {
+    const b = bubble(id);
+    if (!b) return 0;
+    if (b.time) {
+      const f = state.fx.find((x) => x.id === id);
+      if (f) f.left = b.time; else state.fx.push({ id, left: b.time });
+    }
+    const cash = (b.cash || 0) * expectedIncome(state);
+    earn(state, cash);
+    return cash;
+  }
+  /* Run the effects' clocks. Returns the ids that just ended. */
+  function tickFx(state, dt) {
+    const ended = [];
+    state.fx.forEach((f) => { f.left -= dt; if (f.left <= 0) ended.push(f.id); });
+    if (ended.length) state.fx = state.fx.filter((f) => f.left > 0);
+    return ended;
   }
 
   /* ---------- Street cred ---------- */
@@ -547,6 +588,7 @@
     incomeRate, expectedIncome, offlineEarnings,
     partCost, slotCost, venueCost, tryoutCost, mechHireCost, mechTrainCost, mechTrainMaxed,
     earn, buyPart, buySlot, buyCar, tradeCar, buyVenue, rollDriver, assignDriver, hireMech, trainMech,
+    bubble, boost, fxLeft, bubbleGap, rollBubble, popBubble, tickFx,
     place, nextPlace, partCap, modelPlace, modelUnlocked, maxPits, venueMaxed, buyPlace, movePlace,
     rankOf, rank, credFor, addCred, cosmetic, cosmeticCost, ownsCosmetic, cosmeticUnlocked, applyCosmetic, buyCosmetic,
     rosterCap, rosterFull, needsDriver, tryoutWait, holdTryout, mentored, signProspect, dismissProspects,
