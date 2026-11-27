@@ -91,6 +91,9 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
     15%, 2 km about half, 3 km the same, 5 km about twice and 8 km about three times as much. The run's cash and
     the current rate show under "End run", each kilometre marker announces the new rate, and the result card
     shows what each kilometre paid. The driver earns double seat time.
+  - **Headlights:** on the street and on night tracks each headlight throws its own beam on the road. Light on
+    the ground (beams, underglow) is drawn from vertex colours, not canvas textures: some browsers add noise to
+    canvas pixels, which showed as coloured spots in the light.
   - **Your build matters:** engine and turbo raise top speed, the angle kit adds steering lock and drift angle,
     suspension keeps more speed after a touch, stance and tires raise the score, and so do the driver's skill and
     flair. Steering scales with speed, so fast cars can still make the bends.
@@ -112,8 +115,10 @@ Progress saves in the browser (`localStorage`). The menu button (top right) has 
     canards, a vented bonnet, a finned diffuser) and Kaido Racer +70% (a long chin spoiler, boxy flares, pipes up
     past the roof and an upright wing).
   - **Underglow:** a soft light under the car, up to +22%: cyan, pink, violet, gold, and a rainbow that cycles.
-  They change nothing about how the car drives or scores in Drift mode. Paint, rims and underglow belong to the
-  team and stay on the car when it is traded up. Body kits are bought per car model. The kit decides the car's wing,
+  They change nothing about how the car drives or scores in Drift mode. **Everything is bought per car:** each
+  car owns only what was bought for it, so another car has to buy its own. Paint, rims and underglow stay on the
+  car when it is traded up; a body kit is made for one model (its price depends on the model), so a trade-up
+  needs a new kit. Saves from when cosmetics belonged to the team give every car what the team owned. The kit decides the car's wing,
   lip, skirts, arches and intercooler; parts no longer add those (stance height, smoke and exhaust flames still
   come from parts).
 

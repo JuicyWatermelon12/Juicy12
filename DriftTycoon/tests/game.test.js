@@ -837,34 +837,53 @@ test('cosmetics: locked until the rank, bought once with cash; looks add venue s
   }
 });
 
-test('cosmetics: paint and rims belong to the team and survive a trade-up; kits are per model', () => {
+test('cosmetics are bought per car: another car has to buy its own; paint, rims and underglow survive a trade-up, kits do not', () => {
   const s = rich();
   G.addCred(s, 1e6);
   G.buySlot(s); G.buyCar(s, 'kumo');
   const [a, b] = s.cars;
-  G.buyCosmetic(s, a.id, 'paint', 'black'); G.buyCosmetic(s, a.id, 'rims', 'six'); G.buyCosmetic(s, a.id, 'kit', 'street');
-  s.cash = 1e9;   // small enough for exact sums
-  const cash = s.cash;
-  assert.ok(G.applyCosmetic(s, b.id, 'paint', 'black') && G.applyCosmetic(s, b.id, 'rims', 'six'), 'the other car can wear them');
-  assert.ok(G.applyCosmetic(s, b.id, 'kit', 'street'), 'same model, same kit');
+  for (const [k, id] of [['paint', 'black'], ['rims', 'six'], ['kit', 'street'], ['glow', 'cyan']]) assert.ok(G.buyCosmetic(s, a.id, k, id), k);
+  assert.deepEqual(a.owned, { paint: ['black'], rims: ['six'], kit: ['street'], glow: ['cyan'] });
+  assert.deepEqual(b.owned, { paint: [], rims: [], kit: [], glow: [] });
+  s.cash = 1e12;   // small enough for exact sums
+  let cash = s.cash;
+  // the other car does not own them: it cannot just wear them, and buying them costs the full price again
+  for (const [k, id] of [['paint', 'black'], ['rims', 'six'], ['kit', 'street'], ['glow', 'cyan']]) {
+    assert.ok(!G.ownsCosmetic(b, k, id) && G.ownsCosmetic(a, k, id));
+    assert.equal(G.applyCosmetic(s, b.id, k, id), false, k + ' is not this car\'s');
+    assert.ok(G.buyCosmetic(s, b.id, k, id));
+    near(cash - s.cash, G.cosmeticCost(k, id, b.model)); cash = s.cash;
+  }
+  // free items are everyone's, and a car swaps between what it owns for nothing
+  assert.ok(G.applyCosmetic(s, b.id, 'paint', 'blue') && G.applyCosmetic(s, b.id, 'kit', 'stock') && G.applyCosmetic(s, b.id, 'paint', 'black'));
   assert.equal(s.cash, cash, 'applying is free');
-  assert.ok(G.applyCosmetic(s, b.id, 'paint', 'blue') && G.applyCosmetic(s, b.id, 'kit', 'stock'));
+  // a trade-up keeps the car's paint, rims and underglow; the kit was made for the old model
   G.tradeCar(s, a.id, 'hachi');
-  assert.equal(a.paint, 'black'); assert.equal(a.rims, 'six');
-  assert.equal(a.kit, 'stock', 'the Kumo kit does not fit the Hachi');
-  assert.ok(!G.ownsCosmetic(s, 'kit', 'street', 'hachi') && G.ownsCosmetic(s, 'kit', 'street', 'kumo'));
+  assert.deepEqual([a.paint, a.rims, a.glow, a.kit], ['black', 'six', 'cyan', 'stock']);
+  assert.deepEqual(a.owned.kit, []);
+  assert.ok(G.ownsCosmetic(b, 'kit', 'street'), 'the other car keeps its own kit');
+  cash = s.cash;
   assert.ok(G.buyCosmetic(s, a.id, 'kit', 'street'));
-  near(cash - s.cash, G.model('hachi').cost + G.cosmeticCost('kit', 'street', 'hachi'));
+  near(cash - s.cash, G.cosmeticCost('kit', 'street', 'hachi'));
   assert.ok(G.cosmeticCost('kit', 'street', 'hachi') > G.cosmeticCost('kit', 'street', 'kumo'));
-  // saved and loaded; anything not owned falls back
+  // saved and loaded; anything a car does not own falls back
   const back = G.load(G.serialize(s), 0);
-  assert.deepEqual(back.owned, s.owned);
-  assert.deepEqual(back.cars.map((c) => [c.paint, c.rims, c.kit]), s.cars.map((c) => [c.paint, c.rims, c.kit]));
+  assert.deepEqual(back.cars.map((c) => [c.paint, c.rims, c.kit, c.glow, c.owned]), s.cars.map((c) => [c.paint, c.rims, c.kit, c.glow, c.owned]));
   const raw = JSON.parse(G.serialize(s));
-  raw.cars[0].paint = 'blood'; raw.cars[0].rims = 'neon'; raw.cars[0].kit = 'pro'; raw.owned.paints.push('nope');
+  raw.cars[0].paint = 'blood'; raw.cars[0].rims = 'neon'; raw.cars[0].kit = 'pro'; raw.cars[0].owned.paint.push('nope', 'red');
   const fixed = G.load(raw, 0);
   assert.deepEqual([fixed.cars[0].paint, fixed.cars[0].rims, fixed.cars[0].kit], [D.FACTORY_PAINTS[0], 'steel', 'stock']);
-  assert.ok(!fixed.owned.paints.includes('nope'));
+  assert.deepEqual(fixed.cars[0].owned.paint, ['black'], 'unknown and free ids are dropped');
+  // a save from when cosmetics belonged to the team: every car keeps them, and the kits of its model
+  const old = JSON.parse(G.serialize(s));
+  old.cars.forEach((c) => delete c.owned);
+  old.owned = { paints: ['red', 'black', 'gold'], rims: ['steel', 'six'], glows: ['none', 'cyan'], kits: { kumo: ['street'], hachi: ['drift'] } };
+  old.cars[0].paint = 'gold'; old.cars[0].kit = 'drift';
+  const conv = G.load(old, 0);
+  assert.deepEqual(conv.cars[0].owned, { paint: ['black', 'gold'], rims: ['six'], glow: ['cyan'], kit: ['drift'] });
+  assert.deepEqual(conv.cars[1].owned, { paint: ['black', 'gold'], rims: ['six'], glow: ['cyan'], kit: ['street'] });
+  assert.deepEqual([conv.cars[0].paint, conv.cars[0].kit, conv.cars[1].kit], ['gold', 'drift', 'stock']);   // the second car was wearing its stock body
+  assert.equal(conv.owned, undefined);
 });
 
 /* ---------- Venues ---------- */
@@ -986,10 +1005,10 @@ test('late looks: eight more ranks run into the Carrier, and the late items are 
   assert.ok(looks >= 1.45 && looks <= 1.8);
 });
 
-test('underglow: a team-owned look like paint and rims, on sale by rank, kept in the save', () => {
+test('underglow: on sale by rank, adds style, kept in the save', () => {
   const s = G.newState(0), car = s.cars[0];
   assert.equal(car.glow, 'none');
-  assert.ok(G.ownsCosmetic(s, 'glow', 'none'));
+  assert.ok(G.ownsCosmetic(car, 'glow', 'none'));
   s.cash = 1e13;
   assert.equal(G.buyCosmetic(s, car.id, 'glow', 'cyan'), false, 'not on sale at rank 0');
   const r = G.addCred(s, D.RANKS[G.cosmetic('glow', 'cyan').rank].cred);
@@ -998,12 +1017,10 @@ test('underglow: a team-owned look like paint and rims, on sale by rank, kept in
   assert.ok(G.buyCosmetic(s, car.id, 'glow', 'cyan'));
   near(cash - s.cash, G.cosmetic('glow', 'cyan').cost);
   near(G.carStyle(s, car) / style, (G.looksMult(car)) / (G.looksMult(car) - G.cosmetic('glow', 'cyan').style), 1e-9);
-  G.buyCar(s, 'kumo'); const other = s.cars[1];
-  if (other) { assert.ok(G.applyCosmetic(s, other.id, 'glow', 'cyan'), 'any car of the team can wear it'); }
   const back = G.load(G.serialize(s), 0);
   assert.equal(back.cars[0].glow, 'cyan');
-  assert.ok(back.owned.glows.includes('cyan'));
-  const old = JSON.parse(G.serialize(s)); delete old.owned.glows; old.cars.forEach((c) => delete c.glow);
+  assert.deepEqual(back.cars[0].owned.glow, ['cyan']);
+  const old = JSON.parse(G.serialize(s)); old.cars.forEach((c) => { delete c.glow; delete c.owned; });
   assert.ok(G.load(old, 0).cars.every((c) => c.glow === 'none'), 'older saves load with no underglow');
 });
 

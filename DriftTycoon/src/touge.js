@@ -47,15 +47,6 @@
     t.anisotropy = 8;
     return t;
   }
-  function glowTexture() {
-    const c = document.createElement('canvas');
-    c.width = c.height = 64;
-    const g = c.getContext('2d'), r = g.createRadialGradient(32, 32, 2, 32, 32, 32);
-    r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = r; g.fillRect(0, 0, 64, 64);
-    return new THREE.CanvasTexture(c);
-  }
-
   /* A pool of instanced blobs or strips that fade by shrinking: used for tire smoke. */
   function Puffs(scene, n) {
     const mesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0),
@@ -168,10 +159,12 @@
       shadow.rotateX(-Math.PI / 2);
       K.mesh(shadow, new THREE.MeshBasicMaterial({ color: 0x05070c, transparent: true, opacity: 0.35, depthWrite: false }), 0, 0.05, 0, carM.g);
       if (!track || (theme && theme.light)) {   // headlights on the street at dusk, and on a track at night
-        const beam = new THREE.PlaneGeometry(13, 8);
-        beam.rotateX(-Math.PI / 2);
-        K.mesh(beam, new THREE.MeshBasicMaterial({ map: glowTexture(), color: 0xfff0b8, transparent: true, opacity: 0.4, depthWrite: false,
-          blending: THREE.AdditiveBlending }), carM.len / 2 + 6, 0.09, 0, carM.g).renderOrder = 2;
+        const beamMat = new THREE.MeshBasicMaterial({ color: 0xfff0b8, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+        for (const sd of [-1, 1]) {   // one beam from each headlight, toed out a little so the two read apart
+          const beam = K.mesh(K.headlightBeam(17, 0.35, 2.7), beamMat, carM.len / 2, 0.09, sd * (carM.wid / 2 - 0.32), carM.g);
+          beam.rotation.y = -sd * 0.07;
+          beam.renderOrder = 2;
+        }
       }
       scene.add(carM.g);
 

@@ -95,7 +95,7 @@
   function disposeGroup(group) {
     group.traverse((o) => {
       if (o.geometry && o.geometry !== UNIT_BOX && !o.geometry.userData.shared) o.geometry.dispose();
-      if (o.material && o.material.map) { if (!(o.material.map.userData && o.material.map.userData.shared)) o.material.map.dispose(); o.material.dispose(); }
+      if (o.material && o.material.map) { o.material.map.dispose(); o.material.dispose(); }
     });
     while (group.children.length) group.remove(group.children[0]);
   }
@@ -379,28 +379,39 @@
     // underglow: a soft coloured light on the ground under the car
     const gdef = D.GLOWS.find((x) => x.id === c.glow);
     if (gdef && gdef.cost > 0) {
-      const gm = new THREE.MeshBasicMaterial({ map: softGlow(), color: gdef.color, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending });
-      const pad = new THREE.PlaneGeometry(b.len + 1.4, b.wid + 1.2);
-      pad.rotateX(-Math.PI / 2);
-      mesh(pad, gm, 0, 0.06, 0, g).renderOrder = 2;
+      const gm = new THREE.MeshBasicMaterial({ color: gdef.color, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+      mesh(lightPool((b.len + 1.6) / 2, (b.wid + 1.4) / 2), gm, 0, 0.06, 0, g).renderOrder = 2;
       [-1, 1].forEach((s) => mesh(new THREE.BoxGeometry(b.len * 0.8, 0.05, 0.08), new THREE.MeshBasicMaterial({ color: gdef.color }), 0, 0.2, s * (b.wid / 2 - 0.1), body));
       if (gdef.rainbow) anim.push((t) => gm.color.setHSL((t * 0.12) % 1, 1, 0.55));
     }
     return { g, body, wheels, flame, anim, len: b.len, wid: b.wid };
   }
-  /* A soft round light, shared by every underglow. */
-  let glowTex = null;
-  function softGlow() {
-    if (glowTex) return glowTex;
-    const c = document.createElement('canvas');
-    c.width = c.height = 64;
-    const g = c.getContext('2d'), r = g.createRadialGradient(32, 32, 4, 32, 32, 32);
-    r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.55, 'rgba(255,255,255,0.55)'); r.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = r; g.fillRect(0, 0, 64, 64);
-    glowTex = new THREE.CanvasTexture(c);
-    glowTex.userData = { shared: true };
-    return glowTex;
+  /* Light on the ground, drawn additively with brightness in the vertex colours (black adds nothing).
+     No textures: some browsers add noise to canvas pixels, which showed up as coloured spots in the light. */
+  function lightMesh(rows, cols, at) {   // at(u, v) -> [x, z, brightness], u and v from 0 to 1
+    const pos = [], col = [], idx = [];
+    for (let r = 0; r <= rows; r++) for (let c = 0; c <= cols; c++) {
+      const p = at(r / rows, c / cols);
+      pos.push(p[0], 0, p[1]); col.push(p[2], p[2], p[2]);
+    }
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const a = r * (cols + 1) + c, b2 = a + cols + 1;
+      idx.push(a, a + 1, b2, a + 1, b2 + 1, b2);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    return g;
   }
+  /* A soft oval pool of light with half-sizes hx and hz: bright in the middle, gone at the edge. */
+  const lightPool = (hx, hz) => lightMesh(6, 28, (u, v) => { const a = v * Math.PI * 2; return [Math.cos(a) * hx * u, Math.sin(a) * hz * u, Math.pow(1 - u, 1.4) * 0.9]; });
+  /* One headlight's beam on the road, starting at the lamp (the origin) and pointing along +x:
+     narrow and bright at the car, wider and fainter with distance, soft at the sides. */
+  const headlightBeam = (len, w0, w1) => lightMesh(14, 8, (u, v) => {
+    const side = v * 2 - 1, w = w0 + (w1 - w0) * u;
+    return [u * len, side * w, Math.min(1, u * 9) * Math.pow(1 - u, 1.5) * Math.pow(1 - side * side, 1.3) * 0.55];
+  });
   /* Move a car's moving looks (a shifting paint, a rainbow underglow) along to time t. */
   const animateCar = (m, t) => { for (let i = 0; i < m.anim.length; i++) m.anim[i](t); };
 
@@ -1842,5 +1853,5 @@
 
   DT.World = World;
   /* Building blocks shared with the touge mini-game. */
-  DT.kit = { Batch, mat, mesh, box, textTexture, disposeGroup, makeCarMesh, animateCar, UNIT_BOX, WHITE, THEMES };
+  DT.kit = { Batch, mat, mesh, box, textTexture, disposeGroup, makeCarMesh, animateCar, headlightBeam, UNIT_BOX, WHITE, THEMES };
 })(window);

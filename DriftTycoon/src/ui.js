@@ -314,7 +314,7 @@
         Math.floor(r.cred) + ' street cred') + '</small></div><i><b style="width:' + Math.round(r.progress * 100) + '%"></b></i></div>';
     }
     function cosTile(car, kind, c) {
-      const worn = car[kind] === c.id, owned = G.ownsCosmetic(state, kind, c.id, car.model), open = G.cosmeticUnlocked(state, kind, c.id);
+      const worn = car[kind] === c.id, owned = G.ownsCosmetic(car, kind, c.id), open = G.cosmeticUnlocked(state, kind, c.id);
       const cost = G.cosmeticCost(kind, c.id, car.model);
       const art = kind === 'paint' ? '<i class="dot' + (c.finish ? ' ' + c.finish : '') + '" style="background:' + c.color + ';--c2:' + (c.color2 || c.color) + '"></i>'
         : kind === 'rims' ? '<i class="wheel' + (c.spokes ? ' spoked' : '') + '" style="--c:' + c.color + '"></i>'
@@ -333,11 +333,11 @@
         list.map((c) => cosTile(car, kind, c)).join('') + '</div>';
       showModal('<h2>' + esc(G.model(car.model).name) + ' looks</h2><p class="note">The crowd pays for a good-looking car: paint, rims, kit and underglow each add style at the venue. This car has <b>+' +
         Math.round((G.looksMult(car) - 1) * 100) + '% style</b> from its looks. They do not change how it drives on the street. ' +
-        'Street cred rank puts new items on sale; you earn it in Drift mode.</p>' + rankBar() +
-        sec('Paint', 'Yours for the whole team once bought.', 'paint', D.PAINTS, 'small') +
-        sec('Rims', 'Yours for the whole team once bought.', 'rims', D.RIMS, '') +
-        sec('Body kit', 'Bought for this model, the ' + esc(G.model(car.model).name) + '.', 'kit', D.KITS, 'wide') +
-        sec('Underglow', 'A coloured light under the car. Yours for the whole team once bought.', 'glow', D.GLOWS, 'small') +
+        '<b>Everything is bought for this car only.</b> Street cred rank puts new items on sale; you earn it in Drift mode.</p>' + rankBar() +
+        sec('Paint', 'Stays with this car, also when it is traded up.', 'paint', D.PAINTS, 'small') +
+        sec('Rims', 'Stay with this car, also when it is traded up.', 'rims', D.RIMS, '') +
+        sec('Body kit', 'Made for this model, the ' + esc(G.model(car.model).name) + ': a trade-up needs a new kit.', 'kit', D.KITS, 'wide') +
+        sec('Underglow', 'A coloured light under the car. Stays with this car.', 'glow', D.GLOWS, 'small') +
         '<button class="ghost wide" data-act="close">Done</button>');
     }
 
@@ -449,7 +449,7 @@
         const kind = b.dataset.kind, id = b.dataset.id, car = G.getCar(state, carId);
         if (!car || car[kind] === id) return;
         const keep = el.modal.firstChild.scrollTop;
-        const done = G.ownsCosmetic(state, kind, id, car.model) ? G.applyCosmetic(state, carId, kind, id) : G.buyCosmetic(state, carId, kind, id);
+        const done = G.ownsCosmetic(car, kind, id) ? G.applyCosmetic(state, carId, kind, id) : G.buyCosmetic(state, carId, kind, id);
         if (done) { actions.changed(); render(); styleCar(carId); el.modal.firstChild.scrollTop = keep; }
         else if (b.dataset.cost) { b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake'); }
         return;
