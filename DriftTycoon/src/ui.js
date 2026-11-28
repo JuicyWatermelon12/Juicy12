@@ -32,6 +32,8 @@
     const bar = (label, v) => '<div class="stat"><span>' + label + '</span><i><b style="width:' + Math.min(100, Math.round(v / 1.6)) +
       '%"></b></i><em>' + Math.round(v) + '</em></div>';
     const stats = (d) => { const s = G.driverStats(d); return bar('Skill', s.skill) + bar('Control', s.control) + bar('Flair', s.flair); };
+    /* A small square in the driver's rarity colour, then their level. */
+    const rarityDot = (d) => '<i class="rsq" style="--r:' + G.rarity(d.rarity).color + '" title="' + G.rarity(d.rarity).name + '"></i><b class="lv">Lv ' + d.level + '</b>';
     const rarityTag = (d) => { const r = G.rarity(d.rarity); return '<span class="rarity" style="--r:' + r.color + '">' + r.name + '</span>'; };
     const traitLine = (d) => { const t = G.trait(d); return t.name ? '<div class="trait"><b>' + t.name + '</b> ' + t.blurb + '</div>' : ''; };
     const placeName = (i) => (D.VENUES[i] ? 'the ' + D.VENUES[i].name : 'a later venue');
@@ -53,7 +55,7 @@
         '<button class="car-head" data-act="toggle-car" data-car="' + car.id + '" aria-expanded="' + open + '">' +
         '<span class="swatch" style="background:' + car.color + '"></span>' +
         '<span class="car-name"><strong>' + esc(m.name) + '</strong><small>Pit ' + (i + 1) + ' · ' +
-        (d ? esc(d.name) : 'no driver') + '</small></span>' +
+        (d ? esc(d.name) + ' ' + rarityDot(d) : 'no driver') + '</small></span>' +
         '<span class="car-num"><strong>' + G.fmt(G.carStyle(state, car), 1) + '</strong><small>style/s</small></span></button>' +
         '<div class="chip ' + st[1] + '" data-status="' + car.id + '">' + st[0] + '</div>';
       if (open) {
@@ -114,7 +116,8 @@
       const car = G.carOfDriver(state, d.id);
       return '<article class="card driver" style="--r:' + G.rarity(d.rarity).color + '"><div class="row"><div><strong>' + esc(d.name) + '</strong> ' + rarityTag(d) +
         '<small>' + (car ? 'Drives the ' + esc(G.model(car.model).name) + ' (pit ' + (state.cars.indexOf(car) + 1) + ')' : 'Reserve driver. Only seat time earns experience') + '</small></div>' +
-        '<button class="ghost" data-act="pick-car" data-driver="' + d.id + '">' + (car ? 'Move' : 'Assign') + '</button></div>' +
+        '<button class="ghost" data-act="pick-car" data-driver="' + d.id + '">' + (car ? 'Move' : 'Assign') + '</button>' +
+        (state.drivers.length > 1 ? '<button class="x" data-act="release" data-driver="' + d.id + '" aria-label="Let ' + esc(d.name) + ' go">&times;</button>' : '') + '</div>' +
         levelRow(d) + traitLine(d) + '<div class="stats">' + stats(d) + '</div></article>';
     }
 
@@ -278,11 +281,21 @@
       let h = '<h2>Who drives the ' + esc(G.model(car.model).name) + '?</h2><div class="list">';
       state.drivers.forEach((d) => {
         const other = G.carOfDriver(state, d.id), mine = other === car;
-        h += '<button class="pick' + (mine ? ' current' : '') + '" data-act="assign" data-car="' + carId + '" data-driver="' + d.id + '"><span><strong>' + esc(d.name) +
+        h += '<button class="pick' + (mine ? ' current' : '') + '" data-act="assign" data-car="' + carId + '" data-driver="' + d.id + '"><span><strong>' + esc(d.name) + ' ' + rarityDot(d) +
           '</strong> ' + rarityTag(d) + '<small>' + statLine(d) + '</small></span><em>' +
           (mine ? 'Driving it now' : other ? 'Swaps from pit ' + (state.cars.indexOf(other) + 1) : 'Reserve') + '</em></button>';
       });
       showModal(h + '</div><button class="ghost wide" data-act="close">Cancel</button>');
+    }
+    function confirmRelease(driverId) {
+      const d = G.getDriver(state, driverId);
+      if (!d) return;
+      const car = G.carOfDriver(state, d.id);
+      const next = car && G.benchDrivers(state).sort((a, b) => G.driverMult(b) - G.driverMult(a))[0];
+      showModal('<div class="reveal" style="--r:' + G.rarity(d.rarity).color + '"><small>Let a driver go</small><h2>' + esc(d.name) + '</h2>' + rarityTag(d) +
+        '<p class="note">' + esc(d.name) + ' (level ' + d.level + ') leaves the team for good. Their experience goes with them. ' +
+        (car ? (next ? esc(next.name) + ' takes over the ' + esc(G.model(car.model).name) + '.' : 'The ' + esc(G.model(car.model).name) + ' stands empty until you assign a driver.') : '') + '</p>' +
+        '<button class="buy wide danger" data-act="release-yes" data-driver="' + d.id + '">Let ' + esc(d.name) + ' go</button><button class="ghost wide" data-act="close">Keep them</button></div>');
     }
     function pickCar(driverId) {
       const d = G.getDriver(state, driverId);
@@ -336,21 +349,34 @@
       const art = kind === 'paint' ? '<i class="dot' + (c.finish ? ' ' + c.finish : '') + '" style="background:' + c.color + ';--c2:' + (c.color2 || c.color) + '"></i>'
         : kind === 'rims' ? '<i class="wheel' + (c.spokes ? ' spoked' : '') + '" style="--c:' + c.color + '"></i>'
         : kind === 'glow' ? '<i class="glow' + (c.rainbow ? ' rainbow' : '') + (c.cost ? '' : ' off') + '" style="--c:' + c.color + '"></i>' : '';
-      const plus = c.style ? '<small class="delta">+' + Math.round(c.style * 100) + '% style</small>' : '';
       const foot = worn ? '<em class="on">On the car</em>' : owned ? '<em>Owned · tap to fit</em>'
-        : open ? '<em class="price">' + G.money(cost) + '</em>' : '<em class="lock">Rank ' + c.rank + ' · ' + D.RANKS[c.rank].name + '</em>';
+        : open ? '<em class="price">' + G.money(cost) + '</em>' : '<em class="lock">Locked</em>';
       return '<button class="cos' + (worn ? ' worn' : '') + (!owned && !open ? ' locked' : '') + '" data-act="cos" data-car="' + car.id + '" data-kind="' + kind +
         '" data-id="' + c.id + '"' + (!owned && open ? ' data-cost="' + cost + '"' : '') + '>' + art + '<span>' + esc(c.name) +
-        (kind === 'kit' ? '<small>' + esc(c.blurb) + '</small>' : '') + plus + '</span>' + foot + '</button>';
+        (kind === 'kit' ? '<small>' + esc(c.blurb) + '</small>' : '') + '</span>' + foot + '</button>';
     }
     function styleCar(carId) {
       const car = G.getCar(state, carId);
       if (!car) return;
-      const sec = (title, note, kind, list, cls) => '<h3>' + title + '</h3><p class="note">' + note + '</p><div class="cos-grid ' + cls + '">' +
-        list.map((c) => cosTile(car, kind, c)).join('') + '</div>';
+      /* Free items, then one group per tier: its bonus, its price and whether this car has it. */
+      const sec = (title, note, kind, list, cls) => {
+        const grid = (items) => '<div class="cos-grid ' + cls + '">' + items.map((c) => cosTile(car, kind, c)).join('') + '</div>';
+        const best = G.bestTier(car, kind);
+        let h = '<h3>' + title + '<small class="delta">' + (best ? '+' + Math.round(best.style * 100) + '% from ' + esc(best.name) : 'no bonus yet') + '</small></h3><p class="note">' + note + '</p>' +
+          grid(list.filter((c) => !c.tier));
+        D.COSMETIC_TIERS[kind].forEach((t) => {
+          const open = G.rank(state).index >= t.rank, has = G.tierOwned(car, kind, t.id);
+          const price = G.money(t.cost * (kind === 'kit' ? G.model(car.model).kitScale : 1));
+          h += '<div class="tier-head' + (open ? '' : ' locked') + (best === t ? ' best' : '') + '"><b>' + esc(t.name) + '</b><span class="delta">+' + Math.round(t.style * 100) + '% style</span><small>' +
+            (has ? (best === t ? 'Owned · this car gets this bonus' : 'Owned') : open ? price + ' each · one gives the bonus' : 'Rank ' + t.rank + ' · ' + D.RANKS[t.rank].name) + '</small></div>' +
+            grid(list.filter((c) => c.tier === t.id));
+        });
+        return h;
+      };
       showModal('<h2>' + esc(G.model(car.model).name) + ' looks</h2><p class="note">The crowd pays for a good-looking car: paint, rims, kit and underglow each add style at the venue. This car has <b>+' +
         Math.round((G.looksMult(car) - 1) * 100) + '% style</b> from its looks. They do not change how it drives on the street. ' +
-        '<b>Everything is bought for this car only.</b> Street cred rank puts new items on sale; you earn it in Drift mode.</p>' + rankBar() +
+        'Items come in tiers: every item in a tier gives the same bonus, and in each category the car gets the bonus of the <b>best tier it owns</b>, whatever it is wearing. ' +
+        '<b>Everything is bought for this car only.</b> Street cred rank puts whole tiers on sale; you earn it in Drift mode.</p>' + rankBar() +
         sec('Paint', 'Stays with this car, also when it is traded up.', 'paint', D.PAINTS, 'small') +
         sec('Rims', 'Stay with this car, also when it is traded up.', 'rims', D.RIMS, '') +
         sec('Body kit', 'Made for this model, the ' + esc(G.model(car.model).name) + ': a trade-up needs a new kit.', 'kit', D.KITS, 'wide') +
@@ -432,7 +458,7 @@
         row('Distance' + best(res.bestDist), (res.dist / 1000).toFixed(2) + ' km') + (track ? row('Laps', res.laps) : '') + row('Best multiplier', 'x' + res.bestMult.toFixed(1)) +
         row('Worth', G.duration(res.seconds) + ' of team income') + '</div>' + kmChart(res) +
         '<p class="note">+' + res.cred + ' street cred' + (res.rank.after.index > res.rank.before.index ? '. New rank: <b>' + res.rank.after.name + '</b>' +
-          (res.rank.unlocked.length ? '. Now on sale: ' + res.rank.unlocked.map((u) => esc(u.item.name)).join(', ') : '') : '') + '.</p>' + rankBar() +
+          (res.rank.unlocked.length ? '. Now on sale: ' + res.rank.unlocked.map((u) => esc(u.tier.name)).join(', ') : '') : '') + '.</p>' + rankBar() +
         (d ? '<p class="note">' + esc(d.name) + ' banked ' + G.duration(res.xp) + ' of seat time' + (res.levels ? ' and reached level ' + d.level : '') + '.</p>' : '') +
         '<button class="buy wide" data-act="touge-again">Go again</button><button class="ghost wide" data-act="touge-menu">Change map or car</button>' +
         '<button class="ghost wide" data-act="touge-exit">Back to the venue</button></div>');
@@ -520,6 +546,12 @@
       else if (a === 'venue') changed = G.buyVenue(state, b.dataset.id);
       else if (a === 'hire') changed = G.hireMech(state);
       else if (a === 'train') changed = G.trainMech(state);
+      else if (a === 'release') { confirmRelease(driverId); return; }
+      else if (a === 'release-yes') {
+        const r = G.releaseDriver(state, driverId);
+        closeModal();
+        if (r) { changed = true; toast(r.driver.name + ' has left the team.' + (r.replacement ? ' ' + r.replacement.name + ' takes the seat.' : r.car ? ' A car stands empty.' : '')); }
+      }
       else if (a === 'assign') { changed = G.assignDriver(state, carId, driverId); closeModal(); }
       else if (a === 'tryout') { changed = G.holdTryout(state, Date.now(), Math.random); if (changed) viewTryout(); }
       else if (a === 'sign') { if (G.rosterFull(state)) { pickRetiree(i); return; } changed = sign(i); }

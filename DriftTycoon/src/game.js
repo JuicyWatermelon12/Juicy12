@@ -128,9 +128,21 @@
   const sponsorMult = (state) => lineMult(state.venue, 'cash');
   const traitSum = (state, key) => seatedDrivers(state).reduce((t, d) => t + (trait(d)[key] || 0), 0);
   const cashMult = (state) => D.VENUE_CASH * (place(state).cash || 1) * sponsorMult(state) * (1 + traitSum(state, 'cash'));
-  /* How much the crowd likes this car's looks: 1 + the style bonuses of its paint, rims, body kit and underglow. */
+  /* How much the crowd likes this car's looks: 1 + the bonus of the best tier the car owns in each category
+     (paint, rims, body kit, underglow), whatever it is wearing. */
   const LOOKS = { paint: D.PAINTS, rims: D.RIMS, kit: D.KITS, glow: D.GLOWS };
-  const looksMult = (car) => 1 + Object.keys(LOOKS).reduce((t, k) => { const c = byId(LOOKS[k], car[k]); return t + ((c && c.style) || 0); }, 0);
+  function looksBonus(car, kind) {
+    const ids = ((car.owned && car.owned[kind]) || []).concat(car[kind]);
+    return ids.reduce((m, id) => { const c = byId(LOOKS[kind], id); return Math.max(m, (c && c.style) || 0); }, 0);
+  }
+  /* The best tier of this kind the car owns (null if only free items). */
+  function bestTier(car, kind) {
+    const b = looksBonus(car, kind);
+    return b > 0 ? D.COSMETIC_TIERS[kind].find((t) => t.style === b) || null : null;
+  }
+  const looksMult = (car) => 1 + Object.keys(LOOKS).reduce((t, k) => t + looksBonus(car, k), 0);
+  const cosmeticTier = (kind, tierId) => (D.COSMETIC_TIERS[kind] || []).find((t) => t.id === tierId);
+  const tierOwned = (car, kind, tierId) => !!car && LOOKS[kind].some((c) => c.tier === tierId && car.owned[kind].includes(c.id));
   const crowdCap = (state) => place(state).crowd * lineMult(state.venue, 'crowd') * (1 + traitSum(state, 'crowd'));
 
   /* Style points a second this car scores while it is drifting. 0 without a driver. */
@@ -361,8 +373,10 @@
     state.street.cred += Math.max(0, amount);
     const after = rank(state), unlocked = [];
     if (after.index > before.index) {
-      const fresh = (list, kind) => list.forEach((c) => { if (c.rank > before.index && c.rank <= after.index) unlocked.push({ kind, item: c }); });
-      fresh(D.PAINTS, 'paint'); fresh(D.RIMS, 'rims'); fresh(D.KITS, 'kit'); fresh(D.GLOWS, 'glow');
+      /* A rank puts whole tiers on sale: each entry is a tier and its items. */
+      Object.keys(D.COSMETIC_TIERS).forEach((kind) => D.COSMETIC_TIERS[kind].forEach((t) => {
+        if (t.rank > before.index && t.rank <= after.index) unlocked.push({ kind, tier: t, items: LOOKS[kind].filter((c) => c.tier === t.id) });
+      }));
     }
     return { before, after, unlocked };
   }
@@ -513,6 +527,20 @@
     }
     state.prospects = null;
     return { driver: signed, retired: retiree, levels: signed.level - p.level };
+  }
+
+  /* Let a driver go for good. A seated driver's car gets the best reserve driver, or stands empty.
+     The last driver can't be let go. No experience is passed on. */
+  function releaseDriver(state, driverId) {
+    const d = getDriver(state, driverId);
+    if (!d || state.drivers.length <= 1) return false;
+    const seat = carOfDriver(state, d.id);
+    state.drivers = state.drivers.filter((x) => x !== d);
+    if (seat) {
+      const bench = benchDrivers(state).sort((a, b) => driverMult(b) - driverMult(a))[0];
+      seat.driver = bench ? bench.id : null;
+    }
+    return { driver: d, car: seat, replacement: seat && seat.driver != null ? getDriver(state, seat.driver) : null };
   }
 
   function dismissProspects(state) {
@@ -671,7 +699,7 @@
     bubble, boost, fxLeft, bubbleGap, rollBubble, popBubble, tickFx,
     place, bestPlace, nextPlace, ownsPlace, partCap, modelPlace, modelUnlocked, maxPits, venueMaxed, levelsMaxed, venueProgress, lineMult, mediaLevel, bubblePay,
     placeLocked, buyPlace, movePlace,
-    rankOf, rank, credFor, addCred, cosmetic, cosmeticCost, ownsCosmetic, cosmeticUnlocked, applyCosmetic, buyCosmetic,
+    rankOf, rank, credFor, addCred, cosmetic, cosmeticCost, ownsCosmetic, looksBonus, bestTier, cosmeticTier, tierOwned, releaseDriver, cosmeticUnlocked, applyCosmetic, buyCosmetic,
     rosterCap, rosterFull, needsDriver, tryoutWait, holdTryout, mentored, signProspect, dismissProspects,
     fmt, money, duration, clock,
   };

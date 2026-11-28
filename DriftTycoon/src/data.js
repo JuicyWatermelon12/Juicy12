@@ -46,12 +46,13 @@
         body: { len: 4.9, wid: 2.1, cabLen: 1.8, cabOff: -0.45, cabH: 0.48, tf: 0.8, tr: 1.0, wing: 2 } },
     ],
 
-    /* Cosmetics. Bought once with cash at a set price that never changes. The crowd likes a good-looking car:
-       `style` is added to the style the car wearing it scores at the venue (paint + rims + kit add up).
-       It does nothing to how the car handles or scores on the street.
-       `rank` is the street cred rank that puts the item on sale. Paints, rims and underglow belong to the team
-       and can go on any car; body kits are bought per car model (price x the model's kitScale).
-       The late items (from rank 12) are priced for the later venues. A paint's `finish` changes how it is drawn:
+    /* Cosmetics. Bought per car with cash at a set price that never changes. The crowd likes a good-looking car.
+       Paid items come in tiers (COSMETIC_TIERS below): every item of a tier costs the same, goes on sale at the
+       same street cred `rank`, and gives the same `style` bonus at the venue. A car gets, in each category
+       (paint, rims, kit, underglow), the bonus of the best tier it owns, whatever it is wearing, so the look is free
+       to choose. Bonuses of the four categories add up. Looks do nothing on the street.
+       Paint, rims and underglow stay with the car when it is traded up; a body kit is made for one model
+       (price x the model's kitScale) and a trade-up needs a new one. A paint's `finish` changes how it is drawn:
        matte, pearl, chrome, or shift (it slides between `color` and `color2`). */
     PAINTS: [
       { id: 'red', name: 'Factory Red', color: '#ff5a36', cost: 0, rank: 0 },
@@ -60,59 +61,85 @@
       { id: 'green', name: 'Factory Green', color: '#7ed957', cost: 0, rank: 0 },
       { id: 'violet', name: 'Factory Violet', color: '#b56bff', cost: 0, rank: 0 },
       { id: 'pink', name: 'Factory Pink', color: '#ff6fb5', cost: 0, rank: 0 },
-      { id: 'white', name: 'Pearl White', color: '#f4f6fa', style: 0.02, cost: 2500, rank: 0 },
-      { id: 'black', name: 'Gloss Black', color: '#20242e', style: 0.02, cost: 2500, rank: 0 },
-      { id: 'gunmetal', name: 'Gunmetal', color: '#6b7386', style: 0.03, cost: 8000, rank: 1 },
-      { id: 'forest', name: 'Forest Green', color: '#1f6b4a', style: 0.03, cost: 8000, rank: 1 },
-      { id: 'midnight', name: 'Midnight Blue', color: '#1c2f8f', style: 0.04, cost: 25000, rank: 2 },
-      { id: 'burnt', name: 'Burnt Orange', color: '#d9651a', style: 0.05, cost: 60000, rank: 3 },
-      { id: 'grape', name: 'Midnight Purple', color: '#4b2a8c', style: 0.06, cost: 150000, rank: 4 },
-      { id: 'teal', name: 'Lagoon Teal', color: '#12a59a', style: 0.08, cost: 400000, rank: 5 },
-      { id: 'gold', name: 'Champagne Gold', color: '#d8b45a', style: 0.1, cost: 1.5e6, rank: 6 },
-      { id: 'magenta', name: 'Hot Magenta', color: '#e0177f', style: 0.12, cost: 5e6, rank: 7 },
-      { id: 'silver', name: 'Liquid Silver', color: '#c9d2e0', style: 0.15, cost: 2e7, rank: 8 },
-      { id: 'blood', name: 'Blood Red', color: '#a30f1f', style: 0.18, cost: 8e7, rank: 9 },
-      { id: 'matteblack', name: 'Matte Black', color: '#24262d', finish: 'matte', style: 0.2, cost: 1e11, rank: 12 },
-      { id: 'pearlfrost', name: 'Pearl Frost', color: '#e8eefc', finish: 'pearl', style: 0.22, cost: 1.5e12, rank: 13 },
-      { id: 'chrome', name: 'Mirror Chrome', color: '#c9d3e2', finish: 'chrome', style: 0.25, cost: 5e12, rank: 14 },
-      { id: 'shiftviolet', name: 'Violet Shift', color: '#6a2cff', color2: '#19e0c8', finish: 'shift', style: 0.28, cost: 8e13, rank: 15 },
-      { id: 'goldchrome', name: 'Gold Chrome', color: '#f2c14e', finish: 'chrome', style: 0.32, cost: 2e15, rank: 17 },
-      { id: 'inferno', name: 'Inferno Shift', color: '#ff3a1a', color2: '#ffd23f', finish: 'shift', style: 0.36, cost: 2e16, rank: 19 },
+      { id: 'white', name: 'Pearl White', color: '#f4f6fa', tier: 'street' },
+      { id: 'black', name: 'Gloss Black', color: '#20242e', tier: 'street' },
+      { id: 'gunmetal', name: 'Gunmetal', color: '#6b7386', tier: 'street' },
+      { id: 'forest', name: 'Forest Green', color: '#1f6b4a', tier: 'street' },
+      { id: 'midnight', name: 'Midnight Blue', color: '#1c2f8f', tier: 'street' },
+      { id: 'burnt', name: 'Burnt Orange', color: '#d9651a', tier: 'street' },
+      { id: 'grape', name: 'Midnight Purple', color: '#4b2a8c', tier: 'custom' },
+      { id: 'teal', name: 'Lagoon Teal', color: '#12a59a', tier: 'custom' },
+      { id: 'gold', name: 'Champagne Gold', color: '#d8b45a', tier: 'custom' },
+      { id: 'magenta', name: 'Hot Magenta', color: '#e0177f', tier: 'custom' },
+      { id: 'silver', name: 'Liquid Silver', color: '#c9d2e0', tier: 'custom' },
+      { id: 'blood', name: 'Blood Red', color: '#a30f1f', tier: 'custom' },
+      { id: 'matteblack', name: 'Matte Black', color: '#24262d', finish: 'matte', tier: 'show' },
+      { id: 'pearlfrost', name: 'Pearl Frost', color: '#e8eefc', finish: 'pearl', tier: 'show' },
+      { id: 'chrome', name: 'Mirror Chrome', color: '#c9d3e2', finish: 'chrome', tier: 'show' },
+      { id: 'shiftviolet', name: 'Violet Shift', color: '#6a2cff', color2: '#19e0c8', finish: 'shift', tier: 'legend' },
+      { id: 'goldchrome', name: 'Gold Chrome', color: '#f2c14e', finish: 'chrome', tier: 'legend' },
+      { id: 'inferno', name: 'Inferno Shift', color: '#ff3a1a', color2: '#ffd23f', finish: 'shift', tier: 'legend' },
     ],
     FACTORY_PAINTS: ['red', 'blue', 'yellow', 'green', 'violet', 'pink'],   // free; new cars arrive in one of these
     /* Rims: `spokes` 0 is a plain disc; `r` is the rim's radius in metres (the tire is 0.4). */
     RIMS: [
       { id: 'steel', name: 'Steelies', color: '#dfe5ee', spokes: 0, r: 0.22, cost: 0, rank: 0 },
-      { id: 'five', name: 'Silver Five-Spoke', color: '#e6ebf2', spokes: 5, r: 0.3, style: 0.04, cost: 15000, rank: 1 },
-      { id: 'six', name: 'White Six-Spoke', color: '#ffffff', spokes: 6, r: 0.3, style: 0.06, cost: 40000, rank: 2 },
-      { id: 'bronze', name: 'Bronze Mesh', color: '#b07a3c', spokes: 10, r: 0.3, style: 0.08, cost: 120000, rank: 3 },
-      { id: 'dish', name: 'Black Deep Dish', color: '#2a2f3b', spokes: 0, r: 0.31, style: 0.1, cost: 300000, rank: 4 },
-      { id: 'goldfive', name: 'Gold Five-Spoke', color: '#e8b730', spokes: 5, r: 0.31, style: 0.14, cost: 2e6, rank: 6 },
-      { id: 'neon', name: 'Neon Six-Spoke', color: '#2ff5e0', spokes: 6, r: 0.31, style: 0.2, cost: 2.5e7, rank: 8 },
-      { id: 'carbon', name: 'Carbon Ten-Spoke', color: '#3a404e', spokes: 10, r: 0.32, style: 0.24, cost: 2e11, rank: 12 },
-      { id: 'chromedish', name: 'Chrome Deep Dish', color: '#eef2f8', spokes: 0, r: 0.32, style: 0.27, cost: 3e12, rank: 13 },
-      { id: 'goldmesh', name: 'Gold Mesh', color: '#e8b730', spokes: 14, r: 0.32, style: 0.3, cost: 5e13, rank: 15 },
-      { id: 'pinkfive', name: 'Neon Pink Twin-Five', color: '#ff4fd8', spokes: 10, r: 0.33, style: 0.34, cost: 1e15, rank: 16 },
-      { id: 'forged', name: 'Forged Titanium', color: '#a9b4cc', spokes: 7, r: 0.34, style: 0.38, cost: 3e16, rank: 18 },
+      { id: 'five', name: 'Silver Five-Spoke', color: '#e6ebf2', spokes: 5, r: 0.3, tier: 'sport' },
+      { id: 'six', name: 'White Six-Spoke', color: '#ffffff', spokes: 6, r: 0.3, tier: 'sport' },
+      { id: 'bronze', name: 'Bronze Mesh', color: '#b07a3c', spokes: 10, r: 0.3, tier: 'sport' },
+      { id: 'dish', name: 'Black Deep Dish', color: '#2a2f3b', spokes: 0, r: 0.31, tier: 'sport' },
+      { id: 'goldfive', name: 'Gold Five-Spoke', color: '#e8b730', spokes: 5, r: 0.31, tier: 'pro' },
+      { id: 'neon', name: 'Neon Six-Spoke', color: '#2ff5e0', spokes: 6, r: 0.31, tier: 'pro' },
+      { id: 'carbon', name: 'Carbon Ten-Spoke', color: '#3a404e', spokes: 10, r: 0.32, tier: 'show' },
+      { id: 'chromedish', name: 'Chrome Deep Dish', color: '#eef2f8', spokes: 0, r: 0.32, tier: 'show' },
+      { id: 'goldmesh', name: 'Gold Mesh', color: '#e8b730', spokes: 14, r: 0.32, tier: 'show' },
+      { id: 'pinkfive', name: 'Neon Pink Twin-Five', color: '#ff4fd8', spokes: 10, r: 0.33, tier: 'legend' },
+      { id: 'forged', name: 'Forged Titanium', color: '#a9b4cc', spokes: 7, r: 0.34, tier: 'legend' },
     ],
     KITS: [
       { id: 'stock', name: 'Stock body', blurb: 'As it left the factory.', cost: 0, rank: 0 },
-      { id: 'street', name: 'Street kit', blurb: 'Front lip, side skirts and a ducktail.', style: 0.08, cost: 30000, rank: 2 },
-      { id: 'drift', name: 'Drift kit', blurb: 'Wide arches, a front-mount intercooler and a GT wing.', style: 0.16, cost: 250000, rank: 5 },
-      { id: 'pro', name: 'Pro kit', blurb: 'Full wide-body: canards, roof scoop, diffuser and a big wing.', style: 0.3, cost: 5e6, rank: 8 },
-      { id: 'widebody', name: 'Widebody', blurb: 'Bolt-on overfenders, a deep splitter, finned skirts and a ducktail with a tall wing.', style: 0.4, cost: 5e8, rank: 13 },
-      { id: 'timeattack', name: 'Time Attack', blurb: 'A huge two-element wing on tall end plates, canards, a vented bonnet and a finned diffuser.', style: 0.55, cost: 1e10, rank: 16 },
-      { id: 'kaido', name: 'Kaido Racer', blurb: 'A long chin spoiler, boxy flares, exhaust pipes up past the roof and an upright wing.', style: 0.7, cost: 2e11, rank: 18 },
+      { id: 'street', name: 'Street kit', blurb: 'Front lip, side skirts and a ducktail.', tier: 'street' },
+      { id: 'drift', name: 'Drift kit', blurb: 'Wide arches, a front-mount intercooler and a GT wing.', tier: 'street' },
+      { id: 'pro', name: 'Pro kit', blurb: 'Full wide-body: canards, roof scoop, diffuser and a big wing.', tier: 'pro' },
+      { id: 'widebody', name: 'Widebody', blurb: 'Bolt-on overfenders, a deep splitter, finned skirts and a ducktail with a tall wing.', tier: 'pro' },
+      { id: 'timeattack', name: 'Time Attack', blurb: 'A huge two-element wing on tall end plates, canards, a vented bonnet and a finned diffuser.', tier: 'top' },
+      { id: 'kaido', name: 'Kaido Racer', blurb: 'A long chin spoiler, boxy flares, exhaust pipes up past the roof and an upright wing.', tier: 'top' },
     ],
     /* Underglow: a coloured light under the car. The rainbow cycles through every colour. */
     GLOWS: [
       { id: 'none', name: 'No underglow', color: '#2a3142', cost: 0, rank: 0 },
-      { id: 'cyan', name: 'Cyan Glow', color: '#3cf0ff', style: 0.1, cost: 2e10, rank: 12 },
-      { id: 'pink', name: 'Pink Glow', color: '#ff4fd8', style: 0.12, cost: 4e11, rank: 13 },
-      { id: 'violet', name: 'Violet Glow', color: '#a06bff', style: 0.15, cost: 1e13, rank: 15 },
-      { id: 'gold', name: 'Gold Glow', color: '#ffd23f', style: 0.18, cost: 3e14, rank: 16 },
-      { id: 'rainbow', name: 'Rainbow Cycle', color: '#ff5a36', rainbow: true, style: 0.22, cost: 1e16, rank: 19 },
+      { id: 'cyan', name: 'Cyan Glow', color: '#3cf0ff', tier: 'glow' },
+      { id: 'pink', name: 'Pink Glow', color: '#ff4fd8', tier: 'glow' },
+      { id: 'violet', name: 'Violet Glow', color: '#a06bff', tier: 'glow' },
+      { id: 'gold', name: 'Gold Glow', color: '#ffd23f', tier: 'show' },
+      { id: 'rainbow', name: 'Rainbow Cycle', color: '#ff5a36', rainbow: true, tier: 'show' },
     ],
+
+    /* Cosmetic tiers, by kind, cheapest first. An item's `tier` names one of these; the tier's style, cost and
+       rank are copied onto the item when the data loads. Kit costs are x the car model's kitScale. */
+    COSMETIC_TIERS: {
+      paint: [
+        { id: 'street', name: 'Street paints', style: 0.06, cost: 25000, rank: 1 },
+        { id: 'custom', name: 'Custom paints', style: 0.18, cost: 2e7, rank: 6 },
+        { id: 'show', name: 'Show paints', style: 0.27, cost: 2e12, rank: 13 },
+        { id: 'legend', name: 'Legend paints', style: 0.36, cost: 1e16, rank: 17 },
+      ],
+      rims: [
+        { id: 'sport', name: 'Sport rims', style: 0.08, cost: 1e5, rank: 2 },
+        { id: 'pro', name: 'Pro rims', style: 0.2, cost: 1.5e7, rank: 7 },
+        { id: 'show', name: 'Show rims', style: 0.3, cost: 3e12, rank: 13 },
+        { id: 'legend', name: 'Legend rims', style: 0.38, cost: 1e16, rank: 17 },
+      ],
+      kit: [
+        { id: 'street', name: 'Street kits', style: 0.12, cost: 1.5e5, rank: 3 },
+        { id: 'pro', name: 'Pro kits', style: 0.35, cost: 1e8, rank: 10 },
+        { id: 'top', name: 'Top kits', style: 0.7, cost: 1e11, rank: 17 },
+      ],
+      glow: [
+        { id: 'glow', name: 'Underglow', style: 0.12, cost: 4e11, rank: 12 },
+        { id: 'show', name: 'Show underglow', style: 0.22, cost: 1e15, rank: 16 },
+      ],
+    },
 
     /* Drivers. Base stats are rolled evenly inside the rarity's range. Seat time earns experience;
        every level adds LEVEL_STAT of the base stats, up to the rarity's level cap.
@@ -306,6 +333,16 @@
     OFFLINE_MIN: 30,          // seconds away before away-earnings are paid
     OFFLINE_CAP: 4 * 3600,
   };
+  /* Copy each cosmetic tier's style, cost and rank onto its items. */
+  [['paint', 'PAINTS'], ['rims', 'RIMS'], ['kit', 'KITS'], ['glow', 'GLOWS']].forEach(([kind, key]) => {
+    const tiers = DT.data.COSMETIC_TIERS[kind];
+    DT.data[key].forEach((c) => {
+      if (!c.tier) { c.style = 0; return; }
+      const t = tiers.find((x) => x.id === c.tier);
+      if (!t) throw new Error('No ' + kind + ' tier ' + c.tier);
+      c.style = t.style; c.cost = t.cost; c.rank = t.rank;
+    });
+  });
   DT.data.VENUE_MAX = {};   // the top level of each venue upgrade line, by id
   DT.data.VENUE.forEach((v) => (DT.data.VENUE_MAX[v.id] = v.max));
 })(typeof window !== 'undefined' ? window : globalThis);

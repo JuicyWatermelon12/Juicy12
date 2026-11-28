@@ -34,6 +34,11 @@ of away earnings, and start a Drift run at 5 km.
     three-minute wait between tryouts (none while a car has nobody to drive it).
   - **Mentoring:** with a full team, a signing replaces a driver. They retire and pass half their experience to
     the newcomer, who takes their seat.
+  - **Letting a driver go:** the × on a driver's tile in the Team tab, then one confirmation. The driver leaves for
+    good and passes no experience on. If they had a seat, the best reserve driver takes it, otherwise the car stands
+    empty. The last driver can't be let go, so the team is never empty.
+  - **Rarity at a glance:** wherever a driver is picked, and on each car in the Garage, a small square in the
+    rarity colour and the driver's level sit beside the name.
 - **Crashes and mechanics:** a drifting car can spin out. A free mechanic runs to it, repairs it and it rejoins
   when the track around it is clear. More mechanics repair more cars at once; training shortens repairs.
 - **Three limits to upgrade:** pits (how many cars run), the cars themselves (style a second), and the crowd
@@ -110,17 +115,25 @@ of away earnings, and start a Drift run at 5 km.
   from about the end of the Pro Circuit to late on the Aircraft Carrier. It never goes down, is never spent, and
   gives no bonuses; it puts cosmetics on sale.
 - **Cosmetics** (Garage → a car → Customise): paint, rims, body kits and underglow, bought with cash at set
-  prices that never change; items at higher ranks cost more, and the late items (from Icon) are priced for the
-  later venues. The crowd pays for looks: each paid item adds style to the car wearing it at the venue, added
-  together. A car in the best of everything has +166% style (it was +68% before the late items).
-  - **Paint:** up to +36%. The late paints have finishes: Matte Black, Pearl Frost, Mirror Chrome, Gold Chrome,
-    and two that shift between colours as the car moves (Violet Shift, Inferno Shift).
-  - **Rims:** up to +38%: Carbon Ten-Spoke, Chrome Deep Dish, Gold Mesh, Neon Pink Twin-Five, Forged Titanium.
-  - **Body kits:** Street +8%, Drift +16%, Pro +30%, then Widebody +40% (bolt-on overfenders, a deep splitter,
-    finned skirts, a ducktail and a tall wing), Time Attack +55% (a huge two-element wing on tall end plates,
-    canards, a vented bonnet, a finned diffuser) and Kaido Racer +70% (a long chin spoiler, boxy flares, pipes up
-    past the roof and an upright wing).
-  - **Underglow:** a soft light under the car, up to +22%: cyan, pink, violet, gold, and a rainbow that cycles.
+  prices that never change. Paid items come in **tiers** (`COSMETIC_TIERS` in `data.js`): every item in a tier
+  costs the same, goes on sale at the same street cred rank (a rank puts the whole tier on sale) and gives the same
+  style bonus at the venue. In each category a car gets the bonus of the **best tier it owns, whatever it is
+  wearing**, so the look is free to choose; the four categories add up. A car with a top-tier item in every
+  category has +166% style.
+
+  | Category | Tiers (bonus, rank, price each) |
+  |---|---|
+  | Paint | Street +6% (rank 1, $25K): white, black, gunmetal, forest, midnight, burnt orange · Custom +18% (rank 6, $20M): purple, teal, gold, magenta, silver, blood red · Show +27% (rank 13, $2T): Matte Black, Pearl Frost, Mirror Chrome · Legend +36% (rank 17, $10Q): Violet Shift, Gold Chrome, Inferno Shift |
+  | Rims | Sport +8% (rank 2, $100K): five-spoke, six-spoke, bronze mesh, deep dish · Pro +20% (rank 7, $15M): gold five-spoke, neon six-spoke · Show +30% (rank 13, $3T): carbon, chrome dish, gold mesh · Legend +38% (rank 17, $10Q): neon pink twin-five, forged titanium |
+  | Body kits | Street +12% (rank 3, $150K × the model's kitScale): Street, Drift · Pro +35% (rank 10, $100M ×): Pro, Widebody · Top +70% (rank 17, $100B ×): Time Attack, Kaido Racer |
+  | Underglow | Underglow +12% (rank 12, $400B): cyan, pink, violet · Show +22% (rank 16, $1Q): gold, rainbow |
+
+  - The late paints have finishes (matte, pearl, chrome) and two shift between colours as the car moves.
+  - Widebody has bolt-on overfenders, a deep splitter, finned skirts, a ducktail and a tall wing; Time Attack a huge
+    two-element wing on tall end plates, canards, a vented bonnet and a finned diffuser; Kaido Racer a long chin
+    spoiler, boxy flares, pipes up past the roof and an upright wing.
+  - Underglow is a soft light under the car; the rainbow cycles through every colour.
+  - Saves from before the tiers keep everything each car owned; its bonus becomes that of the best tiers among them.
   They change nothing about how the car drives or scores in Drift mode. **Everything is bought per car:** each
   car owns only what was bought for it, so another car has to buy its own. Paint, rims and underglow stay on the
   car when it is traded up; a body kit is made for one model (its price depends on the model), so a trade-up

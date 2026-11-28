@@ -771,9 +771,11 @@ test('street cred: ranks only go up, each needs more than the last, and a new ra
   r = G.addCred(s, D.RANKS[3].cred);
   assert.equal(r.before.index, 0);
   assert.equal(r.after.index, 3);
-  const want = [].concat(D.PAINTS, D.RIMS, D.KITS).filter((c) => c.rank >= 1 && c.rank <= 3).map((c) => c.id).sort();
-  assert.deepEqual(r.unlocked.map((u) => u.item.id).sort(), want);
+  // a rank puts whole tiers on sale, with all their items
+  const want = Object.keys(D.COSMETIC_TIERS).flatMap((k) => D.COSMETIC_TIERS[k].filter((t) => t.rank >= 1 && t.rank <= 3).map((t) => k + ':' + t.id)).sort();
+  assert.deepEqual(r.unlocked.map((u) => u.kind + ':' + u.tier.id).sort(), want);
   assert.ok(want.length > 0);
+  for (const u of r.unlocked) assert.ok(u.items.length > 0 && u.items.every((c) => c.tier === u.tier.id && c.rank === u.tier.rank), u.tier.id);
   G.addCred(s, -50);
   assert.equal(G.rank(s).index, 3, 'cred never goes down');
   // idling earns none
@@ -827,13 +829,34 @@ test('cosmetics: locked until the rank, bought once with cash; looks add venue s
   assert.ok(looks > 1.2);
   // ...and change nothing else: crash rate and how the car drives and scores on the street stay the same
   assert.deepEqual({ crash: G.carCrashRate(s, car), setup: C.carSetup(s, car) }, { crash: before.crash, setup: before.setup });
+  // the bonus is the best tier owned, whatever the car wears: free looks keep it
   G.applyCosmetic(s, car.id, 'paint', 'red'); G.applyCosmetic(s, car.id, 'rims', 'steel'); G.applyCosmetic(s, car.id, 'kit', 'stock');
-  near(G.looksMult(car), 1);
-  near(G.carStyle(s, car), before.style);
-  for (const list of [D.PAINTS, D.RIMS, D.KITS]) {
-    const paid = list.filter((c) => c.cost > 0);
-    assert.ok(list.filter((c) => c.cost === 0).every((c) => !c.style), 'free items give nothing');
-    for (let i = 1; i < paid.length; i++) assert.ok(paid[i].style >= paid[i - 1].style && paid[0].style > 0, 'dearer items give at least as much');
+  near(G.looksMult(car), looks);
+  near(G.carStyle(s, car) / before.style, looks);
+  // a second item of the same tier adds nothing; a better tier replaces the bonus (it doesn't stack)
+  assert.equal(G.cosmetic('paint', 'burnt').tier, G.cosmetic('paint', 'midnight').tier);
+  assert.equal(G.cosmeticCost('paint', 'burnt'), cost, 'same tier, same price');
+  assert.ok(G.buyCosmetic(s, car.id, 'paint', 'burnt'));
+  near(G.looksMult(car), looks);
+  assert.ok(G.buyCosmetic(s, car.id, 'paint', 'gold'));
+  G.applyCosmetic(s, car.id, 'paint', 'white');   // not owned: refused, the car keeps gold
+  assert.equal(car.paint, 'gold');
+  G.applyCosmetic(s, car.id, 'paint', 'midnight');
+  near(G.looksMult(car), looks - G.cosmetic('paint', 'midnight').style + G.cosmetic('paint', 'gold').style);
+  assert.equal(G.bestTier(car, 'paint').id, 'custom');
+  assert.equal(G.bestTier(car, 'glow'), null);
+  for (const [k, list] of [['paint', D.PAINTS], ['rims', D.RIMS], ['kit', D.KITS], ['glow', D.GLOWS]]) {
+    assert.ok(list.filter((c) => c.cost === 0).every((c) => !c.style && !c.tier), 'free items give nothing');
+    const tiers = D.COSMETIC_TIERS[k];
+    for (const c of list.filter((x) => x.cost > 0)) {
+      const t = G.cosmeticTier(k, c.tier);
+      assert.ok(t, c.id + ' has a tier');
+      assert.deepEqual([c.style, c.cost, c.rank], [t.style, t.cost, t.rank], c.id + ' takes its tier\'s numbers');
+    }
+    for (let i = 0; i < tiers.length; i++) {
+      assert.ok(list.some((c) => c.tier === tiers[i].id), tiers[i].id + ' has items');
+      if (i) assert.ok(tiers[i].style > tiers[i - 1].style && tiers[i].cost > tiers[i - 1].cost && tiers[i].rank > tiers[i - 1].rank, 'better tiers cost more and come later: ' + tiers[i].id);
+    }
   }
 });
 
@@ -1003,6 +1026,7 @@ test('late looks: eight more ranks run into the Carrier, and the late items are 
   const looks = G.looksMult(car) - 1;
   console.log('   fully dressed late-game car: +' + Math.round(looks * 100) + '% style');
   assert.ok(looks >= 1.45 && looks <= 1.8);
+  near(looks, 0.36 + 0.38 + 0.7 + 0.22, 1e-9);   // the top tiers keep the best items' old bonuses
 });
 
 test('underglow: on sale by rank, adds style, kept in the save', () => {
@@ -1012,7 +1036,7 @@ test('underglow: on sale by rank, adds style, kept in the save', () => {
   s.cash = 1e13;
   assert.equal(G.buyCosmetic(s, car.id, 'glow', 'cyan'), false, 'not on sale at rank 0');
   const r = G.addCred(s, D.RANKS[G.cosmetic('glow', 'cyan').rank].cred);
-  assert.ok(r.unlocked.some((u) => u.kind === 'glow' && u.item.id === 'cyan'), 'the new rank lists it');
+  assert.ok(r.unlocked.some((u) => u.kind === 'glow' && u.items.some((c) => c.id === 'cyan')), 'the new rank lists its tier');
   const style = G.carStyle(s, car), cash = s.cash;
   assert.ok(G.buyCosmetic(s, car.id, 'glow', 'cyan'));
   near(cash - s.cash, G.cosmetic('glow', 'cyan').cost);
@@ -1182,4 +1206,50 @@ test('track drifting: a venue track is an endless lapped road, and test drivers 
     C.collect(s, car, run);
     assert.ok(s.street.best['track:' + id].dist > 0);
   }
+});
+
+test('letting a driver go: gone for good, the best reserve takes the seat, never the last driver', () => {
+  const s = rich();
+  for (let i = 0; i < 2; i++) { G.buySlot(s); G.buyCar(s, 'kumo'); }
+  let seed = 7; const rng = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  while (s.drivers.length < 5) s.drivers.push(G.rollDriver(s, rng, s.drivers.map((d) => d.name), 'common'));
+  // seat the first three, the rest are reserves
+  s.cars.forEach((c, i) => (c.driver = s.drivers[i].id));
+  const [seated] = s.drivers, car = G.carOfDriver(s, seated.id);
+  const bench = G.benchDrivers(s), best = bench.slice().sort((a, b) => G.driverMult(b) - G.driverMult(a))[0];
+  const xp = s.drivers.map((d) => JSON.stringify(d));
+  const r = G.releaseDriver(s, seated.id);
+  assert.equal(r.driver, seated);
+  assert.ok(!G.getDriver(s, seated.id), 'gone');
+  assert.equal(car.driver, best.id, 'the best reserve takes the seat');
+  assert.equal(r.replacement, best);
+  assert.deepEqual(s.drivers.map((d) => JSON.stringify(d)), xp.slice(1), 'no experience passed on');
+  // a reserve: no seat changes
+  const seats = s.cars.map((c) => c.driver);
+  assert.ok(G.releaseDriver(s, G.benchDrivers(s)[0].id));
+  assert.deepEqual(s.cars.map((c) => c.driver), seats);
+  // with no reserve, the car stands empty
+  const c2 = s.cars[1];
+  G.releaseDriver(s, c2.driver);
+  assert.equal(c2.driver, null);
+  assert.equal(G.carStyle(s, c2), 0);
+  // never the last one
+  while (s.drivers.length > 1) assert.ok(G.releaseDriver(s, s.drivers[0].id));
+  assert.equal(G.releaseDriver(s, s.drivers[0].id), false);
+  assert.equal(s.drivers.length, 1);
+  assert.equal(G.releaseDriver(s, 12345), false);
+  const back = G.load(G.serialize(s), 0);
+  assert.equal(back.drivers.length, 1);
+});
+
+test('cosmetic tiers and old saves: a car keeps everything it owns and gets the bonus of the best tier among them', () => {
+  const s = rich(), car = s.cars[0];
+  G.addCred(s, 1e6);
+  for (const [k, id] of [['paint', 'gunmetal'], ['paint', 'teal'], ['rims', 'five'], ['kit', 'drift']]) assert.ok(G.buyCosmetic(s, car.id, k, id), id);
+  G.applyCosmetic(s, car.id, 'paint', 'gunmetal');
+  const back = G.load(G.serialize(s), 0), c = back.cars[0];
+  assert.deepEqual(c.owned.paint, ['gunmetal', 'teal']);
+  assert.equal(c.paint, 'gunmetal');
+  near(G.looksMult(c), 1 + G.cosmeticTier('paint', 'custom').style + G.cosmeticTier('rims', 'sport').style + G.cosmeticTier('kit', 'street').style);
+  assert.ok(G.tierOwned(c, 'paint', 'street') && G.tierOwned(c, 'paint', 'custom') && !G.tierOwned(c, 'paint', 'show'));
 });
